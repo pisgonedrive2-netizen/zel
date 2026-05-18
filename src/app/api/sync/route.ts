@@ -1,0 +1,23 @@
+import { NextResponse } from "next/server";
+import { isSupabaseEnabled } from "@/lib/env";
+import { getSession } from "@/lib/session";
+import { syncAppData, pickSnapshot } from "@/lib/db/repository";
+import type { AppHydratePayload } from "@/store/store";
+
+export async function POST(req: Request) {
+  if (!isSupabaseEnabled()) {
+    return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
+  }
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  }
+  const body = (await req.json()) as AppHydratePayload;
+  try {
+    await syncAppData(session, pickSnapshot(body as Record<string, unknown>));
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Senkronizasyon hatası";
+    return NextResponse.json({ error: msg }, { status: 403 });
+  }
+}

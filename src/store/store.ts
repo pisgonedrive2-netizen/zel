@@ -1,0 +1,1591 @@
+import { create, type StateCreator } from "zustand";
+import { persist } from "zustand/middleware";
+import { isSupabaseClientMode } from "@/lib/supabase-client";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tipler
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type EmployeeKind = "streamer" | "coordinator" | "moderator" | "other";
+
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  department: string;
+  /** Aylık ücret (USD). Koordinatör için 0 kalabilir. */
+  baseSalary: number;
+  /** Aylık ev kira desteği (USD). 0 = yok. */
+  rentSupport: number;
+  /** Başlangıç anındaki açık avans bakiyesi (USD). */
+  initialAdvance: number;
+  /** Ödeme aralığı / günü etiketi: "1-5" gibi normal cycle veya "17" gibi sabit gün. */
+  paymentDay: string;
+  /** Maaş döngüsünün başladığı ilk ay (ISO YYYY-MM). Bu aydan önce maaş hesaplanmaz. */
+  payrollStartMonth: string;
+  startDate: string;
+  status: "active" | "inactive";
+  walletAddress: string;
+  avatar: string;
+  notes: string;
+  kind: EmployeeKind;
+}
+
+export interface Advance {
+  id: string;
+  employeeId: string;
+  month: string;
+  amount: number;
+  date: string;
+  description: string;
+}
+
+export interface SalaryExtra {
+  id: string;
+  employeeId: string;
+  month: string;
+  amount: number;
+  description: string;
+  type: "bonus" | "expense" | "deduction" | "rent" | "other";
+}
+
+export interface MonthPaymentStatus {
+  employeeId: string;
+  month: string;
+  paid: boolean;
+  paidDate?: string;
+  paidBy?: string;
+  approvedAt?: string;
+}
+
+export interface ExternalCompany {
+  id: string;
+  name: string;
+  category: string;
+  monthlyAmount: number;
+  contactPerson: string;
+  status: "active" | "inactive" | "ended";
+  startDate: string;
+  notes: string;
+  /** Aylık tutar dağılımı — CSV "Firma Bazlı Gelir Detayı" satırı. Index 0=Oca … 11=Ara, USD. */
+  monthlyBreakdown?: number[];
+}
+
+export interface InternalProject {
+  id: string;
+  name: string;
+  category: string;
+  monthlyRevenue: number;
+  progress: number;
+  status: "active" | "ongoing" | "paused";
+  startDate: string;
+  notes: string;
+  /** İlişkili marka (iç gelir marka anlaşması). */
+  brandId?: string;
+  /** Bu gelirden pay alan yayıncılar (employee id listesi). */
+  employeeIds: string[];
+  /** Ödeme günü: "1-5", "15", "17" vb. */
+  paymentDay: string;
+  reminderEnabled: boolean;
+  reminderDaysBefore: number;
+  /** Son marka hatırlatma bildirimi (ISO). */
+  lastReminderSentAt?: string;
+}
+
+/** Marka iç gelir tahsilat kaydı (aylık). */
+export interface InternalProjectPayment {
+  id: string;
+  projectId: string;
+  month: string;
+  dueDate?: string;
+  amount: number;
+  status: "pending" | "paid" | "overdue" | "cancelled";
+  paidDate?: string;
+  notes: string;
+}
+
+export interface ExpenseEntry {
+  id: string;
+  category: string;
+  amount: number;
+  date: string;
+  description: string;
+}
+
+export type PlannedCategory = "capex" | "opex" | "revenue" | "growth" | "other";
+export type PlannedRecurrence = "none" | "monthly" | "quarterly" | "yearly";
+export type PlannedStatus =
+  | "planned"
+  | "in-progress"
+  | "completed"
+  | "cancelled"
+  | "postponed";
+
+export interface PlannedItem {
+  id: string;
+  name: string;
+  /** CapEx, OpEx, gelir hedefi, büyüme, diğer. */
+  category: PlannedCategory;
+  budget: number;
+  /** Gerçekleşen / harcanan tutar (manuel veya aktarımdan). */
+  spent: number;
+  startDate: string;
+  targetDate: string;
+  priority: "high" | "medium" | "low";
+  status: PlannedStatus;
+  notes: string;
+  /** Sorumlu çalışan. */
+  employeeId?: string;
+  brandId?: string;
+  internalProjectId?: string;
+  isRecurring: boolean;
+  recurrence: PlannedRecurrence;
+  /** Giderlere aktarım sonrası expense_entries.id */
+  expenseEntryId?: string;
+}
+
+/** Planlanan kalemin taksit / dönem ödemesi. */
+export interface PlannedItemPayment {
+  id: string;
+  plannedItemId: string;
+  month: string;
+  dueDate?: string;
+  amount: number;
+  status: "pending" | "paid" | "cancelled";
+  paidDate?: string;
+  notes: string;
+}
+
+/** Sponsor anlaşması satır işlemi (CSV "Tarih Bazlı Tüm Sponsor İşlemleri"). */
+export interface SponsorTransaction {
+  id: string;
+  date: string;
+  companyName: string;
+  service: string;
+  amount: number;
+  status: "active" | "ended";
+  txid: string;
+}
+
+/** Bir yayıncının kullandığı sosyal medya / yayın platformu hesabı. */
+export interface StreamerAccount {
+  id: string;
+  employeeId: string;
+  platform: string;
+  handle: string;
+  url: string;
+  notes: string;
+  status: "active" | "inactive";
+}
+
+/** Haftalık takvim slotu (yayıncı bazlı). */
+export interface ScheduleSlot {
+  id: string;
+  employeeId: string;
+  /** 1=Pazartesi … 7=Pazar (ISO). */
+  dayOfWeek: number;
+  startTime: string; // "20:00"
+  endTime: string;   // "23:00"
+  platform: string;
+  notes: string;
+}
+
+/** Marka izlenme raporu — ay bazlı izlenme adetleri (toplam). */
+export interface BrandViewership {
+  id: string;
+  /** Yayıncı veya marka adı. */
+  brandName: string;
+  /** Bu satır belirli bir yayıncının aylık toplamıysa (boş = genel / yönetici). */
+  employeeId?: string;
+  /** İlişkili marka (varsa). */
+  brandId?: string;
+  /** İlişkili sponsor firması (geçmiş). */
+  companyId?: string;
+  month: string;
+  views: number;
+  url: string;
+  notes: string;
+}
+
+/** Aktif olarak tanıtılan / izlenmesi takip edilen marka. */
+export interface Brand {
+  id: string;
+  name: string;        // "Galabet"
+  shortName: string;   // "Gala"
+  category: string;    // "Bahis", "Casino" gibi
+  status: "active" | "paused" | "inactive";
+  notes: string;
+  /** Aylık hedef izlenme (opsiyonel). */
+  monthlyTarget?: number;
+}
+
+/** Markanın takip edilen sosyal medya / yayın platformu linki. */
+export interface BrandLink {
+  id: string;
+  brandId: string;
+  platform: string;    // "Instagram" | "Kick" | "TikTok" | "YouTube" | "Twitter" | ...
+  handle: string;
+  url: string;
+  /** Yayıncı sahibi (Ramiz / Lucy / Acelya). Opsiyonel. */
+  ownerId?: string;
+  status: "active" | "inactive";
+  notes: string;
+  /** Son manuel snapshot. */
+  lastSnapshotDate?: string;
+  lastViews?: number;
+  /** Otomatik takip için ipucu (ileride API entegrasyonu için). */
+  autoTrack?: boolean;
+}
+
+/** Bir linke ait belirli bir tarihteki izlenme/abone snapshot'ı. */
+export interface LinkSnapshot {
+  id: string;
+  linkId: string;
+  date: string;        // YYYY-MM-DD
+  views: number;
+  notes: string;
+}
+
+/** Kasa hareketi — Denetim grubuna iletilen tüm para giriş/çıkışları. */
+export interface KasaTransaction {
+  id: string;
+  date: string;             // ISO YYYY-MM-DDTHH:MM
+  direction: "in" | "out";
+  amountUsd: number;
+  /** Network fee (USDT vs.) — opsiyonel ek kesinti. */
+  feeUsd: number;
+  purpose: string;
+  /** Alıcı (out için) veya gönderici (in için). */
+  counterparty: string;
+  /** TXID / dekont / kanıt link. */
+  proof: string;
+  notes: string;
+}
+
+/** İçerik üretim / vlog harcaması — Ramiz vb. yayıncıların aylık raporu. */
+export interface ContentExpense {
+  id: string;
+  date: string;          // YYYY-MM-DD
+  month: string;         // YYYY-MM
+  employeeId: string;    // Harcamayı yapan/rapor eden
+  brandId?: string;      // İlgili marka (varsa)
+  brandName: string;     // "Padi", "Pipo", "Siteler" vb.
+  category: string;      // "Vlog", "Yetişkin İçerik", "Yol", "Reklam"
+  description: string;
+  amountUsd: number;
+  amountThb?: number;
+  paid: boolean;
+  paidDate?: string;
+  notes: string;
+  // ── Yayıncı self-service & onay akışı ──
+  /** Kanıt görseli URL'si (Gyazo / Imgur / dekont link). */
+  screenshotUrl?: string;
+  /** Yayıncı tarafından gönderildiği zaman (ISO). */
+  submittedAt?: string;
+  /** Hangi user gönderdi (auth.users.id). */
+  submittedBy?: string;
+  /** İnceleme durumu — admin onayı sonrası `paid: true` set edilir. */
+  reviewStatus?: "pending" | "approved" | "rejected" | "needs_info" | "cancelled";
+  /** İnceleme zamanı. */
+  reviewedAt?: string;
+  /** İnceleyen admin/denetçi user id. */
+  reviewedBy?: string;
+  /** Admin/Denetçi notu (red sebebi vb.). */
+  reviewerNote?: string;
+  /** Denetçi tarafından incelendi mi? */
+  audited?: boolean;
+}
+
+/** Yayıncı haftalık plan kaydı — `ScheduleSlot`'tan ayrı, tarihli ve özel. */
+export interface WeeklyPlan {
+  id: string;
+  employeeId: string;
+  /** Haftanın Pazartesi'si (YYYY-MM-DD). */
+  weekStart: string;
+  /** Plan tarihi (YYYY-MM-DD). */
+  date: string;
+  startTime?: string;    // "20:00"
+  endTime?: string;      // "23:00"
+  activity: string;      // "Yayın" | "Vlog Çekimi" | "Edit" | "Toplantı" | "İzin"
+  brandName?: string;
+  notes: string;
+  status: "planned" | "in_progress" | "completed" | "cancelled";
+  /** Hangi user oluşturdu (auth.users.id). */
+  createdBy?: string;
+  createdAt?: string;
+}
+
+/** Haftalık marka reel — o hafta hangi marka için içerik hangi URL’de yayınlandı. */
+export interface WeekBrandReel {
+  id: string;
+  employeeId: string;
+  /** Haftanın Pazartesi’si (YYYY-MM-DD). */
+  weekStart: string;
+  brandId: string;
+  /** Yayınlanan reel / post doğrudan linki. */
+  contentUrl: string;
+  platform: string;
+  /** Varsa kayıtlı marka linki (şablondan seçim). */
+  brandLinkId?: string;
+  notes: string;
+  createdAt: string;
+}
+
+/** Yöneticiye veya denetçiye gönderilen bildirim. */
+export interface AppNotification {
+  id: string;
+  type:
+    | "expense_submitted"
+    | "expense_approved"
+    | "expense_rejected"
+    | "schedule_updated"
+    | "advance_request"
+    | "kasa_low"
+    | "payroll_reminder"
+    | "brand_payment_reminder"
+    | "expense_paid"
+    | "general";
+  title: string;
+  message: string;
+  /** Bildirim hangi rol için? */
+  forRole: "admin" | "auditor" | "streamer" | "brand";
+  /** Belirli kullanıcıya yönelik (opsiyonel, ör. yayıncıya geri bildirim). */
+  forUserId?: string;
+  /** İlgili kaydın id'si (ör. ContentExpense.id). */
+  refId?: string;
+  /** Hangi kullanıcı tetikledi (auth.users.id). */
+  triggeredBy?: string;
+  /** ISO zaman damgası. */
+  createdAt: string;
+  read: boolean;
+  /** Action linki (sayfayı açma kısayolu). */
+  href?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Store
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AppStore {
+  employees: Employee[];
+  advances: Advance[];
+  salaryExtras: SalaryExtra[];
+  paymentStatuses: MonthPaymentStatus[];
+
+  companies: ExternalCompany[];
+  sponsorTransactions: SponsorTransaction[];
+  projects: InternalProject[];
+  projectPayments: InternalProjectPayment[];
+  expenses: ExpenseEntry[];
+  plannedItems: PlannedItem[];
+  plannedItemPayments: PlannedItemPayment[];
+
+  streamerAccounts: StreamerAccount[];
+  scheduleSlots: ScheduleSlot[];
+
+  // Marka izleme
+  brands: Brand[];
+  brandLinks: BrandLink[];
+  linkSnapshots: LinkSnapshot[];
+  brandViewership: BrandViewership[];
+
+  // Kasa & İçerik harcamaları
+  kasaTransactions: KasaTransaction[];
+  contentExpenses: ContentExpense[];
+
+  // Yayıncı haftalık planı ve bildirimler
+  weeklyPlans: WeeklyPlan[];
+  weekBrandReels: WeekBrandReel[];
+  notifications: AppNotification[];
+
+  // Employee
+  addEmployee: (e: Omit<Employee, "id">) => void;
+  updateEmployee: (id: string, e: Partial<Employee>) => void;
+  deleteEmployee: (id: string) => void;
+
+  // Advance
+  addAdvance: (a: Omit<Advance, "id">) => void;
+  updateAdvance: (id: string, a: Partial<Advance>) => void;
+  deleteAdvance: (id: string) => void;
+
+  // Salary extra
+  addSalaryExtra: (e: Omit<SalaryExtra, "id">) => void;
+  updateSalaryExtra: (id: string, e: Partial<SalaryExtra>) => void;
+  deleteSalaryExtra: (id: string) => void;
+  syncRentSupportFromMonth: (employeeId: string, fromMonth: string, amount: number) => void;
+
+  setPaymentStatus: (employeeId: string, month: string, paid: boolean, paidDate?: string, paidBy?: string) => void;
+
+  // Company
+  addCompany: (c: Omit<ExternalCompany, "id">) => void;
+  updateCompany: (id: string, c: Partial<ExternalCompany>) => void;
+  deleteCompany: (id: string) => void;
+
+  // Sponsor transaction
+  addSponsorTransaction: (t: Omit<SponsorTransaction, "id">) => void;
+  updateSponsorTransaction: (id: string, t: Partial<SponsorTransaction>) => void;
+  deleteSponsorTransaction: (id: string) => void;
+
+  // Project
+  addProject: (p: Omit<InternalProject, "id">) => void;
+  updateProject: (id: string, p: Partial<InternalProject>) => void;
+  deleteProject: (id: string) => void;
+
+  addProjectPayment: (p: Omit<InternalProjectPayment, "id">) => void;
+  updateProjectPayment: (id: string, p: Partial<InternalProjectPayment>) => void;
+  deleteProjectPayment: (id: string) => void;
+
+  // Expense
+  addExpense: (e: Omit<ExpenseEntry, "id">) => void;
+  updateExpense: (id: string, e: Partial<ExpenseEntry>) => void;
+  deleteExpense: (id: string) => void;
+
+  // Planned
+  addPlannedItem: (i: Omit<PlannedItem, "id">) => void;
+  updatePlannedItem: (id: string, i: Partial<PlannedItem>) => void;
+  deletePlannedItem: (id: string) => void;
+
+  addPlannedItemPayment: (p: Omit<PlannedItemPayment, "id">) => void;
+  updatePlannedItemPayment: (id: string, p: Partial<PlannedItemPayment>) => void;
+  deletePlannedItemPayment: (id: string) => void;
+
+  // Streamer accounts
+  addStreamerAccount: (a: Omit<StreamerAccount, "id">) => void;
+  updateStreamerAccount: (id: string, a: Partial<StreamerAccount>) => void;
+  deleteStreamerAccount: (id: string) => void;
+
+  // Schedule
+  addScheduleSlot: (s: Omit<ScheduleSlot, "id">) => void;
+  updateScheduleSlot: (id: string, s: Partial<ScheduleSlot>) => void;
+  deleteScheduleSlot: (id: string) => void;
+
+  // Viewership
+  addBrandViewership: (v: Omit<BrandViewership, "id">) => void;
+  updateBrandViewership: (id: string, v: Partial<BrandViewership>) => void;
+  deleteBrandViewership: (id: string) => void;
+
+  // Brand
+  addBrand: (b: Omit<Brand, "id">) => void;
+  updateBrand: (id: string, b: Partial<Brand>) => void;
+  deleteBrand: (id: string) => void;
+
+  // Brand link
+  addBrandLink: (l: Omit<BrandLink, "id">) => void;
+  updateBrandLink: (id: string, l: Partial<BrandLink>) => void;
+  deleteBrandLink: (id: string) => void;
+
+  // Link snapshot
+  addLinkSnapshot: (s: Omit<LinkSnapshot, "id">) => void;
+  updateLinkSnapshot: (id: string, s: Partial<LinkSnapshot>) => void;
+  deleteLinkSnapshot: (id: string) => void;
+
+  // Kasa
+  addKasaTransaction: (t: Omit<KasaTransaction, "id">) => void;
+  updateKasaTransaction: (id: string, t: Partial<KasaTransaction>) => void;
+  deleteKasaTransaction: (id: string) => void;
+
+  // Content expense
+  addContentExpense: (e: Omit<ContentExpense, "id">) => void;
+  updateContentExpense: (id: string, e: Partial<ContentExpense>) => void;
+  deleteContentExpense: (id: string) => void;
+
+  // Weekly plan
+  addWeeklyPlan: (p: Omit<WeeklyPlan, "id">) => void;
+  updateWeeklyPlan: (id: string, p: Partial<WeeklyPlan>) => void;
+  deleteWeeklyPlan: (id: string) => void;
+
+  // Haftalık marka reel
+  addWeekBrandReel: (r: Omit<WeekBrandReel, "id" | "createdAt">) => void;
+  updateWeekBrandReel: (id: string, r: Partial<WeekBrandReel>) => void;
+  deleteWeekBrandReel: (id: string) => void;
+
+  // Notifications
+  pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: (forRole: "admin" | "auditor" | "streamer" | "brand", forUserId?: string) => void;
+  deleteNotification: (id: string) => void;
+
+  /** Yedek dosyasından uygulama verisini birleştirir (mevcut alanların üzerine yazar). */
+  hydrateFromBackup: (data: AppHydratePayload) => void;
+}
+
+export const APP_SNAPSHOT_KEYS = [
+  "employees",
+  "advances",
+  "salaryExtras",
+  "paymentStatuses",
+  "companies",
+  "sponsorTransactions",
+  "projects",
+  "projectPayments",
+  "expenses",
+  "plannedItems",
+  "plannedItemPayments",
+  "streamerAccounts",
+  "scheduleSlots",
+  "brands",
+  "brandLinks",
+  "linkSnapshots",
+  "brandViewership",
+  "kasaTransactions",
+  "contentExpenses",
+  "weeklyPlans",
+  "weekBrandReels",
+  "notifications",
+] as const;
+
+/** Tam yedek JSON içindeki `app` nesnesi için tip (döngüsel AppStore referansı yok). */
+export type AppHydratePayload = Partial<
+  Pick<AppStore, (typeof APP_SNAPSHOT_KEYS)[number]>
+>;
+
+const uid = () => crypto.randomUUID();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Seed Data
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sistemdeki 3 aktif yayıncı + 1 proje koordinatörü.
+ * Maaş ödemeleri her ayın 1–5'i arasında yapılır (Lucy: ayın 17'si).
+ */
+export const initialEmployees: Employee[] = [
+  {
+    id: "emp-ramiz",
+    name: "Ramiz",
+    role: "İçerik & Prodüksiyon · Yayıncı",
+    department: "Yayın",
+    baseSalary: 10000,
+    rentSupport: 1400,
+    initialAdvance: 8000,
+    paymentDay: "1-5",
+    payrollStartMonth: "2026-04",
+    startDate: "2025-04-01",
+    status: "active",
+    walletAddress: "TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE",
+    avatar: "R",
+    notes:
+      "Maaş $10.000/ay. Başlangıçta $20.000 avans alınmış, $12.000 geri ödenmiş, " +
+      "kalan $8.000 borç var. Nisan 2026: $2.000 kesinti (bu ay net $8.000), " +
+      "Mayıs ve Haziran 2026: $3.000 kesinti ile borç kapanır. " +
+      "Aylık $1.400 ev kira desteği — şirket öder. Aylık içerik/marka " +
+      "harcamaları ay sonu raporla iletilir; şirket karşılar.",
+    kind: "streamer",
+  },
+  {
+    id: "emp-lucy",
+    name: "Lucy",
+    role: "Yayıncı",
+    department: "Yayın",
+    baseSalary: 3000,
+    rentSupport: 650,
+    initialAdvance: 0,
+    paymentDay: "17",
+    payrollStartMonth: "2026-04",
+    startDate: "2026-01-01",
+    status: "active",
+    walletAddress: "",
+    avatar: "L",
+    notes:
+      "Her ayın 17'sinde maaş ödemesi $3.000. Ev kira desteği $650/ay " +
+      "(Acelya ile toplam $1.300/ay).",
+    kind: "streamer",
+  },
+  {
+    id: "emp-acelya",
+    name: "Acelya (acebaby)",
+    role: "Yayıncı",
+    department: "Yayın",
+    baseSalary: 3500,
+    rentSupport: 650,
+    initialAdvance: 0,
+    paymentDay: "1-5",
+    payrollStartMonth: "2026-06",
+    startDate: "2026-05-03",
+    status: "active",
+    walletAddress: "",
+    avatar: "A",
+    notes:
+      "3 Mayıs 2026'da aramıza katıldı. İlk maaş 1–5 Haziran 2026 arasında " +
+      "$3.500. Ev kira desteği $650/ay (Lucy ile toplam $1.300/ay).",
+    kind: "streamer",
+  },
+  {
+    id: "emp-orkun",
+    name: "Orkun",
+    role: "Proje Koordinatörü",
+    department: "Yönetim",
+    baseSalary: 0,
+    rentSupport: 0,
+    initialAdvance: 0,
+    paymentDay: "—",
+    payrollStartMonth: "2026-04",
+    startDate: "2025-01-01",
+    status: "active",
+    walletAddress: "",
+    avatar: "O",
+    notes: "Proje koordinatörü. Maaş bordrosunda yer almıyor.",
+    kind: "coordinator",
+  },
+];
+
+/** Aylık otomatik kira desteği & avans geri ödemeleri (2026 takvim yılı). */
+const buildInitialSalaryExtras = (): SalaryExtra[] => {
+  const list: SalaryExtra[] = [];
+
+  // Ramiz — Nisan 2026 ve sonrası
+  const ramizMonths = [
+    "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09",
+    "2026-10", "2026-11", "2026-12",
+  ];
+  ramizMonths.forEach((m) => {
+    list.push({
+      id: `se-ramiz-rent-${m}`,
+      employeeId: "emp-ramiz",
+      month: m,
+      amount: 1400,
+      description: "Ev kira desteği (aylık)",
+      type: "rent",
+    });
+  });
+  // Avans geri ödemesi — Nis $2k, May $3k, Haz $3k ($8k → 0)
+  const advancePlan: Array<{ month: string; amount: number; note: string }> = [
+    { month: "2026-04", amount: 2000, note: "Açık avans geri ödemesi (1/3) · $8.000 → kalan $6.000" },
+    { month: "2026-05", amount: 3000, note: "Açık avans geri ödemesi (2/3) · kalan $3.000" },
+    { month: "2026-06", amount: 3000, note: "Açık avans geri ödemesi (3/3) · kapanış" },
+  ];
+  advancePlan.forEach((p) => {
+    list.push({
+      id: `se-ramiz-adv-${p.month}`,
+      employeeId: "emp-ramiz",
+      month: p.month,
+      amount: p.amount,
+      description: p.note,
+      type: "deduction",
+    });
+  });
+
+  // Lucy — Nisan 2026'dan itibaren her ayın 17'si
+  ramizMonths.forEach((m) => {
+    list.push({
+      id: `se-lucy-rent-${m}`,
+      employeeId: "emp-lucy",
+      month: m,
+      amount: 650,
+      description: "Ev kira desteği (aylık · Acelya ile birlikte $1.300 kap)",
+      type: "rent",
+    });
+  });
+
+  // Acelya — Haziran 2026 ve sonrası (ilk maaş Haziran 1-5)
+  ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"].forEach((m) => {
+    list.push({
+      id: `se-acelya-rent-${m}`,
+      employeeId: "emp-acelya",
+      month: m,
+      amount: 650,
+      description: "Ev kira desteği (aylık · Lucy ile birlikte $1.300 kap)",
+      type: "rent",
+    });
+  });
+
+  return list;
+};
+
+export const initialSalaryExtras: SalaryExtra[] = buildInitialSalaryExtras();
+
+/**
+ * Geçmişten gelen `Advance` kayıtları kullanılmıyor — Ramiz'in açık avans bakiyesi
+ * `Employee.initialAdvance` ($8.000) + `SalaryExtra` türünde "deduction" satırlarıyla
+ * (Nis −$2.000, May −$3.000, Haz −$3.000) yönetiliyor.
+ *
+ * Tarihsel referans: Ramiz Nisan 2025'te $20.000 avans almıştır, $12.000'ı zaten
+ * geçmiş aylarda geri ödenmiştir; sisteme yalnızca proje devri (1 Nis 2026) anındaki
+ * AÇIK BAKİYE girilir, böylece carry-forward hesabı şişmez.
+ */
+export const initialAdvances: Advance[] = [];
+
+/**
+ * Dış Gelir firmaları — `lanetkelorkunp.xlsx - 📥 Dış Gelir.csv`.
+ *
+ * Önemli: Bu firmaların TAMAMI artık çalışılan firmalar değildir. Tablodaki tutarlar
+ * GEÇMİŞ TOPLAM TAHSİLAT verisidir. Proje 1 Nisan 2026'da devralındığında bunlar
+ * artık aktif değildi — sadece geçmiş gelir kayıtları olarak tutuluyor.
+ *
+ * Şu an aktif olarak tanıtım yapılan markalar `brands` koleksiyonunda
+ * (Gala / Boffice / Pipo / Hit / Padi). Onlardan henüz tahsilat yapılmadı.
+ */
+export const initialCompanies: ExternalCompany[] = [
+  // ── Tahsilat geçmişi olan firmalar (hepsi geçmişte kaldı) ──
+  { id: "co-trbet", name: "TRbet", category: "Website+SosyalMedya+Telegram", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-03-20", notes: "Toplam $32.000 tahsil edildi (8 ay)", monthlyBreakdown: [0,0,4000,4000,0,0,4000,4000,4000,4000,4000,4000] },
+  { id: "co-atlasbet", name: "Atlasbet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-12-31", notes: "Aralık 2025 · $12.500 tek seferlik tahsilat" },
+  { id: "co-betplay", name: "Betplay", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-12-31", notes: "Aralık 2025 · $12.500 tek seferlik tahsilat" },
+  { id: "co-mersobahis", name: "MersoBahis", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-01-10", notes: "Ocak 2026 · $10.000 + Temmuz 2025 $4.000 = $14.000 toplam" },
+  { id: "co-amg", name: "AMG Bahis", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-01-12", notes: "Ocak 2026 · $10.000 tek seferlik" },
+  { id: "co-betpuan", name: "Betpuan", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-01-21", notes: "Ocak 2026 · $12.000 tek seferlik" },
+  { id: "co-mrbahis", name: "Mrbahis", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-11-04", notes: "Kasım 2025 + Ocak 2026 · toplam $9.000" },
+  { id: "co-betra", name: "Betra", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-02-09", notes: "Şubat 2026 · $14.000 tek seferlik" },
+  { id: "co-netbahis", name: "Netbahis", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-02-09", notes: "Şubat 2026 · anlaşma kayıtlı, ödeme yok" },
+  { id: "co-maxwin", name: "Maxwin", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-02-10", notes: "Şubat 2026 · $10.000 tek seferlik" },
+  { id: "co-exonbet", name: "Exonbet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-02-22", notes: "Şubat 2026 · $10.000 tek seferlik" },
+  { id: "co-dbbet", name: "DBbet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-03-03", notes: "Mart 2026 · $10.000 tek seferlik" },
+  { id: "co-eypbet", name: "Eypbet", category: "Tişört Tanıtım (Website)", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2026-03-27", notes: "Mart 2026 · $6.000 tek seferlik" },
+
+  // ── Sona eren eski anlaşmalar ──
+  { id: "co-betcom", name: "Betcom", category: "Website+SosyalMedya+Telegram+Youtube", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-03-14", notes: "Mart 2025 · $45.000 (tek seferlik) · sona erdi" },
+  { id: "co-madridbet", name: "Madridbet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-07-18", notes: "Tem-Eki 2025 · $29.000 · sona erdi" },
+  { id: "co-pusulabet", name: "Pusulabet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-04-02", notes: "Nis-Eki 2025 · $27.700 · sona erdi" },
+  { id: "co-pasacasino", name: "PasaCasino", category: "Website VIP", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-07-21", notes: "Tem-Ağu 2025 · $27.000 · sona erdi" },
+  { id: "co-ganobet", name: "Ganobet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-10-03", notes: "Eki-Kas 2025 · $11.500 · sona erdi" },
+  { id: "co-grandpashabet", name: "Grandpashabet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-04-01", notes: "Nis-Tem 2025 · $10.000 · sona erdi" },
+  { id: "co-truvabet", name: "Truvabet", category: "Website+Video", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-09-17", notes: "Eylül 2025 · $10.000 · sona erdi" },
+  { id: "co-betovis", name: "Betovis", category: "Website+Video", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-09-21", notes: "Eylül 2025 · $10.000 · sona erdi" },
+  { id: "co-mistycasino", name: "MistyCasino", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-06-26", notes: "Haz-Tem 2025 · $9.000 · sona erdi" },
+  { id: "co-betci", name: "Betci", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-08-29", notes: "Ağustos 2025 · $7.000 · sona erdi" },
+  { id: "co-cassinox", name: "Cassinox", category: "Website+SosyalMedya+Telegram", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-12-20", notes: "Aralık 2025 · $6.500 · sona erdi" },
+  { id: "co-bettilt", name: "Bettilt", category: "Website+SosyalMedya+Telegram", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-03-20", notes: "Mart 2025 · $5.000 · sona erdi" },
+  { id: "co-nycbahis", name: "NYC Bahis", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-05-04", notes: "Mayıs 2025 · $5.000 · sona erdi" },
+  { id: "co-moldebet", name: "Moldebet", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-10-19", notes: "Ekim 2025 · $5.000 · sona erdi" },
+  { id: "co-endorphina", name: "Endorphina", category: "Oyun Tanıtımı", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-04-22", notes: "Nis-May 2025 · $4.500 · sona erdi" },
+  { id: "co-casibom", name: "Casibom", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-08-02", notes: "Ağustos 2025 · $3.500 · sona erdi" },
+  { id: "co-oynacasino", name: "Oynacasino", category: "Website", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-09-26", notes: "Eylül 2025 · $3.499 · sona erdi" },
+  { id: "co-mariobet", name: "Mariobet", category: "Website+SosyalMedya", monthlyAmount: 0, contactPerson: "", status: "ended", startDate: "2025-03-14", notes: "Mart 2025 anlaşma · ödeme yok · sona erdi" },
+];
+
+/** CSV "Tarih Bazlı Tüm Sponsor İşlemleri" — Ramiz Bey döneminde tahsil edilen ödemeler. */
+export const initialSponsorTransactions: SponsorTransaction[] = [
+  { id: "t01", date: "2025-03-14", companyName: "Betcom",        service: "Website+SosyalMedya+Telegram+Youtube", amount: 45000, status: "ended",  txid: "98acbd6e6f928b90518994eeae100d2f33930b6594a62a130088b30f3b24ab2f" },
+  { id: "t07", date: "2025-03-20", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "9ce4317c670265fa967a2580864e694fa3928f52e191bdb1392d5b00b00c861e" },
+  { id: "t08", date: "2025-03-20", companyName: "Bettilt",       service: "Website+SosyalMedya+Telegram",         amount:  5000, status: "ended",  txid: "0eaa847d329e3bf8795b73f8a3bba2ac30cb48d94fab4a9670b25f04d7652125" },
+  { id: "t09", date: "2025-04-01", companyName: "Grandpashabet", service: "Website",                              amount:  4000, status: "ended",  txid: "49d7fd20c60d3c57b6309c577eed0e7d41821bb2833ea4b099e69cb2bd74b1da" },
+  { id: "t10", date: "2025-04-02", companyName: "Pusulabet",     service: "Website",                              amount:  5000, status: "ended",  txid: "3a736e613300c664dd4fa9e9b34220a2ea7155df3195ec4409390c25b1e36397" },
+  { id: "t11", date: "2025-04-22", companyName: "Endorphina",    service: "Oyun Tanıtımı",                        amount:  2500, status: "ended",  txid: "187852e84873c1239b808d8a26bf3ec0802a805e38b6cc931e504d386fd464ce" },
+  { id: "t12", date: "2025-04-23", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "a8afe956484455b7253efe56df0cf614b365e564502688aeec469fafb1d1a162" },
+  { id: "t13", date: "2025-05-02", companyName: "Grandpashabet", service: "Website",                              amount:  4000, status: "ended",  txid: "e880e4200fe94840d7b3730ff67770cabaaab31e96735af1ee5c7c5272f0d532" },
+  { id: "t14", date: "2025-05-04", companyName: "NYC Bahis",     service: "Website",                              amount:  5000, status: "ended",  txid: "83376b4ae4ccaab14cceab982bfff8d9cccf3174d8bcc51057268fc723d31b50" },
+  { id: "t15", date: "2025-05-10", companyName: "Pusulabet",     service: "Website",                              amount:  5000, status: "ended",  txid: "73a05c9ee79b7fc5f5abc3c4d371c77676b1906a6c1363df61288bbb001453c9" },
+  { id: "t16", date: "2025-05-19", companyName: "Endorphina",    service: "Oyun Tanıtımı",                        amount:  2000, status: "ended",  txid: "4f99ea045733e9ac325b15fff144bd09e4a16976fd8fd9f19207a2d1af76615a" },
+  { id: "t17", date: "2025-06-12", companyName: "Pusulabet",     service: "Website",                              amount:  5000, status: "ended",  txid: "00133a0ef63802bbe4463da4b7ba91ff53bb3ac3ac4c44435628b94b3744a109" },
+  { id: "t18", date: "2025-06-26", companyName: "MistyCasino",   service: "Website",                              amount:  6000, status: "ended",  txid: "a1961aca5148cd9f3f1c72831020fca51525e09a3dd217143c9146548c20d942" },
+  { id: "t19", date: "2025-07-02", companyName: "MersoBahis",    service: "Website",                              amount:  4000, status: "active", txid: "6a8335a46efe0aaa38b56cc4325fb89f1120f49e4bee4494d20915456e7e5457" },
+  { id: "t20", date: "2025-07-07", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "fa53e8d0d78182be20e81278457e64ff8c4c63b0442c90ec9a3f3042b3b0c15b" },
+  { id: "t21", date: "2025-07-12", companyName: "Grandpashabet", service: "Website",                              amount:  2000, status: "ended",  txid: "fc8b70356ca3d1fb0c89ba838ddda4099fa4cc430f968ab3ef12c50062882759" },
+  { id: "t22", date: "2025-07-14", companyName: "Pusulabet",     service: "Website",                              amount:  3500, status: "ended",  txid: "e39f54f30dc281a30627ba2751c155deac597adcb3cfb6fa3edbaa0154209ddd" },
+  { id: "t23", date: "2025-07-18", companyName: "Madridbet",     service: "Website",                              amount:  4000, status: "ended",  txid: "9414cea5d7792552d13b45c5e7027aa30c4313b3f4db69c60380d41f99b2a2c6" },
+  { id: "t24", date: "2025-07-21", companyName: "PasaCasino",    service: "Website VIP",                          amount: 17000, status: "ended",  txid: "13318aa404f19e903d2314cb24ab652d244c84c1249e0846eeb0cd641f9ca849" },
+  { id: "t28", date: "2025-07-28", companyName: "MistyCasino",   service: "Website",                              amount:  3000, status: "ended",  txid: "8627a35e5fb7e82235f487fdc9e82118ea9c75c19d8c9d444ec46766f6fab13b" },
+  { id: "t29", date: "2025-08-02", companyName: "Casibom",       service: "Website",                              amount:  3500, status: "ended",  txid: "ed7205556777479dfd7bae54ed840d29839c33efe1f6ab6d8de157c86e972e4a" },
+  { id: "t30", date: "2025-08-08", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "4866444c77b8ff4e293a463f637c2085169f7a56f85cab8c3e77e7d04e4a7916" },
+  { id: "t31", date: "2025-08-14", companyName: "Pusulabet",     service: "Website",                              amount:  3200, status: "ended",  txid: "1de76fc0c6cb6cc2a0678188fb681fb2e37a2f3a6400fce1113996ee3fb54022" },
+  { id: "t32", date: "2025-08-28", companyName: "Madridbet",     service: "Website",                              amount:  6000, status: "ended",  txid: "164884b0ccdd8aac490e1d8c3b66f09567e63dd0ae1b5959365e7471b76d14a0" },
+  { id: "t34", date: "2025-08-28", companyName: "PasaCasino",    service: "Website VIP",                          amount: 10000, status: "ended",  txid: "de154cd3f9174408df85474d007d0a7eb77d11f1fe2b740dd29adbe0545e240c" },
+  { id: "t38", date: "2025-08-29", companyName: "Betci",         service: "Website",                              amount:  7000, status: "ended",  txid: "a7ec9308a9a06440fd2855d5ca5d79f1f129e1f232ec8c115690bc71a0d216bd" },
+  { id: "t39", date: "2025-09-12", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "8fdcd7a7d5fe6e08228c7bf5c1c56e4daaa1269a35f6967e08579968bbfd541d" },
+  { id: "t40", date: "2025-09-17", companyName: "Truvabet",      service: "Website+Video",                        amount: 10000, status: "ended",  txid: "7c4c862bedabeb178a2312d5a5c7f21228415323512d6b7d6dce3c822ce18f89" },
+  { id: "t41", date: "2025-09-17", companyName: "Pusulabet",     service: "Website",                              amount:  3000, status: "ended",  txid: "9c901fd7e78d509269b9031a6c504180ec373d97b0b95215b8dfbcb24a88595d" },
+  { id: "t42", date: "2025-09-21", companyName: "Betovis",       service: "Website+Video",                        amount: 10000, status: "ended",  txid: "2c9b7e697b70ce4820b3e5f18fb7f868e29d0c1944c1f53717e22f633bc42992" },
+  { id: "t43", date: "2025-09-26", companyName: "Oynacasino",    service: "Website",                              amount:  3499, status: "ended",  txid: "1774297a200e21f91b0c3d5877a5dba66316a7a83c5f8866295217d72697843b" },
+  { id: "t44", date: "2025-10-03", companyName: "Ganobet",       service: "Website",                              amount:  6500, status: "ended",  txid: "b575c691c8f817201518571046614d8545e2f997ba16f0e45e807c2bd932e151" },
+  { id: "t45", date: "2025-10-15", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "1d0afdef17d62755535977baa523d1bb663ba91d5d9d0b40219bff8f6f53d9a7" },
+  { id: "t46", date: "2025-10-19", companyName: "Moldebet",      service: "Website",                              amount:  5000, status: "ended",  txid: "7706163689160a3c21caab28df373cda4748ec445fdc8725d8e2cd5139198c53" },
+  { id: "t47", date: "2025-10-22", companyName: "Pusulabet",     service: "Website",                              amount:  3000, status: "ended",  txid: "2dab61b0e733228e249926ee93fc2a73e86ebca9cb168ef95e7f616f9eab9dc7" },
+  { id: "t48", date: "2025-10-22", companyName: "Madridbet",     service: "Website",                              amount:  9500, status: "ended",  txid: "6c7a24a7a346bd54d4e9b11dccd5b43043831317ce1a6e56b43cd2ea584e0022" },
+  { id: "t50", date: "2025-11-03", companyName: "Ganobet",       service: "Website",                              amount:  5000, status: "ended",  txid: "238ad40ec2c3dbda7e1272a604665c905c47c26a7606b09c1bdd0687b364e1de" },
+  { id: "t51", date: "2025-11-04", companyName: "Mrbahis",       service: "Website",                              amount:  4500, status: "active", txid: "a49d3d739afa85a5a5e2b57178b6acc5336505324168bf835c1c75e760102f1e" },
+  { id: "t52", date: "2025-11-26", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "448d68841e1d2e0ec4801c48754d76e1f9f6739a2f55fd951bc0de895cc42aa3" },
+  { id: "t53", date: "2025-11-26", companyName: "Madridbet",     service: "Website",                              amount:  9500, status: "ended",  txid: "c8886431784cb1975093edc869289677c20c9f7ea6d6b02499978dbfe33ffe5f" },
+  { id: "t55", date: "2025-12-20", companyName: "Cassinox",      service: "Website+SosyalMedya+Telegram",         amount:  6500, status: "ended",  txid: "f540ef2741e8653258f60d1fcf33284b1ed100a1364b6a2a025f912e296d5db8" },
+  { id: "t56", date: "2025-12-29", companyName: "TRbet",         service: "Website+SosyalMedya+Telegram",         amount:  4000, status: "active", txid: "a30178ffeb64963866b47abf518dd1d4550eed66c4b60d3c1b94656036501ee9" },
+  { id: "t57", date: "2025-12-31", companyName: "Atlasbet",      service: "Website",                              amount: 12500, status: "active", txid: "ad0176be612c6b8ea0bef09ec5a4205a9039a36eac3ccc88988028d3c26d532a" },
+  { id: "t58", date: "2025-12-31", companyName: "Betplay",       service: "Website",                              amount: 12500, status: "active", txid: "cc03e167055766be06d32da1f58cd8fc25913c8eed6f9a2b239ea81b0bb1d359" },
+  { id: "t59", date: "2026-01-10", companyName: "MersoBahis",    service: "Website",                              amount: 10000, status: "active", txid: "34495c6d646eac6a01613c9bd3ea0e6eac11585cbc79ee4cf506eb09d2624b46" },
+  { id: "t60", date: "2026-01-12", companyName: "AMG Bahis",     service: "Website",                              amount: 10000, status: "active", txid: "2d2f73b1b2a504f4c3b884a5f0e63102a8d9a9a7ab2da0cdd0cc6e7972a7cf75" },
+  { id: "t61", date: "2026-01-21", companyName: "Betpuan",       service: "Website",                              amount: 12000, status: "active", txid: "3cc95894572d5d4deb7445fe1cc56599f49f7e20d86f27fe34fc3bc7ac23a4f1" },
+  { id: "t62", date: "2026-01-28", companyName: "Mrbahis",       service: "Website",                              amount:  4500, status: "active", txid: "3a60b7c913fc44f82fd82aeaed62c31f496c5f78b9495939e4978f7a3c82a71a" },
+  { id: "t63", date: "2026-02-09", companyName: "Betra",         service: "Website",                              amount: 14000, status: "active", txid: "27c312ee6f66b36ab4485ce590729d539ad9095d58519984439902a71c892e0c" },
+  { id: "t65", date: "2026-02-10", companyName: "Maxwin",        service: "Website",                              amount: 10000, status: "active", txid: "41abaa2b7794dcc607cb00205eb3be5a222270d35ea8ff918e943f0a7851fb15" },
+  { id: "t66", date: "2026-02-22", companyName: "Exonbet",       service: "Website",                              amount: 10000, status: "active", txid: "41539ee162ee25a29b2ead22e77bfa4a5dcd10d6e66770b27c4c8c26d31e5319" },
+  { id: "t67", date: "2026-03-03", companyName: "DBbet",         service: "Website",                              amount: 10000, status: "active", txid: "c213da229a9c4dc1b20404ac50f4f70c70985eccf1ac70d800b2944d6e565319" },
+  { id: "t68", date: "2026-03-27", companyName: "Eypbet",        service: "Tişört Tanıtım (Website)",             amount:  6000, status: "active", txid: "2ecd80060c064e3d589cbb8a97ded10085319bd5858ad2baf4365456958e7678" },
+];
+
+/** Eski sürümdeki örnek projeler — persist migrate ile temizlenir (bkz. merge). */
+const LEGACY_IC_GELIR_SEED_IDS = new Set(["p1", "p2", "p3", "p4", "p5"]);
+
+const initialProjects: InternalProject[] = [];
+const initialProjectPayments: InternalProjectPayment[] = [];
+
+function defaultProjectFields(
+  p: Partial<InternalProject> & Pick<InternalProject, "name" | "category" | "monthlyRevenue" | "progress" | "status" | "startDate" | "notes">
+): Omit<InternalProject, "id"> {
+  return {
+    name: p.name,
+    category: p.category,
+    monthlyRevenue: p.monthlyRevenue,
+    progress: p.progress,
+    status: p.status,
+    startDate: p.startDate,
+    notes: p.notes,
+    brandId: p.brandId,
+    employeeIds: p.employeeIds ?? [],
+    paymentDay: p.paymentDay ?? "",
+    reminderEnabled: p.reminderEnabled ?? true,
+    reminderDaysBefore: p.reminderDaysBefore ?? 3,
+    lastReminderSentAt: p.lastReminderSentAt,
+  };
+}
+
+const initialExpenses: ExpenseEntry[] = [
+  { id: "x1", category: "Yazılım & Araçlar", amount: 400,  date: "2026-01-01", description: "SaaS abonelikleri" },
+  { id: "x2", category: "Sunucu & Altyapı",  amount: 300,  date: "2026-01-01", description: "Hosting & CDN" },
+  { id: "x3", category: "Ofis & Kira",       amount: 300,  date: "2026-01-01", description: "Ofis kirası" },
+  { id: "x4", category: "Pazarlama Gideri",  amount: 200,  date: "2026-01-01", description: "Reklam harcamaları" },
+  { id: "x5", category: "Hukuki & Mali",     amount: 117,  date: "2026-01-01", description: "Muhasebe & hukuk" },
+];
+
+const initialPlanned: PlannedItem[] = [
+  { id: "pl1", name: "Yeni İçerik Stüdyosu", category: "capex", budget: 50000, spent: 12000, startDate: "2026-06-01", targetDate: "2026-09-01", priority: "high", status: "planned", notes: "", employeeId: "emp-ramiz", isRecurring: false, recurrence: "none" },
+  { id: "pl2", name: "Mobil Uygulama Geliştir.", category: "capex", budget: 35000, spent: 18000, startDate: "2026-03-01", targetDate: "2026-08-01", priority: "high", status: "in-progress", notes: "", isRecurring: false, recurrence: "none" },
+  { id: "pl3", name: "AI İçerik Araçları", category: "opex", budget: 20000, spent: 8500, startDate: "2026-01-01", targetDate: "2026-07-01", priority: "medium", status: "in-progress", notes: "", isRecurring: true, recurrence: "monthly" },
+  { id: "pl4", name: "Uluslararası Genişleme", category: "growth", budget: 80000, spent: 0, startDate: "2026-09-01", targetDate: "2026-12-01", priority: "high", status: "planned", notes: "", isRecurring: false, recurrence: "none" },
+  { id: "pl5", name: "CDN Altyapı Yükseltme", category: "opex", budget: 15000, spent: 15000, startDate: "2026-02-01", targetDate: "2026-04-01", priority: "low", status: "completed", notes: "", isRecurring: false, recurrence: "none" },
+  { id: "pl6", name: "Yeni İşe Alımlar (x3)", category: "opex", budget: 36000, spent: 0, startDate: "2026-08-01", targetDate: "2026-10-01", priority: "medium", status: "planned", notes: "", isRecurring: false, recurrence: "none" },
+];
+
+const initialPlannedItemPayments: PlannedItemPayment[] = [];
+
+/** Yayıncı hesap örnekleri — kullanıcı tarafından düzenlenebilir. */
+const initialStreamerAccounts: StreamerAccount[] = [
+  { id: "sa-ramiz-1",  employeeId: "emp-ramiz",  platform: "YouTube",  handle: "@ramiz",   url: "https://youtube.com/@ramiz",   notes: "Ana yayın kanalı",   status: "active" },
+  { id: "sa-ramiz-2",  employeeId: "emp-ramiz",  platform: "Kick",     handle: "ramiz",    url: "https://kick.com/ramiz",       notes: "Canlı yayın",        status: "active" },
+  { id: "sa-ramiz-3",  employeeId: "emp-ramiz",  platform: "Telegram", handle: "@ramiz",   url: "https://t.me/ramiz",           notes: "Duyuru kanalı",      status: "active" },
+  { id: "sa-lucy-1",   employeeId: "emp-lucy",   platform: "Kick",     handle: "lucy",     url: "https://kick.com/lucy",        notes: "Canlı yayın",        status: "active" },
+  { id: "sa-lucy-2",   employeeId: "emp-lucy",   platform: "Instagram",handle: "@lucy",    url: "https://instagram.com/lucy",   notes: "",                   status: "active" },
+  { id: "sa-acelya-1", employeeId: "emp-acelya", platform: "Kick",     handle: "acebaby",  url: "https://kick.com/acebaby",     notes: "Ana yayın",          status: "active" },
+  { id: "sa-acelya-2", employeeId: "emp-acelya", platform: "Instagram",handle: "@acebaby", url: "https://instagram.com/acebaby",notes: "",                   status: "active" },
+];
+
+/** Boş başlangıç — kullanıcı /izlenme sayfasından girişleri ekleyecek. */
+const initialBrandViewership: BrandViewership[] = [];
+const initialScheduleSlots: ScheduleSlot[] = [];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Markalar — şu an aktif olarak tanıtımı yapılan 5 marka
+// ─────────────────────────────────────────────────────────────────────────────
+export const initialBrands: Brand[] = [
+  { id: "br-gala",    name: "Galabet",    shortName: "Gala",    category: "Bahis",  status: "active", notes: "Aktif marka · Galagrup tişört baskısı vs.", monthlyTarget: 500_000 },
+  { id: "br-boffice", name: "Betoffice",  shortName: "Boffice", category: "Bahis",  status: "active", notes: "Aktif marka · Trans kadın vlog vb. içerikler",        monthlyTarget: 400_000 },
+  { id: "br-pipo",    name: "Betpipo",    shortName: "Pipo",    category: "Bahis",  status: "active", notes: "Aktif marka · Vlog ve yetişkin içerik bölümleri",     monthlyTarget: 500_000 },
+  { id: "br-hit",     name: "Hitbet",     shortName: "Hit",     category: "Bahis",  status: "active", notes: "Aktif marka · Hayvanat bahçesi vlogu, yetişkin içerik", monthlyTarget: 400_000 },
+  { id: "br-padi",    name: "Padişahbet", shortName: "Padi",    category: "Bahis",  status: "active", notes: "Aktif marka · Muay thai, ocakbaşı, yetişkin içerik",   monthlyTarget: 500_000 },
+];
+
+/**
+ * Her marka için platform link slot'ları — kullanıcı handle/URL'i sonradan dolduracak.
+ * Bu placeholder'lar otomatik takip için altyapı sağlar.
+ */
+export const initialBrandLinks: BrandLink[] = (() => {
+  const platforms: Array<{ platform: string; sample: string }> = [
+    { platform: "Instagram", sample: "https://instagram.com/" },
+    { platform: "Kick",      sample: "https://kick.com/" },
+    { platform: "TikTok",    sample: "https://tiktok.com/@" },
+    { platform: "YouTube",   sample: "https://youtube.com/@" },
+  ];
+  const links: BrandLink[] = [];
+  initialBrands.forEach((b) => {
+    platforms.forEach((p) => {
+      links.push({
+        id: `bl-${b.id}-${p.platform.toLowerCase()}`,
+        brandId: b.id,
+        platform: p.platform,
+        handle: "",
+        url: "",
+        status: "active",
+        notes: "Handle/URL girilince otomatik takip aktifleşir",
+        autoTrack: true,
+      });
+    });
+  });
+  return links;
+})();
+
+const initialLinkSnapshots: LinkSnapshot[] = [];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kasa — Denetim grubuna iletilen tüm para giriş/çıkışları
+// Kaynak: Telegram grubu mesaj kayıtları (27 Nisan 2026'dan başlayarak)
+// ─────────────────────────────────────────────────────────────────────────────
+export const initialKasaTransactions: KasaTransaction[] = [
+  { id: "ka-01", date: "2026-04-27T16:41", direction: "in",  amountUsd:  681, feeUsd: 0, purpose: "Kasa devir alındı (proje devri)",            counterparty: "Proje öncesi bakiye",      proof: "", notes: "Foxstream Medya Grubu / Faturalar sekmesi" },
+  { id: "ka-02", date: "2026-04-28T16:16", direction: "in",  amountUsd: 5000, feeUsd: 0, purpose: "Kasaya transfer girişi",                       counterparty: "Şirket havalesi",         proof: "2f7c8ebabf81a9a6476cbade594d08ad0db8275152ec3f4e776085e49cc29402", notes: "TronScan TX · 5.000 USDT" },
+  { id: "ka-03", date: "2026-04-28T17:34", direction: "out", amountUsd:  300, feeUsd: 4, purpose: "Galagrup tişört baskısı",                       counterparty: "Lucy",                    proof: "", notes: "Kasa: 5.681 → 5.377 USDT (300 + 4 fee)" },
+  { id: "ka-04", date: "2026-04-28T21:12", direction: "out", amountUsd: 2000, feeUsd: 4, purpose: "Acelya bilet + ekstra giderler",               counterparty: "Acelya",                  proof: "", notes: "Yeni yayıncı bilet harcama tutarı · yol desteği. Kasa: 5.377 → 3.373" },
+  { id: "ka-05", date: "2026-04-30T14:49", direction: "out", amountUsd:  800, feeUsd: 4, purpose: "Konaklama / havaalanı transferi / elzem",      counterparty: "Operasyon",               proof: "", notes: "Kasa: 3.373 → 2.569 USDT" },
+  { id: "ka-06", date: "2026-05-01T09:27", direction: "out", amountUsd:  500, feeUsd: 0, purpose: "1 Mayıs harçlık (5 kişi)",                     counterparty: "Açelya/Lucy/Karo/Ramiz/Ege", proof: "", notes: "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT" },
+  { id: "ka-07", date: "2026-05-04T09:47", direction: "out", amountUsd:  900, feeUsd: 5, purpose: "Acelya bagaj ücreti",                          counterparty: "Acelya",                  proof: "", notes: "Kasa: 2.069 → 1.164 USDT" },
+  { id: "ka-08", date: "2026-05-04T11:32", direction: "out", amountUsd:  500, feeUsd: 4, purpose: "Lucy aylık maaş ödemesi (kısmi)",              counterparty: "Lucy",                    proof: "https://teamzone.gyazo.com/c53d91ab8f64767362bf8d777c683119", notes: "Grup mesajı talimatı · Lucy cüzdan adresi" },
+  { id: "ka-09", date: "2026-05-04T11:32", direction: "out", amountUsd:  200, feeUsd: 4, purpose: "Acelya doğum günü hediyesi",                   counterparty: "Acelya",                  proof: "", notes: "Grup mesajı talimatı · Acelya cüzdan adresi · Kasa: 1.164 → 456 USDT (500+200+8 fee)" },
+  { id: "ka-10", date: "2026-05-06T16:13", direction: "out", amountUsd:   20, feeUsd: 0, purpose: "Telegram Premium (foxstreamkaro)",              counterparty: "Karo (Telegram)",         proof: "", notes: "HongKong Doları · tutar tahmini · Kasa: 456 → 436 USDT" },
+  { id: "ka-11", date: "2026-05-08T12:47", direction: "out", amountUsd:  170, feeUsd: 3, purpose: "Çekim ve edit ücreti",                         counterparty: "Lucy",                    proof: "", notes: "Kasa: 436 → 263 USDT" },
+  { id: "ka-12", date: "2026-05-11T20:42", direction: "out", amountUsd:  100, feeUsd: 0, purpose: "Stake döviz — TRX alımı (transfer ödemeleri için)", counterparty: "TRX cüzdan",              proof: "", notes: "~100 USDT karşılığı TRX · Kasa: 263 → 163 USDT" },
+];
+
+/** Eski kayıtlarda ka-06 için 20 USD fee yanlışlıkla kasadan düşüyordu; net −500 olmalı (163 güncel bakiye). */
+function migrateKasaTransactions(txns: KasaTransaction[]): KasaTransaction[] {
+  return txns.map((t) =>
+    t.id === "ka-06" && t.feeUsd === 20
+      ? {
+          ...t,
+          feeUsd: 0,
+          notes:
+            "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT",
+        }
+      : t
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// İçerik harcamaları — Ramiz Nisan 2026 raporu (29.04.2026 grup mesajı)
+// Toplam $13.095 — 1 Mayıs 2026'da ödendi ve onaylandı
+// ─────────────────────────────────────────────────────────────────────────────
+const RAMIZ_APR_BASE = {
+  date: "2026-04-29",
+  month: "2026-04",
+  employeeId: "emp-ramiz",
+  paid: true,
+  paidDate: "2026-05-01",
+  submittedAt: "2026-04-29T17:56",
+  submittedBy: "u-ramiz",
+  reviewStatus: "approved" as const,
+  reviewedAt: "2026-04-30T10:00",
+  reviewedBy: "u-admin",
+  reviewerNote: "Tüm kalemler onaylandı, 1 Mayıs ödemesinde tahsil edildi.",
+  audited: false,
+};
+
+export const initialContentExpenses: ContentExpense[] = [
+  { ...RAMIZ_APR_BASE, id: "ce-r-01", brandId: "br-padi",    brandName: "Padi",    category: "Vlog",            description: "Muay thai vlogu · mekan, aksesuar, yol dahil",          amountUsd:  154, amountThb:  5000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-02", brandId: "br-pipo",    brandName: "Pipo",    category: "Vlog",            description: "Dünyanın en tuhaf yemeklerini yedim · genel giderler", amountUsd:  123, amountThb:  4000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-03", brandId: "br-padi",    brandName: "Padi",    category: "Yetişkin İçerik", description: "Üvey şıllık · kameraman + yemek (1.400 baht + $500)",  amountUsd:  543, amountThb:  1400, notes: "$500 + 1.400 baht ($43) = $543" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-04",                       brandName: "Siteler", category: "Site Videoları",  description: "5 video çekimi · kıza verilen ücret",                  amountUsd:   31, amountThb:  1000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-05", brandId: "br-hit",     brandName: "Hit",     category: "Vlog",            description: "Hayvanat bahçesi vlogu (Bangkok) · taksi dahil",        amountUsd:  368, amountThb: 12000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-06", brandId: "br-gala",    brandName: "Gala",    category: "Vlog",            description: "Songkran bölümü",                                       amountUsd:   77, amountThb:  2500, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-07", brandId: "br-pipo",    brandName: "Pipo",    category: "Yetişkin İçerik", description: "POWER NECMİ bölümü",                                    amountUsd:  531, amountThb:     0, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-08",                       brandName: "Siteler", category: "Site Videoları",  description: "5 video çekimi (2. parti)",                             amountUsd:   31, amountThb:  1000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-09", brandId: "br-boffice", brandName: "Boffice", category: "Vlog",            description: "Trans kadın vlog",                                      amountUsd:  153, amountThb:  5000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-10", brandId: "br-padi",    brandName: "Padi",    category: "Vlog",            description: "OCAKBAŞI vlogu",                                        amountUsd:   77, amountThb:  2500, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-11", brandId: "br-gala",    brandName: "Gala",    category: "Yetişkin İçerik", description: "Uzaktan kumanda bölümü",                                amountUsd:  531, amountThb:     0, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-12",                       brandName: "Siteler", category: "Site Videoları",  description: "5 video çekimi (3. parti)",                             amountUsd:   31, amountThb:  1000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-13", brandId: "br-pipo",    brandName: "Pipo",    category: "Vlog",            description: "Sıra gecesi vlogu",                                     amountUsd:  245, amountThb:  8000, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-14", brandId: "br-hit",     brandName: "Hit",     category: "Yetişkin İçerik", description: "Yetişkin içeriği bölümü",                                amountUsd:  500, amountThb:     0, notes: "" },
+  { ...RAMIZ_APR_BASE, id: "ce-r-15",                       brandName: "Reklam",  category: "Reklam",          description: "3 vlog için reklam çıkıldı",                            amountUsd:  300, amountThb:     0, notes: "" },
+];
+
+// Boş başlangıç — yayıncı kullanıcıları kendi planlarını ekleyecek.
+const initialWeeklyPlans: WeeklyPlan[] = [];
+const initialWeekBrandReels: WeekBrandReel[] = [];
+const initialNotifications: AppNotification[] = [];
+
+/**
+ * Ödeme durumları — Ramiz'in Nisan 2026 maaşı 1 Mayıs 2026'da ödendi
+ * (Telegram grup mesajı: "Bu ay yatacak olan maaş tutarı: 8 bin $").
+ */
+export const initialPaymentStatuses: MonthPaymentStatus[] = [
+  { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: kira propagasyonu
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `Employee.rentSupport` her değiştiğinde tip="rent" salaryExtras kayıtlarını
+ * verilen aydan itibaren 12 aylık ufka kadar otomatik senkronlar:
+ * - Mevcut kayıtların `amount` değeri güncellenir (description korunur).
+ * - Eksik aylar için yeni kayıt üretilir (id deterministik).
+ * - `amount === 0` ise ilgili aralıktaki kira kayıtları silinir.
+ *
+ * Önemli: `fromMonth < payrollStartMonth` ise propagasyon `payrollStartMonth`
+ * itibarıyla başlar (bordro dışı aylara kira yazılmaz).
+ */
+export function propagateRentForEmployee(
+  salaryExtras: SalaryExtra[],
+  employee: Employee,
+  amount: number,
+  fromMonth: string
+): SalaryExtra[] {
+  const effectiveFrom = ymGte(fromMonth, employee.payrollStartMonth)
+    ? fromMonth
+    : employee.payrollStartMonth;
+
+  const horizonMonths: string[] = [];
+  const [y0, m0] = effectiveFrom.split("-").map(Number);
+  for (let i = 0; i < 12; i++) {
+    const y = y0 + Math.floor((m0 - 1 + i) / 12);
+    const m = ((m0 - 1 + i) % 12) + 1;
+    horizonMonths.push(`${y}-${String(m).padStart(2, "0")}`);
+  }
+
+  const existingMonths = new Set(
+    salaryExtras
+      .filter((e) => e.employeeId === employee.id && e.type === "rent")
+      .map((e) => e.month)
+  );
+
+  // 1) Mevcut kayıtları güncelle (description korunur).
+  let next = salaryExtras.map((e) =>
+    e.employeeId === employee.id && e.type === "rent" && ymGte(e.month, effectiveFrom)
+      ? { ...e, amount }
+      : e
+  );
+
+  // 2) Eksik ayları üret (yalnızca amount > 0).
+  if (amount > 0) {
+    const toCreate = horizonMonths
+      .filter((m) => !existingMonths.has(m))
+      .map((m) => ({
+        id: `se-${employee.id.replace(/^emp-/, "")}-rent-${m}`,
+        employeeId: employee.id,
+        month: m,
+        amount,
+        description: "Ev kira desteği (aylık)",
+        type: "rent" as const,
+      }));
+    next = [...next, ...toCreate];
+  } else {
+    // amount = 0 → effectiveFrom ve sonrası rent kayıtlarını sil.
+    next = next.filter(
+      (e) => !(e.employeeId === employee.id && e.type === "rent" && ymGte(e.month, effectiveFrom))
+    );
+  }
+
+  return next;
+}
+
+/**
+ * Çalışan sözleşmesindeki `rentSupport` ile bu ayın `salary_extras` (tip=rent)
+ * kaydı uyumsuzsa otomatik düzeltir. Eski bug sonrası DB/localStorage'ta kalan
+ * eski kira tutarlarını girişte onarır.
+ */
+export function reconcileRentExtrasForAllEmployees(
+  employees: Employee[],
+  salaryExtras: SalaryExtra[]
+): SalaryExtra[] {
+  const today = new Date().toISOString().slice(0, 7);
+  let next = salaryExtras;
+  for (const emp of employees) {
+    if (emp.rentSupport <= 0 || emp.status !== "active") continue;
+    if (!ymGte(today, emp.payrollStartMonth)) continue;
+    const fromMonth = ymGte(today, emp.payrollStartMonth) ? today : emp.payrollStartMonth;
+    const monthRent = next.find(
+      (e) => e.employeeId === emp.id && e.type === "rent" && e.month === fromMonth
+    );
+    if (!monthRent || monthRent.amount !== emp.rentSupport) {
+      next = propagateRentForEmployee(next, emp, emp.rentSupport, fromMonth);
+    }
+  }
+  return next;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Store implementasyonu
+// ─────────────────────────────────────────────────────────────────────────────
+
+const storeCreator: StateCreator<AppStore> = (set) => ({
+      employees:           initialEmployees,
+      advances:            initialAdvances,
+      salaryExtras:        initialSalaryExtras,
+      paymentStatuses:     initialPaymentStatuses,
+      companies:           initialCompanies,
+      sponsorTransactions: initialSponsorTransactions,
+      projects:            initialProjects,
+      projectPayments:     initialProjectPayments,
+      expenses:            initialExpenses,
+      plannedItems:        initialPlanned,
+      plannedItemPayments: initialPlannedItemPayments,
+      streamerAccounts:    initialStreamerAccounts,
+      scheduleSlots:       initialScheduleSlots,
+      brands:              initialBrands,
+      brandLinks:          initialBrandLinks,
+      linkSnapshots:       initialLinkSnapshots,
+      brandViewership:     initialBrandViewership,
+      kasaTransactions:    initialKasaTransactions,
+      contentExpenses:     initialContentExpenses,
+      weeklyPlans:         initialWeeklyPlans,
+      weekBrandReels:      initialWeekBrandReels,
+      notifications:       initialNotifications,
+
+      // Employee
+      addEmployee:    (e)        => set((s) => {
+        const emp: Employee = { ...e, id: uid() };
+        let salaryExtras = s.salaryExtras;
+        if (emp.rentSupport > 0) {
+          salaryExtras = propagateRentForEmployee(
+            salaryExtras,
+            emp,
+            emp.rentSupport,
+            emp.payrollStartMonth
+          );
+        }
+        return { employees: [...s.employees, emp], salaryExtras };
+      }),
+      updateEmployee: (id, e)    => set((s) => {
+        const before = s.employees.find((x) => x.id === id);
+        if (!before) return {};
+        const after = { ...before, ...e } as Employee;
+        const employees = s.employees.map((x) => (x.id === id ? after : x));
+        // rentSupport değiştiyse: salaryExtras üzerinde tip="rent" kayıtları
+        // mevcut ay ve sonraki tüm aylar için otomatik güncellensin.
+        if (typeof e.rentSupport === "number" && e.rentSupport !== before.rentSupport) {
+          const today = new Date().toISOString().slice(0, 7);
+          const fromMonth = ymGte(today, after.payrollStartMonth) ? today : after.payrollStartMonth;
+          return {
+            employees,
+            salaryExtras: propagateRentForEmployee(s.salaryExtras, after, e.rentSupport, fromMonth),
+          };
+        }
+        return { employees };
+      }),
+      deleteEmployee: (id)       => set((s) => ({ employees: s.employees.filter((x) => x.id !== id) })),
+
+      // Advance
+      addAdvance:    (a)         => set((s) => ({ advances: [...s.advances, { ...a, id: uid() }] })),
+      updateAdvance: (id, a)     => set((s) => ({ advances: s.advances.map((x) => (x.id === id ? { ...x, ...a } : x)) })),
+      deleteAdvance: (id)        => set((s) => ({ advances: s.advances.filter((x) => x.id !== id) })),
+
+      // Salary extra
+      addSalaryExtra:    (e)     => set((s) => ({ salaryExtras: [...s.salaryExtras, { ...e, id: uid() }] })),
+      updateSalaryExtra: (id, e) => set((s) => ({ salaryExtras: s.salaryExtras.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
+      deleteSalaryExtra: (id)    => set((s) => ({ salaryExtras: s.salaryExtras.filter((x) => x.id !== id) })),
+      syncRentSupportFromMonth: (employeeId, fromMonth, amount) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          return {
+            salaryExtras: propagateRentForEmployee(s.salaryExtras, employee, amount, fromMonth),
+          };
+        }),
+
+      setPaymentStatus: (employeeId, month, paid, paidDate, paidBy) =>
+        set((s) => {
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month
+          );
+          const approvedAt = paid ? new Date().toISOString() : undefined;
+          if (existing) {
+            return {
+              paymentStatuses: s.paymentStatuses.map((p) =>
+                p.employeeId === employeeId && p.month === month
+                  ? { ...p, paid, paidDate, paidBy: paid ? paidBy : undefined, approvedAt }
+                  : p
+              ),
+            };
+          }
+          return { paymentStatuses: [...s.paymentStatuses, { employeeId, month, paid, paidDate, paidBy: paid ? paidBy : undefined, approvedAt }] };
+        }),
+
+      // Company
+      addCompany:    (c)         => set((s) => ({ companies: [...s.companies, { ...c, id: uid() }] })),
+      updateCompany: (id, c)     => set((s) => ({ companies: s.companies.map((x) => (x.id === id ? { ...x, ...c } : x)) })),
+      deleteCompany: (id)        => set((s) => ({ companies: s.companies.filter((x) => x.id !== id) })),
+
+      // Sponsor transaction
+      addSponsorTransaction:    (t)     => set((s) => ({ sponsorTransactions: [...s.sponsorTransactions, { ...t, id: uid() }] })),
+      updateSponsorTransaction: (id, t) => set((s) => ({ sponsorTransactions: s.sponsorTransactions.map((x) => (x.id === id ? { ...x, ...t } : x)) })),
+      deleteSponsorTransaction: (id)    => set((s) => ({ sponsorTransactions: s.sponsorTransactions.filter((x) => x.id !== id) })),
+
+      // Project
+      addProject:    (p)         => set((s) => ({ projects: [...s.projects, { ...defaultProjectFields(p), id: uid() }] })),
+      updateProject: (id, p)     => set((s) => ({ projects: s.projects.map((x) => (x.id === id ? { ...x, ...p } : x)) })),
+      deleteProject: (id)        => set((s) => ({
+        projects: s.projects.filter((x) => x.id !== id),
+        projectPayments: s.projectPayments.filter((pay) => pay.projectId !== id),
+      })),
+
+      addProjectPayment: (p) => set((s) => ({
+        projectPayments: [...s.projectPayments, { ...p, id: uid() }],
+      })),
+      updateProjectPayment: (id, p) => set((s) => ({
+        projectPayments: s.projectPayments.map((x) => (x.id === id ? { ...x, ...p } : x)),
+      })),
+      deleteProjectPayment: (id) => set((s) => ({
+        projectPayments: s.projectPayments.filter((x) => x.id !== id),
+      })),
+
+      // Expense
+      addExpense:    (e)         => set((s) => ({ expenses: [...s.expenses, { ...e, id: uid() }] })),
+      updateExpense: (id, e)     => set((s) => ({ expenses: s.expenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
+      deleteExpense: (id)        => set((s) => ({ expenses: s.expenses.filter((x) => x.id !== id) })),
+
+      // Planned
+      addPlannedItem: (i) => set((s) => ({
+        plannedItems: [...s.plannedItems, {
+          ...i,
+          id: uid(),
+          category: i.category ?? "other",
+          spent: i.spent ?? 0,
+          startDate: i.startDate ?? "",
+          isRecurring: i.isRecurring ?? false,
+          recurrence: i.recurrence ?? "none",
+        }],
+      })),
+      updatePlannedItem: (id, i) => set((s) => ({
+        plannedItems: s.plannedItems.map((x) => (x.id === id ? { ...x, ...i } : x)),
+      })),
+      deletePlannedItem: (id) => set((s) => ({
+        plannedItems: s.plannedItems.filter((x) => x.id !== id),
+        plannedItemPayments: s.plannedItemPayments.filter((p) => p.plannedItemId !== id),
+      })),
+
+      addPlannedItemPayment: (p) => set((s) => ({
+        plannedItemPayments: [...s.plannedItemPayments, { ...p, id: uid() }],
+      })),
+      updatePlannedItemPayment: (id, p) => set((s) => ({
+        plannedItemPayments: s.plannedItemPayments.map((x) => (x.id === id ? { ...x, ...p } : x)),
+      })),
+      deletePlannedItemPayment: (id) => set((s) => ({
+        plannedItemPayments: s.plannedItemPayments.filter((x) => x.id !== id),
+      })),
+
+      // Streamer accounts
+      addStreamerAccount:    (a)     => set((s) => ({ streamerAccounts: [...s.streamerAccounts, { ...a, id: uid() }] })),
+      updateStreamerAccount: (id, a) => set((s) => ({ streamerAccounts: s.streamerAccounts.map((x) => (x.id === id ? { ...x, ...a } : x)) })),
+      deleteStreamerAccount: (id)    => set((s) => ({ streamerAccounts: s.streamerAccounts.filter((x) => x.id !== id) })),
+
+      // Schedule
+      addScheduleSlot:    (sl)    => set((s) => ({ scheduleSlots: [...s.scheduleSlots, { ...sl, id: uid() }] })),
+      updateScheduleSlot: (id, sl)=> set((s) => ({ scheduleSlots: s.scheduleSlots.map((x) => (x.id === id ? { ...x, ...sl } : x)) })),
+      deleteScheduleSlot: (id)    => set((s) => ({ scheduleSlots: s.scheduleSlots.filter((x) => x.id !== id) })),
+
+      // Viewership
+      addBrandViewership:    (v)     => set((s) => ({ brandViewership: [...s.brandViewership, { ...v, id: uid() }] })),
+      updateBrandViewership: (id, v) => set((s) => ({ brandViewership: s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x)) })),
+      deleteBrandViewership: (id)    => set((s) => ({ brandViewership: s.brandViewership.filter((x) => x.id !== id) })),
+
+      // Brand
+      addBrand:    (b)     => set((s) => ({ brands: [...s.brands, { ...b, id: uid() }] })),
+      updateBrand: (id, b) => set((s) => ({ brands: s.brands.map((x) => (x.id === id ? { ...x, ...b } : x)) })),
+      deleteBrand: (id)    => set((s) => ({ brands: s.brands.filter((x) => x.id !== id) })),
+
+      // Brand link
+      addBrandLink:    (l)     => set((s) => ({ brandLinks: [...s.brandLinks, { ...l, id: uid() }] })),
+      updateBrandLink: (id, l) => set((s) => ({ brandLinks: s.brandLinks.map((x) => (x.id === id ? { ...x, ...l } : x)) })),
+      deleteBrandLink: (id)    => set((s) => ({ brandLinks: s.brandLinks.filter((x) => x.id !== id) })),
+
+      // Link snapshot
+      addLinkSnapshot:    (sn)    => set((s) => ({ linkSnapshots: [...s.linkSnapshots, { ...sn, id: uid() }] })),
+      updateLinkSnapshot: (id, sn)=> set((s) => ({ linkSnapshots: s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x)) })),
+      deleteLinkSnapshot: (id)    => set((s) => ({ linkSnapshots: s.linkSnapshots.filter((x) => x.id !== id) })),
+
+      // Kasa
+      addKasaTransaction:    (t)     => set((s) => ({ kasaTransactions: [...s.kasaTransactions, { ...t, id: uid() }] })),
+      updateKasaTransaction: (id, t) => set((s) => ({ kasaTransactions: s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x)) })),
+      deleteKasaTransaction: (id)    => set((s) => ({ kasaTransactions: s.kasaTransactions.filter((x) => x.id !== id) })),
+
+      // Content expense
+      addContentExpense:    (e)     => set((s) => ({ contentExpenses: [...s.contentExpenses, { ...e, id: uid() }] })),
+      updateContentExpense: (id, e) => set((s) => ({ contentExpenses: s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
+      deleteContentExpense: (id)    => set((s) => ({ contentExpenses: s.contentExpenses.filter((x) => x.id !== id) })),
+
+      // Weekly plan
+      addWeeklyPlan:    (p)     => set((s) => ({ weeklyPlans: [...s.weeklyPlans, { ...p, id: uid() }] })),
+      updateWeeklyPlan: (id, p) => set((s) => ({ weeklyPlans: s.weeklyPlans.map((x) => (x.id === id ? { ...x, ...p } : x)) })),
+      deleteWeeklyPlan: (id)    => set((s) => ({ weeklyPlans: s.weeklyPlans.filter((x) => x.id !== id) })),
+
+      addWeekBrandReel: (r) => set((s) => ({
+        weekBrandReels: [
+          ...s.weekBrandReels,
+          { ...r, id: uid(), createdAt: new Date().toISOString() },
+        ],
+      })),
+      updateWeekBrandReel: (id, r) => set((s) => ({
+        weekBrandReels: s.weekBrandReels.map((x) => (x.id === id ? { ...x, ...r } : x)),
+      })),
+      deleteWeekBrandReel: (id) => set((s) => ({
+        weekBrandReels: s.weekBrandReels.filter((x) => x.id !== id),
+      })),
+
+      // Notifications
+      pushNotification: (n) => set((s) => ({
+        notifications: [
+          { ...n, id: uid(), createdAt: new Date().toISOString(), read: false },
+          ...s.notifications,
+        ].slice(0, 200), // son 200 ile sınırla
+      })),
+      markNotificationRead: (id) => set((s) => ({
+        notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      })),
+      markAllNotificationsRead: (forRole, forUserId) => set((s) => ({
+        notifications: s.notifications.map((n) => {
+          const match = n.forRole === forRole && (!forUserId || !n.forUserId || n.forUserId === forUserId);
+          return match ? { ...n, read: true } : n;
+        }),
+      })),
+      deleteNotification: (id) => set((s) => ({
+        notifications: s.notifications.filter((n) => n.id !== id),
+      })),
+
+      hydrateFromBackup: (data) =>
+        set((s) => {
+          const next = { ...s };
+          for (const k of APP_SNAPSHOT_KEYS) {
+            const v = data[k];
+            if (v !== undefined && v !== null) (next as Record<string, unknown>)[k as string] = v;
+          }
+          return next;
+        }),
+});
+
+const storePersistConfig = {
+      name: "lanetkel-store-v7-icgelir-empty",
+      merge: (persistedState: unknown, currentState: AppStore) => {
+        const p = (persistedState ?? {}) as Partial<AppStore>;
+        const rawProjects = Array.isArray(p.projects) ? p.projects : [];
+        const projects =
+          rawProjects.length > 0 && rawProjects.every((x) => LEGACY_IC_GELIR_SEED_IDS.has(x.id))
+            ? initialProjects
+            : rawProjects.length > 0
+              ? rawProjects
+              : initialProjects;
+        const kasaSrc =
+          Array.isArray(p.kasaTransactions) && p.kasaTransactions.length > 0
+            ? p.kasaTransactions
+            : (currentState as { kasaTransactions: KasaTransaction[] }).kasaTransactions;
+        return {
+          ...currentState,
+          ...p,
+          projects,
+          kasaTransactions: migrateKasaTransactions(kasaSrc),
+          weekBrandReels: Array.isArray(p.weekBrandReels) ? p.weekBrandReels : [],
+        };
+      },
+    } as const;
+
+export const useStore = isSupabaseClientMode()
+  ? create<AppStore>()(storeCreator)
+  : create<AppStore>()(persist(storeCreator, storePersistConfig));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bildirim & plan yardımcıları
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Verilen tarihin Pazartesi'sini ISO YYYY-MM-DD olarak döndürür. */
+export function weekStartOf(d: Date | string = new Date()): string {
+  const date = typeof d === "string" ? new Date(d + "T00:00:00") : new Date(d);
+  const dow  = (date.getDay() + 6) % 7; // 0 = Pzt
+  date.setDate(date.getDate() - dow);
+  return date.toISOString().slice(0, 10);
+}
+
+export function nextWeekStartOf(d: Date | string = new Date()): string {
+  const m = new Date(weekStartOf(d) + "T00:00:00");
+  m.setDate(m.getDate() + 7);
+  return m.toISOString().slice(0, 10);
+}
+
+/** Bekleyen onay sayısı (yayıncı harcaması). */
+export function pendingExpenseCount(expenses: ContentExpense[]): number {
+  return expenses.filter((e) => e.reviewStatus === "pending").length;
+}
+
+/** Rol için okunmamış bildirim sayısı. */
+export function unreadNotificationCount(
+  notifications: AppNotification[],
+  role: "admin" | "auditor" | "streamer" | "brand",
+  userId?: string
+): number {
+  return notifications.filter((n) =>
+    !n.read &&
+    n.forRole === role &&
+    (!n.forUserId || !userId || n.forUserId === userId)
+  ).length;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Türev hesaplamalar
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** İki ay anahtarını karşılaştır ("2026-04" >= "2026-03"). */
+const ymGte = (a: string, b: string) => a.localeCompare(b) >= 0;
+const ymGt  = (a: string, b: string) => a.localeCompare(b) >  0;
+
+/** Çalışan, verilen ay için maaş bordrosunda mı? (payrollStartMonth uygulanır.) */
+export function isPayrollActive(employee: Employee, month: string) {
+  return employee.status === "active" && ymGte(month, employee.payrollStartMonth);
+}
+
+/** Önceki aylardan ödenmemiş avans tutarı (carry-forward). */
+export function calcCarryForward(
+  employeeId: string,
+  currentMonth: string,
+  advances: Advance[],
+  paymentStatuses: MonthPaymentStatus[]
+): number {
+  return advances
+    .filter((a) => {
+      if (a.employeeId !== employeeId) return false;
+      if (!ymGt(currentMonth, a.month)) return false;
+      const paid = paymentStatuses.find(
+        (p) => p.employeeId === employeeId && p.month === a.month && p.paid
+      );
+      return !paid;
+    })
+    .reduce((s, a) => s + a.amount, 0);
+}
+
+/** Verilen aya kadar yapılan avans geri ödemelerinin toplamı (deduction'lar). */
+export function calcAdvanceRepaid(
+  employeeId: string,
+  asOfMonth: string,
+  salaryExtras: SalaryExtra[]
+): number {
+  return salaryExtras
+    .filter((e) =>
+      e.employeeId === employeeId &&
+      e.type === "deduction" &&
+      /avans/i.test(e.description) &&
+      ymGte(asOfMonth, e.month)
+    )
+    .reduce((s, e) => s + e.amount, 0);
+}
+
+/** İçeride kalan açık avans bakiyesi (asOfMonth dahil olduktan sonra). */
+export function calcOpenAdvanceBalance(
+  employee: Employee,
+  asOfMonth: string,
+  salaryExtras: SalaryExtra[]
+): number {
+  const repaid = calcAdvanceRepaid(employee.id, asOfMonth, salaryExtras);
+  return Math.max(0, employee.initialAdvance - repaid);
+}
+
+export function calcNetPayable(
+  employee: Employee,
+  month: string,
+  advances: Advance[],
+  extras: SalaryExtra[],
+  paymentStatuses: MonthPaymentStatus[] = []
+): number {
+  if (!isPayrollActive(employee, month)) return 0;
+
+  const empAdvances  = advances.filter((a) => a.employeeId === employee.id && a.month === month);
+  const empExtras    = extras.filter((e) => e.employeeId === employee.id && e.month === month);
+  const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
+  const carryFwd     = calcCarryForward(employee.id, month, advances, paymentStatuses);
+
+  const rentExtras = empExtras.filter((e) => e.type === "rent");
+  const rentFromExtras = rentExtras.reduce((s, e) => s + e.amount, 0);
+  const otherAdd = empExtras
+    .filter((e) => e.type !== "deduction" && e.type !== "rent")
+    .reduce((s, e) => s + e.amount, 0);
+  // Kira kalemi yoksa sözleşmedeki rentSupport kullanılır (bekleyen ödeme tutarı doğru kalsın).
+  const rentAdd = rentExtras.length > 0 ? rentFromExtras : employee.rentSupport;
+  const totalAdd = otherAdd + rentAdd;
+  const totalDeduc = empExtras
+    .filter((e) => e.type === "deduction")
+    .reduce((s, e) => s + e.amount, 0);
+
+  return employee.baseSalary + totalAdd - totalDeduc - totalAdvance - carryFwd;
+}
+
+/** Bu ay için onaylı içerik harcaması toplamı (red / onay bekleyen / bilgi istenen hariç). */
+export function sumApprovedContentExpenses(
+  expenses: ContentExpense[],
+  employeeId: string,
+  month: string
+): number {
+  return expenses
+    .filter((e) => {
+      if (e.employeeId !== employeeId || e.month !== month) return false;
+      if (e.reviewStatus === "rejected" || e.reviewStatus === "cancelled") return false;
+      if (e.reviewStatus === "pending" || e.reviewStatus === "needs_info") return false;
+      return true;
+    })
+    .reduce((s, e) => s + e.amountUsd, 0);
+}
+
+/** Bu ay için `paid` işaretli içerik harcamaları. */
+export function sumPaidContentExpenses(
+  expenses: ContentExpense[],
+  employeeId: string,
+  month: string
+): number {
+  return expenses
+    .filter((e) => e.employeeId === employeeId && e.month === month && e.paid)
+    .reduce((s, e) => s + e.amountUsd, 0);
+}
+
+/** Maaş ödemesi işaretliyse net ödenecek tutar, değilse 0. */
+export function salaryPaidOutForMonth(
+  employee: Employee,
+  month: string,
+  advances: Advance[],
+  extras: SalaryExtra[],
+  paymentStatuses: MonthPaymentStatus[]
+): number {
+  if (!isPayrollActive(employee, month)) return 0;
+  const st = paymentStatuses.find((p) => p.employeeId === employee.id && p.month === month);
+  if (!st?.paid) return 0;
+  return calcNetPayable(employee, month, advances, extras, paymentStatuses);
+}
+
+/** Maaş (ödenen kısım) + içerik harcamalarında ödenen. */
+export function totalCashOutPaidForMonth(
+  employee: Employee,
+  month: string,
+  advances: Advance[],
+  extras: SalaryExtra[],
+  paymentStatuses: MonthPaymentStatus[],
+  contentExpenses: ContentExpense[]
+): number {
+  return (
+    salaryPaidOutForMonth(employee, month, advances, extras, paymentStatuses) +
+    sumPaidContentExpenses(contentExpenses, employee.id, month)
+  );
+}
+
+/** Planlanan ay çıkışı: net maaş yükümlülüğü + onaylı içerik (bordro yoksa yalnızca onaylı içerik). */
+export function plannedPayrollPlusApprovedContent(
+  employee: Employee,
+  month: string,
+  advances: Advance[],
+  extras: SalaryExtra[],
+  paymentStatuses: MonthPaymentStatus[],
+  contentExpenses: ContentExpense[]
+): number {
+  const net = isPayrollActive(employee, month)
+    ? calcNetPayable(employee, month, advances, extras, paymentStatuses)
+    : 0;
+  return net + sumApprovedContentExpenses(contentExpenses, employee.id, month);
+}
+
+/** Belirli bir tarihe (veya günün sonuna) kadar kasa bakiyesini hesaplar (USD). */
+export function calcKasaBalance(txns: KasaTransaction[], asOfDate?: string): number {
+  const sorted = [...txns].sort((a, b) => a.date.localeCompare(b.date));
+  let balance = 0;
+  for (const t of sorted) {
+    if (asOfDate && t.date > asOfDate) break;
+    if (t.direction === "in") balance += t.amountUsd;
+    else                       balance -= (t.amountUsd + t.feeUsd);
+  }
+  return balance;
+}
+
+/** Bir markaya ait toplam content expense (verilen ay için). */
+export function calcContentExpenseByBrand(
+  expenses: ContentExpense[],
+  brandName: string,
+  month?: string
+): number {
+  return expenses
+    .filter((e) => e.brandName === brandName && (!month || e.month === month))
+    .reduce((s, e) => s + e.amountUsd, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Yardımcı sabitler
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"] as const;
+export const WEEKDAYS_LONG = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"] as const;
+
+export const SOCIAL_PLATFORMS = ["Instagram", "Kick", "TikTok", "YouTube", "Twitter / X", "Twitch", "Telegram", "Discord", "Diğer"] as const;

@@ -1,0 +1,12 @@
+node_modules
+.next
+.vercel
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+scripts/seed.cjs
+scripts/*.log
+seed.sql
+seed-err.log
+/tmp
