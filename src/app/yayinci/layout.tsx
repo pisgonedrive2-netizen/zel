@@ -30,9 +30,9 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
     <div className="w-full min-w-0">
       <nav
         aria-label="Yayıncı bölümleri"
-        className="sticky top-0 z-40 border-b border-border/70 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80"
+        className="-mx-3 mb-3 border-b border-border/70 bg-background/95 sm:-mx-6 md:-mx-8 lg:-mx-10"
       >
-        <div className="mx-auto flex max-w-[1400px] gap-2 overflow-x-auto px-4 py-3 sm:px-6 sm:py-3.5 md:px-8 md:py-4 lg:px-10">
+        <div className="mx-auto flex max-w-[1400px] gap-2 overflow-x-auto px-3 py-2.5 sm:px-6 md:px-8 lg:px-10">
           {NAV.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const showDot = item.match === "harcamalar" && pendingCount > 0;

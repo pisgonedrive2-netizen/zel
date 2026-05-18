@@ -376,7 +376,7 @@ function AccountForm({ employeeId, initial, onSave, onDelete, onClose }: {
         {favicon && form.url && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={favicon} alt="" className="w-6 h-6 rounded" />
+            <img src={favicon} alt="" loading="lazy" className="w-6 h-6 rounded border border-border bg-white object-contain p-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium">{urlHostname(form.url)}</p>
               <p className="text-[10px] text-muted-foreground truncate">{form.url}</p>
@@ -441,7 +441,7 @@ function BrandLinkForm({ ownerId, brands, initial, onSave, onDelete, onClose }: 
         {favicon && form.url && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-muted/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={favicon} alt="" className="w-6 h-6 rounded" />
+            <img src={favicon} alt="" loading="lazy" className="w-6 h-6 rounded border border-border bg-white object-contain p-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium">{urlHostname(form.url)}</p>
               <p className="text-[10px] text-muted-foreground truncate">{form.url}</p>
@@ -1221,7 +1221,7 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
   };
 
   return (
-    <div className="w-full min-w-0 max-w-[1400px] mx-auto pb-8 pt-2">
+    <div className="w-full min-w-0 max-w-[1400px] mx-auto pb-8 pt-1">
       {/* Header (kompakt) */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -1244,7 +1244,7 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
       </div>
 
       {/* Top KPI grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-blue-50/10 dark:border-blue-500/40 dark:from-blue-950/55 dark:to-blue-950/20 gap-2 py-5">
           <CardHeader className="pb-0">
             <CardTitle className="text-xs font-medium text-blue-800/80 dark:text-blue-200 uppercase tracking-wide flex items-center gap-1.5">
@@ -1327,7 +1327,7 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
 
       {/* Ay seçici — Maaş / Harcamalar / Geçmiş için (KPI ile uyumlu) */}
       {(section === "maas" || section === "harcamalar" || section === "gecmis" || section === "izlenmeler" || section === "marka-linkleri") && (
-        <div className="sticky top-0 z-30 -mx-4 sm:-mx-5 md:-mx-6 lg:-mx-8 px-4 sm:px-5 md:px-6 lg:px-8 py-2.5 mb-4 flex items-center justify-end gap-2 bg-background/90 backdrop-blur-md border-b border-border/60">
+        <div className="-mx-3 sm:-mx-6 md:-mx-8 lg:-mx-10 px-3 sm:px-6 md:px-8 lg:px-10 py-2.5 mb-4 flex items-center justify-end gap-2 bg-background/95 border-b border-border/60">
           <Button variant="ghost" size="sm" onClick={() => navMonth(-1)} className="h-8 w-8 p-0" title="Önceki ay" type="button">
             <ChevronLeft size={14} />
           </Button>
@@ -1796,7 +1796,7 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
                           }`}>
                           {fav ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={fav} alt="" className="w-8 h-8 rounded-md border border-border bg-muted shrink-0" />
+                            <img src={fav} alt="" loading="lazy" className="w-8 h-8 rounded-md border border-border bg-white object-contain p-1 shrink-0" />
                           ) : (
                             <div className="w-8 h-8 rounded-md border border-border bg-muted flex items-center justify-center shrink-0">
                               <Icon size={14} className="text-muted-foreground" />
@@ -1972,10 +1972,10 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
                                   >
                                     <Icon size={18} />
                                   </div>
-                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border bg-background">
+                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border bg-white">
                                     {fav ? (
                                       // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={fav} alt="" className="h-full w-full object-cover" />
+                                      <img src={fav} alt="" loading="lazy" className="h-full w-full object-contain p-1" />
                                     ) : (
                                       <div className="flex h-full w-full items-center justify-center bg-muted/30">
                                         <Globe size={14} className="text-muted-foreground" />
