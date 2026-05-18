@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import {
   useStore,
+  DEFAULT_KASA_ID,
   type PlannedItem,
   type PlannedItemPayment,
   type PlannedCategory,
@@ -302,12 +303,16 @@ function PaymentForm({
 
 export default function PlanlananPage() {
   const {
-    plannedItems, plannedItemPayments, employees, brands, projects,
+    plannedItems, plannedItemPayments, employees, brands, projects, kasas,
     addPlannedItem, updatePlannedItem, deletePlannedItem,
     addPlannedItemPayment, updatePlannedItemPayment, deletePlannedItemPayment,
     addExpense, addKasaTransaction,
   } = useStore();
   const readOnly = useIsReadOnly();
+  const defaultKasaId =
+    kasas.find((k) => k.isDefault && !k.archived)?.id
+    ?? kasas.find((k) => !k.archived)?.id
+    ?? DEFAULT_KASA_ID;
 
   const [viewMonth, setViewMonth] = useState(() => toYearMonthLocal(new Date()));
   const [filterCategory, setFilterCategory] = useState<"" | PlannedCategory>("");
@@ -448,6 +453,7 @@ export default function PlanlananPage() {
       return;
     }
     addKasaTransaction({
+      kasaId: defaultKasaId,
       date: new Date().toISOString().slice(0, 16),
       direction: "out",
       amountUsd: amount,

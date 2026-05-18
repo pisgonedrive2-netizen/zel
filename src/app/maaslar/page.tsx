@@ -7,7 +7,9 @@ import {
   useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive,
   sumApprovedContentExpenses, sumPaidContentExpenses, plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
+  DEFAULT_KASA_ID,
   type Employee, type Advance, type SalaryExtra,
+  type Kasa, type KasaTransaction,
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -21,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import Modal from "@/components/ui/modal";
 import { Field, Input as FInput, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import {
   exportSalaryMonthCsv,
@@ -227,15 +230,17 @@ function EmployeeDetailRow({
   readOnly: boolean;
   currentUserId?: string;
 }) {
-  const { advances, salaryExtras, paymentStatuses, contentExpenses,
+  const { advances, salaryExtras, paymentStatuses, contentExpenses, kasas, kasaTransactions,
     updateEmployee, addAdvance, updateAdvance, deleteAdvance,
-    addSalaryExtra, updateSalaryExtra, deleteSalaryExtra, setPaymentStatus } = useStore();
+    addSalaryExtra, updateSalaryExtra, deleteSalaryExtra,
+    payEmployeeSalary, unpayEmployeeSalary } = useStore();
   const { user } = useAuth();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
   const router = useRouter();
 
   const [advModal, setAdvModal]     = useState<"new" | Advance | null>(null);
   const [extraModal, setExtraModal] = useState<"new" | SalaryExtra | null>(null);
+  const [payModalOpen, setPayModalOpen] = useState(false);
 
   const active = isPayrollActive(employee, month);
 
@@ -482,23 +487,53 @@ function EmployeeDetailRow({
 
         {/* Payment toggle */}
         {active && (
-          <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between">
+          <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs">
               {isPaid ? (
-                <><CheckCircle2 size={13} className="text-green-600" /><span className="text-green-700 font-medium">Ödendi</span>{status?.paidDate && <span className="text-muted-foreground">· {status.paidDate}</span>}</>
+                <>
+                  <CheckCircle2 size={13} className="text-green-600" />
+                  <span className="text-green-700 font-medium">Ödendi</span>
+                  {status?.paidDate && <span className="text-muted-foreground">· {status.paidDate}</span>}
+                  {status?.kasaTxId && (() => {
+                    const tx = kasaTransactions.find((t) => t.id === status.kasaTxId);
+                    if (!tx) return null;
+                    const kasaName = kasas.find((k) => k.id === tx.kasaId)?.name ?? tx.kasaId;
+                    return (
+                      <span className="text-muted-foreground">· kasadan: {kasaName}</span>
+                    );
+                  })()}
+                </>
               ) : (
                 <><Clock size={13} className="text-amber-600" /><span className="text-amber-700">Ödeme bekliyor · {payrollDueShort(month, employee.paymentDay)}</span></>
               )}
             </div>
             {!readOnly && (
-              <Button
-                size="sm"
-                variant={isPaid ? "outline" : "default"}
-                className={isPaid ? "h-7 text-xs" : "h-7 text-xs bg-green-600 hover:bg-green-500 border-0 text-white"}
-                onClick={() => setPaymentStatus(employee.id, month, !isPaid, !isPaid ? new Date().toISOString().slice(0, 10) : undefined, currentUserId)}
-              >
-                {isPaid ? "Geri Al" : "Yönetici Onayla"}
-              </Button>
+              isPaid ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    if (window.confirm(
+                      "Ödeme geri alınsın mı? Bağlı kasa hareketi de silinecek."
+                    )) {
+                      unpayEmployeeSalary(employee.id, month);
+                    }
+                  }}
+                >
+                  Geri Al
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-7 text-xs bg-green-600 hover:bg-green-500 border-0 text-white"
+                  onClick={() => setPayModalOpen(true)}
+                  disabled={net <= 0}
+                  title={net <= 0 ? "Net ödeme tutarı 0 — önce avans/kesinti veya temel maaşı kontrol edin." : undefined}
+                >
+                  Ödeme Yap
+                </Button>
+              )
             )}
           </div>
         )}
@@ -517,7 +552,141 @@ function EmployeeDetailRow({
           onDelete={extraModal !== "new" && extraModal !== null ? () => { deleteSalaryExtra(extraModal.id); setExtraModal(null); } : undefined}
           onClose={() => setExtraModal(null)} />
       </Modal>
+      <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Maaş Ödemesi" size="md">
+        <PaySalaryForm
+          employeeName={employee.name}
+          month={month}
+          netAmount={net}
+          kasas={kasas}
+          kasaTransactions={kasaTransactions}
+          onSave={(d) => {
+            payEmployeeSalary({
+              employeeId: employee.id,
+              month,
+              amountUsd: d.amountUsd,
+              kasaId: d.kasaId,
+              paidDate: d.paidDate,
+              feeUsd: d.feeUsd,
+              notes: d.notes,
+              proof: d.proof,
+              paidBy: currentUserId,
+            });
+          }}
+          onClose={() => setPayModalOpen(false)}
+        />
+      </Modal>
     </>
+  );
+}
+
+// ── Pay salary modal ──────────────────────────────────────────────────────
+function PaySalaryForm({
+  employeeName, month, netAmount, kasas, kasaTransactions, onSave, onClose,
+}: {
+  employeeName: string;
+  month: string;
+  netAmount: number;
+  kasas: Kasa[];
+  kasaTransactions: KasaTransaction[];
+  onSave: (d: {
+    amountUsd: number;
+    kasaId: string;
+    paidDate: string;
+    feeUsd: number;
+    notes: string;
+    proof: string;
+  }) => void;
+  onClose: () => void;
+}) {
+  const activeKasas = useMemo(
+    () => kasas.filter((k) => !k.archived).sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
+    [kasas]
+  );
+  const defaultKasaId = activeKasas.find((k) => k.isDefault)?.id ?? activeKasas[0]?.id ?? DEFAULT_KASA_ID;
+
+  const [kasaId, setKasaId]       = useState(defaultKasaId);
+  const [amountUsd, setAmountUsd] = useState(netAmount);
+  const [feeUsd, setFeeUsd]       = useState(0);
+  const [paidDate, setPaidDate]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [notes, setNotes]         = useState("");
+  const [proof, setProof]         = useState("");
+
+  const balanceBefore = useMemo(
+    () => kasaTransactions
+      .filter((t) => t.kasaId === kasaId)
+      .reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0),
+    [kasaTransactions, kasaId]
+  );
+  const balanceAfter = balanceBefore - amountUsd - feeUsd;
+  const lowBalance = balanceAfter < 0;
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (lowBalance) {
+          const ok = window.confirm(
+            "Seçili kasanın bakiyesi bu ödemeyi karşılamıyor; yine de devam edilsin mi?"
+          );
+          if (!ok) return;
+        }
+        onSave({ amountUsd, kasaId, paidDate, feeUsd, notes, proof });
+        onClose();
+      }}
+    >
+      <div className="grid gap-4">
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{employeeName}</span> · {month} bordrosu · net ödeme önerisi{" "}
+          <span className="tabular-nums font-medium text-foreground">{fmt(netAmount)}</span>
+        </div>
+        <FormGrid>
+          <Field label="Kasa" required hint="Tutar bu kasadan düşülür">
+            <Select
+              value={kasaId}
+              onChange={(e) => setKasaId(e.target.value)}
+              required
+              options={activeKasas.map((k) => ({
+                value: k.id,
+                label: `${k.name} · ${fmt(kasaTransactions.filter((t) => t.kasaId === k.id).reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0))}`,
+              }))}
+            />
+          </Field>
+          <Field label="Ödeme tarihi" required>
+            <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} required />
+          </Field>
+        </FormGrid>
+        <FormGrid>
+          <Field label="Tutar (USD)" required>
+            <NumberInput value={amountUsd} onChange={(v) => setAmountUsd(v)} required min={0} step={0.01} />
+          </Field>
+          <Field label="Network fee (USDT)" hint="TRC20 ≈ $4">
+            <NumberInput value={feeUsd} onChange={(v) => setFeeUsd(v)} min={0} step={0.01} />
+          </Field>
+        </FormGrid>
+        <Field label="Kanıt (TXID / dekont / ekran görüntüsü)">
+          <ProofUploader
+            value={proof}
+            onChange={setProof}
+            folder="kasa"
+            placeholder="TXID, https://... veya resim yükle"
+          />
+        </Field>
+        <Field label="Notlar">
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Açıklama, ödeme yöntemi vb." />
+        </Field>
+        <div className={`rounded-lg border px-4 py-2.5 text-xs ${
+          lowBalance
+            ? "border-red-300 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-950/30 dark:text-red-300"
+            : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/50 dark:bg-emerald-950/30 dark:text-emerald-200"
+        }`}>
+          Bakiye: <span className="font-medium tabular-nums">{fmt(balanceBefore)}</span>
+          {" → "}
+          <span className="font-medium tabular-nums">{fmt(balanceAfter)}</span>
+          {lowBalance && " · bakiye yetersiz"}
+        </div>
+      </div>
+      <FormActions onCancel={onClose} submitLabel="Onayla ve Kasadan Düş" />
+    </form>
   );
 }
 

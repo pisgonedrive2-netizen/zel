@@ -56,6 +56,8 @@ export interface MonthPaymentStatus {
   paidDate?: string;
   paidBy?: string;
   approvedAt?: string;
+  /** Bu maaş ödemesini temsil eden kasa hareketinin id'si (varsa). */
+  kasaTxId?: string;
 }
 
 export interface ExternalCompany {
@@ -246,9 +248,25 @@ export interface LinkSnapshot {
   notes: string;
 }
 
+/** Kasa hesabı — birden çok kasa açılabilir (Genel, USDT, Banka vb.). */
+export interface Kasa {
+  id: string;
+  name: string;
+  /** Sınıflandırma — analitik ve filtreleme için. */
+  kind: "general" | "usdt" | "bank" | "cash" | "other";
+  /** Para birimi etiketi (USD/USDT/TRY); tüm hesaplama USD baz alındığı için bilgisel. */
+  currency: string;
+  isDefault: boolean;
+  archived: boolean;
+  orderIndex: number;
+  notes: string;
+}
+
 /** Kasa hareketi — Denetim grubuna iletilen tüm para giriş/çıkışları. */
 export interface KasaTransaction {
   id: string;
+  /** Hangi kasaya ait olduğu (FK → kasas.id). */
+  kasaId: string;
   date: string;             // ISO YYYY-MM-DDTHH:MM
   direction: "in" | "out";
   amountUsd: number;
@@ -390,6 +408,7 @@ interface AppStore {
   brandViewership: BrandViewership[];
 
   // Kasa & İçerik harcamaları
+  kasas: Kasa[];
   kasaTransactions: KasaTransaction[];
   contentExpenses: ContentExpense[];
 
@@ -415,6 +434,25 @@ interface AppStore {
   syncRentSupportFromMonth: (employeeId: string, fromMonth: string, amount: number) => void;
 
   setPaymentStatus: (employeeId: string, month: string, paid: boolean, paidDate?: string, paidBy?: string) => void;
+
+  /**
+   * Atomik maaş ödemesi: hem `payment_statuses` günceller hem de seçilen kasada
+   * `out` yönlü bir hareket oluşturup `kasaTxId` ile bağlar.
+   */
+  payEmployeeSalary: (args: {
+    employeeId: string;
+    month: string;
+    amountUsd: number;
+    kasaId: string;
+    paidDate: string;          // YYYY-MM-DD
+    feeUsd?: number;
+    notes?: string;
+    proof?: string;
+    paidBy?: string;
+  }) => void;
+
+  /** "Geri al" — bağlı kasa hareketini siler, ödeme durumunu beklemeye çeker. */
+  unpayEmployeeSalary: (employeeId: string, month: string) => void;
 
   // Company
   addCompany: (c: Omit<ExternalCompany, "id">) => void;
@@ -479,6 +517,11 @@ interface AppStore {
   updateLinkSnapshot: (id: string, s: Partial<LinkSnapshot>) => void;
   deleteLinkSnapshot: (id: string) => void;
 
+  // Kasa hesapları
+  addKasa: (k: Omit<Kasa, "id">) => void;
+  updateKasa: (id: string, k: Partial<Kasa>) => void;
+  deleteKasa: (id: string) => void;
+
   // Kasa
   addKasaTransaction: (t: Omit<KasaTransaction, "id">) => void;
   updateKasaTransaction: (id: string, t: Partial<KasaTransaction>) => void;
@@ -527,6 +570,7 @@ export const APP_SNAPSHOT_KEYS = [
   "brandLinks",
   "linkSnapshots",
   "brandViewership",
+  "kasas",
   "kasaTransactions",
   "contentExpenses",
   "weeklyPlans",
@@ -540,6 +584,20 @@ export type AppHydratePayload = Partial<
 >;
 
 const uid = () => crypto.randomUUID();
+
+const MONTH_NAMES_TR_SHORT = [
+  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+] as const;
+
+/** "2026-05" → "Mayıs 2026". Geçersiz girdi olduğu gibi döner. */
+function formatPayrollMonthLabel(ym: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(ym);
+  if (!m) return ym;
+  const idx = Number(m[2]) - 1;
+  if (idx < 0 || idx > 11) return ym;
+  return `${MONTH_NAMES_TR_SHORT[idx]} ${m[1]}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Seed Data
@@ -942,33 +1000,55 @@ const initialLinkSnapshots: LinkSnapshot[] = [];
 // Kasa — Denetim grubuna iletilen tüm para giriş/çıkışları
 // Kaynak: Telegram grubu mesaj kayıtları (27 Nisan 2026'dan başlayarak)
 // ─────────────────────────────────────────────────────────────────────────────
-export const initialKasaTransactions: KasaTransaction[] = [
-  { id: "ka-01", date: "2026-04-27T16:41", direction: "in",  amountUsd:  681, feeUsd: 0, purpose: "Kasa devir alındı (proje devri)",            counterparty: "Proje öncesi bakiye",      proof: "", notes: "Foxstream Medya Grubu / Faturalar sekmesi" },
-  { id: "ka-02", date: "2026-04-28T16:16", direction: "in",  amountUsd: 5000, feeUsd: 0, purpose: "Kasaya transfer girişi",                       counterparty: "Şirket havalesi",         proof: "2f7c8ebabf81a9a6476cbade594d08ad0db8275152ec3f4e776085e49cc29402", notes: "TronScan TX · 5.000 USDT" },
-  { id: "ka-03", date: "2026-04-28T17:34", direction: "out", amountUsd:  300, feeUsd: 4, purpose: "Galagrup tişört baskısı",                       counterparty: "Lucy",                    proof: "", notes: "Kasa: 5.681 → 5.377 USDT (300 + 4 fee)" },
-  { id: "ka-04", date: "2026-04-28T21:12", direction: "out", amountUsd: 2000, feeUsd: 4, purpose: "Acelya bilet + ekstra giderler",               counterparty: "Acelya",                  proof: "", notes: "Yeni yayıncı bilet harcama tutarı · yol desteği. Kasa: 5.377 → 3.373" },
-  { id: "ka-05", date: "2026-04-30T14:49", direction: "out", amountUsd:  800, feeUsd: 4, purpose: "Konaklama / havaalanı transferi / elzem",      counterparty: "Operasyon",               proof: "", notes: "Kasa: 3.373 → 2.569 USDT" },
-  { id: "ka-06", date: "2026-05-01T09:27", direction: "out", amountUsd:  500, feeUsd: 0, purpose: "1 Mayıs harçlık (5 kişi)",                     counterparty: "Açelya/Lucy/Karo/Ramiz/Ege", proof: "", notes: "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT" },
-  { id: "ka-07", date: "2026-05-04T09:47", direction: "out", amountUsd:  900, feeUsd: 5, purpose: "Acelya bagaj ücreti",                          counterparty: "Acelya",                  proof: "", notes: "Kasa: 2.069 → 1.164 USDT" },
-  { id: "ka-08", date: "2026-05-04T11:32", direction: "out", amountUsd:  500, feeUsd: 4, purpose: "Lucy aylık maaş ödemesi (kısmi)",              counterparty: "Lucy",                    proof: "https://teamzone.gyazo.com/c53d91ab8f64767362bf8d777c683119", notes: "Grup mesajı talimatı · Lucy cüzdan adresi" },
-  { id: "ka-09", date: "2026-05-04T11:32", direction: "out", amountUsd:  200, feeUsd: 4, purpose: "Acelya doğum günü hediyesi",                   counterparty: "Acelya",                  proof: "", notes: "Grup mesajı talimatı · Acelya cüzdan adresi · Kasa: 1.164 → 456 USDT (500+200+8 fee)" },
-  { id: "ka-10", date: "2026-05-06T16:13", direction: "out", amountUsd:   20, feeUsd: 0, purpose: "Telegram Premium (foxstreamkaro)",              counterparty: "Karo (Telegram)",         proof: "", notes: "HongKong Doları · tutar tahmini · Kasa: 456 → 436 USDT" },
-  { id: "ka-11", date: "2026-05-08T12:47", direction: "out", amountUsd:  170, feeUsd: 3, purpose: "Çekim ve edit ücreti",                         counterparty: "Lucy",                    proof: "", notes: "Kasa: 436 → 263 USDT" },
-  { id: "ka-12", date: "2026-05-11T20:42", direction: "out", amountUsd:  100, feeUsd: 0, purpose: "Stake döviz — TRX alımı (transfer ödemeleri için)", counterparty: "TRX cüzdan",              proof: "", notes: "~100 USDT karşılığı TRX · Kasa: 263 → 163 USDT" },
+/** Varsayılan kasa id'si — migrasyonda Supabase tarafında da aynı id kullanılır. */
+export const DEFAULT_KASA_ID = "kasa-genel";
+
+export const initialKasas: Kasa[] = [
+  {
+    id: DEFAULT_KASA_ID,
+    name: "Genel Kasa",
+    kind: "general",
+    currency: "USD",
+    isDefault: true,
+    archived: false,
+    orderIndex: 0,
+    notes: "Varsayılan kasa. Henüz başka bir kasa açılmadıysa tüm hareketler buraya bağlanır.",
+  },
 ];
 
-/** Eski kayıtlarda ka-06 için 20 USD fee yanlışlıkla kasadan düşüyordu; net −500 olmalı (163 güncel bakiye). */
+export const initialKasaTransactions: KasaTransaction[] = [
+  { id: "ka-01", kasaId: DEFAULT_KASA_ID, date: "2026-04-27T16:41", direction: "in",  amountUsd:  681, feeUsd: 0, purpose: "Kasa devir alındı (proje devri)",            counterparty: "Proje öncesi bakiye",      proof: "", notes: "Foxstream Medya Grubu / Faturalar sekmesi" },
+  { id: "ka-02", kasaId: DEFAULT_KASA_ID, date: "2026-04-28T16:16", direction: "in",  amountUsd: 5000, feeUsd: 0, purpose: "Kasaya transfer girişi",                       counterparty: "Şirket havalesi",         proof: "2f7c8ebabf81a9a6476cbade594d08ad0db8275152ec3f4e776085e49cc29402", notes: "TronScan TX · 5.000 USDT" },
+  { id: "ka-03", kasaId: DEFAULT_KASA_ID, date: "2026-04-28T17:34", direction: "out", amountUsd:  300, feeUsd: 4, purpose: "Galagrup tişört baskısı",                       counterparty: "Lucy",                    proof: "", notes: "Kasa: 5.681 → 5.377 USDT (300 + 4 fee)" },
+  { id: "ka-04", kasaId: DEFAULT_KASA_ID, date: "2026-04-28T21:12", direction: "out", amountUsd: 2000, feeUsd: 4, purpose: "Acelya bilet + ekstra giderler",               counterparty: "Acelya",                  proof: "", notes: "Yeni yayıncı bilet harcama tutarı · yol desteği. Kasa: 5.377 → 3.373" },
+  { id: "ka-05", kasaId: DEFAULT_KASA_ID, date: "2026-04-30T14:49", direction: "out", amountUsd:  800, feeUsd: 4, purpose: "Konaklama / havaalanı transferi / elzem",      counterparty: "Operasyon",               proof: "", notes: "Kasa: 3.373 → 2.569 USDT" },
+  { id: "ka-06", kasaId: DEFAULT_KASA_ID, date: "2026-05-01T09:27", direction: "out", amountUsd:  500, feeUsd: 0, purpose: "1 Mayıs harçlık (5 kişi)",                     counterparty: "Açelya/Lucy/Karo/Ramiz/Ege", proof: "", notes: "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT" },
+  { id: "ka-07", kasaId: DEFAULT_KASA_ID, date: "2026-05-04T09:47", direction: "out", amountUsd:  900, feeUsd: 5, purpose: "Acelya bagaj ücreti",                          counterparty: "Acelya",                  proof: "", notes: "Kasa: 2.069 → 1.164 USDT" },
+  { id: "ka-08", kasaId: DEFAULT_KASA_ID, date: "2026-05-04T11:32", direction: "out", amountUsd:  500, feeUsd: 4, purpose: "Lucy aylık maaş ödemesi (kısmi)",              counterparty: "Lucy",                    proof: "https://teamzone.gyazo.com/c53d91ab8f64767362bf8d777c683119", notes: "Grup mesajı talimatı · Lucy cüzdan adresi" },
+  { id: "ka-09", kasaId: DEFAULT_KASA_ID, date: "2026-05-04T11:32", direction: "out", amountUsd:  200, feeUsd: 4, purpose: "Acelya doğum günü hediyesi",                   counterparty: "Acelya",                  proof: "", notes: "Grup mesajı talimatı · Acelya cüzdan adresi · Kasa: 1.164 → 456 USDT (500+200+8 fee)" },
+  { id: "ka-10", kasaId: DEFAULT_KASA_ID, date: "2026-05-06T16:13", direction: "out", amountUsd:   20, feeUsd: 0, purpose: "Telegram Premium (foxstreamkaro)",              counterparty: "Karo (Telegram)",         proof: "", notes: "HongKong Doları · tutar tahmini · Kasa: 456 → 436 USDT" },
+  { id: "ka-11", kasaId: DEFAULT_KASA_ID, date: "2026-05-08T12:47", direction: "out", amountUsd:  170, feeUsd: 3, purpose: "Çekim ve edit ücreti",                         counterparty: "Lucy",                    proof: "", notes: "Kasa: 436 → 263 USDT" },
+  { id: "ka-12", kasaId: DEFAULT_KASA_ID, date: "2026-05-11T20:42", direction: "out", amountUsd:  100, feeUsd: 0, purpose: "Stake döviz — TRX alımı (transfer ödemeleri için)", counterparty: "TRX cüzdan",              proof: "", notes: "~100 USDT karşılığı TRX · Kasa: 263 → 163 USDT" },
+];
+
+/**
+ * Eski kayıtlarda ka-06 için 20 USD fee yanlışlıkla kasadan düşüyordu; net −500
+ * olmalı (163 güncel bakiye). Ayrıca yeni `kasaId` alanı eksik olabilir; eksikse
+ * varsayılan kasaya bağlanır.
+ */
 function migrateKasaTransactions(txns: KasaTransaction[]): KasaTransaction[] {
-  return txns.map((t) =>
-    t.id === "ka-06" && t.feeUsd === 20
-      ? {
-          ...t,
-          feeUsd: 0,
-          notes:
-            "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT",
-        }
-      : t
-  );
+  return txns.map((t) => {
+    let next = t.kasaId ? t : { ...t, kasaId: DEFAULT_KASA_ID };
+    if (next.id === "ka-06" && next.feeUsd === 20) {
+      next = {
+        ...next,
+        feeUsd: 0,
+        notes:
+          "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT",
+      };
+    }
+    return next;
+  });
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // İçerik harcamaları — Ramiz Nisan 2026 raporu (29.04.2026 grup mesajı)
@@ -1139,6 +1219,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       brandLinks:          initialBrandLinks,
       linkSnapshots:       initialLinkSnapshots,
       brandViewership:     initialBrandViewership,
+      kasas:               initialKasas,
       kasaTransactions:    initialKasaTransactions,
       contentExpenses:     initialContentExpenses,
       weeklyPlans:         initialWeeklyPlans,
@@ -1206,12 +1287,113 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             return {
               paymentStatuses: s.paymentStatuses.map((p) =>
                 p.employeeId === employeeId && p.month === month
-                  ? { ...p, paid, paidDate, paidBy: paid ? paidBy : undefined, approvedAt }
+                  ? {
+                      ...p,
+                      paid,
+                      paidDate,
+                      paidBy: paid ? paidBy : undefined,
+                      approvedAt,
+                      kasaTxId: paid ? p.kasaTxId : undefined,
+                    }
                   : p
               ),
             };
           }
-          return { paymentStatuses: [...s.paymentStatuses, { employeeId, month, paid, paidDate, paidBy: paid ? paidBy : undefined, approvedAt }] };
+          return {
+            paymentStatuses: [
+              ...s.paymentStatuses,
+              {
+                employeeId,
+                month,
+                paid,
+                paidDate,
+                paidBy: paid ? paidBy : undefined,
+                approvedAt,
+              },
+            ],
+          };
+        }),
+
+      payEmployeeSalary: ({
+        employeeId, month, amountUsd, kasaId, paidDate,
+        feeUsd = 0, notes = "", proof = "", paidBy,
+      }) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          const targetKasa =
+            s.kasas.find((k) => k.id === kasaId && !k.archived) ??
+            s.kasas.find((k) => k.isDefault && !k.archived) ??
+            s.kasas[0];
+          if (!targetKasa) return {};
+
+          // Eski bir kasa hareketi varsa (önceki ödendi → geri al → yeniden öde
+          // akışı için), önce onu güvenli şekilde temizle.
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month
+          );
+          const trimmedTx = existing?.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== existing.kasaTxId)
+            : s.kasaTransactions;
+
+          const txId = uid();
+          const monthLabel = formatPayrollMonthLabel(month);
+          const newTx: KasaTransaction = {
+            id: txId,
+            kasaId: targetKasa.id,
+            date: `${paidDate}T00:00`,
+            direction: "out",
+            amountUsd,
+            feeUsd,
+            purpose: `${employee.name} · ${monthLabel} maaş ödemesi`,
+            counterparty: employee.name,
+            proof,
+            notes,
+          };
+
+          const now = new Date().toISOString();
+          const baseStatus: MonthPaymentStatus = {
+            employeeId,
+            month,
+            paid: true,
+            paidDate,
+            paidBy,
+            approvedAt: now,
+            kasaTxId: txId,
+          };
+          const paymentStatuses = existing
+            ? s.paymentStatuses.map((p) =>
+                p.employeeId === employeeId && p.month === month ? baseStatus : p
+              )
+            : [...s.paymentStatuses, baseStatus];
+
+          return {
+            kasaTransactions: [...trimmedTx, newTx],
+            paymentStatuses,
+          };
+        }),
+
+      unpayEmployeeSalary: (employeeId, month) =>
+        set((s) => {
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month
+          );
+          const kasaTransactions = existing?.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== existing.kasaTxId)
+            : s.kasaTransactions;
+          const paymentStatuses = s.paymentStatuses.map((p) =>
+            p.employeeId === employeeId && p.month === month
+              ? {
+                  ...p,
+                  paid: false,
+                  paidDate: undefined,
+                  paidBy: undefined,
+                  approvedAt: undefined,
+                  kasaTxId: undefined,
+                }
+              : p
+          );
+          return { kasaTransactions, paymentStatuses };
         }),
 
       // Company
@@ -1307,8 +1489,45 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       updateLinkSnapshot: (id, sn)=> set((s) => ({ linkSnapshots: s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x)) })),
       deleteLinkSnapshot: (id)    => set((s) => ({ linkSnapshots: s.linkSnapshots.filter((x) => x.id !== id) })),
 
+      // Kasa hesapları
+      addKasa: (k) =>
+        set((s) => {
+          const isDefault = k.isDefault ?? false;
+          const id = uid();
+          const cleared = isDefault
+            ? s.kasas.map((x) => ({ ...x, isDefault: false }))
+            : s.kasas;
+          return { kasas: [...cleared, { ...k, id }] };
+        }),
+      updateKasa: (id, k) =>
+        set((s) => {
+          const setDefault = k.isDefault === true;
+          const next = s.kasas.map((x) => {
+            if (x.id === id) return { ...x, ...k };
+            if (setDefault) return { ...x, isDefault: false };
+            return x;
+          });
+          return { kasas: next };
+        }),
+      deleteKasa: (id) =>
+        set((s) => {
+          if (id === DEFAULT_KASA_ID) return {}; // varsayılan silinmez
+          const inUse = s.kasaTransactions.some((t) => t.kasaId === id);
+          if (inUse) {
+            // Bağlı hareketler varken silmek yerine arşivle.
+            return { kasas: s.kasas.map((x) => (x.id === id ? { ...x, archived: true } : x)) };
+          }
+          return { kasas: s.kasas.filter((x) => x.id !== id) };
+        }),
+
       // Kasa
-      addKasaTransaction:    (t)     => set((s) => ({ kasaTransactions: [...s.kasaTransactions, { ...t, id: uid() }] })),
+      addKasaTransaction:    (t)     => set((s) => {
+        const kasaId = t.kasaId
+          ?? s.kasas.find((k) => k.isDefault && !k.archived)?.id
+          ?? s.kasas[0]?.id
+          ?? DEFAULT_KASA_ID;
+        return { kasaTransactions: [...s.kasaTransactions, { ...t, kasaId, id: uid() }] };
+      }),
       updateKasaTransaction: (id, t) => set((s) => ({ kasaTransactions: s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x)) })),
       deleteKasaTransaction: (id)    => set((s) => ({ kasaTransactions: s.kasaTransactions.filter((x) => x.id !== id) })),
 
@@ -1367,7 +1586,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
 });
 
 const storePersistConfig = {
-      name: "lanetkel-store-v7-icgelir-empty",
+      name: "lanetkel-store-v8-multi-kasa",
       merge: (persistedState: unknown, currentState: AppStore) => {
         const p = (persistedState ?? {}) as Partial<AppStore>;
         const rawProjects = Array.isArray(p.projects) ? p.projects : [];
@@ -1381,10 +1600,17 @@ const storePersistConfig = {
           Array.isArray(p.kasaTransactions) && p.kasaTransactions.length > 0
             ? p.kasaTransactions
             : (currentState as { kasaTransactions: KasaTransaction[] }).kasaTransactions;
+        const kasasSrc = Array.isArray(p.kasas) && p.kasas.length > 0 ? p.kasas : initialKasas;
+        // Varsayılan "Genel Kasa" her zaman bulunmalı.
+        const ensuredKasas =
+          kasasSrc.some((k) => k.id === DEFAULT_KASA_ID)
+            ? kasasSrc
+            : [...initialKasas, ...kasasSrc];
         return {
           ...currentState,
           ...p,
           projects,
+          kasas: ensuredKasas,
           kasaTransactions: migrateKasaTransactions(kasaSrc),
           weekBrandReels: Array.isArray(p.weekBrandReels) ? p.weekBrandReels : [],
         };
@@ -1590,8 +1816,13 @@ export function plannedPayrollPlusApprovedContent(
 }
 
 /** Belirli bir tarihe (veya günün sonuna) kadar kasa bakiyesini hesaplar (USD). */
-export function calcKasaBalance(txns: KasaTransaction[], asOfDate?: string): number {
-  const sorted = [...txns].sort((a, b) => a.date.localeCompare(b.date));
+export function calcKasaBalance(
+  txns: KasaTransaction[],
+  asOfDate?: string,
+  kasaId?: string,
+): number {
+  const filtered = kasaId ? txns.filter((t) => t.kasaId === kasaId) : txns;
+  const sorted = [...filtered].sort((a, b) => a.date.localeCompare(b.date));
   let balance = 0;
   for (const t of sorted) {
     if (asOfDate && t.date > asOfDate) break;
