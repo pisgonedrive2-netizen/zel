@@ -569,7 +569,7 @@ export default function IzlenmePage() {
   const navVm = (delta: number) => setViewMonth(shiftCalendarMonthYm(viewMonth, delta));
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Marka İzlenme Takibi</h1>

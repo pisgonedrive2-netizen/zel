@@ -274,7 +274,7 @@ export default function OzetPage() {
   ];
 
   return (
-    <div className="p-8 max-w-[1280px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1280px]">
       {/* Title */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}

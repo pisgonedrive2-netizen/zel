@@ -38,7 +38,7 @@ export default function DenetciPage() {
   const unread = unreadNotificationCount(notifications, "auditor", user?.id);
 
   return (
-    <div className="p-8 max-w-[1240px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1240px]">
       {/* Header */}
       <div className="flex items-start justify-between mb-7">
         <div className="flex items-center gap-3">

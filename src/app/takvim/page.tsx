@@ -200,7 +200,7 @@ export default function TakvimPage() {
   const empColor = (id: string) => EMP_COLORS[yayincilar.findIndex(e => e.id === id) % EMP_COLORS.length];
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       <div className="flex items-start justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Haftalık Takvim & Yayıncı Hesapları</h1>

@@ -173,7 +173,7 @@ export default function KasaPage() {
   }, [withBalance]);
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       <div className="flex items-start justify-between mb-8 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Kasa Hareketleri</h1>

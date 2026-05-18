@@ -209,7 +209,7 @@ export default function DisGelirPage() {
   );
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       <PageHeader
         title="Dış Gelir (Geçmiş Tahsilat)"
         subtitle="Bu firmalar artık çalışılan firmalar değildir · gösterilen tutarlar toplam tahsilat tutarıdır"
