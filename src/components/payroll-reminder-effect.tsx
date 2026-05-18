@@ -17,6 +17,7 @@ export function PayrollReminderEffect() {
   const advances         = useStore((s) => s.advances);
   const salaryExtras     = useStore((s) => s.salaryExtras);
   const paymentStatuses  = useStore((s) => s.paymentStatuses);
+  const user             = useAuth((s) => s.user);
   const enabled          = useRef(true);
   const daysBefore       = useRef(3);
   const silenced         = useRef<Set<string>>(new Set());
@@ -24,6 +25,7 @@ export function PayrollReminderEffect() {
 
   useEffect(() => {
     if (settingsLoaded.current) return;
+    if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
     if (!isSupabaseClientMode()) {
       settingsLoaded.current = true;
       return;
@@ -53,7 +55,7 @@ export function PayrollReminderEffect() {
         /* sessiz */
       }
     })();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!enabled.current) return;

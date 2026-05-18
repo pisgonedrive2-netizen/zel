@@ -31,6 +31,7 @@ export function BrandPaymentReminderEffect() {
 
   useEffect(() => {
     if (settingsLoaded.current) return;
+    if (!user || user.role !== "admin") return;
     if (!isSupabaseClientMode()) {
       settingsLoaded.current = true;
       return;
@@ -49,7 +50,7 @@ export function BrandPaymentReminderEffect() {
         /* sessiz */
       }
     })();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
