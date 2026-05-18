@@ -18,6 +18,7 @@ import { Input as UInput } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import {
@@ -179,7 +180,7 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
         </FormGrid>
         <FormGrid>
           <Field label="Tarih & Saat" required>
-            <Input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} required />
+            <DateTimePicker mode="datetime" value={form.date} onChange={(v) => set("date", v)} required />
           </Field>
           <Field label="Tutar (USDT)" required>
             <NumberInput value={form.amountUsd} onChange={v => set("amountUsd", v)} required min={0} step={0.01} />

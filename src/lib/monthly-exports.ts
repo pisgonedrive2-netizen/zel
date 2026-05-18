@@ -419,8 +419,12 @@ export function exportContentExpensesCsv(
       e.notes ?? "",
     ];
   });
-  const total = rows.reduce((s, r) => s + r.amountUsd, 0);
-  const paid = rows.filter((r) => r.paid).reduce((s, r) => s + r.amountUsd, 0);
+  // İptal/red edilen kayıtlar listede görünür ama toplamlara dahil edilmez.
+  const activeRows = rows.filter(
+    (r) => r.reviewStatus !== "cancelled" && r.reviewStatus !== "rejected",
+  );
+  const total = activeRows.reduce((s, r) => s + r.amountUsd, 0);
+  const paid = activeRows.filter((r) => r.paid).reduce((s, r) => s + r.amountUsd, 0);
   const footer: (string | number)[][] = [
     [],
     ["TOPLAM", "", "", "", "", "", total],
@@ -441,8 +445,11 @@ export function exportContentExpensesPdf(
     month: ym,
     generatedBy: opts.generatedBy,
   });
-  const total = rows.reduce((s, r) => s + r.amountUsd, 0);
-  const paid = rows.filter((r) => r.paid).reduce((s, r) => s + r.amountUsd, 0);
+  const activeRows = rows.filter(
+    (r) => r.reviewStatus !== "cancelled" && r.reviewStatus !== "rejected",
+  );
+  const total = activeRows.reduce((s, r) => s + r.amountUsd, 0);
+  const paid = activeRows.filter((r) => r.paid).reduce((s, r) => s + r.amountUsd, 0);
   doc.setFontSize(11);
   doc.text(ascii(`Donem: ${monthLabelTr(ym)}`), 14, 26);
   doc.setFontSize(9);

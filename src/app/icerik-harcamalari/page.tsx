@@ -22,6 +22,7 @@ import { Input as UInput } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import {
@@ -29,7 +30,7 @@ import {
   exportContentExpensesPdf,
   listAvailableMonths,
 } from "@/lib/monthly-exports";
-import { expenseReviewStatus } from "@/lib/content-expense";
+import { expenseReviewStatus, isActiveContentExpense } from "@/lib/content-expense";
 import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
@@ -77,7 +78,7 @@ function ExpenseForm({ initial, onSave, onDelete, onClose }: {
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tarih" required>
-            <Input type="date" value={form.date} onChange={e => { set("date", e.target.value); set("month", e.target.value.slice(0, 7)); }} required />
+            <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
           </Field>
           <Field label="Ay" required>
             <Input type="month" value={form.month} onChange={e => set("month", e.target.value)} required />
@@ -127,7 +128,7 @@ function ExpenseForm({ initial, onSave, onDelete, onClose }: {
               options={[{ value: "no", label: "Bekliyor" }, { value: "yes", label: "Ödendi" }]} />
           </Field>
           <Field label="Ödeme Tarihi">
-            <Input type="date" value={form.paidDate ?? ""} onChange={e => set("paidDate", e.target.value || undefined)} disabled={!form.paid} />
+            <DateTimePicker mode="date" value={form.paidDate ?? ""} onChange={(v) => set("paidDate", v || undefined)} disabled={!form.paid} />
           </Field>
         </FormGrid>
         <Field label="Kanıt (Resim yükle veya URL)" hint="Dekont/ekran görüntüsü">
@@ -193,9 +194,13 @@ export default function ContentExpensesPage() {
     [contentExpenses, monthFilter, brandFilter, paidFilter, search]
   );
 
-  const countable   = (e: ContentExpense) => expenseReviewStatus(e) !== "cancelled";
-  const total       = filtered.filter(countable).reduce((s, e) => s + e.amountUsd, 0);
-  const totalPaid   = filtered.filter(e => e.paid && countable(e)).reduce((s, e) => s + e.amountUsd, 0);
+  // Geri çekilen ve reddedilen kayıtlar hiçbir grafiğe/KPI'a girmemeli.
+  const activeFiltered = useMemo(
+    () => filtered.filter(isActiveContentExpense),
+    [filtered],
+  );
+  const total       = activeFiltered.reduce((s, e) => s + e.amountUsd, 0);
+  const totalPaid   = activeFiltered.filter(e => e.paid).reduce((s, e) => s + e.amountUsd, 0);
   const totalUnpaid = total - totalPaid;
   const pendingReviews = contentExpenses.filter(e => e.reviewStatus === "pending");
   const canReview = user?.role === "admin" || user?.role === "auditor";
@@ -235,9 +240,9 @@ export default function ContentExpensesPage() {
   };
   const byBrand     = useMemo(() => {
     const map = new Map<string, number>();
-    filtered.forEach(e => map.set(e.brandName, (map.get(e.brandName) ?? 0) + e.amountUsd));
+    activeFiltered.forEach(e => map.set(e.brandName, (map.get(e.brandName) ?? 0) + e.amountUsd));
     return Array.from(map.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [filtered]);
+  }, [activeFiltered]);
 
   const availableExportMonths = useMemo(
     () => listAvailableMonths(contentExpenses.map((e) => e.month + "-01")),
@@ -341,7 +346,7 @@ export default function ContentExpensesPage() {
           { label: "Toplam (Filtreli)", value: fmt(total),       cls: "text-foreground font-bold", icon: Receipt },
           { label: "Ödenmiş",           value: fmt(totalPaid),   cls: "text-green-600",            icon: CheckCircle2 },
           { label: "Bekleyen",          value: fmt(totalUnpaid), cls: totalUnpaid > 0 ? "text-amber-600" : "text-muted-foreground", icon: Circle },
-          { label: "Kayıt Sayısı",      value: String(filtered.length), cls: "text-foreground" },
+          { label: "Kayıt Sayısı",      value: String(activeFiltered.length), cls: "text-foreground" },
         ].map(k => (
           <div key={k.label} className="border border-border rounded-xl px-4 py-3 bg-card">
             <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
@@ -358,7 +363,7 @@ export default function ContentExpensesPage() {
         <Card className="mb-6 gap-2 py-5">
           <CardHeader>
             <CardTitle>Marka Bazlı Dağılım</CardTitle>
-            <CardDescription>{filtered.length} harcama · {monthFilter === "all" ? "tüm aylar" : ymLabel(monthFilter)}</CardDescription>
+            <CardDescription>{activeFiltered.length} harcama · {monthFilter === "all" ? "tüm aylar" : ymLabel(monthFilter)}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={220}>

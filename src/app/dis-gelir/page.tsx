@@ -9,6 +9,7 @@ import { useIsReadOnly } from "@/store/auth";
 import { fmt, CHART_COLORS, MONTHS } from "@/lib/data";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -83,7 +84,7 @@ function CompanyForm({ initial, onSave, onDelete, onClose }: {
         </FormGrid>
         <FormGrid>
           <Field label="Başlangıç Tarihi">
-            <Input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} />
+            <DateTimePicker mode="date" value={form.startDate} onChange={(v) => set("startDate", v)} />
           </Field>
           <Field label="Durum">
             <Select value={form.status} onChange={(e) => set("status", e.target.value as ExternalCompany["status"])}
@@ -123,7 +124,7 @@ function TxForm({ companies, initial, onSave, onDelete, onClose }: {
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tarih" required>
-            <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} required />
+            <DateTimePicker mode="date" value={form.date} onChange={(v) => set("date", v)} required />
           </Field>
           <Field label="Firma" required>
             <Input value={form.companyName} onChange={e => set("companyName", e.target.value)} required placeholder="TRbet, AMG..." list="company-list" />

@@ -9,6 +9,7 @@ import {
   useStore, calcKasaBalance, calcOpenAdvanceBalance,
   isPayrollActive, unreadNotificationCount,
 } from "@/store/store";
+import { isActiveContentExpense } from "@/lib/content-expense";
 import { useAuth } from "@/store/auth";
 import { fmt, toYearMonthLocal } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,10 +25,11 @@ export default function DenetciPage() {
 
   const currentMonth = toYearMonthLocal(new Date());
   const kasa         = calcKasaBalance(kasaTransactions);
+  const activeExpenses = contentExpenses.filter(isActiveContentExpense);
   const pending      = contentExpenses.filter(e => e.reviewStatus === "pending");
   const approved     = contentExpenses.filter(e => e.reviewStatus === "approved");
-  const audited      = contentExpenses.filter(e => e.audited);
-  const totalExpenses = contentExpenses.reduce((s, e) => s + e.amountUsd, 0);
+  const audited      = activeExpenses.filter(e => e.audited);
+  const totalExpenses = activeExpenses.reduce((s, e) => s + e.amountUsd, 0);
 
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && isPayrollActive(e, currentMonth));
   const acikAvansToplam = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, currentMonth, salaryExtras), 0);
@@ -93,7 +95,7 @@ export default function DenetciPage() {
           </CardHeader>
           <CardContent className="pb-0">
             <p className="text-2xl font-bold tabular-nums">{fmt(totalExpenses)}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">{contentExpenses.length} kalem · {audited.length} denetlendi</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{activeExpenses.length} kalem · {audited.length} denetlendi</p>
           </CardContent>
         </Card>
         <Card className="gap-2 py-5">
