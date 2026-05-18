@@ -112,6 +112,8 @@ export interface ExpenseEntry {
   amount: number;
   date: string;
   description: string;
+  /** Bu gideri temsil eden kasa hareketinin id'si (varsa). */
+  kasaTxId?: string;
 }
 
 export type PlannedCategory = "capex" | "opex" | "revenue" | "growth" | "other";
@@ -312,6 +314,8 @@ export interface ContentExpense {
   reviewerNote?: string;
   /** Denetçi tarafından incelendi mi? */
   audited?: boolean;
+  /** "Ödendi" olarak işaretlenirken oluşturulan kasa hareketinin id'si. */
+  kasaTxId?: string;
 }
 
 /** Yayıncı haftalık plan kaydı — `ScheduleSlot`'tan ayrı, tarihli ve özel. */
@@ -477,6 +481,14 @@ interface AppStore {
   addExpense: (e: Omit<ExpenseEntry, "id">) => void;
   updateExpense: (id: string, e: Partial<ExpenseEntry>) => void;
   deleteExpense: (id: string) => void;
+  /**
+   * Atomik gider kaydı: hem `expenses` tablosuna ekler hem (opsiyonel) seçilen
+   * kasada `out` yönlü bir hareket oluşturup `kasaTxId` ile bağlar.
+   */
+  recordExpense: (
+    e: Omit<ExpenseEntry, "id" | "kasaTxId">,
+    kasa?: { kasaId: string; feeUsd?: number; notes?: string; proof?: string },
+  ) => void;
 
   // Planned
   addPlannedItem: (i: Omit<PlannedItem, "id">) => void;
@@ -531,6 +543,20 @@ interface AppStore {
   addContentExpense: (e: Omit<ContentExpense, "id">) => void;
   updateContentExpense: (id: string, e: Partial<ContentExpense>) => void;
   deleteContentExpense: (id: string) => void;
+  /**
+   * Atomik "ödendi" işaretleme: hem ilgili `content_expense` satırını günceller
+   * hem seçilen kasada `out` yönlü hareket yaratıp `kasaTxId` ile bağlar.
+   */
+  payContentExpense: (args: {
+    contentExpenseId: string;
+    kasaId: string;
+    paidDate: string;
+    feeUsd?: number;
+    notes?: string;
+    proof?: string;
+  }) => void;
+  /** Bağlı kasa hareketini siler, ödeme bayrağını kaldırır. */
+  unpayContentExpense: (id: string) => void;
 
   // Weekly plan
   addWeeklyPlan: (p: Omit<WeeklyPlan, "id">) => void;
@@ -1427,7 +1453,48 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Expense
       addExpense:    (e)         => set((s) => ({ expenses: [...s.expenses, { ...e, id: uid() }] })),
       updateExpense: (id, e)     => set((s) => ({ expenses: s.expenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
-      deleteExpense: (id)        => set((s) => ({ expenses: s.expenses.filter((x) => x.id !== id) })),
+      deleteExpense: (id)        => set((s) => {
+        const target = s.expenses.find((x) => x.id === id);
+        const kasaTransactions = target?.kasaTxId
+          ? s.kasaTransactions.filter((t) => t.id !== target.kasaTxId)
+          : s.kasaTransactions;
+        return {
+          expenses: s.expenses.filter((x) => x.id !== id),
+          kasaTransactions,
+        };
+      }),
+
+      recordExpense: (data, kasa) =>
+        set((s) => {
+          const expenseId = uid();
+          if (!kasa) {
+            return { expenses: [...s.expenses, { ...data, id: expenseId }] };
+          }
+          const targetKasa =
+            s.kasas.find((k) => k.id === kasa.kasaId && !k.archived) ??
+            s.kasas.find((k) => k.isDefault && !k.archived) ??
+            s.kasas[0];
+          if (!targetKasa) {
+            return { expenses: [...s.expenses, { ...data, id: expenseId }] };
+          }
+          const txId = uid();
+          const newTx: KasaTransaction = {
+            id: txId,
+            kasaId: targetKasa.id,
+            date: `${data.date || new Date().toISOString().slice(0, 10)}T00:00`,
+            direction: "out",
+            amountUsd: data.amount,
+            feeUsd: kasa.feeUsd ?? 0,
+            purpose: `[Gider] ${data.category} · ${data.description}`,
+            counterparty: data.description || data.category,
+            proof: kasa.proof ?? "",
+            notes: kasa.notes ?? "",
+          };
+          return {
+            expenses: [...s.expenses, { ...data, id: expenseId, kasaTxId: txId }],
+            kasaTransactions: [...s.kasaTransactions, newTx],
+          };
+        }),
 
       // Planned
       addPlannedItem: (i) => set((s) => ({
@@ -1534,7 +1601,73 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Content expense
       addContentExpense:    (e)     => set((s) => ({ contentExpenses: [...s.contentExpenses, { ...e, id: uid() }] })),
       updateContentExpense: (id, e) => set((s) => ({ contentExpenses: s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
-      deleteContentExpense: (id)    => set((s) => ({ contentExpenses: s.contentExpenses.filter((x) => x.id !== id) })),
+      deleteContentExpense: (id)    => set((s) => {
+        const target = s.contentExpenses.find((x) => x.id === id);
+        const kasaTransactions = target?.kasaTxId
+          ? s.kasaTransactions.filter((t) => t.id !== target.kasaTxId)
+          : s.kasaTransactions;
+        return {
+          contentExpenses: s.contentExpenses.filter((x) => x.id !== id),
+          kasaTransactions,
+        };
+      }),
+
+      payContentExpense: ({ contentExpenseId, kasaId, paidDate, feeUsd = 0, notes = "", proof = "" }) =>
+        set((s) => {
+          const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
+          if (!expense) return {};
+          const targetKasa =
+            s.kasas.find((k) => k.id === kasaId && !k.archived) ??
+            s.kasas.find((k) => k.isDefault && !k.archived) ??
+            s.kasas[0];
+          if (!targetKasa) return {};
+
+          // Eski bir kasa hareketi varsa temizle (yeniden ödeme akışı).
+          const trimmedTx = expense.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== expense.kasaTxId)
+            : s.kasaTransactions;
+
+          const txId = uid();
+          const empName =
+            s.employees.find((e) => e.id === expense.employeeId)?.name ?? "Yayıncı";
+          const newTx: KasaTransaction = {
+            id: txId,
+            kasaId: targetKasa.id,
+            date: `${paidDate}T00:00`,
+            direction: "out",
+            amountUsd: expense.amountUsd,
+            feeUsd,
+            purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
+            counterparty: empName,
+            proof,
+            notes,
+          };
+
+          return {
+            kasaTransactions: [...trimmedTx, newTx],
+            contentExpenses: s.contentExpenses.map((x) =>
+              x.id === contentExpenseId
+                ? { ...x, paid: true, paidDate, kasaTxId: txId }
+                : x
+            ),
+          };
+        }),
+
+      unpayContentExpense: (id) =>
+        set((s) => {
+          const expense = s.contentExpenses.find((x) => x.id === id);
+          const kasaTransactions = expense?.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== expense.kasaTxId)
+            : s.kasaTransactions;
+          return {
+            kasaTransactions,
+            contentExpenses: s.contentExpenses.map((x) =>
+              x.id === id
+                ? { ...x, paid: false, paidDate: undefined, kasaTxId: undefined }
+                : x
+            ),
+          };
+        }),
 
       // Weekly plan
       addWeeklyPlan:    (p)     => set((s) => ({ weeklyPlans: [...s.weeklyPlans, { ...p, id: uid() }] })),

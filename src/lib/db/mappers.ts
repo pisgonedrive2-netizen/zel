@@ -250,11 +250,19 @@ export function expenseEntryFromRow(r: Record<string, unknown>): ExpenseEntry {
     amount: num(r.amount),
     date: str(r.date).slice(0, 10),
     description: str(r.description),
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
 export function expenseEntryToRow(e: ExpenseEntry) {
-  return { id: e.id, category: e.category, amount: e.amount, date: e.date, description: e.description };
+  return {
+    id: e.id,
+    category: e.category,
+    amount: e.amount,
+    date: e.date,
+    description: e.description,
+    kasa_tx_id: e.kasaTxId ?? null,
+  };
 }
 
 export function plannedFromRow(r: Record<string, unknown>): PlannedItem {
@@ -558,6 +566,7 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     reviewedBy: r.reviewed_by ? str(r.reviewed_by) : undefined,
     reviewerNote: r.reviewer_note ? str(r.reviewer_note) : undefined,
     audited: bool(r.audited),
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
@@ -584,6 +593,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     reviewed_by: e.reviewedBy ?? null,
     reviewer_note: e.reviewerNote ?? null,
     audited: e.audited ?? false,
+    kasa_tx_id: e.kasaTxId ?? null,
   };
 }
 

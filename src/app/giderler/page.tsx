@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Pencil, Eye } from "lucide-react";
-import { useStore, type ExpenseEntry } from "@/store/store";
+import { useMemo, useState } from "react";
+import { Plus, Pencil, Eye, Wallet } from "lucide-react";
+import {
+  useStore,
+  calcKasaBalance,
+  DEFAULT_KASA_ID,
+  type ExpenseEntry,
+  type Kasa,
+  type KasaTransaction,
+} from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmt, CHART_COLORS } from "@/lib/data";
 import Modal from "@/components/ui/modal";
-import { Field, Input, NumberInput, Select, FormGrid, FormActions } from "@/components/ui/field";
+import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/page-header";
@@ -26,19 +33,35 @@ const EXPENSE_CATEGORIES = [
   "Diğer",
 ];
 
+type ExpenseKasaPayload = {
+  kasaId: string;
+  feeUsd?: number;
+  notes?: string;
+  proof?: string;
+};
+
 function ExpenseForm({
   initial,
   readOnly = false,
+  kasas,
+  defaultKasaId,
+  kasaTransactions,
   onSave,
+  onCreate,
   onDelete,
   onClose,
 }: {
   initial?: ExpenseEntry;
   readOnly?: boolean;
+  kasas: Kasa[];
+  defaultKasaId: string;
+  kasaTransactions: KasaTransaction[];
   onSave: (data: Omit<ExpenseEntry, "id">) => void;
+  onCreate?: (data: Omit<ExpenseEntry, "id" | "kasaTxId">, kasa?: ExpenseKasaPayload) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
+  const isEdit = !!initial;
   const [form, setForm] = useState<Omit<ExpenseEntry, "id">>({
     category:    initial?.category    ?? EXPENSE_CATEGORIES[0],
     amount:      initial?.amount      ?? 0,
@@ -46,14 +69,39 @@ function ExpenseForm({
     description: initial?.description ?? "",
   });
 
+  // Kasa düşümü sadece yeni kayıt eklenirken sorulur.
+  const activeKasas = kasas.filter((k) => !k.archived);
+  const hasKasa = activeKasas.length > 0;
+  const [deductFromKasa, setDeductFromKasa] = useState<boolean>(!isEdit && hasKasa);
+  const [kasaId, setKasaId] = useState<string>(defaultKasaId);
+  const [feeUsd, setFeeUsd] = useState<number>(0);
+  const [notes, setNotes] = useState<string>("");
+
   const set = (k: keyof typeof form, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
+
+  const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
+  const balance = useMemo(
+    () => (selectedKasa ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id) : 0),
+    [selectedKasa, kasaTransactions],
+  );
+  const projectedBalance = balance - (form.amount || 0) - (feeUsd || 0);
+  const isLow = deductFromKasa && projectedBalance < 0;
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (readOnly) return;
-        onSave(form);
+        if (!isEdit && onCreate) {
+          onCreate(
+            form,
+            deductFromKasa && selectedKasa
+              ? { kasaId: selectedKasa.id, feeUsd, notes }
+              : undefined,
+          );
+        } else {
+          onSave(form);
+        }
         onClose();
       }}
     >
@@ -78,6 +126,73 @@ function ExpenseForm({
             <Input value={form.description} onChange={(e) => set("description", e.target.value)} required placeholder="Ne için ödendi?" />
           </Field>
         </FormGrid>
+
+        {!isEdit && hasKasa && (
+          <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deductFromKasa}
+                onChange={(e) => setDeductFromKasa(e.target.checked)}
+                className="rounded border-border"
+              />
+              <Wallet size={14} className="text-muted-foreground" />
+              Kasadan da düş (otomatik <code className="text-xs">out</code> hareketi)
+            </label>
+            {deductFromKasa && (
+              <div className="space-y-3 pl-1">
+                <FormGrid>
+                  <Field label="Kasa" required>
+                    {activeKasas.length === 1 ? (
+                      <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm flex items-center justify-between">
+                        <span>{activeKasas[0].name}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">{fmt(balance)}</span>
+                      </div>
+                    ) : (
+                      <Select
+                        value={kasaId}
+                        onChange={(e) => setKasaId(e.target.value)}
+                        options={activeKasas.map((k) => ({
+                          value: k.id,
+                          label: `${k.name} · ${fmt(calcKasaBalance(kasaTransactions, undefined, k.id))}`,
+                        }))}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Komisyon / Fee ($)" hint="Opsiyonel">
+                    <NumberInput value={feeUsd} onChange={(v) => setFeeUsd(v)} min={0} step={1} />
+                  </Field>
+                </FormGrid>
+                <Field label="Kasa hareketi notu" hint="Opsiyonel">
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Ödeme yöntemi, referans no, vb."
+                  />
+                </Field>
+                <div
+                  className={[
+                    "rounded-lg border px-3 py-2 text-xs flex items-center justify-between",
+                    isLow
+                      ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200"
+                      : "border-border bg-card text-muted-foreground",
+                  ].join(" ")}
+                >
+                  <span>Mevcut bakiye: <strong className="tabular-nums">{fmt(balance)}</strong></span>
+                  <span>Ödeme sonrası: <strong className="tabular-nums">{fmt(projectedBalance)}</strong></span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isEdit && initial?.kasaTxId && (
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+            <Wallet size={13} />
+            Bu gider, kasa hareketine bağlı. Kasayı değiştirmek için Kasa sayfasını kullanın.
+          </div>
+        )}
       </fieldset>
       {readOnly ? (
         <div className="flex justify-end pt-4 mt-5 border-t border-border">
@@ -97,10 +212,32 @@ function ExpenseForm({
 }
 
 export default function GiderlerPage() {
-  const { expenses, addExpense, updateExpense, deleteExpense } = useStore();
+  const {
+    expenses,
+    addExpense,
+    updateExpense,
+    deleteExpense,
+    recordExpense,
+    kasas,
+    kasaTransactions,
+  } = useStore();
   const readOnly = useIsReadOnly();
   const [modal, setModal] = useState<"new" | ExpenseEntry | null>(null);
   const [filterCat, setFilterCat] = useState("Tümü");
+  const defaultKasaId =
+    kasas.find((k) => k.isDefault && !k.archived)?.id ??
+    kasas.find((k) => !k.archived)?.id ??
+    DEFAULT_KASA_ID;
+  const kasaNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    kasas.forEach((k) => m.set(k.id, k.name));
+    return m;
+  }, [kasas]);
+  const kasaTxIndex = useMemo(() => {
+    const m = new Map<string, KasaTransaction>();
+    kasaTransactions.forEach((t) => m.set(t.id, t));
+    return m;
+  }, [kasaTransactions]);
 
   const totalYillik = expenses.reduce((s, e) => s + e.amount, 0);
 
@@ -120,7 +257,7 @@ export default function GiderlerPage() {
   const barData = byCategory;
 
   return (
-    <div className="p-8">
+    <div className="p-3 sm:p-6 md:p-8">
       <PageHeader
         title="Giderler"
         subtitle={
@@ -195,34 +332,47 @@ export default function GiderlerPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                {["Tarih","Kategori","Açıklama","Tutar",""].map((h, i) => (
+                {["Tarih","Kategori","Açıklama","Kasa","Tutar",""].map((h, i) => (
                   <th key={i} className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide text-left">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {sortedExpenses.map((e) => (
-                <tr key={e.id} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{e.date}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <Badge variant="outline" className="text-xs text-muted-foreground">{e.category}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-foreground">{e.description}</td>
-                  <td className="px-4 py-3 text-red-400 tabular-nums font-medium whitespace-nowrap">{fmt(e.amount)}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => setModal(e)}
-                      className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                      aria-label={readOnly ? "Detayı görüntüle" : "Gideri düzenle"}
-                    >
-                      {readOnly ? <Eye size={13} /> : <Pencil size={13} />}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {sortedExpenses.map((e) => {
+                const linkedTx = e.kasaTxId ? kasaTxIndex.get(e.kasaTxId) : undefined;
+                const kasaLabel = linkedTx ? kasaNameById.get(linkedTx.kasaId) ?? "—" : null;
+                return (
+                  <tr key={e.id} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{e.date}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <Badge variant="outline" className="text-xs text-muted-foreground">{e.category}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-foreground">{e.description}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs">
+                      {kasaLabel ? (
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <Wallet size={11} /> {kasaLabel}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-red-400 tabular-nums font-medium whitespace-nowrap">{fmt(e.amount)}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => setModal(e)}
+                        className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                        aria-label={readOnly ? "Detayı görüntüle" : "Gideri düzenle"}
+                      >
+                        {readOnly ? <Eye size={13} /> : <Pencil size={13} />}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
               {sortedExpenses.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
               )}
             </tbody>
           </table>
@@ -238,10 +388,14 @@ export default function GiderlerPage() {
         <ExpenseForm
           initial={modal !== "new" && modal !== null ? modal : undefined}
           readOnly={readOnly}
+          kasas={kasas}
+          defaultKasaId={defaultKasaId}
+          kasaTransactions={kasaTransactions}
           onSave={(data) => {
             if (modal === "new") addExpense(data);
             else if (modal !== null) updateExpense(modal.id, data);
           }}
+          onCreate={(data, kasa) => recordExpense(data, kasa)}
           onDelete={!readOnly && modal !== "new" && modal !== null ? () => { deleteExpense(modal.id); setModal(null); } : undefined}
           onClose={() => setModal(null)}
         />
