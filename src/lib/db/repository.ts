@@ -11,7 +11,8 @@ import {
   plannedFromRow, plannedToRow, plannedPaymentFromRow, plannedPaymentToRow, streamerAccountFromRow, streamerAccountToRow,
   scheduleSlotFromRow, scheduleSlotToRow, brandFromRow, brandToRow,
   brandLinkFromRow, brandLinkToRow, linkSnapshotFromRow, linkSnapshotToRow,
-  viewershipFromRow, viewershipToRow, kasaFromRow, kasaToRow,
+  viewershipFromRow, viewershipToRow,
+  kasaAccountFromRow, kasaAccountToRow, kasaFromRow, kasaToRow,
   contentExpenseFromRow, contentExpenseToRow, weeklyPlanFromRow, weeklyPlanToRow,
   weekBrandReelFromRow, weekBrandReelToRow, notificationFromRow, notificationToRow,
   appUserFromRow, appUserToRow,
@@ -79,7 +80,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
   const [
     employees, advances, salaryExtras, paymentStatuses, companies, sponsorTransactions,
     projects, projectPayments, expenses, plannedItems, plannedItemPayments, streamerAccounts, scheduleSlots, brands, brandLinks,
-    linkSnapshots, brandViewership, kasaTransactions, contentExpenses, weeklyPlans,
+    linkSnapshots, brandViewership, kasas, kasaTransactions, contentExpenses, weeklyPlans,
     weekBrandReels, notifications,
   ] = await Promise.all([
     selectAll("employees", employeeFromRow),
@@ -99,6 +100,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     selectAll("brand_links", brandLinkFromRow),
     selectAll("link_snapshots", linkSnapshotFromRow),
     selectAll("brand_viewership", viewershipFromRow),
+    selectAll("kasas", kasaAccountFromRow),
     selectAll("kasa_transactions", kasaFromRow),
     selectAll("content_expenses", contentExpenseFromRow),
     selectAll("weekly_plans", weeklyPlanFromRow),
@@ -124,6 +126,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     brandLinks,
     linkSnapshots,
     brandViewership,
+    kasas,
     kasaTransactions,
     contentExpenses,
     weeklyPlans,
@@ -157,6 +160,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       brandLinks: myLinks,
       linkSnapshots: linkSnapshots.filter((s) => myLinkIds.has(s.linkId)),
       brandViewership: brandViewership.filter((v) => v.employeeId === eid),
+      kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.employeeId === eid),
       weeklyPlans: weeklyPlans.filter((p) => p.employeeId === eid),
@@ -191,6 +195,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
         brandLinks.some((l) => l.id === s.linkId && l.brandId === bid)
       ),
       brandViewership: brandViewership.filter((v) => v.brandId === bid),
+      kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
       weeklyPlans: [],
@@ -242,7 +247,7 @@ async function syncAuditorScoped(payload: AppHydratePayload) {
 }
 
 async function syncAdminFull(payload: AppHydratePayload) {
-  const tables: Array<{ table: string; rows: Record<string, unknown>[]; idKey?: string }> = [
+  const tables: Array<{ table: string; rows: Record<string, unknown>[]; skipDelete?: boolean }> = [
     { table: "employees", rows: (payload.employees ?? []).map(employeeToRow) },
     { table: "brands", rows: (payload.brands ?? []).map(brandToRow) },
     { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow) },
@@ -259,6 +264,11 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "brand_links", rows: (payload.brandLinks ?? []).map(brandLinkToRow) },
     { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow) },
     { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow) },
+    // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
+    // deleteNotIn yapmıyoruz: kullanıcı yanlışlıkla bağlı hareketleri olan
+    // bir kasayı silerse FK RESTRICT hata fırlatır. Bunun yerine `archived`
+    // bayrağıyla yönetiyoruz.
+    { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow) },
     { table: "content_expenses", rows: (payload.contentExpenses ?? []).map(contentExpenseToRow) },
     { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow) },
@@ -266,9 +276,11 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
   ];
 
-  for (const { table, rows } of tables) {
+  for (const { table, rows, skipDelete } of tables) {
     await upsertRows(table, rows);
-    await deleteNotIn(table, rows.map((r) => String(r.id)));
+    if (!skipDelete) {
+      await deleteNotIn(table, rows.map((r) => String(r.id)));
+    }
   }
 
   const ps = (payload.paymentStatuses ?? []).map(paymentStatusToRow);
@@ -385,9 +397,10 @@ export function pickSnapshot(state: Record<string, unknown>): AppHydratePayload 
   const out: AppHydratePayload = {};
   for (const k of [
     "employees", "advances", "salaryExtras", "paymentStatuses", "companies",
-    "sponsorTransactions", "projects", "expenses", "plannedItems", "streamerAccounts",
+    "sponsorTransactions", "projects", "projectPayments", "expenses", "plannedItems", "plannedItemPayments",
+    "streamerAccounts",
     "scheduleSlots", "brands", "brandLinks", "linkSnapshots", "brandViewership",
-    "kasaTransactions", "contentExpenses", "weeklyPlans", "weekBrandReels", "notifications",
+    "kasas", "kasaTransactions", "contentExpenses", "weeklyPlans", "weekBrandReels", "notifications",
   ] as const) {
     if (state[k] !== undefined) (out as Record<string, unknown>)[k] = state[k];
   }

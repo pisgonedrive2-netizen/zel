@@ -3,9 +3,16 @@
 import { useState, useMemo } from "react";
 import {
   Plus, Pencil, Search, CheckCircle2, Circle, Receipt, Calendar,
-  ExternalLink, AlertCircle, X, Image as ImageIcon, MessageSquare, Clock,
+  ExternalLink, AlertCircle, X, Image as ImageIcon, MessageSquare, Clock, Wallet,
 } from "lucide-react";
-import { useStore, type ContentExpense } from "@/store/store";
+import {
+  useStore,
+  calcKasaBalance,
+  DEFAULT_KASA_ID,
+  type ContentExpense,
+  type Kasa,
+  type KasaTransaction,
+} from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { logAudit } from "@/store/audit-log";
 import { fmt } from "@/lib/data";
@@ -147,8 +154,14 @@ export default function ContentExpensesPage() {
   const {
     contentExpenses, brands, employees,
     addContentExpense, updateContentExpense, deleteContentExpense,
+    payContentExpense, unpayContentExpense,
+    kasas, kasaTransactions,
     pushNotification,
   } = useStore();
+  const defaultKasaId =
+    kasas.find((k) => k.isDefault && !k.archived)?.id ??
+    kasas.find((k) => !k.archived)?.id ??
+    DEFAULT_KASA_ID;
 
   const [modal, setModal]    = useState<"new" | ContentExpense | null>(null);
   const [reviewModal, setReviewModal] = useState<ContentExpense | null>(null);
@@ -188,10 +201,21 @@ export default function ContentExpensesPage() {
   const canReview = user?.role === "admin" || user?.role === "auditor";
   const canMarkPaid = user?.role === "admin";
   const markExpensePaid = (e: ContentExpense) => {
-    updateContentExpense(e.id, {
-      paid: true,
-      paidDate: new Date().toISOString().slice(0, 10),
-    });
+    const today = new Date().toISOString().slice(0, 10);
+    // Aktif kasa varsa varsayılan kasaya `out` hareketi yaratıp bağla;
+    // hiç kasa tanımlanmadıysa eski davranışı koru.
+    const activeKasa =
+      kasas.find((k) => k.id === defaultKasaId && !k.archived) ??
+      kasas.find((k) => !k.archived);
+    if (activeKasa) {
+      payContentExpense({
+        contentExpenseId: e.id,
+        kasaId: activeKasa.id,
+        paidDate: today,
+      });
+    } else {
+      updateContentExpense(e.id, { paid: true, paidDate: today });
+    }
     pushNotification({
       type: "expense_paid",
       title: "Harcama ödendi",
@@ -522,15 +546,30 @@ export default function ContentExpensesPage() {
             reviewerId={user?.id ?? ""}
             employees={employees}
             canMarkPaid={canMarkPaid}
-            onApprove={(note, markPaid) => {
+            kasas={kasas}
+            kasaTransactions={kasaTransactions}
+            defaultKasaId={defaultKasaId}
+            onApprove={(note, markPaid, kasaPayload) => {
+              const today = new Date().toISOString().slice(0, 10);
               updateContentExpense(reviewModal.id, {
                 reviewStatus: "approved",
                 reviewedAt: new Date().toISOString(),
                 reviewedBy: user?.id,
                 reviewerNote: note,
-                paid: markPaid,
-                paidDate: markPaid ? new Date().toISOString().slice(0, 10) : reviewModal.paidDate,
+                // Eğer ödeme kasaya bağlıysa payContentExpense paid alanını set edecek;
+                // burada yalnızca inceleme metadata'sını güncelliyoruz.
+                paid: markPaid && !kasaPayload ? true : reviewModal.paid,
+                paidDate: markPaid && !kasaPayload ? today : reviewModal.paidDate,
               });
+              if (markPaid && kasaPayload) {
+                payContentExpense({
+                  contentExpenseId: reviewModal.id,
+                  kasaId: kasaPayload.kasaId,
+                  paidDate: today,
+                  feeUsd: kasaPayload.feeUsd,
+                  notes: note,
+                });
+              }
               const emp = employees.find(em => em.id === reviewModal.employeeId);
               pushNotification({
                 type: markPaid ? "expense_paid" : "expense_approved",
@@ -607,18 +646,39 @@ export default function ContentExpensesPage() {
 }
 
 // ── Review Form ──────────────────────────────────────────────────────────
-function ReviewForm({ expense, employees, canMarkPaid, onApprove, onReject, onNeedsInfo, onClose }: {
+function ReviewForm({
+  expense,
+  employees,
+  canMarkPaid,
+  kasas,
+  kasaTransactions,
+  defaultKasaId,
+  onApprove,
+  onReject,
+  onNeedsInfo,
+  onClose,
+}: {
   expense: ContentExpense;
   reviewerId: string;
   employees: { id: string; name: string }[];
   canMarkPaid: boolean;
-  onApprove: (note: string, markPaid: boolean) => void;
+  kasas: Kasa[];
+  kasaTransactions: KasaTransaction[];
+  defaultKasaId: string;
+  onApprove: (note: string, markPaid: boolean, kasa?: { kasaId: string; feeUsd: number }) => void;
   onReject: (note: string) => void;
   onNeedsInfo: (note: string) => void;
   onClose: () => void;
 }) {
   const [note, setNote]         = useState(expense.reviewerNote ?? "");
   const [markPaid, setMarkPaid] = useState(canMarkPaid);
+  const activeKasas = kasas.filter((k) => !k.archived);
+  const [kasaId, setKasaId] = useState<string>(defaultKasaId);
+  const [feeUsd, setFeeUsd] = useState<number>(0);
+  const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
+  const balance = selectedKasa ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id) : 0;
+  const projected = balance - (expense.amountUsd || 0) - feeUsd;
+  const isLow = markPaid && projected < 0;
   const emp = employees.find(em => em.id === expense.employeeId);
   const submitted = expense.submittedAt ? new Date(expense.submittedAt).toLocaleString("tr-TR") : "—";
 
@@ -668,10 +728,49 @@ function ReviewForm({ expense, employees, canMarkPaid, onApprove, onReject, onNe
       </Field>
 
       {canMarkPaid ? (
-        <div className="flex items-center gap-2 text-sm">
-          <input type="checkbox" id="markPaid" checked={markPaid} onChange={e => setMarkPaid(e.target.checked)}
-            className="rounded border-border" />
-          <label htmlFor="markPaid">Onayla ve aynı zamanda <strong>ödendi</strong> olarak işaretle (kasadan ödendi)</label>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="markPaid" checked={markPaid} onChange={e => setMarkPaid(e.target.checked)}
+              className="rounded border-border" />
+            <label htmlFor="markPaid">Onayla ve aynı zamanda <strong>ödendi</strong> olarak işaretle (kasadan düş)</label>
+          </div>
+          {markPaid && activeKasas.length > 0 && (
+            <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
+              <FormGrid>
+                <Field label="Kasa" required>
+                  {activeKasas.length === 1 ? (
+                    <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5"><Wallet size={13} /> {activeKasas[0].name}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{fmt(balance)}</span>
+                    </div>
+                  ) : (
+                    <Select
+                      value={kasaId}
+                      onChange={(e) => setKasaId(e.target.value)}
+                      options={activeKasas.map((k) => ({
+                        value: k.id,
+                        label: `${k.name} · ${fmt(calcKasaBalance(kasaTransactions, undefined, k.id))}`,
+                      }))}
+                    />
+                  )}
+                </Field>
+                <Field label="Komisyon / Fee ($)" hint="Opsiyonel">
+                  <NumberInput value={feeUsd} onChange={(v) => setFeeUsd(v)} min={0} step={1} />
+                </Field>
+              </FormGrid>
+              <div
+                className={[
+                  "rounded-lg border px-3 py-2 text-xs flex items-center justify-between",
+                  isLow
+                    ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200"
+                    : "border-border bg-card text-muted-foreground",
+                ].join(" ")}
+              >
+                <span>Mevcut bakiye: <strong className="tabular-nums">{fmt(balance)}</strong></span>
+                <span>Ödeme sonrası: <strong className="tabular-nums">{fmt(projected)}</strong></span>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200">
@@ -689,7 +788,17 @@ function ReviewForm({ expense, employees, canMarkPaid, onApprove, onReject, onNe
           className="gap-1.5 border-red-300 text-red-700 hover:bg-red-500/10 dark:text-red-400 dark:border-red-500/40">
           <X size={13} /> Reddet
         </Button>
-        <Button type="button" onClick={() => onApprove(note, canMarkPaid ? markPaid : false)}
+        <Button
+          type="button"
+          onClick={() =>
+            onApprove(
+              note,
+              canMarkPaid ? markPaid : false,
+              canMarkPaid && markPaid && selectedKasa
+                ? { kasaId: selectedKasa.id, feeUsd }
+                : undefined,
+            )
+          }
           className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
           <CheckCircle2 size={13} /> Onayla
         </Button>

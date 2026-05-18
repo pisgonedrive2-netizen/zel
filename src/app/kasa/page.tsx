@@ -4,8 +4,12 @@ import { useState, useMemo } from "react";
 import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
+  Banknote, Archive,
 } from "lucide-react";
-import { useStore, calcKasaBalance, type KasaTransaction } from "@/store/store";
+import {
+  useStore, calcKasaBalance,
+  type Kasa, type KasaTransaction, DEFAULT_KASA_ID,
+} from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { fmt } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,14 @@ function shortTxid(t?: string) {
   return t.slice(0, 8) + "…" + t.slice(-6);
 }
 
+const KASA_KIND_OPTIONS: Array<{ value: Kasa["kind"]; label: string }> = [
+  { value: "general", label: "Genel" },
+  { value: "usdt",    label: "USDT cüzdan" },
+  { value: "bank",    label: "Banka hesabı" },
+  { value: "cash",    label: "Nakit" },
+  { value: "other",   label: "Diğer" },
+];
+
 // ── Copy button ───────────────────────────────────────────────────────────
 function Copyable({ text }: { text: string }) {
   const [c, setC] = useState(false);
@@ -47,14 +59,94 @@ function Copyable({ text }: { text: string }) {
   );
 }
 
-// ── Kasa Form ─────────────────────────────────────────────────────────────
-function KasaForm({ initial, onSave, onDelete, onClose }: {
+// ── Kasa hesabı (account) form ────────────────────────────────────────────
+function KasaAccountForm({
+  initial, onSave, onDelete, onClose,
+}: {
+  initial?: Kasa;
+  onSave: (k: Omit<Kasa, "id">) => void;
+  onDelete?: () => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<Omit<Kasa, "id">>({
+    name: initial?.name ?? "",
+    kind: initial?.kind ?? "general",
+    currency: initial?.currency ?? "USD",
+    isDefault: initial?.isDefault ?? false,
+    archived: initial?.archived ?? false,
+    orderIndex: initial?.orderIndex ?? 0,
+    notes: initial?.notes ?? "",
+  });
+  const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSave(form); onClose(); }}>
+      <div className="grid gap-4">
+        <FormGrid>
+          <Field label="Kasa adı" required>
+            <Input value={form.name} onChange={(e) => set("name", e.target.value)} required placeholder="Örn. USDT Tron, Banka, Nakit" />
+          </Field>
+          <Field label="Tür">
+            <Select
+              value={form.kind}
+              onChange={(e) => set("kind", e.target.value as Kasa["kind"])}
+              options={KASA_KIND_OPTIONS}
+            />
+          </Field>
+        </FormGrid>
+        <FormGrid>
+          <Field label="Para birimi (etiket)" hint="Hesaplamalar USD bazında; bu sadece görüntüleme içindir.">
+            <Input value={form.currency} onChange={(e) => set("currency", e.target.value)} placeholder="USD / USDT / TRY" />
+          </Field>
+          <Field label="Sıra (küçük olan üstte)">
+            <NumberInput value={form.orderIndex} onChange={(v) => set("orderIndex", v)} min={0} step={1} />
+          </Field>
+        </FormGrid>
+        <Field label="Notlar">
+          <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Bu kasanın amacı, sahibi vb." />
+        </Field>
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border"
+              checked={form.isDefault}
+              onChange={(e) => set("isDefault", e.target.checked)}
+            />
+            Varsayılan kasa
+          </label>
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border"
+              checked={form.archived}
+              onChange={(e) => set("archived", e.target.checked)}
+              disabled={initial?.id === DEFAULT_KASA_ID}
+            />
+            Arşivle (listelerde gizle)
+          </label>
+        </div>
+      </div>
+      <FormActions
+        onCancel={onClose}
+        onDelete={initial && initial.id !== DEFAULT_KASA_ID ? onDelete : undefined}
+        submitLabel={initial ? "Güncelle" : "Kasa Ekle"}
+      />
+    </form>
+  );
+}
+
+// ── Kasa hareketi form ────────────────────────────────────────────────────
+function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: {
   initial?: KasaTransaction;
+  kasas: Kasa[];
+  defaultKasaId: string;
   onSave: (d: Omit<KasaTransaction, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
   const [form, setForm] = useState<Omit<KasaTransaction, "id">>({
+    kasaId:       initial?.kasaId       ?? defaultKasaId,
     date:         initial?.date         ?? new Date().toISOString().slice(0, 16),
     direction:    initial?.direction    ?? "out",
     amountUsd:    initial?.amountUsd    ?? 0,
@@ -70,8 +162,15 @@ function KasaForm({ initial, onSave, onDelete, onClose }: {
     <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
       <div className="grid gap-4">
         <FormGrid>
-          <Field label="Tarih & Saat" required>
-            <Input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} required />
+          <Field label="Kasa" required>
+            <Select
+              value={form.kasaId}
+              onChange={(e) => set("kasaId", e.target.value)}
+              required
+              options={kasas
+                .filter((k) => !k.archived || k.id === form.kasaId)
+                .map((k) => ({ value: k.id, label: k.name }))}
+            />
           </Field>
           <Field label="Yön" required>
             <Select value={form.direction} onChange={e => set("direction", e.target.value as KasaTransaction["direction"])} required
@@ -79,21 +178,24 @@ function KasaForm({ initial, onSave, onDelete, onClose }: {
           </Field>
         </FormGrid>
         <FormGrid>
+          <Field label="Tarih & Saat" required>
+            <Input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} required />
+          </Field>
           <Field label="Tutar (USDT)" required>
             <NumberInput value={form.amountUsd} onChange={v => set("amountUsd", v)} required min={0} step={0.01} />
           </Field>
-          <Field label="Network Fee (USDT)" hint="Genelde ~$4 (TRC20)">
-            <NumberInput value={form.feeUsd} onChange={v => set("feeUsd", v)} min={0} step={0.01} />
-          </Field>
         </FormGrid>
         <FormGrid>
-          <Field label="Amaç / Açıklama" required>
-            <Input value={form.purpose} onChange={e => set("purpose", e.target.value)} required placeholder="Ödeme sebebi" />
+          <Field label="Network Fee (USDT)" hint="Genelde ~$4 (TRC20)">
+            <NumberInput value={form.feeUsd} onChange={v => set("feeUsd", v)} min={0} step={0.01} />
           </Field>
           <Field label="Karşı Taraf" hint='Alıcı veya gönderici (ör. "Lucy", "TronScan adresi")'>
             <Input value={form.counterparty} onChange={e => set("counterparty", e.target.value)} placeholder="İsim / cüzdan" />
           </Field>
         </FormGrid>
+        <Field label="Amaç / Açıklama" required>
+          <Input value={form.purpose} onChange={e => set("purpose", e.target.value)} required placeholder="Ödeme sebebi" />
+        </Field>
         <Field label="Kanıt (TXID / Dekont / Ekran görüntüsü)" hint="TXID, URL veya doğrudan resim yükle">
           <ProofUploader
             value={form.proof}
@@ -113,32 +215,54 @@ function KasaForm({ initial, onSave, onDelete, onClose }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function KasaPage() {
-  const { kasaTransactions, addKasaTransaction, updateKasaTransaction, deleteKasaTransaction } = useStore();
+  const {
+    kasas, kasaTransactions,
+    addKasa, updateKasa, deleteKasa,
+    addKasaTransaction, updateKasaTransaction, deleteKasaTransaction,
+  } = useStore();
   const { user } = useAuth();
   const readOnly = useIsReadOnly();
-  const [modal, setModal]       = useState<"new" | KasaTransaction | null>(null);
-  const [search, setSearch]     = useState("");
-  const [filter, setFilter]     = useState<"all" | "in" | "out">("all");
+  const [modal, setModal]               = useState<"new" | KasaTransaction | null>(null);
+  const [kasaModal, setKasaModal]       = useState<"new" | Kasa | null>(null);
+  const [search, setSearch]             = useState("");
+  const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
+  const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
 
-  // Aylık dışa aktarım: kullanılabilir aylar (kasa hareketlerinden + bu ay).
+  const visibleKasas = useMemo(
+    () => [...kasas].sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
+    [kasas]
+  );
+
+  const defaultKasaId = useMemo(() => {
+    const explicit = visibleKasas.find((k) => k.isDefault && !k.archived);
+    if (explicit) return explicit.id;
+    const firstActive = visibleKasas.find((k) => !k.archived);
+    return firstActive?.id ?? DEFAULT_KASA_ID;
+  }, [visibleKasas]);
+
+  const txnsForSelected = useMemo(
+    () => selectedKasaId === "all"
+      ? kasaTransactions
+      : kasaTransactions.filter((t) => t.kasaId === selectedKasaId),
+    [kasaTransactions, selectedKasaId]
+  );
+
   const availableMonths = useMemo(
-    () => listAvailableMonths(kasaTransactions.map((t) => t.date)),
-    [kasaTransactions]
+    () => listAvailableMonths(txnsForSelected.map((t) => t.date)),
+    [txnsForSelected]
   );
   const currentYm = availableMonths[0] ?? new Date().toISOString().slice(0, 7);
 
-  // Verilen aydan ÖNCE oluşan kasa devir bakiyesini hesapla (PDF/CSV özet için).
   const openingBalanceFor = (ym: string) =>
-    kasaTransactions
+    txnsForSelected
       .filter((t) => t.date < ym + "-01T00:00")
       .reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0);
 
   const canExport = user?.role === "admin" || user?.role === "auditor";
 
-  // Sıralı ve bakiye eklenmiş
   const sorted = useMemo(
-    () => [...kasaTransactions].sort((a, b) => a.date.localeCompare(b.date)),
-    [kasaTransactions]
+    () => [...txnsForSelected].sort((a, b) => a.date.localeCompare(b.date)),
+    [txnsForSelected]
   );
 
   const withBalance = useMemo(() => {
@@ -159,12 +283,16 @@ export default function KasaPage() {
     );
   }, [withBalance, filter, search]);
 
-  const currentBalance = calcKasaBalance(kasaTransactions);
-  const totalIn        = kasaTransactions.filter(t => t.direction === "in").reduce((s, t) => s + t.amountUsd, 0);
-  const totalOut       = kasaTransactions.filter(t => t.direction === "out").reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
-  const totalFees      = kasaTransactions.reduce((s, t) => s + t.feeUsd, 0);
+  const currentBalance = useMemo(
+    () => selectedKasaId === "all"
+      ? calcKasaBalance(kasaTransactions)
+      : calcKasaBalance(kasaTransactions, undefined, selectedKasaId),
+    [kasaTransactions, selectedKasaId]
+  );
+  const totalIn        = txnsForSelected.filter(t => t.direction === "in").reduce((s, t) => s + t.amountUsd, 0);
+  const totalOut       = txnsForSelected.filter(t => t.direction === "out").reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
+  const totalFees      = txnsForSelected.reduce((s, t) => s + t.feeUsd, 0);
 
-  // Bakiye grafiği için günlük seri
   const balanceSeries = useMemo(() => {
     return withBalance.map(t => ({
       date: t.date.slice(0, 10),
@@ -172,13 +300,31 @@ export default function KasaPage() {
     }));
   }, [withBalance]);
 
+  // Her kasa için özet kart verisi.
+  const perKasaSummary = useMemo(
+    () => visibleKasas
+      .filter((k) => !k.archived)
+      .map((k) => ({
+        kasa: k,
+        balance: calcKasaBalance(kasaTransactions, undefined, k.id),
+        count:   kasaTransactions.filter((t) => t.kasaId === k.id).length,
+      })),
+    [visibleKasas, kasaTransactions]
+  );
+
+  const kasaNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const k of kasas) m.set(k.id, k.name);
+    return m;
+  }, [kasas]);
+
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       <div className="flex items-start justify-between mb-8 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Kasa Hareketleri</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Denetim grubuna iletilen tüm para giriş/çıkışları · 1 Nisan 2026 proje devri sonrası
+            Çoklu kasa desteği · maaş/gider ödemeleri seçili kasadan otomatik düşülür
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -188,13 +334,13 @@ export default function KasaPage() {
               availableMonths={availableMonths}
               label="Aylık rapor"
               onExportPdf={(ym) =>
-                exportKasaMonthPdf(kasaTransactions, ym, {
+                exportKasaMonthPdf(txnsForSelected, ym, {
                   openingBalance: openingBalanceFor(ym),
                   generatedBy: user?.name,
                 })
               }
               onExportCsv={(ym) =>
-                exportKasaMonthCsv(kasaTransactions, ym, {
+                exportKasaMonthCsv(txnsForSelected, ym, {
                   openingBalance: openingBalanceFor(ym),
                   generatedBy: user?.name,
                 })
@@ -202,18 +348,60 @@ export default function KasaPage() {
             />
           )}
           {!readOnly && (
-            <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
-              <Plus size={14} /> İşlem Ekle
-            </Button>
+            <>
+              <Button size="sm" variant="outline" onClick={() => setKasaModal("new")} className="gap-1.5">
+                <Banknote size={14} /> Yeni Kasa
+              </Button>
+              <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
+                <Plus size={14} /> İşlem Ekle
+              </Button>
+            </>
           )}
         </div>
+      </div>
+
+      {/* Kasa seçici */}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setSelectedKasaId("all")}
+          className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+            selectedKasaId === "all"
+              ? "bg-blue-600 text-white border-blue-600"
+              : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
+          }`}
+        >
+          Tümü ({fmtUsdt(calcKasaBalance(kasaTransactions))})
+        </button>
+        {perKasaSummary.map(({ kasa, balance, count }) => (
+          <button
+            key={kasa.id}
+            onClick={() => setSelectedKasaId(kasa.id)}
+            onDoubleClick={() => !readOnly && setKasaModal(kasa)}
+            title={!readOnly ? "Çift tıklayarak düzenle" : undefined}
+            className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
+              selectedKasaId === kasa.id
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
+            }`}
+          >
+            {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
+            {kasa.name}
+            <span className="opacity-70 tabular-nums">· {fmtUsdt(balance)}</span>
+            <span className="opacity-50 text-[10px]">({count})</span>
+          </button>
+        ))}
+        {visibleKasas.some((k) => k.archived) && (
+          <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1 ml-2">
+            <Archive size={11} /> {visibleKasas.filter((k) => k.archived).length} arşivli
+          </span>
+        )}
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <div className="border border-blue-200 dark:border-blue-500/40 rounded-xl px-4 py-3 bg-gradient-to-br from-blue-50/60 to-blue-50/20 dark:from-blue-950/50 dark:to-blue-950/20">
           <p className="text-blue-700 dark:text-blue-300 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
-            <Wallet size={11} /> Güncel Kasa
+            <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
           </p>
           <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalance)}</p>
         </div>
@@ -236,7 +424,7 @@ export default function KasaPage() {
         <Card className="mb-6 gap-2 py-5">
           <CardHeader>
             <CardTitle>Bakiye Trendi</CardTitle>
-            <CardDescription>Her işlem sonrası kasa bakiyesi</CardDescription>
+            <CardDescription>Her işlem sonrası kasa bakiyesi {selectedKasaId !== "all" && `· ${kasaNameById.get(selectedKasaId) ?? ""}`}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
@@ -268,7 +456,7 @@ export default function KasaPage() {
         <p className="text-xs text-muted-foreground leading-relaxed">
           <span className="font-medium">Harcanan Tutar</span> · <span className="font-medium">Tarih</span> ·
           <span className="font-medium"> Amaç</span> · <span className="font-medium">Kanıt</span> (Dekont / TRC20 TXID / Ekran).
-          Bu grup yalnızca veri paylaşımı içindir.
+          Maaş ödemeleri ve diğer planlı giderler ilgili kasadan otomatik düşülür.
         </p>
       </div>
 
@@ -289,7 +477,7 @@ export default function KasaPage() {
           <UInput placeholder="İşlem ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
         </div>
         <p className="text-xs text-muted-foreground ml-auto">
-          {filteredRows.length} / {kasaTransactions.length} işlem
+          {filteredRows.length} / {txnsForSelected.length} işlem
         </p>
       </div>
 
@@ -299,7 +487,7 @@ export default function KasaPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {["Tarih","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Bakiye",""].map((h) => (
+                {["Tarih","Kasa","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Bakiye",""].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -310,6 +498,9 @@ export default function KasaPage() {
                   <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {t.date.slice(0, 10)}<br />
                     <span className="text-[10px] opacity-60">{t.date.slice(11, 16)}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                    {kasaNameById.get(t.kasaId) ?? t.kasaId}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {t.direction === "in" ? (
@@ -363,7 +554,7 @@ export default function KasaPage() {
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Filtreyle eşleşen işlem yok.
                   </td>
                 </tr>
@@ -378,9 +569,30 @@ export default function KasaPage() {
         {modal && (
           <KasaForm
             initial={modal === "new" ? undefined : modal}
+            kasas={visibleKasas}
+            defaultKasaId={selectedKasaId !== "all" ? selectedKasaId : defaultKasaId}
             onSave={d => { if (modal === "new") addKasaTransaction(d); else updateKasaTransaction(modal.id, d); }}
             onDelete={modal !== "new" ? () => { deleteKasaTransaction(modal.id); setModal(null); } : undefined}
             onClose={() => setModal(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal open={kasaModal !== null} onClose={() => setKasaModal(null)}
+        title={kasaModal === "new" ? "Yeni Kasa Hesabı" : "Kasayı Düzenle"} size="md">
+        {kasaModal && (
+          <KasaAccountForm
+            initial={kasaModal === "new" ? undefined : kasaModal}
+            onSave={(d) => {
+              if (kasaModal === "new") addKasa(d);
+              else updateKasa(kasaModal.id, d);
+            }}
+            onDelete={
+              kasaModal !== "new" && kasaModal.id !== DEFAULT_KASA_ID
+                ? () => { deleteKasa(kasaModal.id); setKasaModal(null); }
+                : undefined
+            }
+            onClose={() => setKasaModal(null)}
           />
         )}
       </Modal>

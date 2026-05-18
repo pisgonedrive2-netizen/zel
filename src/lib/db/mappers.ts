@@ -3,7 +3,7 @@ import type {
   SponsorTransaction, InternalProject, InternalProjectPayment, ExpenseEntry,
   PlannedItem, PlannedItemPayment,
   StreamerAccount, ScheduleSlot, Brand, BrandLink, LinkSnapshot,
-  BrandViewership, KasaTransaction, ContentExpense, WeeklyPlan,
+  BrandViewership, Kasa, KasaTransaction, ContentExpense, WeeklyPlan,
   WeekBrandReel, AppNotification,
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
@@ -105,6 +105,7 @@ export function paymentStatusFromRow(r: Record<string, unknown>): MonthPaymentSt
     paidDate: r.paid_date ? str(r.paid_date).slice(0, 10) : undefined,
     paidBy: r.paid_by ? str(r.paid_by) : undefined,
     approvedAt: r.approved_at ? str(r.approved_at) : undefined,
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
@@ -116,6 +117,7 @@ export function paymentStatusToRow(p: MonthPaymentStatus) {
     paid_date: p.paidDate ?? null,
     paid_by: p.paidBy ?? null,
     approved_at: p.approvedAt ?? null,
+    kasa_tx_id: p.kasaTxId ?? null,
   };
 }
 
@@ -248,11 +250,19 @@ export function expenseEntryFromRow(r: Record<string, unknown>): ExpenseEntry {
     amount: num(r.amount),
     date: str(r.date).slice(0, 10),
     description: str(r.description),
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
 export function expenseEntryToRow(e: ExpenseEntry) {
-  return { id: e.id, category: e.category, amount: e.amount, date: e.date, description: e.description };
+  return {
+    id: e.id,
+    category: e.category,
+    amount: e.amount,
+    date: e.date,
+    description: e.description,
+    kasa_tx_id: e.kasaTxId ?? null,
+  };
 }
 
 export function plannedFromRow(r: Record<string, unknown>): PlannedItem {
@@ -475,9 +485,38 @@ export function viewershipToRow(v: BrandViewership) {
   };
 }
 
+export function kasaAccountFromRow(r: Record<string, unknown>): Kasa {
+  const kind = str(r.kind, "general");
+  const allowed: Kasa["kind"][] = ["general", "usdt", "bank", "cash", "other"];
+  return {
+    id: str(r.id),
+    name: str(r.name),
+    kind: (allowed.includes(kind as Kasa["kind"]) ? kind : "general") as Kasa["kind"],
+    currency: str(r.currency, "USD"),
+    isDefault: bool(r.is_default),
+    archived: bool(r.archived),
+    orderIndex: Number(r.order_index ?? 0),
+    notes: str(r.notes),
+  };
+}
+
+export function kasaAccountToRow(k: Kasa) {
+  return {
+    id: k.id,
+    name: k.name,
+    kind: k.kind,
+    currency: k.currency,
+    is_default: k.isDefault,
+    archived: k.archived,
+    order_index: k.orderIndex,
+    notes: k.notes,
+  };
+}
+
 export function kasaFromRow(r: Record<string, unknown>): KasaTransaction {
   return {
     id: str(r.id),
+    kasaId: str(r.kasa_id, "kasa-genel"),
     date: str(r.date),
     direction: r.direction as KasaTransaction["direction"],
     amountUsd: num(r.amount_usd),
@@ -492,6 +531,7 @@ export function kasaFromRow(r: Record<string, unknown>): KasaTransaction {
 export function kasaToRow(t: KasaTransaction) {
   return {
     id: t.id,
+    kasa_id: t.kasaId,
     date: t.date,
     direction: t.direction,
     amount_usd: t.amountUsd,
@@ -526,6 +566,7 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     reviewedBy: r.reviewed_by ? str(r.reviewed_by) : undefined,
     reviewerNote: r.reviewer_note ? str(r.reviewer_note) : undefined,
     audited: bool(r.audited),
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
@@ -552,6 +593,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     reviewed_by: e.reviewedBy ?? null,
     reviewer_note: e.reviewerNote ?? null,
     audited: e.audited ?? false,
+    kasa_tx_id: e.kasaTxId ?? null,
   };
 }
 
