@@ -6,23 +6,33 @@
  * yazılır, Excel doğru şekilde açar.
  */
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import autoTableImport from "jspdf-autotable";
 
 import type { KasaTransaction, ContentExpense } from "@/store/store";
+import { listAvailableMonths, monthLabelTr } from "@/lib/month-label";
+
+export { listAvailableMonths, monthLabelTr };
+
+// jspdf-autotable v5: bundler'a göre default veya named export gelebilir.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AutoTableFn = (doc: jsPDF, options: any) => void;
+
+function resolveAutoTable(): AutoTableFn {
+  if (typeof autoTableImport === "function") {
+    return autoTableImport as AutoTableFn;
+  }
+  const mod = autoTableImport as {
+    default?: AutoTableFn;
+    autoTable?: AutoTableFn;
+  };
+  if (typeof mod.default === "function") return mod.default;
+  if (typeof mod.autoTable === "function") return mod.autoTable;
+  throw new Error("jspdf-autotable yüklenemedi — PDF dışa aktarımı kullanılamıyor.");
+}
+
+const autoTable = resolveAutoTable();
 
 // ── Genel yardımcılar ─────────────────────────────────────────────────────
-
-const MONTH_NAMES_TR = [
-  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-] as const;
-
-export function monthLabelTr(ym: string): string {
-  const [y, m] = ym.split("-");
-  const idx = parseInt(m, 10) - 1;
-  if (Number.isNaN(idx) || idx < 0 || idx > 11) return ym;
-  return `${MONTH_NAMES_TR[idx]} ${y}`;
-}
 
 /** Türkçe karakterleri ASCII'ye düşürür — jsPDF varsayılan fontu için. */
 function ascii(s: string | number | null | undefined): string {
@@ -48,15 +58,32 @@ function csvEscape(v: unknown): string {
   return `"${String(v ?? "").replace(/"/g, '""').replace(/[\r\n]+/g, " ")}"`;
 }
 
+function assertBrowserDownload(): void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("İndirme yalnızca tarayıcıda kullanılabilir.");
+  }
+}
+
 function downloadBlob(filename: string, blob: Blob): void {
+  assertBrowserDownload();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // Safari / bazı mobil tarayıcılar: revoke önce olursa indirme iptal olabilir.
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 300);
+}
+
+function savePdf(doc: jsPDF, filename: string): void {
+  assertBrowserDownload();
+  doc.save(filename);
 }
 
 function downloadCsv(filename: string, rows: (string | number)[][]): void {
@@ -236,7 +263,7 @@ export function exportKasaMonthPdf(
   }
 
   drawPdfFooters(doc);
-  doc.save(`foxstream-kasa-${ym}.pdf`);
+  savePdf(doc, `foxstream-kasa-${ym}.pdf`);
 }
 
 // ── Maaş raporu ───────────────────────────────────────────────────────────
@@ -385,7 +412,7 @@ export function exportSalaryMonthPdf(
   }
 
   drawPdfFooters(doc);
-  doc.save(`foxstream-maas-${ym}.pdf`);
+  savePdf(doc, `foxstream-maas-${ym}.pdf`);
 }
 
 // ── İçerik harcamaları ───────────────────────────────────────────────────
@@ -489,18 +516,5 @@ export function exportContentExpensesPdf(
     margin: { left: 14, right: 14 },
   });
   drawPdfFooters(doc);
-  doc.save(`foxstream-icerik-${ym}.pdf`);
-}
-
-// ── Tekil ay listesi (UI seçici için) ────────────────────────────────────
-
-/** Verilen tarihler ve mevcut aydan, kayıtların kapsadığı YYYY-MM listesi. */
-export function listAvailableMonths(dates: string[]): string[] {
-  const set = new Set<string>();
-  for (const d of dates) {
-    if (typeof d === "string" && /^\d{4}-\d{2}/.test(d)) set.add(d.slice(0, 7));
-  }
-  const now = new Date();
-  set.add(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
-  return Array.from(set).sort((a, b) => b.localeCompare(a));
+  savePdf(doc, `foxstream-icerik-${ym}.pdf`);
 }

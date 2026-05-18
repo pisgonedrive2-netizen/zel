@@ -30,6 +30,7 @@ import {
   exportSalaryMonthCsv,
   exportSalaryMonthPdf,
   listAvailableMonths,
+  monthLabelTr,
   type SalaryReportRow,
 } from "@/lib/monthly-exports";
 
@@ -781,6 +782,21 @@ export default function MaaslarPage() {
 
   const canExport = user?.role === "admin" || user?.role === "auditor";
 
+  const exportBordro = (ym: string, kind: "pdf" | "csv") => {
+    const rows = buildRowsForMonth(ym);
+    if (rows.length === 0) {
+      const go = window.confirm(
+        `${monthLabelTr(ym)} için bordrolu çalışan yok.\n\nYine de boş rapor indirmek ister misiniz?`,
+      );
+      if (!go) return;
+    }
+    if (kind === "pdf") {
+      exportSalaryMonthPdf(rows, ym, { generatedBy: user?.name });
+    } else {
+      exportSalaryMonthCsv(rows, ym);
+    }
+  };
+
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
       {/* Header */}
@@ -797,8 +813,8 @@ export default function MaaslarPage() {
               month={month}
               availableMonths={availableMonths}
               label="Bordro indir"
-              onExportPdf={(ym) => exportSalaryMonthPdf(buildRowsForMonth(ym), ym, { generatedBy: user?.name })}
-              onExportCsv={(ym) => exportSalaryMonthCsv(buildRowsForMonth(ym), ym)}
+              onExportPdf={(ym) => exportBordro(ym, "pdf")}
+              onExportCsv={(ym) => exportBordro(ym, "csv")}
             />
           )}
           {!readOnly && (

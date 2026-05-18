@@ -1195,6 +1195,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   };
 
   const exportStreamerBrandMonth = (b: Brand, kind: "pdf" | "csv") => {
+    try {
     const linksForExport = myBrandLinks.filter((l) => l.brandId === b.id);
     const linkRows = linksForExport.map((l) => ({
       platform: l.platform,
@@ -1241,6 +1242,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     };
     if (kind === "pdf") downloadBrandMonthPdf(payload, b.shortName);
     else downloadBrandMonthCsv(payload, b.shortName);
+    } catch (err) {
+      console.error("Marka raporu indirilemedi:", err);
+      window.alert(
+        `İndirme başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`,
+      );
+    }
   };
 
   // ── Ay navigasyonu ──
