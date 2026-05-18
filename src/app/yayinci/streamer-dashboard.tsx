@@ -14,10 +14,10 @@ import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
   WEEKDAYS_LONG, isPayrollActive, weekStartOf, nextWeekStartOf,
   sumApprovedContentExpenses, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth,
-  type ContentExpense, type WeeklyPlan, type StreamerAccount, type BrandLink, type LinkSnapshot,
+  type Employee, type ContentExpense, type WeeklyPlan, type StreamerAccount, type BrandLink, type LinkSnapshot,
   type Brand, type BrandViewership, type WeekBrandReel,
 } from "@/store/store";
-import { useAuth } from "@/store/auth";
+import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
@@ -888,35 +888,18 @@ function AddWeekReelForm({
 export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "gecmis";
 
 // ── Page ─────────────────────────────────────────────────────────────────
+/**
+ * Dış sarmalayıcı: yetki/çalışan doğrulamalarını yapar, gövdeyi yalnızca
+ * geçerli bir `me` (Employee) varsa render eder. Bu sayede iç komponentteki
+ * tüm hook'lar (useState, useMemo, useEffect) her zaman aynı sırada çalışır
+ * — admin "Yönetici paneline dön" dediğinde panelViewAs null olur, ama
+ * gövde unmount olduğu için "rendered fewer hooks" hatası oluşmaz.
+ */
 export function StreamerDashboard({ section }: { section: StreamerSection }) {
   const { user } = useAuth();
   const panelViewAs = usePanelView((s) => s.panelViewAs);
-  const {
-    employees, salaryExtras, advances, paymentStatuses,
-    contentExpenses, addContentExpense, updateContentExpense, deleteContentExpense,
-    weeklyPlans, addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
-    weekBrandReels, addWeekBrandReel, deleteWeekBrandReel,
-    scheduleSlots, streamerAccounts, brandLinks, brands, linkSnapshots, brandViewership,
-    addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
-    addBrandLink, updateBrandLink, deleteBrandLink, addLinkSnapshot,
-    addBrandViewership, updateBrandViewership,
-    updateEmployee, pushNotification,
-  } = useStore();
+  const employees = useStore((s) => s.employees);
 
-  const today    = new Date();
-  const todayYm  = toYearMonthLocal(today);
-  const thisWeek = weekStartOf(today);
-  const nextWeek = nextWeekStartOf(today);
-  const [month, setMonth] = useState<string>(todayYm);
-
-  const [expenseModal,  setExpenseModal]  = useState<"new" | ContentExpense | null>(null);
-  const [planModal,     setPlanModal]     = useState<{ mode: "new" | WeeklyPlan; weekStart: string } | null>(null);
-  const [accountModal,  setAccountModal]  = useState<"new" | StreamerAccount | null>(null);
-  const [linkModal,     setLinkModal]     = useState<"new" | BrandLink | null>(null);
-  const [snapshotModal, setSnapshotModal] = useState<BrandLink | null>(null);
-  const [walletEdit,    setWalletEdit]    = useState<string | null>(null); // null = not editing
-
-  // Erişen kullanıcının çalışan kaydı
   const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
   const me = employees.find((e) => e.id === targetEmployeeId);
   const isAdminView = user?.role === "admin" && !!panelViewAs;
@@ -961,6 +944,49 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
   }
 
   if (!me) return null;
+
+  return (
+    <StreamerDashboardInner
+      section={section}
+      me={me}
+      user={user}
+      isAdminView={isAdminView}
+    />
+  );
+}
+
+interface StreamerDashboardInnerProps {
+  section: StreamerSection;
+  me: Employee;
+  user: AppUser;
+  isAdminView: boolean;
+}
+
+function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDashboardInnerProps) {
+  const {
+    salaryExtras, advances, paymentStatuses,
+    contentExpenses, addContentExpense, updateContentExpense, deleteContentExpense,
+    weeklyPlans, addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
+    weekBrandReels, addWeekBrandReel, deleteWeekBrandReel,
+    scheduleSlots, streamerAccounts, brandLinks, brands, linkSnapshots, brandViewership,
+    addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
+    addBrandLink, updateBrandLink, deleteBrandLink, addLinkSnapshot,
+    addBrandViewership, updateBrandViewership,
+    updateEmployee, pushNotification,
+  } = useStore();
+
+  const today    = new Date();
+  const todayYm  = toYearMonthLocal(today);
+  const thisWeek = weekStartOf(today);
+  const nextWeek = nextWeekStartOf(today);
+  const [month, setMonth] = useState<string>(todayYm);
+
+  const [expenseModal,  setExpenseModal]  = useState<"new" | ContentExpense | null>(null);
+  const [planModal,     setPlanModal]     = useState<{ mode: "new" | WeeklyPlan; weekStart: string } | null>(null);
+  const [accountModal,  setAccountModal]  = useState<"new" | StreamerAccount | null>(null);
+  const [linkModal,     setLinkModal]     = useState<"new" | BrandLink | null>(null);
+  const [snapshotModal, setSnapshotModal] = useState<BrandLink | null>(null);
+  const [walletEdit,    setWalletEdit]    = useState<string | null>(null); // null = not editing
 
   // ── Maaş hesapları ──
   const active     = isPayrollActive(me, month);

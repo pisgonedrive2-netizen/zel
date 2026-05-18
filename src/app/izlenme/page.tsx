@@ -11,7 +11,6 @@ import {
   type Brand, type BrandLink, type LinkSnapshot, type Employee,
 } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
-import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import {
   brandContentExpensesForMonth,
@@ -576,10 +575,8 @@ export default function IzlenmePage() {
           <h1 className="text-2xl font-bold text-foreground">Marka İzlenme Takibi</h1>
           <p className="text-muted-foreground text-sm mt-1">
             {readOnly
-              ? "Denetim görünümü — salt okunur. Aşağıdan incelediğiniz aya göre link snapshot özetleri güncellenir."
-              : isSupabaseClientMode()
-                ? "brand_links · link_snapshots · brand_viewership — Supabase ile senkronize. Ay seçerek dönem karşılaştırması yapın."
-                : "Her marka için platform linkleri ve periyot snapshot’ları. Ay seçerek aynı linkin farklı dönemlerini karşılaştırın."}
+              ? "Denetim görünümü — salt okunur. Seçtiğiniz aya göre link snapshot özetleri yenilenir."
+              : "Markalarınızın platform linklerini ve her dönemin izlenme görüntülerini takip edin. Ay seçerek aynı linkin farklı dönemlerdeki performansını karşılaştırabilirsiniz."}
           </p>
         </div>
         {!readOnly && (
