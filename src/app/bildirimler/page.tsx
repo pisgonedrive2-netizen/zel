@@ -656,7 +656,7 @@ export default function NotificationsPage() {
               {isAdmin && (
                 <div className="flex items-center justify-between pt-2 border-t border-border gap-2 flex-wrap">
                   <p className="text-[11px] text-muted-foreground">
-                    Ayarlar Supabase app_settings tablosuna kaydedilir.
+                    Bu ayarlar tüm ekibe uygulanır ve sunucuda kalıcı olarak saklanır.
                   </p>
                   <div className="flex items-center gap-2">
                     {settingsOk && (
@@ -679,7 +679,7 @@ export default function NotificationsPage() {
                   <Bell size={14} /> Kişisel tercihlerim
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  notification_preferences · uygulama içi ve masaüstü (hesabınıza özel).
+                  Sadece sizin hesabınız için geçerli — hangi bildirimleri uygulama içinde ya da masaüstü pop-up'ı olarak almak istediğinizi seçin.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">

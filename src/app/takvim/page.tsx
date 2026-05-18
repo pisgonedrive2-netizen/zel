@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
-import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -205,9 +204,7 @@ export default function TakvimPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Haftalık Takvim & Yayıncı Hesapları</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {isSupabaseClientMode()
-              ? "schedule_slots · weekly_plans · streamer_accounts — Supabase ile senkronize"
-              : "Yayıncıların güncel kullandıkları hesaplar ve haftalık yayın planı"}
+            Yayıncıların güncel hesaplarını ve haftalık yayın planını tek ekrandan yönetin. Boş slotlara hesap atayarak haftalık dağılımı görselleştirin.
           </p>
         </div>
         <div className="flex gap-2">
@@ -351,7 +348,7 @@ export default function TakvimPage() {
       <div className="mt-10 mb-4">
         <h2 className="text-lg font-semibold text-foreground">Yayıncı Haftalık Planları</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Yayıncının bu/geçmiş hafta planı — geçmişe dönük düzenleme yapabilirsiniz (Supabase&apos;e kaydedilir).
+          Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Geçmiş haftalara dönük güncellemeler de kalıcı olarak saklanır.
         </p>
         <div className="flex flex-wrap items-center gap-2 mt-4">
           <Select

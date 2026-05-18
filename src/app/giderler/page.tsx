@@ -11,7 +11,6 @@ import {
   type KasaTransaction,
 } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
-import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmt, CHART_COLORS } from "@/lib/data";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -261,11 +260,7 @@ export default function GiderlerPage() {
     <div className="p-3 sm:p-6 md:p-8">
       <PageHeader
         title="Giderler"
-        subtitle={
-          isSupabaseClientMode()
-            ? "Tüm gider kalemleri · Supabase expense_entries ile senkronize"
-            : "Tüm gider kalemleri, kategori analizi ve harcama takibi"
-        }
+        subtitle="Şirket içi gider kalemlerini ekleyin, kategoriye göre analiz edin ve kasaya bağlayarak harcamayı düşürün."
         badge="Genel Giderler"
         badgeTone="red"
       />
