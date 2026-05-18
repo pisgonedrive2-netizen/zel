@@ -2,7 +2,19 @@
  * Marka / yayıncı izlenme raporu — jsPDF + autoTable (Turkish-safe ASCII fallback).
  */
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import autoTableImport from "jspdf-autotable";
+
+type AutoTableFn = (doc: jsPDF, options: Record<string, unknown>) => void;
+
+function resolveAutoTable(): AutoTableFn {
+  if (typeof autoTableImport === "function") return autoTableImport as AutoTableFn;
+  const mod = autoTableImport as { default?: AutoTableFn; autoTable?: AutoTableFn };
+  if (typeof mod.default === "function") return mod.default;
+  if (typeof mod.autoTable === "function") return mod.autoTable;
+  throw new Error("jspdf-autotable yüklenemedi");
+}
+
+const autoTable = resolveAutoTable();
 
 function latin1ish(s: string): string {
   if (!s) return "";
@@ -143,6 +155,9 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
   }
 
   const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
+  if (typeof window === "undefined") {
+    throw new Error("PDF indirme yalnızca tarayıcıda kullanılabilir.");
+  }
   doc.save(`izlenme_${slug}_${input.monthYm}.pdf`);
 }
 
@@ -163,12 +178,18 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
   for (const r of input.reels) {
     lines.push([esc(r.hafta), esc(r.platform), esc(r.link), esc(r.not)].join(","));
   }
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
   a.href = url;
   a.download = `izlenme_${slug}_${input.monthYm}.csv`;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 300);
 }

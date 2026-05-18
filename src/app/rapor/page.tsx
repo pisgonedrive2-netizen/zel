@@ -21,6 +21,7 @@ import {
   exportSalaryMonthCsv,
   exportSalaryMonthPdf,
   listAvailableMonths,
+  monthLabelTr,
   type SalaryReportRow,
 } from "@/lib/monthly-exports";
 
@@ -158,6 +159,21 @@ export default function RaporPage() {
   const totalPlanned  = rows.reduce((s, r) => s + r.plannedTotalOut, 0);
   const totalPaidOut  = rows.reduce((s, r) => s + r.totalPaidOut, 0);
 
+  const exportReport = (ym: string, kind: "pdf" | "csv") => {
+    const exportRows = buildRowsForMonth(ym);
+    if (exportRows.length === 0) {
+      const go = window.confirm(
+        `${monthLabelTr(ym)} için bordrolu çalışan yok.\n\nYine de boş rapor indirmek ister misiniz?`,
+      );
+      if (!go) return;
+    }
+    if (kind === "pdf") {
+      exportSalaryMonthPdf(exportRows, ym, { generatedBy: user?.name });
+    } else {
+      exportSalaryMonthCsv(exportRows, ym);
+    }
+  };
+
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-6xl">
       {/* Header */}
@@ -172,8 +188,8 @@ export default function RaporPage() {
           month={month}
           availableMonths={availableMonths}
           label="Aylık rapor"
-          onExportPdf={(ym) => exportSalaryMonthPdf(buildRowsForMonth(ym), ym, { generatedBy: user?.name })}
-          onExportCsv={(ym) => exportSalaryMonthCsv(buildRowsForMonth(ym), ym)}
+          onExportPdf={(ym) => exportReport(ym, "pdf")}
+          onExportCsv={(ym) => exportReport(ym, "csv")}
         />
       </div>
 
