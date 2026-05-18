@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled } from "@/lib/env";
 import { notificationToRow } from "@/lib/db/mappers";
 import type { AppNotification } from "@/store/store";
+import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
 
 export const runtime = "nodejs";
 
@@ -117,6 +118,12 @@ export async function POST(req: Request) {
     }
 
     if (body.type === "registration") {
+      if (!REGISTRATION_ENABLED) {
+        return NextResponse.json(
+          { error: "Kayıt talepleri şu an kapalı. Lütfen yöneticiyle iletişime geçin." },
+          { status: 403 },
+        );
+      }
       const fullName = body.fullName?.trim() ?? "";
       if (!fullName) {
         return NextResponse.json({ error: "Ad soyad gerekli" }, { status: 400 });

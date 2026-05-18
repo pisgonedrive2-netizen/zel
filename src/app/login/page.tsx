@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
+import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
 
 const ORANGE = "#FF6B00";
 
@@ -60,7 +61,7 @@ function LoginForm({
   busy: boolean;
   onSubmit: (e: React.FormEvent) => void;
   onForgot: () => void;
-  onRegister: () => void;
+  onRegister?: () => void;
 }) {
   return (
     <form onSubmit={onSubmit} autoComplete="on" className="flex flex-col gap-3">
@@ -118,9 +119,11 @@ function LoginForm({
         <button type="button" onClick={onForgot} className={btnGhost}>
           Şifremi unuttum
         </button>
-        <button type="button" onClick={onRegister} className={btnGhost}>
-          Hesabım yok — kayıt talebi gönder
-        </button>
+        {REGISTRATION_ENABLED && onRegister && (
+          <button type="button" onClick={onRegister} className={btnGhost}>
+            Hesabım yok — kayıt talebi gönder
+          </button>
+        )}
       </div>
     </form>
   );
@@ -425,17 +428,19 @@ export default function LoginPage() {
 
       {/* Köşe butonları — mobil + web */}
       <header className="absolute top-0 right-0 z-20 flex items-center gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] pr-[max(env(safe-area-inset-right),12px)]">
-        <button
-          type="button"
-          onClick={() => {
-            setSuccessMsg(null);
-            setErr(null);
-            setModal("register");
-          }}
-          className={`${headerBtn} border border-white/25 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70`}
-        >
-          Kayıt Ol
-        </button>
+        {REGISTRATION_ENABLED && (
+          <button
+            type="button"
+            onClick={() => {
+              setSuccessMsg(null);
+              setErr(null);
+              setModal("register");
+            }}
+            className={`${headerBtn} border border-white/25 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70`}
+          >
+            Kayıt Ol
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -475,16 +480,21 @@ export default function LoginPage() {
                 setErr(null);
                 setModal("forgot");
               }}
-              onRegister={() => {
-                setErr(null);
-                setModal("register");
-              }}
+              onRegister={
+                REGISTRATION_ENABLED
+                  ? () => {
+                      setErr(null);
+                      setModal("register");
+                    }
+                  : undefined
+              }
             />
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Kayıt popup */}
+      {/* Kayıt popup (REGISTRATION_ENABLED=true iken) */}
+      {REGISTRATION_ENABLED && (
       <Dialog open={modal === "register"} onOpenChange={(open) => !open && closeModal()}>
         <DialogContent showCloseButton className={dialogCls}>
           {successMsg ? (
@@ -513,6 +523,7 @@ export default function LoginPage() {
           )}
         </DialogContent>
       </Dialog>
+      )}
 
       {/* Şifremi unuttum popup */}
       <Dialog open={modal === "forgot"} onOpenChange={(open) => !open && closeModal()}>
