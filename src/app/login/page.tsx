@@ -5,6 +5,10 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth, landingFor } from "@/store/auth";
 import { GlowCard } from "@/components/glow-card";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 
 const ORANGE = "#FF6B00";
 
@@ -108,6 +112,7 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mobileLoginOpen, setMobileLoginOpen] = useState(false);
 
   useEffect(() => {
     if (user) router.replace(landingFor(user.role));
@@ -123,6 +128,8 @@ export default function LoginPage() {
     if (!ok) {
       setErr("Kullanıcı adı veya şifre hatalı.");
       setP("");
+    } else {
+      setMobileLoginOpen(false);
     }
     setBusy(false);
   };
@@ -134,7 +141,6 @@ export default function LoginPage() {
 
   const shared = { u, setU, p, setP, err, info, busy, onSubmit: handleSubmit, onForgot: handleForgot };
 
-  // GlowCard için opak siyah backdrop + turuncu kenar overrides.
   const cardStyle = {
     "--backdrop": "rgba(10, 10, 10, 0.92)",
     "--backup-border": "rgba(255, 107, 0, 0.25)",
@@ -144,31 +150,64 @@ export default function LoginPage() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black">
-      {/* Blurred dolgu — tüm ekranı kapatır, kenarlarda boşluk kalmasın */}
-      <Image
-        src="/login-bg-dash4.png"
-        alt=""
-        fill
-        priority
-        unoptimized
-        sizes="100vw"
-        className="scale-110 object-cover object-center blur-2xl brightness-75"
-      />
-      {/* Orijinal resim — mobilde tepe, desktop'ta tam ortada görünür */}
-      <Image
-        src="/login-bg-dash4.png"
-        alt=""
-        fill
-        priority
-        unoptimized
-        sizes="100vw"
-        className="object-contain object-top sm:object-center"
-      />
+      {/* ── Mobil: tanıtım görseli + popup giriş ── */}
+      <div className="md:hidden absolute inset-0 flex flex-col">
+        <div className="relative min-h-0 flex-1 w-full">
+          <Image
+            src="/moblogin.png"
+            alt="Fox Streaming — yayıncılığın en akıllı hali"
+            fill
+            priority
+            sizes="100vw"
+            className="object-contain object-center"
+          />
+        </div>
 
-      {/* Mobil için form alanına geçişi yumuşatan gradient */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black/85 sm:bg-gradient-to-r sm:from-transparent sm:via-black/10 sm:to-black/70" />
+        <header className="absolute top-0 right-0 z-20 p-3 pt-[max(env(safe-area-inset-top),12px)] pr-[max(env(safe-area-inset-right),12px)]">
+          <button
+            type="button"
+            onClick={() => setMobileLoginOpen(true)}
+            style={{ backgroundColor: ORANGE }}
+            className="h-9 min-w-[4.5rem] rounded-lg px-4 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 ring-1 ring-orange-600/40 transition hover:brightness-110 active:scale-[0.98]"
+          >
+            Giriş
+          </button>
+        </header>
+      </div>
 
-      <div className="relative z-10 flex h-full w-full items-end justify-center px-4 pb-[max(env(safe-area-inset-bottom),20px)] pt-[max(env(safe-area-inset-top),16px)] sm:items-center md:items-start md:justify-end md:px-10 md:pt-[6vh] md:pb-10 lg:px-16 lg:pt-[8vh]">
+      <Dialog open={mobileLoginOpen} onOpenChange={setMobileLoginOpen}>
+        <DialogContent
+          showCloseButton
+          className="md:hidden max-w-[min(100%-1.5rem,400px)] gap-0 border border-orange-500/30 bg-[#0a0a0a] p-5 text-white ring-orange-500/20 sm:max-w-[400px] [&_[data-slot=dialog-close]]:text-white/70 [&_[data-slot=dialog-close]]:hover:text-white [&_[data-slot=dialog-close]]:hover:bg-white/10"
+        >
+          <FormFields idPrefix="m" autoFocusUser={mobileLoginOpen} {...shared} />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Masaüstü: mevcut arka plan + kart ── */}
+      <div className="hidden md:block absolute inset-0">
+        <Image
+          src="/login-bg-dash4.png"
+          alt=""
+          fill
+          priority
+          unoptimized
+          sizes="100vw"
+          className="scale-110 object-cover object-center blur-2xl brightness-75"
+        />
+        <Image
+          src="/login-bg-dash4.png"
+          alt=""
+          fill
+          priority
+          unoptimized
+          sizes="100vw"
+          className="object-contain object-center"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-black/10 to-black/70" />
+      </div>
+
+      <div className="relative z-10 hidden h-full w-full md:flex items-start justify-end px-10 pt-[6vh] pb-10 lg:px-16 lg:pt-[8vh]">
         <GlowCard
           customSize
           asBlock
