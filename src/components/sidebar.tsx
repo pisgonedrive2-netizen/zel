@@ -8,13 +8,14 @@ import {
   LayoutDashboard, Users, ArrowUpRight,
   FolderKanban, Receipt, CalendarRange,
   FileSpreadsheet, ChevronLeft, ChevronRight,
-  Search, Menu, X, CalendarDays, Eye,
+  Search, X, CalendarDays, Eye,
   Wallet, Clapperboard, LogOut, ShieldCheck,
   Bell, Headphones, KeyRound, Link2, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
+import { useSidebar } from "@/store/sidebar";
 import { DeveloperAttribution } from "@/components/developer-attribution";
 import { useStore, unreadNotificationCount } from "@/store/store";
 import {
@@ -77,9 +78,12 @@ export default function Sidebar() {
   const router     = useRouter();
   const { user, logout } = useAuth();
 
-  const [open, setOpen]           = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [search, setSearch]       = useState("");
+  const open       = useSidebar((s) => s.open);
+  const setOpen    = useSidebar((s) => s.setOpen);
+  const collapsed  = useSidebar((s) => s.collapsed);
+  const toggleCollapsed = useSidebar((s) => s.toggleCollapsed);
+
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     const onResize = () => {
@@ -89,7 +93,18 @@ export default function Sidebar() {
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
+  }, [setOpen]);
+
+  // Mobil sidebar açıkken body scroll'unu kilitle.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const isMobile = window.innerWidth < 768;
+    if (open && isMobile) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [open]);
 
   const panelViewAs = usePanelView((s) => s.panelViewAs);
   const adminViewingStreamer =
@@ -126,18 +141,6 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="fixed top-6 left-6 z-50 p-3 rounded-lg bg-card shadow-md border border-border md:hidden hover:bg-accent transition-all duration-200"
-        aria-label="Toggle sidebar"
-      >
-        {open
-          ? <X className="h-5 w-5 text-muted-foreground" />
-          : <Menu className="h-5 w-5 text-muted-foreground" />
-        }
-      </button>
-
       {/* Mobile backdrop */}
       <AnimatePresence>
         {open && (
@@ -146,7 +149,7 @@ export default function Sidebar() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 md:hidden"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
             onClick={() => setOpen(false)}
           />
         )}
@@ -157,6 +160,7 @@ export default function Sidebar() {
         className={cn(
           "fixed top-0 left-0 h-full z-40 border-r transition-all duration-300 ease-in-out flex flex-col",
           "bg-sidebar text-sidebar-foreground border-sidebar-border",
+          "max-w-[85vw] shadow-2xl md:shadow-none",
           "md:translate-x-0 md:static md:z-auto md:flex-shrink-0",
           open ? "translate-x-0" : "-translate-x-full",
           collapsed ? "w-20" : "w-72"
@@ -183,7 +187,7 @@ export default function Sidebar() {
             </div>
           )}
           <button
-            onClick={() => setCollapsed(c => !c)}
+            onClick={toggleCollapsed}
             className="hidden md:flex h-9 w-9 items-center justify-center rounded-md hover:bg-sidebar-accent transition-all duration-200"
             aria-label={collapsed ? "Kenar çubuğunu genişlet" : "Kenar çubuğunu daralt"}
             title={collapsed ? "Kenar çubuğunu genişlet" : "Kenar çubuğunu daralt"}

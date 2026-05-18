@@ -126,6 +126,10 @@
     @apply border-border outline-ring/50;
     box-sizing: border-box;
   }
+  html, body {
+    overflow-x: hidden;
+    max-width: 100%;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: -apple-system, BlinkMacSystemFont, "Inter", ui-sans-serif, sans-serif;

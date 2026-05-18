@@ -4,7 +4,6 @@ import { useEffect, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth, landingFor } from "@/store/auth";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { GlowCard } from "@/components/glow-card";
 
 const ORANGE = "#FF6B00";
@@ -145,7 +144,7 @@ export default function LoginPage() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black">
-      {/* Blurred dolgu — kenar (üst/alt/yan) siyah çubukları kapatır */}
+      {/* Blurred dolgu — tüm ekranı kapatır, kenarlarda boşluk kalmasın */}
       <Image
         src="/login-bg-dash4.png"
         alt=""
@@ -155,7 +154,7 @@ export default function LoginPage() {
         sizes="100vw"
         className="scale-110 object-cover object-center blur-2xl brightness-75"
       />
-      {/* Orijinal resim — tüm içerik kayıpsız */}
+      {/* Orijinal resim — mobilde tepe, desktop'ta tam ortada görünür */}
       <Image
         src="/login-bg-dash4.png"
         alt=""
@@ -163,21 +162,18 @@ export default function LoginPage() {
         priority
         unoptimized
         sizes="100vw"
-        className="object-contain object-center"
+        className="object-contain object-top sm:object-center"
       />
 
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-black/10 to-black/70" />
+      {/* Mobil için form alanına geçişi yumuşatan gradient */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black/85 sm:bg-gradient-to-r sm:from-transparent sm:via-black/10 sm:to-black/70" />
 
-      <div className="fixed right-3 top-3 z-50 sm:right-5 sm:top-4">
-        <ThemeToggle variant="icon" />
-      </div>
-
-      <div className="relative z-10 flex h-full w-full items-center justify-center px-4 pt-[max(env(safe-area-inset-top),16px)] md:items-start md:justify-end md:px-10 md:pt-[6vh] lg:px-16 lg:pt-[8vh]">
+      <div className="relative z-10 flex h-full w-full items-end justify-center px-4 pb-[max(env(safe-area-inset-bottom),20px)] pt-[max(env(safe-area-inset-top),16px)] sm:items-center md:items-start md:justify-end md:px-10 md:pt-[6vh] md:pb-10 lg:px-16 lg:pt-[8vh]">
         <GlowCard
           customSize
           asBlock
           glowColor="orange"
-          className="w-full max-w-[400px] !p-6 sm:!p-7"
+          className="w-full max-w-[400px] !p-5 sm:!p-7"
           style={cardStyle}
         >
           <FormFields idPrefix="d" autoFocusUser {...shared} />

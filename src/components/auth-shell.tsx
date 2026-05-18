@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth, canAccess, landingFor } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
+import { useSidebar } from "@/store/sidebar";
 import { PanelViewBanner } from "@/components/panel-view-banner";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Loader2 } from "lucide-react";
+import { Loader2, Menu, X } from "lucide-react";
 
 /**
  * Tüm uygulamayı saran kabuk:
@@ -90,13 +91,29 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
       <Sidebar />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-5 pt-1.5 pb-4 sm:px-6 sm:pt-2 md:px-8 md:pt-2.5 lg:px-10">
-        <div className="sticky top-0 z-30 -mx-5 mb-2 flex justify-end border-b border-border/60 bg-background/95 px-5 py-1 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 sm:py-1.5 md:-mx-8 md:px-8 lg:-mx-10 lg:px-10">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pt-1.5 pb-4 sm:px-6 sm:pt-2 md:px-8 md:pt-2.5 lg:px-10">
+        <div className="sticky top-0 z-30 -mx-3 mb-2 flex items-center justify-between gap-2 border-b border-border/60 bg-background/95 px-3 py-1.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 sm:-mx-6 sm:px-6 sm:py-1.5 md:-mx-8 md:justify-end md:px-8 lg:-mx-10 lg:px-10">
+          <MobileSidebarTrigger />
           <ThemeToggle variant="icon" />
         </div>
         {pathname.startsWith("/yayinci") && <PanelViewBanner />}
-        <div className="min-h-0 flex-1">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1">{children}</div>
       </main>
     </div>
+  );
+}
+
+function MobileSidebarTrigger() {
+  const open = useSidebar((s) => s.open);
+  const toggleOpen = useSidebar((s) => s.toggleOpen);
+  return (
+    <button
+      type="button"
+      onClick={toggleOpen}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-accent hover:text-foreground md:hidden"
+      aria-label={open ? "Menüyü kapat" : "Menüyü aç"}
+    >
+      {open ? <X size={18} /> : <Menu size={18} />}
+    </button>
   );
 }
