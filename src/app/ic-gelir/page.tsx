@@ -404,7 +404,7 @@ export default function IcGelirPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-3 sm:p-6 md:p-8">
       <PageHeader
         title="İç Gelir"
         subtitle="Marka anlaşmaları, yayıncı paylaşımı, ödeme günleri ve tahsilat takibi"

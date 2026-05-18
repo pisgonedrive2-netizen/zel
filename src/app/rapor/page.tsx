@@ -159,7 +159,7 @@ export default function RaporPage() {
   const totalPaidOut  = rows.reduce((s, r) => s + r.totalPaidOut, 0);
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-3 sm:p-6 md:p-8 max-w-6xl">
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>

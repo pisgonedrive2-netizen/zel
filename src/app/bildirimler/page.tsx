@@ -146,7 +146,7 @@ export default function NotificationsPage() {
   if (!user) return null;
   if (!canSeePanel) {
     return (
-      <div className="p-8 max-w-2xl">
+      <div className="p-3 sm:p-6 md:p-8 max-w-2xl">
         <Card>
           <CardHeader>
             <CardTitle>Bildirim Merkezi</CardTitle>
@@ -309,7 +309,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="p-8 max-w-[1240px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1240px]">
       {/* Header */}
       <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
         <div className="flex items-center gap-3">

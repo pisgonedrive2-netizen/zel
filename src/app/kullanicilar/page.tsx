@@ -384,7 +384,7 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="p-8 max-w-[1200px]">
+    <div className="p-3 sm:p-6 md:p-8 max-w-[1200px]">
       <input
         ref={fileRef}
         type="file"
