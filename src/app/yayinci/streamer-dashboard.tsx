@@ -34,8 +34,9 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
-import { canStreamerEditExpense, canStreamerWithdrawExpense } from "@/lib/content-expense";
+import { canStreamerEditExpense, canStreamerWithdrawExpense, isActiveContentExpense } from "@/lib/content-expense";
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const monthLabel = (ym: string) =>
@@ -182,7 +183,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, onSave, onDelete, onCl
       <fieldset disabled={readOnly} className="grid gap-4 disabled:opacity-90">
         <FormGrid>
           <Field label="Tarih" required>
-            <Input type="date" value={form.date} onChange={e => { set("date", e.target.value); set("month", e.target.value.slice(0, 7)); }} required />
+            <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
           </Field>
           <Field label="Marka">
             <Select value={form.brandId ?? ""} onChange={e => handleBrand(e.target.value)}
@@ -502,7 +503,7 @@ function SnapshotForm({
       <div className="grid gap-3">
         <FormGrid>
           <Field label="Tarih" hint="Genelde seçili ay içinde kalır; gerekirse değiştirin" required>
-            <Input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+            <DateTimePicker mode="date" value={date} onChange={(v) => setDate(v)} required />
           </Field>
           <Field label="İzlenme Sayısı" required>
             <Input type="number" min={0} value={views} onChange={e => setViews(parseInt(e.target.value) || 0)} required />
@@ -978,10 +979,13 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
   const paid         = paymentStatuses.find(p => p.employeeId === me.id && p.month === month)?.paid ?? false;
 
   // ── İçerik harcamaları ──
+  // Yayıncının kendi tüm gönderileri (geri çekilen/reddedilenler dahil — listede gösterilsin diye).
   const myExpenses   = contentExpenses.filter(e => e.employeeId === me.id);
-  const myThisWeek   = myExpenses.filter(e => e.date >= thisWeek && e.date < nextWeek);
+  // KPI/toplam metrikleri için aktif (geri çekilmemiş, reddedilmemiş) olanlar.
+  const myActiveExpenses = myExpenses.filter(isActiveContentExpense);
+  const myThisWeek   = myActiveExpenses.filter(e => e.date >= thisWeek && e.date < nextWeek);
   const myThisWeekTotal = myThisWeek.reduce((s, e) => s + e.amountUsd, 0);
-  const myMonthTotal = myExpenses.filter(e => e.month === month).reduce((s, e) => s + e.amountUsd, 0);
+  const myMonthTotal = myActiveExpenses.filter(e => e.month === month).reduce((s, e) => s + e.amountUsd, 0);
   const myPending    = myExpenses.filter(e => e.reviewStatus === "pending");
   const myMonthContentAprv = sumApprovedContentExpenses(contentExpenses, me.id, month);
   const myMonthPlanOut     = plannedPayrollPlusApprovedContent(me, month, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -1505,14 +1509,16 @@ export function StreamerDashboard({ section }: { section: StreamerSection }) {
                 </Card>
               ) : (
                 expensesByWeek.map(([wk, items]) => {
-                  const total = items.reduce((s, e) => s + e.amountUsd, 0);
+                  // Geri çekilen / reddedilen kalemler haftalık toplamı bozmasın.
+                  const activeItems = items.filter(isActiveContentExpense);
+                  const total = activeItems.reduce((s, e) => s + e.amountUsd, 0);
                   return (
                     <div key={wk} className="space-y-3">
                       <div className="flex items-center justify-between gap-2 border-b border-border pb-2">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           {weekRangeLabel(wk)}
                         </p>
-                        <p className="text-sm font-bold tabular-nums">{fmt(total)} · {items.length} kalem</p>
+                        <p className="text-sm font-bold tabular-nums">{fmt(total)} · {activeItems.length} aktif kalem</p>
                       </div>
                       <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                         {items.map(e => (

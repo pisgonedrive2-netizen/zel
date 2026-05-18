@@ -1900,7 +1900,14 @@ export function sumPaidContentExpenses(
   month: string
 ): number {
   return expenses
-    .filter((e) => e.employeeId === employeeId && e.month === month && e.paid)
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        e.month === month &&
+        e.paid &&
+        e.reviewStatus !== "cancelled" &&
+        e.reviewStatus !== "rejected",
+    )
     .reduce((s, e) => s + e.amountUsd, 0);
 }
 

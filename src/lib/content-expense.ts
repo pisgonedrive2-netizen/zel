@@ -19,3 +19,13 @@ export function countsTowardPayroll(e: ContentExpense): boolean {
   const s = expenseReviewStatus(e);
   return s !== "rejected" && s !== "cancelled" && s !== "pending" && s !== "needs_info";
 }
+
+/**
+ * "Hareketli" (aktif) harcama: reddedilmemiş ve geri çekilmemiş.
+ * Toplamlar, grafikler ve KPI'lar bu filtreyi kullanmalı; aksi halde
+ * yayıncının iptal ettiği talepler hâlâ tabloda/grafikte sayılır.
+ */
+export function isActiveContentExpense(e: ContentExpense): boolean {
+  const s = expenseReviewStatus(e);
+  return s !== "rejected" && s !== "cancelled";
+}

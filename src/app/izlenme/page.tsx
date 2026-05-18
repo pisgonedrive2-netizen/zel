@@ -27,6 +27,7 @@ import { BrandLinksPanel } from "@/components/brand-links-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
@@ -213,7 +214,7 @@ function SnapshotForm({ link, initial, defaultDateForNew, suggestedViewsForNew, 
         </div>
         <FormGrid>
           <Field label="Tarih" hint={!initial ? "Varsayılan: incelemekte olduğunuz ay (değiştirebilirsiniz)" : undefined} required>
-            <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} required />
+            <DateTimePicker mode="date" value={form.date} onChange={(v) => set("date", v)} required />
           </Field>
           <Field label="İzlenme Sayısı" required>
             <Input type="number" value={form.views} onChange={e => set("views", parseInt(e.target.value, 10) || 0)} required min={0} />

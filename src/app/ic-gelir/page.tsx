@@ -23,6 +23,7 @@ import { brandUsersForProject } from "@/lib/ic-gelir-remind";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import PageHeader from "@/components/page-header";
 import SectionCard from "@/components/section-card";
 import { Badge } from "@/components/ui/badge";
@@ -170,7 +171,7 @@ function ProjectForm({
         </FormGrid>
         <FormGrid>
           <Field label="Başlangıç Tarihi">
-            <Input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} />
+            <DateTimePicker mode="date" value={form.startDate} onChange={(v) => set("startDate", v)} />
           </Field>
           <Field label="Durum">
             <Select value={form.status} onChange={(e) => set("status", e.target.value as InternalProject["status"])} options={[
@@ -265,10 +266,10 @@ function PaymentForm({
         </FormGrid>
         <FormGrid>
           <Field label="Vade / beklenen tarih">
-            <Input type="date" value={form.dueDate ?? ""} onChange={(e) => set("dueDate", e.target.value || undefined)} />
+            <DateTimePicker mode="date" value={form.dueDate ?? ""} onChange={(v) => set("dueDate", v || undefined)} />
           </Field>
           <Field label="Ödeme tarihi">
-            <Input type="date" value={form.paidDate ?? ""} onChange={(e) => set("paidDate", e.target.value || undefined)} />
+            <DateTimePicker mode="date" value={form.paidDate ?? ""} onChange={(v) => set("paidDate", v || undefined)} />
           </Field>
         </FormGrid>
         <Field label="Not">

@@ -15,6 +15,7 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmt, CHART_COLORS } from "@/lib/data";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import PageHeader from "@/components/page-header";
@@ -120,7 +121,7 @@ function ExpenseForm({
         </FormGrid>
         <FormGrid>
           <Field label="Tarih">
-            <Input type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+            <DateTimePicker mode="date" value={form.date} onChange={(v) => set("date", v)} />
           </Field>
           <Field label="Açıklama" required>
             <Input value={form.description} onChange={(e) => set("description", e.target.value)} required placeholder="Ne için ödendi?" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useStore, calcNetPayable, calcOpenAdvanceBalance, isPayrollActive, calcKasaBalance, unreadNotificationCount, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth } from "@/store/store";
+import { isActiveContentExpense } from "@/lib/content-expense";
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
 import { fmt, MONTHS, toYearMonthLocal } from "@/lib/data";
@@ -170,8 +171,10 @@ export default function OzetPage() {
 
   // Kasa bakiyesi
   const kasaBakiye = calcKasaBalance(kasaTransactions);
-  // Bu ay içerik harcamaları
-  const icerikHarcAylik = contentExpenses.filter(c => c.month === currentMonth).reduce((s, c) => s + c.amountUsd, 0);
+  // Bu ay içerik harcamaları (geri çekilen / reddedilen kayıtlar hariç)
+  const icerikHarcAylik = contentExpenses
+    .filter((c) => c.month === currentMonth && isActiveContentExpense(c))
+    .reduce((s, c) => s + c.amountUsd, 0);
   const icerikHarcBekleyen = contentExpenses
     .filter(
       (c) =>

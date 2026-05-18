@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import Modal from "@/components/ui/modal";
 import { Field, Input as FInput, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import {
@@ -150,7 +151,7 @@ function EmployeeForm({ initial, onSave, onDelete, onClose }: {
             <FInput type="month" value={form.payrollStartMonth} onChange={e => set("payrollStartMonth", e.target.value)} />
           </Field>
           <Field label="İşe Başlangıç">
-            <FInput type="date" value={form.startDate} onChange={e => set("startDate", e.target.value)} />
+            <DateTimePicker mode="date" value={form.startDate} onChange={(v) => set("startDate", v)} />
           </Field>
         </FormGrid>
         <Field label="Cüzdan Adresi" hint="TRC20, EVM veya diğer ağ adresi">
@@ -181,7 +182,7 @@ function AdvanceForm({ employeeId, month, initial, onSave, onDelete, onClose }: 
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tutar ($)" required><NumberInput value={form.amount} onChange={v => set("amount", v)} required min={0} step={10} /></Field>
-          <Field label="Tarih"><FInput type="date" value={form.date} onChange={e => set("date", e.target.value)} /></Field>
+          <Field label="Tarih"><DateTimePicker mode="date" value={form.date} onChange={(v) => set("date", v)} /></Field>
         </FormGrid>
         <Field label="Açıklama"><FInput value={form.description} onChange={e => set("description", e.target.value)} placeholder="Avans sebebi..." /></Field>
       </div>
@@ -262,7 +263,12 @@ function EmployeeDetailRow({
   const plannedOut  = plannedPayrollPlusApprovedContent(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidOut     = totalCashOutPaidForMonth(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidContentItems = contentExpenses.filter(
-    (e) => e.employeeId === employee.id && e.month === month && e.paid
+    (e) =>
+      e.employeeId === employee.id &&
+      e.month === month &&
+      e.paid &&
+      e.reviewStatus !== "cancelled" &&
+      e.reviewStatus !== "rejected",
   );
   const paidContentTotal = sumPaidContentExpenses(contentExpenses, employee.id, month);
   const extraSalaryItems = empExtras.filter(
@@ -652,7 +658,7 @@ function PaySalaryForm({
             />
           </Field>
           <Field label="Ödeme tarihi" required>
-            <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} required />
+            <DateTimePicker mode="date" value={paidDate} onChange={(v) => setPaidDate(v)} required />
           </Field>
         </FormGrid>
         <FormGrid>
