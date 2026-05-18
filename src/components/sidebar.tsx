@@ -279,12 +279,17 @@ export default function Sidebar() {
           )}
           {collapsed && user && unreadCount > 0 && (
             <div className="p-2 border-b border-sidebar-border flex justify-center">
-              <div className="relative">
+              <button
+                type="button"
+                onClick={() => router.push("/bildirimler")}
+                aria-label={`Bildirimler (${unreadCount} okunmamış)`}
+                className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent/40 transition-colors"
+              >
                 <Bell className="h-4 w-4 text-muted-foreground" />
-                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
                   {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
-              </div>
+              </button>
             </div>
           )}
 
@@ -359,6 +364,7 @@ export default function Sidebar() {
 // ── Notification button + panel ─────────────────────────────────────────
 function NotificationButton({ unreadCount }: { unreadCount: number }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
   const { user } = useAuth();
   const { notifications } = useStore();
 
@@ -414,17 +420,29 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                 <p className="text-xs text-muted-foreground italic px-3 py-4 text-center">Bildirim yok.</p>
               ) : (
                 my.map((n) => (
-                  <button
+                  <div
                     key={n.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       void markNotificationReadPersisted(n.id);
                       if (n.href) {
                         setOpen(false);
-                        window.location.href = n.href;
+                        router.push(n.href);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void markNotificationReadPersisted(n.id);
+                        if (n.href) {
+                          setOpen(false);
+                          router.push(n.href);
+                        }
                       }
                     }}
                     className={cn(
-                      "w-full text-left px-3 py-2 border-b border-border hover:bg-accent/50 transition-colors",
+                      "w-full cursor-pointer text-left px-3 py-2 border-b border-border hover:bg-accent/50 transition-colors focus:outline-none focus:ring-2 focus:ring-ring",
                       !n.read && "bg-primary/10"
                     )}
                   >
@@ -438,13 +456,15 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                         </p>
                       </div>
                       <button
+                        type="button"
                         onClick={(e) => { e.stopPropagation(); void deleteNotificationPersisted(n.id); }}
                         className="text-muted-foreground hover:text-destructive shrink-0"
+                        aria-label="Bildirimi sil"
                       >
                         <X size={11} />
                       </button>
                     </div>
-                  </button>
+                  </div>
                 ))
               )}
             </div>

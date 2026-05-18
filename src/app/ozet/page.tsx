@@ -237,25 +237,26 @@ export default function OzetPage() {
 
   const activities = [
     bekleyenOnay.length > 0
-      ? { icon: AlertCircle, title: `${bekleyenOnay.length} yayıncı harcama gönderimi onay bekliyor`, sub: `Toplam ${fmt(bekleyenOnay.reduce((s, e) => s + e.amountUsd, 0))} · İçerik Harcamaları sayfasında incele`, color: "text-amber-600 dark:text-amber-400", href: "/icerik-harcamalari" }
-      : { icon: CheckCircle2, title: "Tüm yayıncı gönderimleri onaylanmış", sub: "Bekleyen inceleme yok", color: "text-green-600 dark:text-green-400" },
+      ? { icon: AlertCircle, title: `${bekleyenOnay.length} yayıncı harcama gönderimi onay bekliyor`, sub: `Toplam ${fmt(bekleyenOnay.reduce((s, e) => s + e.amountUsd, 0))} · İçerik Harcamaları sayfasında incele`, color: "text-amber-600 dark:text-amber-400", href: "/icerik-harcamalari" as const }
+      : { icon: CheckCircle2, title: "Tüm yayıncı gönderimleri onaylanmış", sub: "Bekleyen inceleme yok", color: "text-green-600 dark:text-green-400", href: "/icerik-harcamalari" as const },
     bekleyenler.length > 0
       ? {
           icon: AlertCircle,
           title: `${bekleyenler.length} bekleyen maaş ödemesi`,
           sub: `${payrollMonthLongTitle(currentMonth)} bordrosu · toplam ${fmt(bekleyenTutar)} · örnek ödeme tarihi: ${paymentWindowCalendarPhrase(currentMonth, bekleyenler[0]?.paymentDay ?? "1-5")} (çalışana göre değişir)`,
           color: "text-amber-600 dark:text-amber-400",
+          href: "/maaslar" as const,
         }
-      : { icon: CheckCircle2, title: "Tüm maaş ödemeleri tamam",                    sub: "Bu ay için bekleyen yok",       color: "text-green-600 dark:text-green-400" },
+      : { icon: CheckCircle2, title: "Tüm maaş ödemeleri tamam", sub: "Bu ay için bekleyen yok", color: "text-green-600 dark:text-green-400", href: "/maaslar" as const },
     kasaBakiye < 500
-      ? { icon: AlertCircle, title: "Kasa bakiyesi düşük", sub: `${fmt(kasaBakiye)} · acil takviye gerekebilir`, color: "text-red-600 dark:text-red-400" }
-      : { icon: Wallet,      title: "Kasa durumu",         sub: `${fmt(kasaBakiye)} · ${kasaTransactions.length} işlem`,    color: "text-blue-600 dark:text-blue-400" },
+      ? { icon: AlertCircle, title: "Kasa bakiyesi düşük", sub: `${fmt(kasaBakiye)} · acil takviye gerekebilir`, color: "text-red-600 dark:text-red-400", href: "/kasa" as const }
+      : { icon: Wallet,      title: "Kasa durumu",         sub: `${fmt(kasaBakiye)} · ${kasaTransactions.length} işlem`,    color: "text-blue-600 dark:text-blue-400", href: "/kasa" as const },
     icerikHarcBekleyen > 0
-      ? { icon: Clapperboard, title: `${fmt(icerikHarcBekleyen)} ödenmemiş içerik harcaması`, sub: "İçerik Harcamaları sayfasında detay", color: "text-amber-600 dark:text-amber-400" }
-      : { icon: CheckCircle2, title: "Tüm içerik harcamaları kapalı",                          sub: "Bekleyen rapor yok",                color: "text-green-600 dark:text-green-400" },
+      ? { icon: Clapperboard, title: `${fmt(icerikHarcBekleyen)} ödenmemiş içerik harcaması`, sub: "İçerik Harcamaları sayfasında detay", color: "text-amber-600 dark:text-amber-400", href: "/icerik-harcamalari" as const }
+      : { icon: CheckCircle2, title: "Tüm içerik harcamaları kapalı", sub: "Bekleyen rapor yok", color: "text-green-600 dark:text-green-400", href: "/icerik-harcamalari" as const },
     { icon: Receipt, title: `Bu ay ödenen toplam ${fmt(aylikOdenenToplam)}`, sub: `Plan (maaş + onaylı içerik): ${fmt(aylikPlanCikis)} · detay için ödeme raporu`, color: "text-emerald-700 dark:text-emerald-400", href: "/rapor" as const },
-    { icon: Eye,          title: `${aktifMarka} aktif marka takipte`, sub: `${takipliLink} link · ${toplamIzlenme.toLocaleString("tr-TR")} izlenme`, color: "text-purple-600 dark:text-purple-400" },
-    { icon: FileText,     title: "Ödeme Raporu hazır",         sub: `${currentMonth} için CSV/PDF`,    color: "text-purple-600 dark:text-purple-400" },
+    { icon: Eye, title: `${aktifMarka} aktif marka takipte`, sub: `${takipliLink} link · ${toplamIzlenme.toLocaleString("tr-TR")} izlenme`, color: "text-purple-600 dark:text-purple-400", href: "/izlenme" as const },
+    { icon: FileText, title: "Ödeme Raporu hazır", sub: `${currentMonth} için CSV/PDF`, color: "text-purple-600 dark:text-purple-400", href: "/rapor" as const },
     { icon: Users,
       title: `${bordrolu.length} yayıncı bu ay bordoda`,
       sub: (() => {
@@ -268,6 +269,7 @@ export default function OzetPage() {
       })(),
       color:
         bordroDisiYayincilar.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400",
+      href: "/maaslar" as const,
     },
   ];
 
