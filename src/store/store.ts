@@ -547,7 +547,8 @@ const uid = () => crypto.randomUUID();
 
 /**
  * Sistemdeki 3 aktif yayıncı + 1 proje koordinatörü.
- * Maaş ödemeleri her ayın 1–5'i arasında yapılır (Lucy: ayın 17'si).
+ * Tüm maaş ödemeleri Haziran 2026'dan itibaren bir sonraki ayın 1–5'i arasında yapılır.
+ * (Lucy Mayıs 2026 dönemi yarım yapıldı — plan geçişi, 1 Haziran'da ödendi.)
  */
 export const initialEmployees: Employee[] = [
   {
@@ -566,10 +567,11 @@ export const initialEmployees: Employee[] = [
     avatar: "R",
     notes:
       "Maaş $10.000/ay. Başlangıçta $20.000 avans alınmış, $12.000 geri ödenmiş, " +
-      "kalan $8.000 borç var. Nisan 2026: $2.000 kesinti (bu ay net $8.000), " +
-      "Mayıs ve Haziran 2026: $3.000 kesinti ile borç kapanır. " +
-      "Aylık $1.400 ev kira desteği — şirket öder. Aylık içerik/marka " +
-      "harcamaları ay sonu raporla iletilir; şirket karşılar.",
+      "kalan $8.000 borç var. Nisan 2026: $2.000 kesinti (bu ay net $8.000 ödendi 1 May 2026). " +
+      "Mayıs 2026: $3.000 kesinti (1 Haziran 2026 ödemesi · kalan borç $3.000). " +
+      "Temmuz 2026 bordrosunda son $3.000 kesinti yapılır (1 Ağustos 2026 ödemesi) ve borç kapanır. " +
+      "Haziran 2026 ek kesinti yok. Aylık $1.400 ev kira desteği — şirket öder. " +
+      "Aylık içerik/marka harcamaları ay sonu raporla iletilir; şirket karşılar.",
     kind: "streamer",
   },
   {
@@ -578,17 +580,19 @@ export const initialEmployees: Employee[] = [
     role: "Yayıncı",
     department: "Yayın",
     baseSalary: 3000,
-    rentSupport: 650,
+    rentSupport: 500,
     initialAdvance: 0,
-    paymentDay: "17",
+    paymentDay: "1-5",
     payrollStartMonth: "2026-04",
     startDate: "2026-01-01",
     status: "active",
     walletAddress: "",
     avatar: "L",
     notes:
-      "Her ayın 17'sinde maaş ödemesi $3.000. Ev kira desteği $650/ay " +
-      "(Acelya ile toplam $1.300/ay).",
+      "Maaş $3.000/ay + $500 ev kira desteği. " +
+      "Nisan 2026 bordrosu nakit ödendi: $3.000 maaş + $500 kira + $1.600 telefon desteği (tek seferlik). " +
+      "Mayıs 2026 plan geçişi: 1 Haziran 2026'da 2 haftalık maaş ($1.500) + tam kira ($500) = $2.000 ödendi. " +
+      "Haziran 2026'dan itibaren standart 1–5 takvimi: Haziran bordrosu (tam $3.500) 1–5 Temmuz 2026'da ödenir.",
     kind: "streamer",
   },
   {
@@ -648,11 +652,12 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
       type: "rent",
     });
   });
-  // Avans geri ödemesi — Nis $2k, May $3k, Haz $3k ($8k → 0)
+  // Avans geri ödemesi — Nis $2k (paid), May $3k (paid 1 Haz), Tem $3k (paid 1 Ağu = final). Toplam $8k.
+  // Haziran bordrosunda kesinti YOKTUR.
   const advancePlan: Array<{ month: string; amount: number; note: string }> = [
     { month: "2026-04", amount: 2000, note: "Açık avans geri ödemesi (1/3) · $8.000 → kalan $6.000" },
-    { month: "2026-05", amount: 3000, note: "Açık avans geri ödemesi (2/3) · kalan $3.000" },
-    { month: "2026-06", amount: 3000, note: "Açık avans geri ödemesi (3/3) · kapanış" },
+    { month: "2026-05", amount: 3000, note: "Açık avans geri ödemesi (2/3) · 1 Haziran 2026 · kalan $3.000" },
+    { month: "2026-07", amount: 3000, note: "Açık avans geri ödemesi (3/3 · final) · 1 Ağustos 2026 · borç kapanır" },
   ];
   advancePlan.forEach((p) => {
     list.push({
@@ -665,16 +670,38 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     });
   });
 
-  // Lucy — Nisan 2026'dan itibaren her ayın 17'si
+  // Lucy — Nisan 2026'dan itibaren $500 kira/ay (Acelya'nın $650 + Lucy $500 = ortak ev gideri).
+  // Mayıs 2026 plan geçiş ayı: yarım maaş + tam kira = $2.000 ödendi 1 Haziran 2026.
   ramizMonths.forEach((m) => {
     list.push({
       id: `se-lucy-rent-${m}`,
       employeeId: "emp-lucy",
       month: m,
-      amount: 650,
-      description: "Ev kira desteği (aylık · Acelya ile birlikte $1.300 kap)",
+      amount: 500,
+      description: "Ev kira desteği (aylık)",
       type: "rent",
     });
+  });
+
+  // Lucy Nisan 2026 — tek seferlik telefon desteği (gerçekte ödenen kalem).
+  list.push({
+    id: "se-lucy-phone-2026-04",
+    employeeId: "emp-lucy",
+    month: "2026-04",
+    amount: 1600,
+    description: "Nisan 2026 telefon desteği (tek seferlik)",
+    type: "other",
+  });
+
+  // Lucy Mayıs 2026 — plan geçişi: yarım maaş (2 hafta) ödendi.
+  // $3.000 baseSalary'den $1.500 kesinti → net $1.500 maaş + $500 kira = $2.000 ödendi 1 Haziran 2026.
+  list.push({
+    id: "se-lucy-transition-2026-05",
+    employeeId: "emp-lucy",
+    month: "2026-05",
+    amount: 1500,
+    description: "Plan geçişi — yarım dönem (2 hafta · 1 Haziran 2026'da $2.000 net ödendi)",
+    type: "deduction",
   });
 
   // Acelya — Haziran 2026 ve sonrası (ilk maaş Haziran 1-5)
@@ -697,7 +724,7 @@ export const initialSalaryExtras: SalaryExtra[] = buildInitialSalaryExtras();
 /**
  * Geçmişten gelen `Advance` kayıtları kullanılmıyor — Ramiz'in açık avans bakiyesi
  * `Employee.initialAdvance` ($8.000) + `SalaryExtra` türünde "deduction" satırlarıyla
- * (Nis −$2.000, May −$3.000, Haz −$3.000) yönetiliyor.
+ * (Nis −$2.000, May −$3.000, Tem −$3.000 · Haz kesintisiz) yönetiliyor.
  *
  * Tarihsel referans: Ramiz Nisan 2025'te $20.000 avans almıştır, $12.000'ı zaten
  * geçmiş aylarda geri ödenmiştir; sisteme yalnızca proje devri (1 Nis 2026) anındaki
@@ -986,11 +1013,15 @@ const initialWeekBrandReels: WeekBrandReel[] = [];
 const initialNotifications: AppNotification[] = [];
 
 /**
- * Ödeme durumları — Ramiz'in Nisan 2026 maaşı 1 Mayıs 2026'da ödendi
- * (Telegram grup mesajı: "Bu ay yatacak olan maaş tutarı: 8 bin $").
+ * Ödeme durumları (gerçekleşen ödemeler).
+ * - Ramiz Nisan 2026: 1 Mayıs 2026 net $8.000 (Telegram: "Bu ay yatacak olan maaş tutarı: 8 bin $").
+ * - Lucy Nisan 2026: nakit ödendi 30 Nisan 2026 — $3.000 maaş + $500 kira + $1.600 telefon desteği.
+ * - Lucy Mayıs 2026: plan geçişi · 1 Haziran 2026 net $2.000 (yarım dönem).
  */
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
   { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },
+  { employeeId: "emp-lucy",  month: "2026-04", paid: true, paidDate: "2026-04-30" },
+  { employeeId: "emp-lucy",  month: "2026-05", paid: true, paidDate: "2026-06-01" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
