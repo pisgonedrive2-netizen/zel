@@ -10,6 +10,13 @@ import autoTableImport from "jspdf-autotable";
 
 import type { KasaTransaction, ContentExpense } from "@/store/store";
 import { listAvailableMonths, monthLabelTr } from "@/lib/month-label";
+import {
+  downloadProfessionalCsv,
+  numberedDetailSection,
+  summarySection,
+  totalRow,
+  type CsvReport,
+} from "@/lib/professional-csv";
 
 export { listAvailableMonths, monthLabelTr };
 
@@ -54,8 +61,15 @@ function moneyUsdt(n: number): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " USDT";
 }
 
-function csvEscape(v: unknown): string {
-  return `"${String(v ?? "").replace(/"/g, '""').replace(/[\r\n]+/g, " ")}"`;
+function reportMeta(rapor: string, ym: string, extra?: Record<string, string>): CsvReport["metadata"] {
+  return {
+    Uygulama: "Foxstream",
+    "Rapor turu": rapor,
+    Donem: `${monthLabelTr(ym)} (${ym})`,
+    "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+    "Para birimi": "USDT",
+    ...extra,
+  };
 }
 
 function assertBrowserDownload(): void {
@@ -84,11 +98,6 @@ function downloadBlob(filename: string, blob: Blob): void {
 function savePdf(doc: jsPDF, filename: string): void {
   assertBrowserDownload();
   doc.save(filename);
-}
-
-function downloadCsv(filename: string, rows: (string | number)[][]): void {
-  const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
-  downloadBlob(filename, new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
 }
 
 function safeSlug(s: string): string {
@@ -171,31 +180,67 @@ export function exportKasaMonthCsv(
 ): void {
   const tx = filterKasaByMonth(all, ym);
   const { rows, totalIn, totalOut, totalFee, closing } = summarizeKasa(tx, opts.openingBalance ?? 0);
-  const header = [
-    "Tarih", "Saat", "Yön", "Tutar (USDT)", "Network Fee (USDT)",
-    "Amaç", "Karşı Taraf", "Kanıt", "Notlar", "Bakiye Sonrası (USDT)",
+  const opening = opts.openingBalance ?? 0;
+
+  const detailCols = [
+    "Tarih",
+    "Saat",
+    "Yon",
+    "Tutar_USDT",
+    "Network_Fee_USDT",
+    "Amac",
+    "Karsi_Taraf",
+    "Kanit_URL",
+    "Notlar",
+    "Bakiye_Sonrasi_USDT",
   ];
-  const body: (string | number)[][] = rows.map((t) => [
+  const detailRows = rows.map((t) => [
     t.date.slice(0, 10),
     t.date.slice(11, 16) || "",
     t.direction === "in" ? "Gelen" : "Giden",
-    t.amountUsd,
-    t.feeUsd,
+    Math.round(t.amountUsd * 100) / 100,
+    Math.round(t.feeUsd * 100) / 100,
     t.purpose,
     t.counterparty,
     t.proof,
     t.notes,
     Math.round(t.balanceAfter * 100) / 100,
   ]);
-  const footer: (string | number)[][] = [
-    [],
-    ["Açılış bakiye", "", "", opts.openingBalance ?? 0],
-    ["Toplam giriş", "", "", totalIn],
-    ["Toplam çıkış", "", "", totalOut],
-    ["Toplam fee", "", "", totalFee],
-    ["Kapanış bakiye", "", "", Math.round(closing * 100) / 100],
-  ];
-  downloadCsv(`foxstream-kasa-${ym}.csv`, [header, ...body, ...footer]);
+
+  const colCount = detailCols.length + 1;
+  const detail = numberedDetailSection(
+    "Kasa hareketleri",
+    detailCols,
+    [
+      ...detailRows,
+      totalRow(colCount, "TOPLAM / OZET", {
+        1: "",
+        4: totalIn,
+        5: totalFee,
+      }),
+    ],
+    `Filtre: tarih ${ym}-* | ${rows.length} hareket | Excel: baslik satirina filtre uygulayin`,
+  );
+
+  const report: CsvReport = {
+    filename: `foxstream-kasa-${ym}.csv`,
+    metadata: reportMeta("Kasa aylik hareketleri", ym, {
+      Filtre: `Ay = ${ym}`,
+      "Kayit sayisi": String(rows.length),
+      "Olusturan": opts.generatedBy ?? "",
+    }),
+    sections: [
+      summarySection("Finansal ozet", [
+        { metric: "Acilis bakiyesi", value: opening, unit: "USDT" },
+        { metric: "Toplam giris", value: totalIn, unit: "USDT" },
+        { metric: "Toplam cikis", value: totalOut, unit: "USDT" },
+        { metric: "Toplam network fee", value: totalFee, unit: "USDT" },
+        { metric: "Kapanis bakiyesi", value: Math.round(closing * 100) / 100, unit: "USDT" },
+      ]),
+      detail,
+    ],
+  };
+  downloadProfessionalCsv(report);
 }
 
 export function exportKasaMonthPdf(
@@ -294,31 +339,91 @@ export interface SalaryExportOptions {
 }
 
 export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void {
-  const header = [
-    "Ad", "Rol", "Departman", "Ödeme Günü",
-    "Temel Maaş ($)", "Kira Desteği ($)",
-    "Devir Avans ($)", "Bu Ay Avans ($)", "Açık Avans Bakiyesi ($)",
-    "Ekstra / Prim ($)", "Kesinti ($)",
-    "Net Ödenecek ($)", "İçerik Onaylı ($)", "Plan Toplamı ($)", "Ödenen Toplam ($)",
-    "Ödeme Durumu", "Ödeme Tarihi", "Cüzdan Adresi",
-  ];
-  const body: (string | number)[][] = rows.map((r) => [
-    r.name, r.role, r.department, r.paymentDay,
-    r.baseSalary, r.rentSupport,
-    r.carryForward, r.thisMonthAdvance, r.openAdvanceAfter,
-    r.totalBonus, r.totalDeduction,
-    r.netPayable, r.contentApproved, r.plannedTotalOut, r.totalPaidOut,
-    r.paid ? "Ödendi" : "Bekliyor",
-    r.paidDate ?? "", r.walletAddress ?? "",
-  ]);
   const totalNet = rows.reduce((s, r) => s + r.netPayable, 0);
+  const totalBase = rows.reduce((s, r) => s + r.baseSalary, 0);
   const totalPlanned = rows.reduce((s, r) => s + r.plannedTotalOut, 0);
   const totalPaid = rows.reduce((s, r) => s + r.totalPaidOut, 0);
-  const footer: (string | number)[][] = [
-    [],
-    ["TOPLAM", "", "", "", "", "", "", "", "", "", "", totalNet, "", totalPlanned, totalPaid],
+  const totalContent = rows.reduce((s, r) => s + r.contentApproved, 0);
+  const paidCount = rows.filter((r) => r.paid).length;
+
+  const detailCols = [
+    "Ad_Soyad",
+    "Rol",
+    "Departman",
+    "Odeme_Gunu",
+    "Temel_Maas_USDT",
+    "Kira_Destegi_USDT",
+    "Devir_Avans_USDT",
+    "Bu_Ay_Avans_USDT",
+    "Acik_Avans_Bakiye_USDT",
+    "Ekstra_Prim_USDT",
+    "Kesinti_USDT",
+    "Net_Odenecek_USDT",
+    "Icerik_Onayli_USDT",
+    "Plan_Toplami_USDT",
+    "Odenen_Toplam_USDT",
+    "Odeme_Durumu",
+    "Odeme_Tarihi",
+    "Cuzdan_Adresi",
   ];
-  downloadCsv(`foxstream-maas-${ym}.csv`, [header, ...body, ...footer]);
+  const detailRows = rows.map((r) => [
+    r.name,
+    r.role,
+    r.department,
+    r.paymentDay,
+    r.baseSalary,
+    r.rentSupport,
+    r.carryForward,
+    r.thisMonthAdvance,
+    r.openAdvanceAfter,
+    r.totalBonus,
+    r.totalDeduction,
+    r.netPayable,
+    r.contentApproved,
+    r.plannedTotalOut,
+    r.totalPaidOut,
+    r.paid ? "Odendi" : "Bekliyor",
+    r.paidDate ?? "",
+    r.walletAddress ?? "",
+  ]);
+
+  const colCount = detailCols.length + 1;
+  const detail = numberedDetailSection(
+    "Bordro detay",
+    detailCols,
+    [
+      ...detailRows,
+      totalRow(colCount, "GENEL TOPLAM", {
+        1: `${rows.length} calisan`,
+        5: totalBase,
+        12: Math.round(totalNet * 100) / 100,
+        13: Math.round(totalContent * 100) / 100,
+        14: Math.round(totalPlanned * 100) / 100,
+        15: Math.round(totalPaid * 100) / 100,
+        16: `${paidCount}/${rows.length} odendi`,
+      }),
+    ],
+    `Filtre: bordro aktif calisanlar | donem ${ym}`,
+  );
+
+  downloadProfessionalCsv({
+    filename: `foxstream-maas-${ym}.csv`,
+    metadata: reportMeta("Aylik maas bordrosu", ym, {
+      "Calisan sayisi": String(rows.length),
+      "Odenen / toplam": `${paidCount} / ${rows.length}`,
+    }),
+    sections: [
+      summarySection("Bordro ozeti", [
+        { metric: "Calisan sayisi", value: rows.length, unit: "kisi" },
+        { metric: "Temel maas toplami", value: Math.round(totalBase * 100) / 100, unit: "USDT" },
+        { metric: "Net odenecek toplam", value: Math.round(totalNet * 100) / 100, unit: "USDT" },
+        { metric: "Icerik onayli toplam", value: Math.round(totalContent * 100) / 100, unit: "USDT" },
+        { metric: "Plan toplami", value: Math.round(totalPlanned * 100) / 100, unit: "USDT" },
+        { metric: "Odenen toplam", value: Math.round(totalPaid * 100) / 100, unit: "USDT" },
+      ]),
+      detail,
+    ],
+  });
 }
 
 export function exportSalaryMonthPdf(
@@ -422,42 +527,93 @@ export interface ContentExpenseExportRow extends ContentExpense {
   employeeName?: string;
 }
 
+function contentReviewLabel(e: ContentExpenseExportRow): string {
+  if (e.reviewStatus === "approved") return "Onaylandi";
+  if (e.reviewStatus === "rejected") return "Reddedildi";
+  if (e.reviewStatus === "needs_info") return "Bilgi_istendi";
+  if (e.reviewStatus === "cancelled") return "Iptal";
+  if (e.reviewStatus === "pending") return "Incelemede";
+  return "Manuel";
+}
+
 export function exportContentExpensesCsv(
   rows: ContentExpenseExportRow[],
   ym: string
 ): void {
-  const header = [
-    "Tarih", "Ay", "Yayıncı", "Marka", "Kategori", "Açıklama",
-    "Tutar (USD)", "Tutar (THB)", "Durum", "İnceleme Notu", "Ödeme Tarihi", "Notlar",
-  ];
-  const body: (string | number)[][] = rows.map((e) => {
-    const review =
-      e.reviewStatus === "approved" ? "Onayli" :
-      e.reviewStatus === "rejected" ? "Reddedildi" :
-      e.reviewStatus === "needs_info" ? "Bilgi istendi" :
-      e.reviewStatus === "cancelled" ? "Iptal" :
-      e.reviewStatus === "pending" ? "Inceleme" : "Manuel";
-    return [
-      e.date, e.month, e.employeeName ?? "", e.brandName, e.category,
-      e.description, e.amountUsd, e.amountThb ?? "",
-      `${review}${e.paid ? " - Odendi" : ""}`,
-      e.reviewerNote ?? "",
-      e.paidDate ?? "",
-      e.notes ?? "",
-    ];
-  });
-  // İptal/red edilen kayıtlar listede görünür ama toplamlara dahil edilmez.
   const activeRows = rows.filter(
     (r) => r.reviewStatus !== "cancelled" && r.reviewStatus !== "rejected",
   );
   const total = activeRows.reduce((s, r) => s + r.amountUsd, 0);
   const paid = activeRows.filter((r) => r.paid).reduce((s, r) => s + r.amountUsd, 0);
-  const footer: (string | number)[][] = [
-    [],
-    ["TOPLAM", "", "", "", "", "", total],
-    ["ODENDI", "", "", "", "", "", paid],
+  const approved = activeRows.filter((r) => r.reviewStatus === "approved").reduce((s, r) => s + r.amountUsd, 0);
+
+  const detailCols = [
+    "Tarih",
+    "Ay",
+    "Yayinci",
+    "Marka",
+    "Kategori",
+    "Aciklama",
+    "Tutar_USD",
+    "Tutar_THB",
+    "Inceleme_Durumu",
+    "Odeme_Durumu",
+    "Inceleme_Notu",
+    "Odeme_Tarihi",
+    "Notlar",
   ];
-  downloadCsv(`foxstream-icerik-harcamalari-${ym}.csv`, [header, ...body, ...footer]);
+  const detailRows = rows.map((e) => [
+    e.date,
+    e.month,
+    e.employeeName ?? "",
+    e.brandName,
+    e.category,
+    e.description,
+    Math.round(e.amountUsd * 100) / 100,
+    e.amountThb ?? "",
+    contentReviewLabel(e),
+    e.paid ? "Odendi" : "Odenmedi",
+    e.reviewerNote ?? "",
+    e.paidDate ?? "",
+    e.notes ?? "",
+  ]);
+
+  const colCount = detailCols.length + 1;
+  const detail = numberedDetailSection(
+    "Harcama kayitlari",
+    detailCols,
+    [
+      ...detailRows,
+      totalRow(colCount, "TOPLAM (aktif kayitlar)", {
+        7: Math.round(total * 100) / 100,
+      }),
+      totalRow(colCount, "TOPLAM (onayli)", {
+        7: Math.round(approved * 100) / 100,
+      }),
+      totalRow(colCount, "TOPLAM (odenen)", {
+        7: Math.round(paid * 100) / 100,
+      }),
+    ],
+    `Filtre: ay=${ym} | iptal/red toplamlara dahil degil | ${rows.length} satir`,
+  );
+
+  downloadProfessionalCsv({
+    filename: `foxstream-icerik-harcamalari-${ym}.csv`,
+    metadata: reportMeta("Icerik harcamalari", ym, {
+      Filtre: `Ay = ${ym}`,
+      "Toplam kayit": String(rows.length),
+      "Aktif kayit (toplamda)": String(activeRows.length),
+    }),
+    sections: [
+      summarySection("Finansal ozet", [
+        { metric: "Aktif harcama toplami", value: Math.round(total * 100) / 100, unit: "USD", note: "Iptal/red haric" },
+        { metric: "Onayli toplam", value: Math.round(approved * 100) / 100, unit: "USD" },
+        { metric: "Odenen toplam", value: Math.round(paid * 100) / 100, unit: "USD" },
+        { metric: "Bekleyen (aktif-odenen)", value: Math.round((total - paid) * 100) / 100, unit: "USD" },
+      ]),
+      detail,
+    ],
+  });
 }
 
 export function exportContentExpensesPdf(

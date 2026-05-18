@@ -3,6 +3,12 @@
  */
 import { jsPDF } from "jspdf";
 import autoTableImport from "jspdf-autotable";
+import {
+  downloadProfessionalCsv,
+  numberedDetailSection,
+  summarySection,
+  type CsvReport,
+} from "@/lib/professional-csv";
 
 type AutoTableFn = (doc: jsPDF, options: Record<string, unknown>) => void;
 
@@ -162,34 +168,59 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
 }
 
 export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?: string): void {
-  const lines: string[] = [];
-  const esc = (v: string) => `"${(v ?? "").replace(/"/g, '""')}"`;
-  lines.push(["platform", "handle", "url", "lastViews", "lastSnapshot"].join(","));
-  for (const r of input.links) {
-    lines.push([esc(r.platform), esc(r.handle), esc(r.url), esc(r.lastViews), esc(r.lastSnapshot)].join(","));
-  }
-  lines.push("");
-  lines.push(["kaynak", "izlenme", "url", "not"].join(","));
-  for (const r of input.monthlyRows) {
-    lines.push([esc(r.kaynak), esc(r.izlenme), esc(r.url), esc(r.not)].join(","));
-  }
-  lines.push("");
-  lines.push(["hafta", "platform", "link", "not"].join(","));
-  for (const r of input.reels) {
-    lines.push([esc(r.hafta), esc(r.platform), esc(r.link), esc(r.not)].join(","));
-  }
-  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
   const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
-  a.href = url;
-  a.download = `izlenme_${slug}_${input.monthYm}.csv`;
-  a.rel = "noopener";
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  window.setTimeout(() => {
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, 300);
+  const sections: CsvReport["sections"] = [
+    summarySection("Rapor ozeti", [
+      { metric: "Marka", value: input.brandFullName, unit: "" },
+      { metric: "Donem", value: `${input.monthTitle} (${input.monthYm})`, unit: "" },
+      { metric: "Link sayisi", value: input.links.length, unit: "adet" },
+      { metric: "Aylik izlenme kaydi", value: input.monthlyRows.length, unit: "adet" },
+      { metric: "Haftalik reel kaydi", value: input.reels.length, unit: "adet" },
+    ]),
+  ];
+
+  if (input.links.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Marka linkleri",
+        ["Platform", "Handle", "URL", "Son_Izlenme", "Snapshot_Tarihi"],
+        input.links.map((r) => [r.platform, r.handle, r.url, r.lastViews, r.lastSnapshot]),
+        "Aktif marka hesap linkleri",
+      ),
+    );
+  }
+
+  if (input.monthlyRows.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Aylik izlenme kayitlari",
+        ["Kaynak", "Izlenme", "URL", "Not"],
+        input.monthlyRows.map((r) => [r.kaynak, r.izlenme, r.url, r.not]),
+        `Filtre: ay = ${input.monthYm}`,
+      ),
+    );
+  }
+
+  if (input.reels.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Haftalik reel / icerik linkleri",
+        ["Hafta", "Platform", "Link", "Not"],
+        input.reels.map((r) => [r.hafta, r.platform, r.link, r.not]),
+        `Filtre: ${input.monthYm} donemine dusen haftalar`,
+      ),
+    );
+  }
+
+  downloadProfessionalCsv({
+    filename: `izlenme_${slug}_${input.monthYm}.csv`,
+    metadata: {
+      Uygulama: "Foxstream",
+      "Rapor turu": "Marka izlenme",
+      Marka: input.brandFullName,
+      Donem: `${input.monthTitle} (${input.monthYm})`,
+      "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+    },
+    sections,
+  });
 }
