@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/field";
 import { BrandLogo } from "@/components/brand-logo";
-import { BrandMockupBackdrop } from "@/components/brand-mockup-backdrop";
 import { useStore, type Brand, type BrandLink, type Employee } from "@/store/store";
 import { linkViewsForMonth } from "@/lib/brand-month-metrics";
 
@@ -111,10 +110,8 @@ export function BrandLinksPanel({
       size="full"
       title={`${brand.name} · platform linkleri (${links.length})`}
     >
-      <div className="relative space-y-4 min-h-[200px]">
-        <BrandMockupBackdrop brandId={brand.id} />
-
-        <div className="relative flex flex-wrap items-center gap-3 pb-3 border-b border-border">
+      <div className="space-y-4 min-h-[200px]">
+        <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-border">
           <BrandLogo brandId={brand.id} title={brand.name} size={44} className="rounded-lg" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-foreground">{brand.name}</p>

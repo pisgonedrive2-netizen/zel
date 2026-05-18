@@ -16,6 +16,7 @@ import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { isMainAdmin } from "@/lib/user-guards";
+import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
 import { useAuditLog, type AuditAction, logAudit } from "@/store/audit-log";
@@ -176,10 +177,46 @@ function UserForm({ initial, onSave, onClose }: {
   );
 }
 
+// ── Kopyala (kullanıcı adı + PIN) ───────────────────────────────────────
+function CopyCredentialsBtn({ user, pin }: { user: AppUser; pin: string }) {
+  const [ok, setOk] = useState(false);
+  return (
+    <button
+      type="button"
+      title="Kullanıcı adı + şifre kopyala (paylaşım için)"
+      onClick={async (e) => {
+        e.stopPropagation();
+        await copyLoginCredentials(user, pin);
+        setOk(true);
+        setTimeout(() => setOk(false), 1500);
+      }}
+      className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+    >
+      {ok ? <Check size={12} className="text-green-600 dark:text-green-400" /> : <Copy size={12} />}
+    </button>
+  );
+}
+
 // ── Show Pin Modal ──────────────────────────────────────────────────────
 function PinDisplayModal({ user, pin, onClose }: { user: AppUser; pin: string; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(pin); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [copiedPin, setCopiedPin] = useState(false);
+
+  const copyAll = async () => {
+    await copyLoginCredentials(user, pin);
+    setCopiedAll(true);
+    setCopiedPin(false);
+    setTimeout(() => setCopiedAll(false), 2500);
+  };
+
+  const copyPinOnly = async () => {
+    await navigator.clipboard.writeText(pin);
+    setCopiedPin(true);
+    setCopiedAll(false);
+    setTimeout(() => setCopiedPin(false), 2500);
+  };
+
+  const preview = formatLoginCredentials(user, pin);
 
   return (
     <div className="space-y-4 py-2">
@@ -200,16 +237,25 @@ function PinDisplayModal({ user, pin, onClose }: { user: AppUser; pin: string; o
         <p className="font-mono text-xl font-bold tracking-wider text-foreground">{pin}</p>
       </div>
 
-      <div className="px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-500/40 text-amber-900 dark:text-amber-100 text-xs leading-relaxed">
-        ⚠️ Bu PIN bir daha gösterilmez. Kullanıcıya iletmek için kopyalayın.
+      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+        <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Paylaşım önizlemesi</p>
+        <pre className="text-[11px] leading-relaxed text-foreground whitespace-pre-wrap font-sans">{preview}</pre>
       </div>
 
-      <div className="flex gap-2 justify-end pt-2">
-        <Button variant="outline" onClick={copy} className="gap-1.5">
-          {copied ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
-          {copied ? "Kopyalandı" : "PIN'i Kopyala"}
+      <div className="px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-500/40 text-amber-900 dark:text-amber-100 text-xs leading-relaxed">
+        Bu bilgiler bir daha gösterilmez. WhatsApp veya e-posta ile paylaşmak için &quot;Kullanıcı adı + şifre&quot; butonunu kullanın.
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2 justify-end pt-2">
+        <Button variant="outline" onClick={() => void copyPinOnly()} className="gap-1.5">
+          {copiedPin ? <Check size={14} className="text-green-600 dark:text-green-400" /> : <Copy size={14} />}
+          {copiedPin ? "PIN kopyalandı" : "Yalnız PIN"}
         </Button>
-        <Button onClick={onClose}>Tamam</Button>
+        <Button onClick={() => void copyAll()} className="gap-1.5">
+          {copiedAll ? <Check size={14} /> : <Copy size={14} />}
+          {copiedAll ? "Kopyalandı!" : "Kullanıcı adı + şifre"}
+        </Button>
+        <Button variant="secondary" onClick={onClose}>Tamam</Button>
       </div>
     </div>
   );
@@ -509,7 +555,10 @@ export default function UsersPage() {
                       <td className="px-4 py-3 font-mono text-xs">{u.username}</td>
                       <td className="px-4 py-3 font-mono text-xs">
                         {showPins ? (
-                          <span className="font-bold text-foreground">{u.pin}</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="font-bold text-foreground">{u.pin}</span>
+                            <CopyCredentialsBtn user={u} pin={u.pin} />
+                          </span>
                         ) : (
                           <span className="text-muted-foreground tracking-widest">{"•".repeat(Math.min(8, u.pin.length))}</span>
                         )}

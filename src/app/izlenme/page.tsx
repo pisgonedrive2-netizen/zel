@@ -21,7 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
-import { BrandMockupBackdrop } from "@/components/brand-mockup-backdrop";
 import { BrandLinksPanel } from "@/components/brand-links-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
@@ -331,9 +330,8 @@ function BrandCard({
     id ? employees.find((e) => e.id === id)?.name ?? "—" : "Genel";
 
   return (
-    <Card className="relative gap-2 py-5 overflow-hidden">
-      <BrandMockupBackdrop brandId={brand.id} />
-      <CardHeader className="relative flex-row items-center justify-between gap-2">
+    <Card className="gap-2 py-5">
+      <CardHeader className="flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="min-w-0 flex-1">
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
