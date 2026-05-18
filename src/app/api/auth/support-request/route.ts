@@ -32,7 +32,22 @@ async function insertAdminNotification(notif: AppNotification) {
   const { error } = await getSupabaseAdmin()
     .from("app_notifications")
     .insert(notificationToRow(notif));
-  if (error) throw new Error(error.message);
+  if (!error) return;
+
+  // Migration henüz uygulanmadıysa enum hatası — general ile yedekle
+  const isEnum =
+    error.message.includes("enum") ||
+    error.message.includes("invalid input value");
+  const canFallback =
+    notif.type === "password_reset_request" || notif.type === "account_registration_request";
+  if (isEnum && canFallback) {
+    const { error: retryErr } = await getSupabaseAdmin()
+      .from("app_notifications")
+      .insert(notificationToRow({ ...notif, type: "general" }));
+    if (!retryErr) return;
+    throw new Error(retryErr.message);
+  }
+  throw new Error(error.message);
 }
 
 export async function POST(req: Request) {
@@ -83,7 +98,7 @@ export async function POST(req: Request) {
 
       const notif: AppNotification = {
         id: `n-${crypto.randomUUID().slice(0, 12)}`,
-        type: "general",
+        type: "password_reset_request",
         title: `Şifre sıfırlama talebi — ${username}`,
         message: lines.join("\n"),
         forRole: "admin",
@@ -123,7 +138,7 @@ export async function POST(req: Request) {
 
       const notif: AppNotification = {
         id: `n-${crypto.randomUUID().slice(0, 12)}`,
-        type: "general",
+        type: "account_registration_request",
         title: `Yeni hesap kayıt talebi — ${fullName}`,
         message: lines.join("\n"),
         forRole: "admin",

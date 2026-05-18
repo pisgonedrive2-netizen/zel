@@ -34,6 +34,8 @@ const TYPE_LABEL: Record<AppNotification["type"], string> = {
   kasa_low:           "Kasa düşük",
   payroll_reminder:   "Maaş hatırlatıcı",
   brand_payment_reminder: "Marka ödeme hatırlatıcı",
+  password_reset_request: "Şifre sıfırlama talebi",
+  account_registration_request: "Hesap kayıt talebi",
   general:            "Genel duyuru",
 };
 

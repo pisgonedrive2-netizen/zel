@@ -366,6 +366,8 @@ export interface AppNotification {
     | "payroll_reminder"
     | "brand_payment_reminder"
     | "expense_paid"
+    | "password_reset_request"
+    | "account_registration_request"
     | "general";
   title: string;
   message: string;
