@@ -12,6 +12,9 @@ import {
   Bell,
   ExternalLink,
   ShieldQuestion,
+  Search,
+  X as XIcon,
+  Users as UsersIcon,
 } from "lucide-react";
 import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -446,6 +449,12 @@ export default function UsersPage() {
   const [pinModal, setPinModal] = useState<{ user: AppUser; pin: string } | null>(null);
   const [showPins, setShowPins] = useState(false);
 
+  /** "all" → herkesi göster · Role → o rol · "inactive" → sadece pasifler */
+  type UserFilter = "all" | Role | "inactive";
+  const [roleFilter, setRoleFilter] = useState<UserFilter>("all");
+  const [userSearch, setUserSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"name" | "role" | "lastLogin" | "status">("name");
+
   useEffect(() => {
     if (!flash) return;
     const t = setTimeout(() => setFlash(null), 7000);
@@ -549,6 +558,63 @@ export default function UsersPage() {
     brands:   users.filter(u => u.role === "brand").length,
     inactive: users.filter(u => !u.active).length,
   };
+
+  /** Görselleştirilen kullanıcı listesi — filtre + arama + sıralama uygulanmış. */
+  const visibleUsers = useMemo(() => {
+    let list = [...users];
+    if (roleFilter === "inactive") {
+      list = list.filter((u) => !u.active);
+    } else if (roleFilter !== "all") {
+      list = list.filter((u) => u.role === roleFilter);
+    }
+    const q = userSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (u) =>
+          u.name.toLowerCase().includes(q) ||
+          u.username.toLowerCase().includes(q) ||
+          (employees.find((e) => e.id === u.employeeId)?.name ?? "").toLowerCase().includes(q) ||
+          (brands.find((b) => b.id === u.brandId)?.name ?? "").toLowerCase().includes(q) ||
+          (brands.find((b) => b.id === u.brandId)?.shortName ?? "").toLowerCase().includes(q)
+      );
+    }
+    const roleOrder: Record<Role, number> = { admin: 0, brand: 1, streamer: 2, auditor: 3 };
+    list.sort((a, b) => {
+      if (sortBy === "role") {
+        const d = roleOrder[a.role] - roleOrder[b.role];
+        if (d !== 0) return d;
+        return a.name.localeCompare(b.name, "tr");
+      }
+      if (sortBy === "lastLogin") {
+        const av = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+        const bv = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+        if (av !== bv) return bv - av;
+        return a.name.localeCompare(b.name, "tr");
+      }
+      if (sortBy === "status") {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return a.name.localeCompare(b.name, "tr");
+      }
+      return a.name.localeCompare(b.name, "tr");
+    });
+    return list;
+  }, [users, roleFilter, userSearch, sortBy, employees, brands]);
+
+  /** Filtre çiplerinde kullanılacak buton tanımları. */
+  const filterChips: Array<{
+    id: UserFilter;
+    label: string;
+    count: number;
+    icon: React.ComponentType<{ size?: number; className?: string }>;
+    chipCls: string;
+  }> = [
+    { id: "all",      label: "Tümü",       count: stats.total,     icon: UsersIcon,   chipCls: "border-foreground/30 bg-card hover:bg-accent/40 text-foreground" },
+    { id: "admin",    label: "Yöneticiler",count: stats.admins,    icon: Crown,       chipCls: "border-blue-300/70 bg-blue-50/60 hover:bg-blue-100 text-blue-800 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60" },
+    { id: "streamer", label: "Yayıncılar", count: stats.streamers, icon: UserIcon,    chipCls: "border-amber-300/70 bg-amber-50/60 hover:bg-amber-100 text-amber-800 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-950/60" },
+    { id: "brand",    label: "Markalar",   count: stats.brands,    icon: Tag,         chipCls: "border-violet-300/70 bg-violet-50/60 hover:bg-violet-100 text-violet-800 dark:border-violet-500/45 dark:bg-violet-950/40 dark:text-violet-200 dark:hover:bg-violet-950/60" },
+    { id: "auditor",  label: "Denetçiler", count: stats.auditors,  icon: Headphones,  chipCls: "border-purple-300/70 bg-purple-50/60 hover:bg-purple-100 text-purple-800 dark:border-purple-500/45 dark:bg-purple-950/40 dark:text-purple-200 dark:hover:bg-purple-950/60" },
+    { id: "inactive", label: "Pasif",      count: stats.inactive,  icon: PowerOff,    chipCls: stats.inactive > 0 ? "border-red-300/70 bg-red-50/60 hover:bg-red-100 text-red-800 dark:border-red-500/45 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60" : "border-border bg-card text-muted-foreground hover:bg-accent/40" },
+  ];
 
   const handleSave = async (data: Omit<AppUser, "id">, generatedPin?: string) => {
     const sanitized: Omit<AppUser, "id"> = {
@@ -693,34 +759,116 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
-        {[
-          { label: "Toplam",     value: String(stats.total),     icon: UserIcon,     cls: "text-foreground font-bold" },
-          { label: "Yönetici",   value: String(stats.admins),    icon: Crown,        cls: "text-blue-700 dark:text-blue-400" },
-          { label: "Yayıncı",    value: String(stats.streamers), icon: UserIcon,     cls: "text-amber-700 dark:text-amber-400" },
-          { label: "Marka",      value: String(stats.brands),    icon: Tag,          cls: "text-violet-800 dark:text-violet-300" },
-          { label: "Denetçi",    value: String(stats.auditors),  icon: Headphones,   cls: "text-purple-700 dark:text-purple-400" },
-          { label: "Pasif",      value: String(stats.inactive),  icon: PowerOff,     cls: stats.inactive > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground" },
-        ].map(k => (
-          <div key={k.label} className="border border-border rounded-xl px-4 py-3 bg-card">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
-              <k.icon size={11} /> {k.label}
-            </p>
-            <p className={`text-2xl tabular-nums ${k.cls}`}>{k.value}</p>
-          </div>
-        ))}
+      {/* Rol filtre çipleri — tıklanınca tabloyu o role göre süzer */}
+      <div
+        role="tablist"
+        aria-label="Kullanıcı filtreleri"
+        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-4"
+      >
+        {filterChips.map((chip) => {
+          const active = roleFilter === chip.id;
+          const Icon = chip.icon;
+          return (
+            <button
+              key={chip.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setRoleFilter(chip.id)}
+              className={`group relative rounded-xl border px-3 py-2.5 text-left transition-all duration-150 ${
+                active
+                  ? "ring-2 ring-offset-1 ring-offset-background ring-foreground/30 shadow-sm "
+                  : "opacity-85 hover:opacity-100"
+              } ${chip.chipCls}`}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-medium">
+                  <Icon size={12} />
+                  {chip.label}
+                </span>
+                {active && <Check size={12} className="opacity-80" />}
+              </span>
+              <span className="block text-2xl font-bold tabular-nums mt-0.5">{chip.count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Arama + sıralama */}
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            type="text"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            placeholder="Ad, kullanıcı adı veya bağlı yayıncı / marka ara..."
+            className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-ring/40"
+          />
+          {userSearch && (
+            <button
+              type="button"
+              onClick={() => setUserSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-accent"
+              title="Aramayı temizle"
+              aria-label="Aramayı temizle"
+            >
+              <XIcon size={12} />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="text-muted-foreground shrink-0" htmlFor="users-sort">
+            Sırala:
+          </label>
+          <select
+            id="users-sort"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="name">İsme göre (A→Z)</option>
+            <option value="role">Role göre</option>
+            <option value="lastLogin">Son girişe göre</option>
+            <option value="status">Aktif önce</option>
+          </select>
+        </div>
       </div>
 
       {/* Tablo */}
       <Card>
-        <CardHeader>
-          <CardTitle>Kayıtlı Kullanıcılar</CardTitle>
-          <CardDescription>
-            {supabaseMode
-              ? "Kullanıcılar Supabase app_users tablosunda saklanır · PIN yalnızca oluşturma/sıfırlamada gösterilir"
-              : "Yerel mod · kullanıcılar tarayıcıda saklanır · admin tüm PIN'leri sıfırlayabilir"}
-          </CardDescription>
+        <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              Kayıtlı Kullanıcılar
+              <Badge variant="outline" className="text-[10px]">
+                {visibleUsers.length}
+                {visibleUsers.length !== users.length ? ` / ${users.length}` : ""}
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              {supabaseMode
+                ? "Kullanıcılar Supabase app_users tablosunda saklanır · PIN yalnızca oluşturma/sıfırlamada gösterilir"
+                : "Yerel mod · kullanıcılar tarayıcıda saklanır · admin tüm PIN'leri sıfırlayabilir"}
+            </CardDescription>
+          </div>
+          {(roleFilter !== "all" || userSearch.trim()) && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1 h-8 text-xs"
+              onClick={() => {
+                setRoleFilter("all");
+                setUserSearch("");
+              }}
+            >
+              <XIcon size={12} /> Filtreyi temizle
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="!p-0">
           <div className="overflow-x-auto">
@@ -733,7 +881,35 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody>
-                {users.map(u => {
+                {visibleUsers.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <UsersIcon size={28} className="opacity-30" />
+                        <p className="text-sm">
+                          {userSearch.trim()
+                            ? `"${userSearch}" için sonuç bulunamadı`
+                            : roleFilter === "inactive"
+                              ? "Pasif kullanıcı yok"
+                              : "Bu rolde kullanıcı yok"}
+                        </p>
+                        {(roleFilter !== "all" || userSearch.trim()) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRoleFilter("all");
+                              setUserSearch("");
+                            }}
+                            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            Filtreyi temizle ve tümünü gör
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {visibleUsers.map(u => {
                   const RoleIcon = ROLE_ICONS[u.role];
                   const locked = isMainAdmin(u);
                   const linkedEmp = u.employeeId ? employees.find(em => em.id === u.employeeId) : null;
