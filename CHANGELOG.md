@@ -283,6 +283,37 @@ katmanında ya da mevcut tabloları (`brand_monthly_stats`,
 `app_notifications`, `audit_logs`, `planned_items`,
 `planned_item_payments`, `schedule_slots`, `weekly_plans`) kullanıyor.
 
+### 8.1 Brand rolü için bootstrap + notification API patch
+
+Yeni özelliklerin (özellikle `/marka/odemeler` ve `/marka/bildirimler`)
+end-to-end çalışması için üç ayar daha yapıldı:
+
+1. **Bootstrap (`src/lib/db/repository.ts`)** — marka rolünün bootstrap
+   dönüşüne aşağıdaki tablolar eklendi:
+   - `plannedItems.filter(p => p.brandId === bid)`
+   - `plannedItemPayments` (sadece bu plannedItems'a ait taksitler)
+   - `employees` (aktif yayıncı + moderatör — marka takvimi ve
+     izlenmelerde isim çözümlemek için)
+   - `weekBrandReels.filter(r => r.brandId === bid)`
+
+2. **Notification API (`src/app/api/notifications/route.ts`)** —
+   - `PATCH`: admin/auditor dışında **brand ve streamer rolleri** de
+     kendi bildirimlerini okundu işaretleyebilir. Self-mode'da
+     `forRole`/`forUserId` body'den değil, oturumdan zorlanır.
+   - `DELETE`: brand/streamer kendi bildirimini silebilir (id+role+userId
+     scope edilir; başkasının bildirimi 404 döner). Toplu silme
+     (olderThanDays) hâlâ yalnızca admin.
+
+3. **Marka bildirimler sayfası** — admin impersonation modunda artık
+   gerçek marka kullanıcısının `user.id`'sini bulur ve bildirimleri
+   ona göre filtreler. Admin impersonation'dayken yapılan "tümünü
+   okundu işaretle" çağrısı doğru `forUserId` ile gider.
+
+**RLS:** Mevcut tablolar zaten RLS-enabled ve policy yok; tüm erişim
+service-role (`getSupabaseAdmin()`) üzerinden API katmanından yapılıyor.
+Bu nedenle yeni endpoint'ler / bootstrap filtreleri uygulama katmanında
+korunuyor — yeni Postgres policy gerektirmiyor.
+
 ---
 
 ## 9. Test ve doğrulama

@@ -83,29 +83,55 @@ export async function POST(req: NextRequest) {
 
 /**
  * DELETE /api/notifications?id=...  veya  ?olderThanDays=30
- * Yönetici bildirim silebilir.
+ * - Admin: her şeyi silebilir.
+ * - Streamer / brand: yalnızca kendisine ait (for_user_id == session.userId) ve
+ *   uygun for_role ile eşleşen bildirimleri silebilir.
  */
 export async function DELETE(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
   }
   const session = await getSession();
-  if (!session || session.role !== "admin") {
+  if (!session) {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   const olderThanDays = url.searchParams.get("olderThanDays");
+  const db = getSupabaseAdmin();
+  const isAdmin = session.role === "admin";
+  const isSelfRole =
+    session.role === "brand" || session.role === "streamer";
 
   if (id) {
-    const { error } = await getSupabaseAdmin().from("app_notifications").delete().eq("id", id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, deleted: 1 });
+    if (isAdmin) {
+      const { error } = await db.from("app_notifications").delete().eq("id", id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true, deleted: 1 });
+    }
+    if (isSelfRole) {
+      // Kullanıcı yalnızca kendi bildirimini silebilir.
+      const { error, count } = await db
+        .from("app_notifications")
+        .delete({ count: "exact" })
+        .eq("id", id)
+        .eq("for_role", session.role)
+        .eq("for_user_id", session.userId);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if ((count ?? 0) === 0) {
+        return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
+      }
+      return NextResponse.json({ ok: true, deleted: count });
+    }
+    return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
   if (olderThanDays) {
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Toplu silme yalnızca yönetici" }, { status: 403 });
+    }
     const days = Math.max(parseInt(olderThanDays, 10) || 0, 1);
     const cutoff = new Date(Date.now() - days * 86400000).toISOString();
-    const { error, count } = await getSupabaseAdmin()
+    const { error, count } = await db
       .from("app_notifications")
       .delete({ count: "exact" })
       .lt("created_at", cutoff);
@@ -118,14 +144,24 @@ export async function DELETE(req: NextRequest) {
 /**
  * PATCH /api/notifications
  * Body: { id, read } | { markAll: true, forRole, forUserId? }
- * Yönetici ve denetçi okundu işaretleyebilir.
+ *
+ * - Admin / denetçi: tüm rollerin bildirimlerini okundu işaretleyebilir.
+ * - Streamer / brand: yalnızca kendi rolü ve `forUserId === session.userId`
+ *   olan bildirimleri okundu işaretleyebilir. Body'deki forRole/forUserId
+ *   yok sayılır, sunucu oturumdan türetir.
  */
 export async function PATCH(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
   }
   const session = await getSession();
-  if (!session || (session.role !== "admin" && session.role !== "auditor")) {
+  if (!session) {
+    return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
+  }
+
+  const isElevated = session.role === "admin" || session.role === "auditor";
+  const isSelfRole = session.role === "brand" || session.role === "streamer";
+  if (!isElevated && !isSelfRole) {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
 
@@ -139,7 +175,21 @@ export async function PATCH(req: NextRequest) {
 
   const db = getSupabaseAdmin();
 
-  if (body.markAll && body.forRole) {
+  if (body.markAll) {
+    if (isSelfRole) {
+      // Self mark-all: forRole ve forUserId sunucudan zorlanır.
+      const { error } = await db
+        .from("app_notifications")
+        .update({ read: true })
+        .eq("for_role", session.role)
+        .eq("for_user_id", session.userId)
+        .eq("read", false);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true });
+    }
+    if (!body.forRole) {
+      return NextResponse.json({ error: "forRole gerekli" }, { status: 400 });
+    }
     let q = db.from("app_notifications").update({ read: true }).eq("for_role", body.forRole);
     if (body.forUserId) {
       q = q.or(`for_user_id.is.null,for_user_id.eq.${body.forUserId}`);
@@ -150,10 +200,24 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.id && body.read === true) {
-    const { error } = await db.from("app_notifications").update({ read: true }).eq("id", body.id);
+    if (isElevated) {
+      const { error } = await db.from("app_notifications").update({ read: true }).eq("id", body.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true });
+    }
+    // Self-only update: id + for_role + for_user_id scope edilir.
+    const { error, count } = await db
+      .from("app_notifications")
+      .update({ read: true }, { count: "exact" })
+      .eq("id", body.id)
+      .eq("for_role", session.role)
+      .eq("for_user_id", session.userId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if ((count ?? 0) === 0) {
+      return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
+    }
     return NextResponse.json({ ok: true });
   }
 
-  return NextResponse.json({ error: "id+read veya markAll+forRole gerekli" }, { status: 400 });
+  return NextResponse.json({ error: "id+read veya markAll gerekli" }, { status: 400 });
 }

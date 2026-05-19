@@ -185,8 +185,18 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
 
   if (session.role === "brand" && session.brandId) {
     const bid = session.brandId;
+    // Markaya ait planlı kalemler ve onların taksitleri
+    const myPlannedItems = plannedItems.filter((p) => p.brandId === bid);
+    const myPlannedItemIds = new Set(myPlannedItems.map((p) => p.id));
+    const myPlannedItemPayments = plannedItemPayments.filter((pp) =>
+      myPlannedItemIds.has(pp.plannedItemId)
+    );
+    // Marka takviminde / izlenmelerinde yayıncı adı görmek için aktif yayıncı/moderatörler
+    const visibleEmployees = employees.filter(
+      (e) => e.kind === "streamer" || e.kind === "moderator"
+    );
     return {
-      employees: [],
+      employees: visibleEmployees,
       advances: [],
       salaryExtras: [],
       paymentStatuses: [],
@@ -195,8 +205,8 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       projects: [],
       projectPayments: [],
       expenses: [],
-      plannedItems: [],
-      plannedItemPayments: [],
+      plannedItems: myPlannedItems,
+      plannedItemPayments: myPlannedItemPayments,
       streamerAccounts: [],
       scheduleSlots,
       brands: brands.filter((b) => b.id === bid),
@@ -210,7 +220,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
       weeklyPlans: [],
-      weekBrandReels: [],
+      weekBrandReels: weekBrandReels.filter((r) => r.brandId === bid),
       notifications: notifications.filter(
         (n) => n.forRole === "brand" && (!n.forUserId || n.forUserId === session.userId)
       ),

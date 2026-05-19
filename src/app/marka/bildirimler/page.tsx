@@ -37,7 +37,7 @@ const TYPE_ACCENT: Partial<Record<AppNotification["type"], string>> = {
 };
 
 export default function MarkaBildirimlerPage() {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const brandViewAs = usePanelView((s) => s.brandViewAs);
   const { notifications } = useStore();
   const [showRead, setShowRead] = useState(true);
@@ -46,14 +46,26 @@ export default function MarkaBildirimlerPage() {
   const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
   const isAllowed = user?.role === "brand" || (user?.role === "admin" && !!brandViewAs);
 
+  // Admin impersonation modunda asıl marka kullanıcısının bildirimlerini filtreliyoruz;
+  // gerçek brand rolünde ise oturumdaki kullanıcının kendi bildirimleri.
+  const targetUserId = useMemo(() => {
+    if (!user) return null;
+    if (user.role === "brand") return user.id;
+    if (user.role === "admin" && brandViewAs) {
+      const linked = users.find((u) => u.role === "brand" && u.brandId === brandViewAs.brandId);
+      return linked?.id ?? null;
+    }
+    return null;
+  }, [user, users, brandViewAs]);
+
   const myNotifications = useMemo(() => {
-    if (!user) return [];
+    if (!targetUserId) return [];
     return notifications.filter((n) => {
       if (n.forRole !== "brand") return false;
-      if (n.forUserId && n.forUserId !== user.id) return false;
+      if (n.forUserId && n.forUserId !== targetUserId) return false;
       return true;
     });
-  }, [notifications, user]);
+  }, [notifications, targetUserId]);
 
   const filtered = useMemo(() => {
     return myNotifications.filter((n) => {
@@ -63,8 +75,8 @@ export default function MarkaBildirimlerPage() {
     });
   }, [myNotifications, showRead, typeFilter]);
 
-  const unread = user
-    ? unreadNotificationCount(notifications, "brand", user.id)
+  const unread = targetUserId
+    ? unreadNotificationCount(notifications, "brand", targetUserId)
     : 0;
   const totalForRole = myNotifications.length;
 
@@ -90,13 +102,13 @@ export default function MarkaBildirimlerPage() {
               : "Ödeme hatırlatmaları, takvim ve içerik bildirimleri."}
           </p>
         </div>
-        {unread > 0 && (
+        {unread > 0 && targetUserId && (
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => void markAllNotificationsReadPersisted("brand", user.id)}
+            onClick={() => void markAllNotificationsReadPersisted("brand", targetUserId)}
           >
             <CheckCheck size={14} /> Tümünü okundu işaretle ({unread})
           </Button>
