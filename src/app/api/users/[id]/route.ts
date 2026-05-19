@@ -3,6 +3,7 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { upsertAppUser, deleteAppUser, fetchUsers } from "@/lib/db/repository";
 import { canApplyUserPatch, canDeleteUser } from "@/lib/user-guards";
+import { resolvePlainPin } from "@/lib/pin-update";
 import type { AppUser } from "@/store/auth";
 
 export async function PATCH(
@@ -25,15 +26,23 @@ export async function PATCH(
   if (!guard.ok) {
     return NextResponse.json({ error: guard.reason }, { status: 403 });
   }
+  const newPin = resolvePlainPin(patch);
+  const { pin: _pin, newPin: _newPin, ...profilePatch } = patch;
   const next: AppUser = {
     ...prev,
-    ...patch,
+    ...profilePatch,
     id,
     pin: "",
     username: patch.username ? patch.username.toLowerCase().trim() : prev.username,
   };
-  await upsertAppUser(next, patch.newPin);
-  return NextResponse.json({ ok: true });
+  try {
+    await upsertAppUser(next, newPin);
+    return NextResponse.json({ ok: true, pinUpdated: !!newPin });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Kullanıcı güncellenemedi";
+    console.error("PATCH /api/users/[id]:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
 
 export async function DELETE(

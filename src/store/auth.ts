@@ -3,6 +3,7 @@
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { canApplyUserPatch, canDeleteUser } from "@/lib/user-guards";
+import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import type { PanelViewAs } from "@/store/panel-view";
@@ -75,7 +76,7 @@ interface AuthState {
   // Admin actions
   addUser: (u: Omit<AppUser, "id">) => Promise<{ ok: true; user: AppUser } | { ok: false; reason: string }>;
   updateUser: (id: string, patch: Partial<AppUser>) => Promise<{ ok: true } | { ok: false; reason: string }>;
-  resetPin: (id: string, newPin: string) => Promise<void>;
+  resetPin: (id: string, newPin: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
   deleteUser: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
@@ -204,20 +205,29 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
         const guard = canApplyUserPatch(get().users, id, nextPatch);
         if (!guard.ok) return { ok: false as const, reason: guard.reason };
         const prev = get().users.find((x) => x.id === id);
-        const safe = { ...nextPatch };
-        if ("pin" in safe) (safe as { pin?: string }).pin = "***";
+        const plainPin = resolvePlainPin(nextPatch);
+        const { pin: _p, newPin: _n, ...profileOnly } = nextPatch as Partial<AppUser> & { newPin?: string };
+        const apiBody: Record<string, unknown> = { ...profileOnly };
+        if (plainPin) apiBody.newPin = plainPin;
+        const safe = { ...profileOnly };
+        if (plainPin) (safe as { newPin?: string }).newPin = "***";
         if (isSupabaseClientMode()) {
           try {
             const res = await fetch(`/api/users/${id}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify(nextPatch),
+              body: JSON.stringify(apiBody),
             });
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
             }
             await refreshUsersFromServer();
+            if (plainPin) {
+              set((s) => ({
+                users: s.users.map((u) => (u.id === id ? { ...u, pin: plainPin } : u)),
+              }));
+            }
           } catch {
             return {
               ok: false as const,
@@ -225,9 +235,11 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             };
           }
         } else {
+          const localPatch = { ...profileOnly } as Partial<AppUser>;
+          if (plainPin) localPatch.pin = plainPin;
           set((s) => ({
-            users: s.users.map((u) => (u.id === id ? { ...u, ...nextPatch } : u)),
-            user: s.user?.id === id ? { ...s.user, ...nextPatch } : s.user,
+            users: s.users.map((u) => (u.id === id ? { ...u, ...localPatch } : u)),
+            user: s.user?.id === id ? { ...s.user, ...localPatch } : s.user,
           }));
         }
         logAudit({
@@ -242,20 +254,31 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
       resetPin: async (id, newPin) => {
         const actor = get().user;
         const u = get().users.find((x) => x.id === id);
+        const trimmed = newPin.trim();
+        if (!trimmed) {
+          return { ok: false as const, reason: "PIN boş olamaz." };
+        }
         if (isSupabaseClientMode()) {
-          const res = await fetch(`/api/users/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ newPin }),
-          });
-          if (!res.ok) {
-            console.error("PIN sıfırlama başarısız:", await readApiError(res));
-            return;
+          try {
+            const res = await fetch(`/api/users/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ newPin: trimmed }),
+            });
+            if (!res.ok) {
+              return { ok: false as const, reason: await readApiError(res) };
+            }
+            await refreshUsersFromServer();
+          } catch {
+            return {
+              ok: false as const,
+              reason: "Ağ hatası — PIN Supabase'e yazılamadı.",
+            };
           }
         }
         set((s) => ({
-          users: s.users.map((x) => (x.id === id ? { ...x, pin: newPin } : x)),
+          users: s.users.map((x) => (x.id === id ? { ...x, pin: trimmed } : x)),
         }));
         logAudit({
           actorId: actor?.id ?? "system",
@@ -263,6 +286,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
           action: "user_pin_reset",
           detail: u ? `${u.username}` : id,
         });
+        return { ok: true as const };
       },
 
       deleteUser: async (id) => {

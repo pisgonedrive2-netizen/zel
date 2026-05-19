@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { verifyPin, hashPin } from "@/lib/password";
+import { resolvePlainPin } from "@/lib/pin-update";
 import type { SessionPayload } from "@/lib/session";
 import type { AppHydratePayload } from "@/store/store";
 import type { AppUser } from "@/store/auth";
@@ -365,8 +366,9 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
 
 export async function upsertAppUser(user: AppUser, pinPlain?: string) {
   let pinHash = "";
-  if (pinPlain) {
-    pinHash = await hashPin(pinPlain);
+  const plain = pinPlain?.trim();
+  if (plain) {
+    pinHash = await hashPin(plain);
   } else {
     const { data } = await getSupabaseAdmin()
       .from("app_users")

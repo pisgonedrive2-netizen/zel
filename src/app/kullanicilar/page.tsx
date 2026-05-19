@@ -86,7 +86,7 @@ function UserForm({ initial, onSave, onClose }: {
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form, isNew ? form.pin : undefined); }}>
+    <form onSubmit={e => { e.preventDefault(); onSave(form, form.pin.trim() || undefined); }}>
       <div className="grid gap-4">
         {lockedMainAdmin && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/35 dark:text-blue-100 leading-relaxed">
@@ -423,10 +423,15 @@ export default function UsersPage() {
     setModal(null);
   };
 
-  const handleResetPin = (u: AppUser) => {
+  const handleResetPin = async (u: AppUser) => {
     const newPin = generatePin();
-    resetPin(u.id, newPin);
+    const r = await resetPin(u.id, newPin);
+    if (!r.ok) {
+      setFlash(r.reason);
+      return;
+    }
     setPinModal({ user: { ...u, pin: newPin }, pin: newPin });
+    setFlash(`✓ ${u.name} için PIN sıfırlandı ve sunucuya kaydedildi.`);
   };
 
   return (
