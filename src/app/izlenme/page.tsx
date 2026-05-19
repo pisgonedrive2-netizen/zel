@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandLinksPanel } from "@/components/brand-links-panel";
+import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
@@ -809,6 +810,13 @@ export default function IzlenmePage() {
           </div>
         ))}
       </div>
+
+      {/* Otomatik link yenileme — RapidAPI Basic plan bütçesine göre */}
+      {!readOnly && (
+        <div className="mb-6">
+          <AutoRefreshStatusPanel />
+        </div>
+      )}
 
       {/* Yayıncı aylık izlenme raporları (brand_viewership) */}
       {monthlyViewership.length > 0 && (

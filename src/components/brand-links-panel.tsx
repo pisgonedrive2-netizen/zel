@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import {
-  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users,
+  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle,
 } from "lucide-react";
+import { detectPlatform } from "@/lib/social-api/platform-detect";
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,16 @@ function daysAgo(iso?: string) {
   if (d === 1) return "dün";
   if (d < 30) return `${d} gün önce`;
   return new Date(iso).toLocaleDateString("tr-TR");
+}
+
+function hoursAgo(iso?: string) {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(ms / 3_600_000);
+  if (h < 1) return `${Math.floor(ms / 60_000)} dk önce`;
+  if (h < 24) return `${h} sa önce`;
+  const d = Math.floor(h / 24);
+  return `${d} g önce`;
 }
 
 export interface BrandLinksPanelProps {
@@ -159,6 +170,7 @@ export function BrandLinksPanel({
                       linkSnapshots,
                       todayYm
                     );
+                    const apiSupported = detectPlatform(link.url, link.platform) != null;
                     return (
                       <div key={link.id} className="flex items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2.5 hover:bg-accent/20 transition-colors">
                         <div className="flex-1 min-w-0">
@@ -167,11 +179,34 @@ export function BrandLinksPanel({
                             {link.handle && (
                               <span className="text-xs text-muted-foreground">{link.handle}</span>
                             )}
-                            {link.autoTrack && (
-                              <Badge variant="outline" className="text-[9px]">otomatik</Badge>
+                            {link.autoTrack && apiSupported && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] gap-0.5 border-emerald-300 text-emerald-700 dark:border-emerald-500/45 dark:text-emerald-300"
+                                title={
+                                  link.lastCheckedAt
+                                    ? `Son otomatik kontrol: ${hoursAgo(link.lastCheckedAt)}`
+                                    : "Otomatik takip açık, henüz kontrol edilmedi"
+                                }
+                              >
+                                <Bot size={9} /> otomatik
+                                {link.lastCheckedAt && (
+                                  <span className="opacity-75 ml-1">· {hoursAgo(link.lastCheckedAt)}</span>
+                                )}
+                              </Badge>
+                            )}
+                            {link.autoTrack && !apiSupported && (
+                              <Badge variant="outline" className="text-[9px]" title="URL tipi otomatik API'lerle desteklenmiyor; manuel snapshot gerekir">
+                                otomatik (manuel)
+                              </Badge>
                             )}
                             {link.status === "inactive" && (
                               <Badge variant="outline" className="text-[9px]">pasif</Badge>
+                            )}
+                            {link.lastCheckError && (
+                              <Badge variant="outline" className="text-[9px] gap-0.5 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300" title={link.lastCheckError}>
+                                <AlertCircle size={9} /> hata
+                              </Badge>
                             )}
                           </div>
                           {link.url ? (

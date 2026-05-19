@@ -283,6 +283,90 @@ katmanında ya da mevcut tabloları (`brand_monthly_stats`,
 `app_notifications`, `audit_logs`, `planned_items`,
 `planned_item_payments`, `schedule_slots`, `weekly_plans`) kullanıyor.
 
+### 8.2 Otomatik link yenileme (RapidAPI · YouTube / Instagram / TikTok)
+
+`brand_links` artık RapidAPI Basic planları üzerinden günlük bir cron ile
+otomatik izlenme/begeni/yorum güncellemesi alır.
+
+**Plan limitleri (kullanıcı onayı ile sabitlendi):**
+
+- YouTube (`youtube138`): 100 req/ay · 5 req/sn
+- Instagram (`instagram-api-fast-reliable-data-scraper`): 100 req/ay · 1000 req/sa
+- TikTok (`tiktok-scraper7`): 300 req/ay · 120 req/dk
+
+**Bütçe stratejisi:** Her platformun aylık kotasının %85'i güvenli budget
+olarak ayrılır (%15 manuel refresh + hata payı). Cron günde 1 kez çalışır;
+her çalıştırma, kalan kotayı kalan güne bölerek adaptif batch boyutu üretir.
+
+**Yeni migration:** `supabase/migrations/20260519140000_link_auto_refresh.sql`
+
+- `brand_links` tablosuna 8 yeni kolon: `external_ref`, `last_checked_at`,
+  `last_likes`, `last_comments`, `last_shares`, `last_check_error`,
+  `check_count`, `error_count`.
+- `api_quota_usage` tablosu: `(platform, month)` UNIQUE, `requests_used`,
+  `monthly_limit`, `last_request_at`.
+- `api_refresh_runs` tablosu: cron çalıştırma logu (debug/observability).
+- Oldest-first round-robin için indeks `brand_links_auto_track_check_idx`.
+- RLS açık, policy yok — service-role üzerinden API katmanında korunuyor.
+
+**Yeni server modülleri (`src/lib/social-api/`):**
+
+- `config.ts` — plan limitleri, `calcBatchSize`, `estimateRefreshIntervalHours`,
+  `formatRefreshInterval`.
+- `platform-detect.ts` — `detectPlatform(url, manualPlatform)` →
+  `{ platform, externalRef, kind }`. YouTube (watch/shorts/embed/handle/channel),
+  Instagram (p/reel/tv/username), TikTok (video/user).
+- `clients.ts` — `fetchMetricsForLink(detected)` → tek giriş noktası. Esnek
+  sayı çıkarımı (`pickFirstNumber`) farklı API response şekillerini tolere
+  eder.
+- `quota.ts` — `getMonthlyUsage`, `incrementUsage`. Atomik değil ama tek
+  giriş noktasıyla yeterli.
+- `refresh-runner.ts` — `runPlatformRefresh`, `runAllPlatformsRefresh`,
+  `refreshSingleLink`. Linkleri `last_checked_at ASC NULLS FIRST` ile seçer,
+  başarılı her çağrıdan sonra kotayı 1 artırır, snapshot kaydeder, hata
+  durumunda `last_check_error` ve `error_count` günceller.
+
+**Yeni API rotaları:**
+
+- `GET /api/cron/refresh-links` — Vercel cron entry. `Authorization: Bearer
+  $CRON_SECRET` ile korunur; secret yoksa açık kalır (dev için). Tüm
+  platformları sırayla çalıştırır.
+- `POST /api/admin/refresh-link/[id]` — admin/auditor için tek link manuel
+  refresh. Kotadan 1 düşer; güvenli sınır dolmuşsa engellenir.
+- `GET /api/admin/refresh-status` — UI'nın okuduğu durum endpoint'i.
+  Platform başına kullanım/budget/batch/interval + son 10 cron run.
+
+**Vercel Cron:**
+
+`vercel.json` eklendi — günde bir kez 03:00 UTC'de
+`/api/cron/refresh-links` çağrılır. Vercel Hobby uyumludur (1 günlük slot).
+
+**Env vars (yeni):**
+
+- `RAPIDAPI_KEY` — RapidAPI hesabınızın anahtarı.
+- `CRON_SECRET` — opsiyonel, cron endpoint'i korur. Min. 16 karakter.
+
+**UI değişiklikleri:**
+
+- `/izlenme` sayfasında yeni `AutoRefreshStatusPanel` — her platform için
+  kotanın yüzde kaçı dolduğu (renkli progress bar), batch boyutu, tahmini
+  yenileme aralığı (`≈ 2.5 günde bir` gibi), takip edilen link sayısı,
+  rate limit, son 10 cron run.
+- `BrandLinksPanel` — her link satırında otomatik kontrolün son ne kadar
+  önce yapıldığı (`Bot ikonu · 4 sa önce` gibi). URL desteklenmiyorsa
+  "otomatik (manuel)" rozeti, hata varsa kırmızı "hata" rozeti.
+
+**Davranış:**
+
+- Cron sadece `status = 'active' AND auto_track = true` olan linkleri
+  arar; URL platform tespiti başarısızsa o link skip edilir.
+- Aynı gün içinde otomatik refresh yapılırsa snapshot row'u
+  `s-auto-{linkId}-{YYYYMMDD}` ID'siyle upsert edilir (gün başına 1 row).
+- Manuel snapshot ve otomatik snapshot ayrı row'lar değil — günlük tek
+  satıra konsolide olur.
+
+---
+
 ### 8.1 Brand rolü için bootstrap + notification API patch
 
 Yeni özelliklerin (özellikle `/marka/odemeler` ve `/marka/bildirimler`)

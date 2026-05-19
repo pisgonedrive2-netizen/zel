@@ -424,6 +424,14 @@ export function brandLinkFromRow(r: Record<string, unknown>): BrandLink {
     lastSnapshotDate: r.last_snapshot_date ? str(r.last_snapshot_date).slice(0, 10) : undefined,
     lastViews: r.last_views != null ? Number(r.last_views) : undefined,
     autoTrack: r.auto_track != null ? bool(r.auto_track) : undefined,
+    externalRef: r.external_ref ? str(r.external_ref) : undefined,
+    lastCheckedAt: r.last_checked_at ? str(r.last_checked_at) : undefined,
+    lastLikes: r.last_likes != null ? Number(r.last_likes) : undefined,
+    lastComments: r.last_comments != null ? Number(r.last_comments) : undefined,
+    lastShares: r.last_shares != null ? Number(r.last_shares) : undefined,
+    lastCheckError: r.last_check_error ? str(r.last_check_error) : undefined,
+    checkCount: r.check_count != null ? Number(r.check_count) : undefined,
+    errorCount: r.error_count != null ? Number(r.error_count) : undefined,
   };
 }
 
@@ -440,6 +448,10 @@ export function brandLinkToRow(l: BrandLink) {
     last_snapshot_date: l.lastSnapshotDate ?? null,
     last_views: l.lastViews ?? null,
     auto_track: l.autoTrack ?? null,
+    // Auto-refresh alanlarını client kayıt yaparken NULL göndermek için
+    // diğer kolonları açıkça `undefined` bırakıyoruz — bunlar sunucu tarafı
+    // (refresh runner) tarafından yönetilir. Eğer bir admin elle düzenlediyse
+    // mevcut değerleri korumak için update payload'a eklemiyoruz.
   };
 }
 

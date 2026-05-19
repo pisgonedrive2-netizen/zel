@@ -262,6 +262,21 @@ export interface BrandLink {
   lastViews?: number;
   /** Otomatik takip için ipucu (ileride API entegrasyonu için). */
   autoTrack?: boolean;
+  // --- Otomatik yenileme metadata'sı (sunucu/cron tarafından yönetilir) ----
+  /** Platform-spesifik external ID (videoId / shortcode / TT video id). */
+  externalRef?: string;
+  /** Son API kontrol zaman damgası (ISO). */
+  lastCheckedAt?: string;
+  /** Son ölçülen begeni / yorum / paylaşım sayıları (varsa). */
+  lastLikes?: number;
+  lastComments?: number;
+  lastShares?: number;
+  /** Son hata mesajı — başarılıysa null. */
+  lastCheckError?: string;
+  /** Toplam başarılı kontrol sayısı. */
+  checkCount?: number;
+  /** Toplam hatalı kontrol sayısı. */
+  errorCount?: number;
 }
 
 /** Bir linke ait belirli bir tarihteki izlenme/abone snapshot'ı. */
