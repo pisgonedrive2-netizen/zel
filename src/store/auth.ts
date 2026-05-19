@@ -221,6 +221,13 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
             }
+            const data = (await res.json()) as { pinUpdated?: boolean };
+            if (plainPin && !data.pinUpdated) {
+              return {
+                ok: false as const,
+                reason: "PIN sunucuya yazılamadı. Alanı tekrar doldurup kaydedin veya PIN sıfırla.",
+              };
+            }
             if (plainPin) cacheAdminPin(id, plainPin);
             await refreshUsersFromServer();
             if (plainPin) {
@@ -268,6 +275,13 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             });
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
+            }
+            const data = (await res.json()) as { pinUpdated?: boolean };
+            if (!data.pinUpdated) {
+              return {
+                ok: false as const,
+                reason: "PIN sunucuya yazılamadı. Tekrar deneyin.",
+              };
             }
             cacheAdminPin(id, trimmed);
             await refreshUsersFromServer();

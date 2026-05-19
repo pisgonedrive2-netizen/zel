@@ -9,7 +9,7 @@ export async function POST(req: Request) {
   }
   const body = (await req.json()) as { username?: string; pin?: string };
   const username = body.username?.trim() ?? "";
-  const pin = body.pin ?? "";
+  const pin = body.pin?.trim() ?? "";
   if (!username || !pin) {
     return NextResponse.json({ error: "Kullanıcı adı ve şifre gerekli" }, { status: 400 });
   }

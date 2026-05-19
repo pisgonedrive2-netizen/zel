@@ -74,10 +74,9 @@ function UserForm({ initial, onSave, onClose }: {
   const { employees, brands } = useStore();
   const isNew = !initial;
   const lockedMainAdmin = !!initial && isMainAdmin(initial);
-  const [pinDirty, setPinDirty] = useState(false);
   const [form, setForm] = useState<Omit<AppUser, "id">>({
     username:   initial?.username   ?? "",
-    pin:        initial?.pin        ?? (isNew ? generatePin() : ""),
+    pin:        isNew ? generatePin() : "",
     name:       initial?.name       ?? "",
     role:       initial?.role       ?? "streamer",
     employeeId: initial?.employeeId,
@@ -95,9 +94,9 @@ function UserForm({ initial, onSave, onClose }: {
           onSave(form, form.pin.trim() || undefined);
           return;
         }
-        const pin = pinDirty && form.pin.trim() ? form.pin.trim() : "";
+        const pin = form.pin.trim();
         const { pin: _drop, ...profile } = form;
-        onSave({ ...profile, pin }, undefined);
+        onSave(pin.length >= 4 ? { ...profile, pin } : { ...profile, pin: "" }, undefined);
       }}
     >
       <div className="grid gap-4">
@@ -175,12 +174,9 @@ function UserForm({ initial, onSave, onClose }: {
           <div className="flex gap-2">
             <Input
               value={form.pin}
-              onChange={(e) => {
-                setPinDirty(true);
-                set("pin", e.target.value);
-              }}
+              onChange={(e) => set("pin", e.target.value)}
               className="font-mono"
-              placeholder={isNew ? undefined : "Değiştirmek için yeni PIN yazın"}
+              placeholder={isNew ? undefined : "Yeni PIN (kaydetmek için doldurun)"}
             />
             <Button type="button" variant="outline" size="sm" onClick={() => set("pin", generatePin())} className="gap-1.5">
               <Sparkles size={13} /> Yeni PIN
@@ -440,8 +436,10 @@ export default function UsersPage() {
       }
       if (sanitized.pin && sanitized.pin.length >= 4) {
         cacheAdminPin(modal.id, sanitized.pin);
+        setFlash("✓ Kullanıcı ve PIN güncellendi — giriş test edilebilir.");
+      } else {
+        setFlash("✓ Kullanıcı güncellendi.");
       }
-      setFlash("✓ Kullanıcı güncellendi.");
     }
     setModal(null);
   };
