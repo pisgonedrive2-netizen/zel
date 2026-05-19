@@ -14,6 +14,8 @@ import {
 import { useAuth } from "@/store/auth";
 import { useStore } from "@/store/store";
 import { BrandLogo } from "@/components/brand-logo";
+import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
+import { findBrandMonthlyStats, brandStatsExportRows, deriveBrandMonthlyStats } from "@/lib/brand-monthly-stats";
 import { toYearMonthLocal } from "@/lib/data";
 import {
   downloadBrandMonthCsv,
@@ -47,7 +49,7 @@ const fmtViews = (n: number) => {
 
 export default function MarkaIzlenmelerPage() {
   const { user } = useAuth();
-  const { brands, brandLinks, brandViewership, weekBrandReels, linkSnapshots, employees } = useStore();
+  const { brands, brandLinks, brandViewership, brandMonthlyStats, weekBrandReels, linkSnapshots, employees } = useStore();
 
   const today = new Date();
   const todayYm = toYearMonthLocal(today);
@@ -126,6 +128,10 @@ export default function MarkaIzlenmelerPage() {
       link: r.contentUrl,
       not: r.notes || "-",
     }));
+    const statsRow = findBrandMonthlyStats(brandMonthlyStats, brandId, month);
+    const operationStats = statsRow
+      ? brandStatsExportRows(statsRow, deriveBrandMonthlyStats(statsRow))
+      : undefined;
     return {
       brandFullName: brand.name,
       monthYm: month,
@@ -133,6 +139,7 @@ export default function MarkaIzlenmelerPage() {
       links: linkRows,
       monthlyRows,
       reels,
+      operationStats,
     };
   };
 
@@ -199,6 +206,8 @@ export default function MarkaIzlenmelerPage() {
           <ChevronRight size={14} />
         </Button>
       </div>
+
+      <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} readOnly />
 
       <div className="grid gap-4 md:grid-cols-2">
         {hasTarget && targetPct !== null && (

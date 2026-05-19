@@ -3,7 +3,7 @@ import type {
   SponsorTransaction, InternalProject, InternalProjectPayment, ExpenseEntry,
   PlannedItem, PlannedItemPayment,
   StreamerAccount, ScheduleSlot, Brand, BrandLink, LinkSnapshot,
-  BrandViewership, Kasa, KasaTransaction, ContentExpense, WeeklyPlan,
+  BrandViewership, BrandMonthlyStats, Kasa, KasaTransaction, ContentExpense, WeeklyPlan,
   WeekBrandReel, AppNotification,
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
@@ -482,6 +482,42 @@ export function viewershipToRow(v: BrandViewership) {
     views: v.views,
     url: v.url,
     notes: v.notes,
+  };
+}
+
+export function brandMonthlyStatsFromRow(r: Record<string, unknown>): BrandMonthlyStats {
+  const cur = str(r.currency, "TRY");
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    month: str(r.month),
+    newRegistrations: Number(r.new_registrations ?? 0),
+    depositingMembers: Number(r.depositing_members ?? 0),
+    firstTimeDepositors: Number(r.first_time_depositors ?? 0),
+    depositCount: Number(r.deposit_count ?? 0),
+    depositAmount: num(r.deposit_amount),
+    withdrawalAmount: num(r.withdrawal_amount),
+    currency: cur === "USD" || cur === "EUR" ? cur : "TRY",
+    notes: str(r.notes),
+    updatedBy: r.updated_by ? str(r.updated_by) : undefined,
+    updatedAt: r.updated_at ? str(r.updated_at) : undefined,
+  };
+}
+
+export function brandMonthlyStatsToRow(s: BrandMonthlyStats) {
+  return {
+    id: s.id,
+    brand_id: s.brandId,
+    month: s.month,
+    new_registrations: s.newRegistrations,
+    depositing_members: s.depositingMembers,
+    first_time_depositors: s.firstTimeDepositors,
+    deposit_count: s.depositCount,
+    deposit_amount: s.depositAmount,
+    withdrawal_amount: s.withdrawalAmount,
+    currency: s.currency,
+    notes: s.notes,
+    updated_by: s.updatedBy ?? null,
   };
 }
 

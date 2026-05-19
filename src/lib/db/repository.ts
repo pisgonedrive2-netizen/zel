@@ -13,6 +13,7 @@ import {
   scheduleSlotFromRow, scheduleSlotToRow, brandFromRow, brandToRow,
   brandLinkFromRow, brandLinkToRow, linkSnapshotFromRow, linkSnapshotToRow,
   viewershipFromRow, viewershipToRow,
+  brandMonthlyStatsFromRow, brandMonthlyStatsToRow,
   kasaAccountFromRow, kasaAccountToRow, kasaFromRow, kasaToRow,
   contentExpenseFromRow, contentExpenseToRow, weeklyPlanFromRow, weeklyPlanToRow,
   weekBrandReelFromRow, weekBrandReelToRow, notificationFromRow, notificationToRow,
@@ -81,7 +82,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
   const [
     employees, advances, salaryExtras, paymentStatuses, companies, sponsorTransactions,
     projects, projectPayments, expenses, plannedItems, plannedItemPayments, streamerAccounts, scheduleSlots, brands, brandLinks,
-    linkSnapshots, brandViewership, kasas, kasaTransactions, contentExpenses, weeklyPlans,
+    linkSnapshots, brandViewership, brandMonthlyStats, kasas, kasaTransactions, contentExpenses, weeklyPlans,
     weekBrandReels, notifications,
   ] = await Promise.all([
     selectAll("employees", employeeFromRow),
@@ -101,6 +102,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     selectAll("brand_links", brandLinkFromRow),
     selectAll("link_snapshots", linkSnapshotFromRow),
     selectAll("brand_viewership", viewershipFromRow),
+    selectAll("brand_monthly_stats", brandMonthlyStatsFromRow),
     selectAll("kasas", kasaAccountFromRow),
     selectAll("kasa_transactions", kasaFromRow),
     selectAll("content_expenses", contentExpenseFromRow),
@@ -127,6 +129,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     brandLinks,
     linkSnapshots,
     brandViewership,
+    brandMonthlyStats,
     kasas,
     kasaTransactions,
     contentExpenses,
@@ -196,6 +199,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
         brandLinks.some((l) => l.id === s.linkId && l.brandId === bid)
       ),
       brandViewership: brandViewership.filter((v) => v.brandId === bid),
+      brandMonthlyStats: brandMonthlyStats.filter((s) => s.brandId === bid),
       kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
@@ -265,6 +269,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "brand_links", rows: (payload.brandLinks ?? []).map(brandLinkToRow) },
     { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow) },
     { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow) },
+    { table: "brand_monthly_stats", rows: (payload.brandMonthlyStats ?? []).map(brandMonthlyStatsToRow) },
     // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
     // deleteNotIn yapmıyoruz: kullanıcı yanlışlıkla bağlı hareketleri olan
     // bir kasayı silerse FK RESTRICT hata fırlatır. Bunun yerine `archived`
@@ -377,7 +382,10 @@ export async function upsertAppUser(user: AppUser, pinPlain?: string) {
       .maybeSingle();
     pinHash = data ? String((data as { pin_hash: string }).pin_hash) : await hashPin("changeme");
   }
-  const row = appUserToRow(user, pinHash);
+  const row = {
+    ...appUserToRow(user, pinHash),
+    ...(plain ? { pin_updated_at: new Date().toISOString() } : {}),
+  };
   const { error } = await getSupabaseAdmin().from("app_users").upsert(row);
   if (error) throw new Error(error.message);
 }
@@ -401,7 +409,7 @@ export function pickSnapshot(state: Record<string, unknown>): AppHydratePayload 
     "employees", "advances", "salaryExtras", "paymentStatuses", "companies",
     "sponsorTransactions", "projects", "projectPayments", "expenses", "plannedItems", "plannedItemPayments",
     "streamerAccounts",
-    "scheduleSlots", "brands", "brandLinks", "linkSnapshots", "brandViewership",
+    "scheduleSlots", "brands", "brandLinks", "linkSnapshots", "brandViewership", "brandMonthlyStats",
     "kasas", "kasaTransactions", "contentExpenses", "weeklyPlans", "weekBrandReels", "notifications",
   ] as const) {
     if (state[k] !== undefined) (out as Record<string, unknown>)[k] = state[k];

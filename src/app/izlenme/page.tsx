@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandLinksPanel } from "@/components/brand-links-panel";
+import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -443,6 +444,15 @@ function BrandCard({
           )}
         </div>
       )}
+
+      <div className="px-6 pb-3">
+        <BrandMonthlyStatsPanel
+          brandId={brand.id}
+          monthYm={viewMonth}
+          readOnly={readOnly}
+          className="shadow-none"
+        />
+      </div>
 
       <CardContent className="relative space-y-2 pt-0">
           {links.length === 0 ? (

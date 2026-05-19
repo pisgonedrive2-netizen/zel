@@ -194,6 +194,29 @@ export interface ScheduleSlot {
   notes: string;
 }
 
+/** Marka bazlı aylık operasyon özeti (kayıt, yatırım, tutarlar). */
+export interface BrandMonthlyStats {
+  id: string;
+  brandId: string;
+  /** YYYY-MM */
+  month: string;
+  /** Bu ay yeni kayıt olan üye sayısı. */
+  newRegistrations: number;
+  /** Bu ay en az bir yatırım yapan benzersiz üye. */
+  depositingMembers: number;
+  /** İlk kez yatırım yapan üye (FTD). */
+  firstTimeDepositors: number;
+  /** Yatırım işlem adedi. */
+  depositCount: number;
+  depositAmount: number;
+  withdrawalAmount: number;
+  currency: "TRY" | "USD" | "EUR";
+  notes: string;
+  /** Son kaydı güncelleyen admin (app_users.id). */
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
 /** Marka izlenme raporu — ay bazlı izlenme adetleri (toplam). */
 export interface BrandViewership {
   id: string;
@@ -412,6 +435,7 @@ interface AppStore {
   brandLinks: BrandLink[];
   linkSnapshots: LinkSnapshot[];
   brandViewership: BrandViewership[];
+  brandMonthlyStats: BrandMonthlyStats[];
 
   // Kasa & İçerik harcamaları
   kasas: Kasa[];
@@ -516,6 +540,11 @@ interface AppStore {
   updateBrandViewership: (id: string, v: Partial<BrandViewership>) => void;
   deleteBrandViewership: (id: string) => void;
 
+  /** Marka + ay için operasyon özeti (varsa günceller, yoksa ekler). */
+  upsertBrandMonthlyStats: (
+    stats: Omit<BrandMonthlyStats, "id" | "updatedAt"> & { id?: string; updatedBy?: string }
+  ) => void;
+
   // Brand
   addBrand: (b: Omit<Brand, "id">) => void;
   updateBrand: (id: string, b: Partial<Brand>) => void;
@@ -598,6 +627,7 @@ export const APP_SNAPSHOT_KEYS = [
   "brandLinks",
   "linkSnapshots",
   "brandViewership",
+  "brandMonthlyStats",
   "kasas",
   "kasaTransactions",
   "contentExpenses",
@@ -980,6 +1010,7 @@ const initialStreamerAccounts: StreamerAccount[] = [
 
 /** Boş başlangıç — kullanıcı /izlenme sayfasından girişleri ekleyecek. */
 const initialBrandViewership: BrandViewership[] = [];
+const initialBrandMonthlyStats: BrandMonthlyStats[] = [];
 const initialScheduleSlots: ScheduleSlot[] = [];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1247,6 +1278,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       brandLinks:          initialBrandLinks,
       linkSnapshots:       initialLinkSnapshots,
       brandViewership:     initialBrandViewership,
+      brandMonthlyStats:   initialBrandMonthlyStats,
       kasas:               initialKasas,
       kasaTransactions:    initialKasaTransactions,
       contentExpenses:     initialContentExpenses,
@@ -1543,6 +1575,34 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       updateBrandViewership: (id, v) => set((s) => ({ brandViewership: s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x)) })),
       deleteBrandViewership: (id)    => set((s) => ({ brandViewership: s.brandViewership.filter((x) => x.id !== id) })),
 
+      upsertBrandMonthlyStats: (stats) =>
+        set((s) => {
+          const idx = s.brandMonthlyStats.findIndex(
+            (x) => x.brandId === stats.brandId && x.month === stats.month
+          );
+          const row: BrandMonthlyStats = {
+            id: stats.id ?? (idx >= 0 ? s.brandMonthlyStats[idx].id : uid()),
+            brandId: stats.brandId,
+            month: stats.month,
+            newRegistrations: Math.max(0, Math.floor(stats.newRegistrations || 0)),
+            depositingMembers: Math.max(0, Math.floor(stats.depositingMembers || 0)),
+            firstTimeDepositors: Math.max(0, Math.floor(stats.firstTimeDepositors || 0)),
+            depositCount: Math.max(0, Math.floor(stats.depositCount || 0)),
+            depositAmount: Math.max(0, Number(stats.depositAmount) || 0),
+            withdrawalAmount: Math.max(0, Number(stats.withdrawalAmount) || 0),
+            currency: stats.currency ?? "TRY",
+            notes: stats.notes ?? "",
+            updatedBy: stats.updatedBy,
+            updatedAt: new Date().toISOString(),
+          };
+          if (idx >= 0) {
+            const next = [...s.brandMonthlyStats];
+            next[idx] = row;
+            return { brandMonthlyStats: next };
+          }
+          return { brandMonthlyStats: [...s.brandMonthlyStats, row] };
+        }),
+
       // Brand
       addBrand:    (b)     => set((s) => ({ brands: [...s.brands, { ...b, id: uid() }] })),
       updateBrand: (id, b) => set((s) => ({ brands: s.brands.map((x) => (x.id === id ? { ...x, ...b } : x)) })),
@@ -1748,6 +1808,7 @@ const storePersistConfig = {
           kasas: ensuredKasas,
           kasaTransactions: migrateKasaTransactions(kasaSrc),
           weekBrandReels: Array.isArray(p.weekBrandReels) ? p.weekBrandReels : [],
+          brandMonthlyStats: Array.isArray(p.brandMonthlyStats) ? p.brandMonthlyStats : [],
         };
       },
     } as const;

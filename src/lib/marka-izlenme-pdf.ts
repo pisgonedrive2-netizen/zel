@@ -77,6 +77,8 @@ export type BrandMonthPdfInput = {
     link: string;
     not: string;
   }>;
+  /** Kayıt, yatırım ve tutar özeti (opsiyonel). */
+  operationStats?: Array<{ label: string; value: string }>;
 };
 
 export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?: string): void {
@@ -95,6 +97,23 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
   doc.setTextColor(0);
 
   let y = 44;
+
+  if (input.operationStats && input.operationStats.length > 0) {
+    doc.setFontSize(10);
+    doc.text(latin1ish("Operasyon ozeti (kayit / yatirim)"), 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [[latin1ish("Metrik"), latin1ish("Deger")]],
+      body: input.operationStats.map((r) => [latin1ish(r.label), latin1ish(r.value)]),
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [124, 58, 237] },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
+      ? (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10
+      : y + 40;
+  }
 
   if (input.links.length > 0) {
     doc.setFontSize(10);
@@ -178,6 +197,17 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
       { metric: "Haftalik reel kaydi", value: input.reels.length, unit: "adet" },
     ]),
   ];
+
+  if (input.operationStats && input.operationStats.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Operasyon ozeti",
+        ["Metrik", "Deger"],
+        input.operationStats.map((r) => [r.label, r.value]),
+        `Kayit ve yatirim metrikleri · ${input.monthYm}`,
+      ),
+    );
+  }
 
   if (input.links.length > 0) {
     sections.push(
