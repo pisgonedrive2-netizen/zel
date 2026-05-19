@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Copy, Check } from "lucide-react";
 import {
-  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive,
+  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
   sumApprovedContentExpenses, plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
 } from "@/store/store";
@@ -113,8 +113,10 @@ export default function RaporPage() {
       const empExtras    = salaryExtras.filter((e) => e.employeeId === emp.id && e.month === ym);
       const thisMonthAdv = empAdvances.reduce((s, a) => s + a.amount, 0);
       const carryFwd     = calcCarryForward(emp.id, ym, advances, paymentStatuses);
-      const rentExtras   = empExtras.filter((e) => e.type === "rent").reduce((s, e) => s + e.amount, 0);
-      const totalAdd     = empExtras.filter((e) => e.type !== "deduction").reduce((s, e) => s + e.amount, 0);
+      const rentAmt      = getRentForMonth(emp, ym, salaryExtras);
+      const totalBonus   = empExtras
+        .filter((e) => e.type !== "deduction" && e.type !== "rent")
+        .reduce((s, e) => s + e.amount, 0);
       const totalDeduc   = empExtras.filter((e) => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
       const netPayable   = calcNetPayable(emp, ym, advances, salaryExtras, paymentStatuses);
       const contentAprv  = sumApprovedContentExpenses(contentExpenses, emp.id, ym);
@@ -130,11 +132,11 @@ export default function RaporPage() {
         department:       emp.department,
         paymentDay:       emp.paymentDay,
         baseSalary:       emp.baseSalary,
-        rentSupport:      rentExtras,
+        rentSupport:      rentAmt,
         carryForward:     carryFwd,
         thisMonthAdvance: thisMonthAdv,
         openAdvanceAfter: openAdvAfter,
-        totalBonus:       totalAdd - rentExtras,
+        totalBonus,
         totalDeduction:   totalDeduc,
         netPayable,
         contentApproved:  contentAprv,

@@ -4,7 +4,7 @@ import { useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Pencil, ChevronLeft, ChevronRight, CheckCircle2, Clock, AlertTriangle, CalendarClock, ExternalLink } from "lucide-react";
 import {
-  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive,
+  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
   sumApprovedContentExpenses, sumPaidContentExpenses, plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
   DEFAULT_KASA_ID,
@@ -256,10 +256,10 @@ function EmployeeDetailRow({
   const openAdvAfter = calcOpenAdvanceBalance(employee, month, salaryExtras);
 
   const totalAdv   = empAdv.reduce((s, a) => s + a.amount, 0);
-  const totalRent  = empExtras.filter(e => e.type === "rent").reduce((s, e) => s + e.amount, 0);
+  const totalRent  = active ? getRentForMonth(employee, month, salaryExtras) : 0;
+  const rentFromExtrasOnly = empExtras.filter(e => e.type === "rent").reduce((s, e) => s + e.amount, 0);
   const totalBonus = empExtras.filter(e => e.type === "bonus" || e.type === "expense" || e.type === "other").reduce((s, e) => s + e.amount, 0);
   const totalDeduc = empExtras.filter(e => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
-  const rentFromContract = employee.rentSupport;
   const contentAprv = sumApprovedContentExpenses(contentExpenses, employee.id, month);
   const plannedOut  = plannedPayrollPlusApprovedContent(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidOut     = totalCashOutPaidForMonth(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -356,9 +356,16 @@ function EmployeeDetailRow({
         {active && (
           <div className="flex items-center gap-2 px-4 py-2.5 text-xs flex-wrap border-b border-border/40 bg-muted/30">
             <span className="text-muted-foreground">{fmt(employee.baseSalary)} temel maaş</span>
-            {totalRent > 0 && <><span className="text-muted-foreground/40">+</span><span className="text-blue-600 font-medium">{fmt(totalRent)} kira desteği</span></>}
-            {totalRent === 0 && rentFromContract > 0 && active && (
-              <><span className="text-muted-foreground/40">·</span><span className="text-muted-foreground text-[10px]" title="Bu ay için kira kalem kaydı yok; sözleşme tutarı gösterilir">söz. kira {fmt(rentFromContract)}</span></>
+            {totalRent > 0 && (
+              <>
+                <span className="text-muted-foreground/40">+</span>
+                <span className="text-blue-600 font-medium">{fmt(totalRent)} kira desteği</span>
+                {rentFromExtrasOnly === 0 && employee.rentSupport > 0 && (
+                  <span className="text-muted-foreground text-[10px]" title="Kira kalemi yok; sözleşme tutarı net hesaba dahil">
+                    (sözleşme)
+                  </span>
+                )}
+              </>
             )}
             {carry > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-amber-600 font-medium">{fmt(carry)} devir avans</span></>}
             {totalAdv > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-orange-600 font-medium">{fmt(totalAdv)} avans</span></>}
@@ -895,7 +902,10 @@ export default function MaaslarPage() {
             <tbody>
               {filtered.map(emp => {
                 const openAdv = calcOpenAdvanceBalance(emp, month, salaryExtras);
-                const kiraAy = salaryExtras
+                const kiraAy = isPayrollActive(emp, month)
+                  ? getRentForMonth(emp, month, salaryExtras)
+                  : 0;
+                const kiraKalem = salaryExtras
                   .filter(e => e.employeeId === emp.id && e.month === month && e.type === "rent")
                   .reduce((s, e) => s + e.amount, 0);
                 const netAy = isPayrollActive(emp, month)
@@ -927,14 +937,16 @@ export default function MaaslarPage() {
                   <td className="px-3 py-3 tabular-nums font-medium whitespace-nowrap">{fmt(emp.baseSalary)}</td>
                   <td className="px-3 py-3 tabular-nums whitespace-nowrap">
                     {kiraAy > 0 ? (
-                      <span className="text-blue-600">{fmt(kiraAy)}</span>
-                    ) : emp.rentSupport > 0 ? (
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="text-muted-foreground italic">{fmt(emp.rentSupport)}</span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">Bu ay için kira kalem kaydı yok; sözleşme tutarı</TooltipContent>
-                      </Tooltip>
+                      kiraKalem > 0 ? (
+                        <span className="text-blue-600">{fmt(kiraAy)}</span>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <span className="text-blue-600">{fmt(kiraAy)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">Kira kalemi yok; sözleşme tutarı (net ile uyumlu)</TooltipContent>
+                        </Tooltip>
+                      )
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

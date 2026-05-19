@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
-  WEEKDAYS_LONG, isPayrollActive, weekStartOf, nextWeekStartOf,
+  WEEKDAYS_LONG, isPayrollActive, getRentForMonth, weekStartOf, nextWeekStartOf,
   sumApprovedContentExpenses, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth,
   type Employee, type ContentExpense, type WeeklyPlan, type StreamerAccount, type BrandLink, type LinkSnapshot,
   type Brand, type BrandViewership, type WeekBrandReel,
@@ -996,7 +996,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const baseSalary = me.baseSalary;
   const empExtras  = salaryExtras.filter(e => e.employeeId === me.id && e.month === month);
   const empAdv     = advances.filter(a => a.employeeId === me.id && a.month === month);
-  const rent       = empExtras.filter(e => e.type === "rent")     .reduce((s, e) => s + e.amount, 0);
+  const rent       = active ? getRentForMonth(me, month, salaryExtras) : 0;
+  const rentFromExtrasOnly = empExtras.filter(e => e.type === "rent").reduce((s, e) => s + e.amount, 0);
   const bonus      = empExtras.filter(e => e.type === "bonus")    .reduce((s, e) => s + e.amount, 0);
   const exp        = empExtras.filter(e => e.type === "expense")  .reduce((s, e) => s + e.amount, 0);
   const ded        = empExtras.filter(e => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
@@ -1036,13 +1037,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       ...contentExpenses.filter(e => e.employeeId === me.id).map(e => e.month),
     ])).sort((a, b) => b.localeCompare(a));
     return months.map(m => {
-      const rentM = salaryExtras
-        .filter(e => e.employeeId === me.id && e.month === m && e.type === "rent")
-        .reduce((s, e) => s + e.amount, 0);
       return {
         month:       m,
         baseSalary:  isPayrollActive(me, m) ? me.baseSalary : 0,
-        rentMonth:   rentM,
+        rentMonth:   isPayrollActive(me, m) ? getRentForMonth(me, m, salaryExtras) : 0,
         net:         calcNetPayable(me, m, advances, salaryExtras, paymentStatuses),
         openAdv:     calcOpenAdvanceBalance(me, m, salaryExtras),
         paid:        paymentStatuses.find(p => p.employeeId === me.id && p.month === m)?.paid ?? false,
@@ -1404,7 +1402,18 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             <CardContent>
               <div className="space-y-2">
                 <Row label="Temel maaş" value={fmt(baseSalary)} positive />
-                {rent > 0  && <Row label="Kira Desteği" value={`+ ${fmt(rent)}`} positive sub={`${monthLabel(month)} kira ödemesi`} />}
+                {rent > 0 && (
+                  <Row
+                    label="Kira Desteği"
+                    value={`+ ${fmt(rent)}`}
+                    positive
+                    sub={
+                      rentFromExtrasOnly === 0 && me.rentSupport > 0
+                        ? `${monthLabel(month)} · sözleşme tutarı (kalem henüz oluşturulmadı)`
+                        : `${monthLabel(month)} kira ödemesi`
+                    }
+                  />
+                )}
                 {bonus > 0 && <Row label="Prim / Bonus" value={`+ ${fmt(bonus)}`} positive />}
                 {exp > 0   && <Row label="Ekstra Ödeme" value={`+ ${fmt(exp)}`} positive />}
                 {ded > 0   && <Row label="Avans Kesintisi" value={`− ${fmt(ded)}`} negative sub="Açık avans geri ödemesi" />}

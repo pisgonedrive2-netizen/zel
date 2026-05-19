@@ -1263,17 +1263,27 @@ export function reconcileRentExtrasForAllEmployees(
   employees: Employee[],
   salaryExtras: SalaryExtra[]
 ): SalaryExtra[] {
-  const today = new Date().toISOString().slice(0, 7);
   let next = salaryExtras;
   for (const emp of employees) {
     if (emp.rentSupport <= 0 || emp.status !== "active") continue;
-    if (!ymGte(today, emp.payrollStartMonth)) continue;
-    const fromMonth = ymGte(today, emp.payrollStartMonth) ? today : emp.payrollStartMonth;
-    const monthRent = next.find(
-      (e) => e.employeeId === emp.id && e.type === "rent" && e.month === fromMonth
+
+    const hasMismatch = next.some(
+      (e) =>
+        e.employeeId === emp.id &&
+        e.type === "rent" &&
+        ymGte(e.month, emp.payrollStartMonth) &&
+        e.amount !== emp.rentSupport
     );
-    if (!monthRent || monthRent.amount !== emp.rentSupport) {
-      next = propagateRentForEmployee(next, emp, emp.rentSupport, fromMonth);
+
+    const hasAnyPostStart = next.some(
+      (e) =>
+        e.employeeId === emp.id &&
+        e.type === "rent" &&
+        ymGte(e.month, emp.payrollStartMonth)
+    );
+
+    if (hasMismatch || !hasAnyPostStart) {
+      next = propagateRentForEmployee(next, emp, emp.rentSupport, emp.payrollStartMonth);
     }
   }
   return next;
@@ -1937,6 +1947,24 @@ export function calcOpenAdvanceBalance(
   return Math.max(0, employee.initialAdvance - repaid);
 }
 
+/**
+ * Bu ay için geçerli kira desteği: önce salary_extras (tip=rent), yoksa sözleşme rentSupport.
+ * Maaşlar listesi, yayıncı profili ve calcNetPayable aynı kaynağı kullanmalı.
+ */
+export function getRentForMonth(
+  employee: Employee,
+  month: string,
+  extras: SalaryExtra[]
+): number {
+  const rentExtras = extras.filter(
+    (e) => e.employeeId === employee.id && e.month === month && e.type === "rent"
+  );
+  if (rentExtras.length > 0) {
+    return rentExtras.reduce((s, e) => s + e.amount, 0);
+  }
+  return employee.rentSupport;
+}
+
 export function calcNetPayable(
   employee: Employee,
   month: string,
@@ -1951,13 +1979,10 @@ export function calcNetPayable(
   const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
   const carryFwd     = calcCarryForward(employee.id, month, advances, paymentStatuses);
 
-  const rentExtras = empExtras.filter((e) => e.type === "rent");
-  const rentFromExtras = rentExtras.reduce((s, e) => s + e.amount, 0);
+  const rentAdd = getRentForMonth(employee, month, extras);
   const otherAdd = empExtras
     .filter((e) => e.type !== "deduction" && e.type !== "rent")
     .reduce((s, e) => s + e.amount, 0);
-  // Kira kalemi yoksa sözleşmedeki rentSupport kullanılır (bekleyen ödeme tutarı doğru kalsın).
-  const rentAdd = rentExtras.length > 0 ? rentFromExtras : employee.rentSupport;
   const totalAdd = otherAdd + rentAdd;
   const totalDeduc = empExtras
     .filter((e) => e.type === "deduction")
