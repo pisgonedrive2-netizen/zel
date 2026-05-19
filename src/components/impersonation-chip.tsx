@@ -72,7 +72,7 @@ function Chip({
       : "border-amber-300/70 bg-amber-50/95 text-amber-900 dark:border-amber-500/50 dark:bg-amber-950/90 dark:text-amber-100";
   return (
     <div
-      className={`fixed left-1/2 top-3 z-[55] flex max-w-[min(90vw,420px)] -translate-x-1/2 items-center gap-1 rounded-full border px-1.5 py-1 text-xs shadow-md backdrop-blur ${cls}`}
+      className={`fixed left-1/2 top-[max(calc(env(safe-area-inset-top)+3.25rem),3.75rem)] z-[55] flex max-w-[min(calc(100vw-6rem),360px)] -translate-x-1/2 items-center gap-1 rounded-full border px-1.5 py-1 text-xs shadow-md backdrop-blur ${cls}`}
       role="status"
       aria-live="polite"
     >

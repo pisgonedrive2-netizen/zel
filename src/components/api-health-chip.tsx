@@ -35,7 +35,7 @@ interface PlatformBrief {
  * /marka, /yayinci, /login, /icerik-iste-eski-mock kapsamı dışında — bunlar
  * impersonation chip / kendi UI'ı olan sayfalar.
  */
-export function ApiHealthChip() {
+export function ApiHealthChip({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
   const pathname = usePathname();
   const [data, setData] = useState<{ enabled: boolean; platforms: PlatformBrief[] } | null>(null);
@@ -111,7 +111,9 @@ export function ApiHealthChip() {
     <Link
       href="/izlenme"
       title={`API durumu — ${summary}`}
-      className={`fixed right-[max(env(safe-area-inset-right),12px)] top-[max(calc(env(safe-area-inset-top)+48px),56px)] z-[55] flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] shadow-sm backdrop-blur ${meta.cls}`}
+      className={`flex max-w-[min(calc(100vw-5rem),280px)] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] shadow-sm backdrop-blur ${
+        embedded ? "" : "fixed right-[max(env(safe-area-inset-right),12px)] top-[max(calc(env(safe-area-inset-top)+48px),56px)] z-[55]"
+      } ${meta.cls}`}
     >
       {loading ? (
         <Loader2 size={11} className="animate-spin" />
@@ -123,7 +125,7 @@ export function ApiHealthChip() {
         <Activity size={11} />
       )}
       <span className="font-medium">API</span>
-      <span className="opacity-80 hidden sm:inline">· {summary}</span>
+      <span className="opacity-80 hidden sm:inline truncate">· {summary}</span>
     </Link>
   );
 }

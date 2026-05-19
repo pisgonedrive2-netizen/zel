@@ -14,6 +14,8 @@ import {
 import { useAuth } from "@/store/auth";
 import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore, type PlannedItem, type PlannedItemPayment } from "@/store/store";
+import { brandLinkedExpenses, sumBrandLinkedExpenses } from "@/lib/brand-expenses";
+import { fmt } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +64,7 @@ function statusInfo(status: PlannedItemPayment["status"]): {
 export default function MarkaOdemelerPage() {
   const { user } = useAuth();
   const brandViewAs = usePanelView((s) => s.brandViewAs);
-  const { brands, plannedItems, plannedItemPayments } = useStore();
+  const { brands, plannedItems, plannedItemPayments, expenses } = useStore();
   const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
 
   const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
@@ -114,6 +116,15 @@ export default function MarkaOdemelerPage() {
   const totalPending = myInstallments
     .filter((r) => r.installment.status === "pending")
     .reduce((s, r) => s + r.installment.amount, 0);
+
+  const monthBrandExpenses = useMemo(
+    () => brandLinkedExpenses(expenses, brandId, month),
+    [expenses, brandId, month]
+  );
+  const monthBrandExpenseTotal = useMemo(
+    () => sumBrandLinkedExpenses(expenses, brandId, month),
+    [expenses, brandId, month]
+  );
 
   if (!user || !isAllowed) {
     return (
@@ -172,6 +183,40 @@ export default function MarkaOdemelerPage() {
           accent="text-blue-700 dark:text-blue-300"
         />
       </div>
+
+      {monthBrandExpenses.length > 0 && (
+        <Card className="border-red-200/60 dark:border-red-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Bu ayki giderler</CardTitle>
+            <CardDescription>
+              Yönetici tarafından markanıza atanmış genel giderler — {monthLabel(month)}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400 tabular-nums">
+              Toplam: {fmt(monthBrandExpenseTotal)}
+            </p>
+            <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+              {monthBrandExpenses.map((e) => (
+                <li
+                  key={e.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm bg-card"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground truncate">{e.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {e.date} · {e.category}
+                    </p>
+                  </div>
+                  <span className="tabular-nums font-medium text-red-600 dark:text-red-400 shrink-0">
+                    {fmt(e.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {upcoming.length > 0 && (
         <Card className="border-emerald-200/60 dark:border-emerald-500/30">

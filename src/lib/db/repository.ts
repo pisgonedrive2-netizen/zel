@@ -204,7 +204,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       sponsorTransactions: [],
       projects: [],
       projectPayments: [],
-      expenses: [],
+      expenses: expenses.filter((e) => e.brandId === bid),
       plannedItems: myPlannedItems,
       plannedItemPayments: myPlannedItemPayments,
       streamerAccounts: [],

@@ -72,7 +72,7 @@ export function BrandMonthlyTrend({
     const row = brandMonthlyStats.find(
       (s) => s.brandId === brandId && s.month === monthYm
     );
-    return row?.currency ?? "TRY";
+    return row?.currency ?? "USD";
   }, [brandMonthlyStats, brandId, monthYm]);
 
   const hasAny = data.some(

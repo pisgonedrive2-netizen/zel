@@ -114,6 +114,8 @@ export interface ExpenseEntry {
   description: string;
   /** Bu gideri temsil eden kasa hareketinin id'si (varsa). */
   kasaTxId?: string;
+  /** Markaya atanmış genel gider (marka panelinde görünür). */
+  brandId?: string;
 }
 
 export type PlannedCategory = "capex" | "opex" | "revenue" | "growth" | "other";
@@ -1606,7 +1608,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             depositCount: Math.max(0, Math.floor(stats.depositCount || 0)),
             depositAmount: Math.max(0, Number(stats.depositAmount) || 0),
             withdrawalAmount: Math.max(0, Number(stats.withdrawalAmount) || 0),
-            currency: stats.currency ?? "TRY",
+            currency: stats.currency ?? "USD",
             notes: stats.notes ?? "",
             updatedBy: stats.updatedBy,
             updatedAt: new Date().toISOString(),

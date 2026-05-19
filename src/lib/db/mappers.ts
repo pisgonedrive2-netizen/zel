@@ -251,6 +251,7 @@ export function expenseEntryFromRow(r: Record<string, unknown>): ExpenseEntry {
     date: str(r.date).slice(0, 10),
     description: str(r.description),
     kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
+    brandId: r.brand_id ? str(r.brand_id) : undefined,
   };
 }
 
@@ -262,6 +263,7 @@ export function expenseEntryToRow(e: ExpenseEntry) {
     date: e.date,
     description: e.description,
     kasa_tx_id: e.kasaTxId ?? null,
+    brand_id: e.brandId ?? null,
   };
 }
 

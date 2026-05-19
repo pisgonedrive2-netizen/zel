@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Eye, Wallet } from "lucide-react";
+import { Plus, Pencil, Eye, Wallet, Tag, Filter } from "lucide-react";
 import {
   useStore,
   calcKasaBalance,
@@ -21,6 +21,7 @@ import PageHeader from "@/components/page-header";
 import SectionCard from "@/components/section-card";
 import DonutPie from "@/components/charts/donut-pie";
 import BreakdownBar from "@/components/charts/breakdown-bar";
+import { brandLabel } from "@/lib/brand-expenses";
 
 const EXPENSE_CATEGORIES = [
   "Yazılım & Araçlar",
@@ -44,6 +45,7 @@ function ExpenseForm({
   initial,
   readOnly = false,
   kasas,
+  brands,
   defaultKasaId,
   kasaTransactions,
   onSave,
@@ -54,6 +56,7 @@ function ExpenseForm({
   initial?: ExpenseEntry;
   readOnly?: boolean;
   kasas: Kasa[];
+  brands: { id: string; name: string; shortName?: string }[];
   defaultKasaId: string;
   kasaTransactions: KasaTransaction[];
   onSave: (data: Omit<ExpenseEntry, "id">) => void;
@@ -67,6 +70,7 @@ function ExpenseForm({
     amount:      initial?.amount      ?? 0,
     date:        initial?.date        ?? new Date().toISOString().slice(0, 10),
     description: initial?.description ?? "",
+    brandId:     initial?.brandId,
   });
 
   // Kasa düşümü sadece yeni kayıt eklenirken sorulur.
@@ -77,7 +81,8 @@ function ExpenseForm({
   const [feeUsd, setFeeUsd] = useState<number>(0);
   const [notes, setNotes] = useState<string>("");
 
-  const set = (k: keyof typeof form, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: keyof typeof form, v: string | number | undefined) =>
+    setForm((f) => ({ ...f, [k]: v }));
 
   const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
   const balance = useMemo(
@@ -122,10 +127,25 @@ function ExpenseForm({
           <Field label="Tarih">
             <DateTimePicker mode="date" value={form.date} onChange={(v) => set("date", v)} />
           </Field>
-          <Field label="Açıklama" required>
-            <Input value={form.description} onChange={(e) => set("description", e.target.value)} required placeholder="Ne için ödendi?" />
+          <Field label="Marka" hint="Opsiyonel — marka panelinde görünür">
+            <Select
+              value={form.brandId ?? ""}
+              onChange={(e) => set("brandId", e.target.value || undefined)}
+              options={[
+                { value: "", label: "Marka yok (genel gider)" },
+                ...brands
+                  .filter((b) => b.id)
+                  .map((b) => ({
+                    value: b.id,
+                    label: b.shortName || b.name,
+                  })),
+              ]}
+            />
           </Field>
         </FormGrid>
+        <Field label="Açıklama" required>
+          <Input value={form.description} onChange={(e) => set("description", e.target.value)} required placeholder="Ne için ödendi?" />
+        </Field>
 
         {!isEdit && hasKasa && (
           <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
@@ -214,6 +234,7 @@ function ExpenseForm({
 export default function GiderlerPage() {
   const {
     expenses,
+    brands,
     addExpense,
     updateExpense,
     deleteExpense,
@@ -224,6 +245,8 @@ export default function GiderlerPage() {
   const readOnly = useIsReadOnly();
   const [modal, setModal] = useState<"new" | ExpenseEntry | null>(null);
   const [filterCat, setFilterCat] = useState("Tümü");
+  const [filterBrand, setFilterBrand] = useState("Tümü");
+  const [filterKasa, setFilterKasa] = useState("Tümü");
   const defaultKasaId =
     kasas.find((k) => k.isDefault && !k.archived)?.id ??
     kasas.find((k) => !k.archived)?.id ??
@@ -247,9 +270,23 @@ export default function GiderlerPage() {
     return { kategori: cat, yillik: items.reduce((s, e) => s + e.amount, 0), count: items.length };
   }).filter((c) => c.yillik > 0);
 
-  const displayedExpenses = filterCat === "Tümü"
-    ? expenses
-    : expenses.filter((e) => e.category === filterCat);
+  const activeBrands = useMemo(
+    () => brands.filter((b) => b.status === "active"),
+    [brands]
+  );
+
+  const displayedExpenses = useMemo(() => {
+    return expenses.filter((e) => {
+      if (filterCat !== "Tümü" && e.category !== filterCat) return false;
+      if (filterBrand === "Markasız" && e.brandId) return false;
+      if (filterBrand !== "Tümü" && filterBrand !== "Markasız" && e.brandId !== filterBrand) return false;
+      if (filterKasa !== "Tümü") {
+        const tx = e.kasaTxId ? kasaTxIndex.get(e.kasaTxId) : undefined;
+        if (!tx || tx.kasaId !== filterKasa) return false;
+      }
+      return true;
+    });
+  }, [expenses, filterCat, filterBrand, filterKasa, kasaTxIndex]);
 
   const sortedExpenses = [...displayedExpenses].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -297,10 +334,45 @@ export default function GiderlerPage() {
 
       {/* Expense entries */}
       <div className="border border-border rounded-xl overflow-hidden bg-card">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="px-4 py-3 border-b border-border space-y-3">
+          <div className="flex items-center gap-2 flex-wrap w-full">
             <p className="text-sm font-medium text-foreground">Gider Kayıtları</p>
-            <div className="flex gap-1 flex-wrap">
+            {!readOnly && (
+              <Button size="sm" onClick={() => setModal("new")} className="gap-1.5 h-7 text-xs shrink-0 ml-auto">
+                <Plus size={13} /> Gider Ekle
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs w-full">
+            <span className="text-muted-foreground flex items-center gap-1 shrink-0">
+              <Filter size={11} /> Filtre
+            </span>
+            <Select
+              className="h-8 w-auto min-w-[120px] text-xs"
+              value={filterBrand}
+              onChange={(e) => setFilterBrand(e.target.value)}
+              options={[
+                { value: "Tümü", label: "Tüm markalar" },
+                { value: "Markasız", label: "Markasız" },
+                ...activeBrands.map((b) => ({
+                  value: b.id,
+                  label: b.shortName || b.name,
+                })),
+              ]}
+            />
+            <Select
+              className="h-8 w-auto min-w-[110px] text-xs"
+              value={filterKasa}
+              onChange={(e) => setFilterKasa(e.target.value)}
+              options={[
+                { value: "Tümü", label: "Tüm kasalar" },
+                ...kasas
+                  .filter((k) => !k.archived)
+                  .map((k) => ({ value: k.id, label: k.name })),
+              ]}
+            />
+          </div>
+          <div className="flex gap-1 flex-wrap w-full">
               {["Tümü", ...EXPENSE_CATEGORIES.filter((c) => expenses.some((e) => e.category === c))].map((cat) => (
                 <button
                   key={cat}
@@ -315,20 +387,14 @@ export default function GiderlerPage() {
                   {cat}
                 </button>
               ))}
-            </div>
           </div>
-          {!readOnly && (
-            <Button size="sm" onClick={() => setModal("new")} className="gap-1.5 h-7 text-xs shrink-0">
-              <Plus size={13} /> Gider Ekle
-            </Button>
-          )}
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                {["Tarih","Kategori","Açıklama","Kasa","Tutar",""].map((h, i) => (
+                {["Tarih","Kategori","Marka","Açıklama","Kasa","Tutar",""].map((h, i) => (
                   <th key={i} className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide text-left">{h}</th>
                 ))}
               </tr>
@@ -342,6 +408,15 @@ export default function GiderlerPage() {
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{e.date}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <Badge variant="outline" className="text-xs text-muted-foreground">{e.category}</Badge>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs">
+                      {e.brandId ? (
+                        <span className="inline-flex items-center gap-1 text-violet-700 dark:text-violet-300">
+                          <Tag size={11} /> {brandLabel(brands, e.brandId)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-foreground">{e.description}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs">
@@ -368,7 +443,7 @@ export default function GiderlerPage() {
                 );
               })}
               {sortedExpenses.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
               )}
             </tbody>
           </table>
@@ -385,6 +460,7 @@ export default function GiderlerPage() {
           initial={modal !== "new" && modal !== null ? modal : undefined}
           readOnly={readOnly}
           kasas={kasas}
+          brands={activeBrands}
           defaultKasaId={defaultKasaId}
           kasaTransactions={kasaTransactions}
           onSave={(data) => {

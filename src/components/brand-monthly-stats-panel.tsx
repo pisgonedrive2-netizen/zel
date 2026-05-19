@@ -24,6 +24,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 function parseIntField(v: string): number {
@@ -278,12 +279,12 @@ export function BrandMonthlyStatsPanel({
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground">
+                <label className="text-[11px] font-medium text-muted-foreground mb-1 block">
                   Para birimi
                   <span className="ml-1 text-violet-700 dark:text-violet-300">★</span>
                 </label>
-                <select
-                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                <Select
+                  className="h-8 text-sm"
                   value={form.currency}
                   onChange={(e) =>
                     setForm((f) => ({
@@ -291,11 +292,12 @@ export function BrandMonthlyStatsPanel({
                       currency: e.target.value as BrandMonthlyStats["currency"],
                     }))
                   }
-                >
-                  <option value="USD">USD ($) · varsayılan</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="TRY">TRY (₺)</option>
-                </select>
+                  options={[
+                    { value: "USD", label: "USD ($)" },
+                    { value: "EUR", label: "EUR (€)" },
+                    { value: "TRY", label: "TRY (₺)" },
+                  ]}
+                />
               </div>
               <div>
                 <label className="text-[11px] font-medium text-muted-foreground">

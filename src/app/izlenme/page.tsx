@@ -386,7 +386,7 @@ function BrandAttributionCard({
           </thead>
           <tbody>
             {rows.map((r) => {
-              const cur = r.stats?.currency ?? "TRY";
+              const cur = r.stats?.currency ?? "USD";
               const net = r.stats
                 ? Number(r.stats.depositAmount) - Number(r.stats.withdrawalAmount)
                 : 0;

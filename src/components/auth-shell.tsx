@@ -8,9 +8,8 @@ import { useSidebar } from "@/store/sidebar";
 import { PanelViewBanner } from "@/components/panel-view-banner";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { FloatingTopControls } from "@/components/floating-top-controls";
 import { ImpersonationChip } from "@/components/impersonation-chip";
-import { ApiHealthChip } from "@/components/api-health-chip";
 import { Loader2, Menu, X } from "lucide-react";
 
 /**
@@ -91,9 +90,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {!isLogin && <ThemeToggle variant="floating" />}
+      {!isLogin && <FloatingTopControls />}
       {!isLogin && <ImpersonationChip />}
-      {!isLogin && <ApiHealthChip />}
 
       {!hydrated && (
         <div className="flex h-screen items-center justify-center">
@@ -114,7 +112,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       {canView && (
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 pt-14 sm:px-6 md:px-8 md:pt-0 lg:px-10">
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 pt-14 sm:px-6 md:px-8 md:pt-2 md:pr-4 lg:px-10 lg:pr-6 max-md:pr-14">
             <MobileSidebarTrigger />
             {(pathname.startsWith("/yayinci") || pathname.startsWith("/marka")) && <PanelViewBanner />}
             <div className="min-h-0 min-w-0 flex-1">{children}</div>
