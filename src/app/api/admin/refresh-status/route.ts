@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled, isRapidApiEnabled } from "@/lib/env";
 import { getAllUsage } from "@/lib/social-api/quota";
+import { getPlatformHealth } from "@/lib/social-api/health";
 import {
   CRON_INTERVAL_HOURS,
   SOCIAL_PLANS,
@@ -29,6 +30,15 @@ interface PlatformStatus {
   lastRequestAt: string | null;
   rateLimit: string;
   apiHost: string;
+  health: {
+    status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastError: string | null;
+    successCount24h: number;
+    errorCount24h: number;
+    staleHours: number | null;
+  } | null;
 }
 
 /**
@@ -50,7 +60,7 @@ export async function GET(_req: NextRequest) {
   }
 
   const db = getSupabaseAdmin();
-  const usage = await getAllUsage();
+  const [usage, health] = await Promise.all([getAllUsage(), getPlatformHealth()]);
 
   // Aktif & auto_track linklerin platforma göre dağılımı
   const counts: Record<SocialPlatform, number> = { youtube: 0, instagram: 0, tiktok: 0 };
@@ -79,6 +89,7 @@ export async function GET(_req: NextRequest) {
       trackedLinkCount,
       batchSizePerRun: calc.batchSize,
     });
+    const platformHealth = health.find((h) => h.platform === u.platform);
     return {
       platform: u.platform,
       label: SOCIAL_PLANS[u.platform].label,
@@ -93,6 +104,19 @@ export async function GET(_req: NextRequest) {
       lastRequestAt: u.lastRequestAt,
       rateLimit: SOCIAL_PLANS[u.platform].rateLimit,
       apiHost: SOCIAL_PLANS[u.platform].apiHost,
+      // Sağlık sinyali — UI bunu kullanır
+      health: platformHealth
+        ? {
+            status:
+              calc.batchSize === 0 ? ("exhausted" as const) : platformHealth.status,
+            lastSuccessAt: platformHealth.lastSuccessAt,
+            lastErrorAt: platformHealth.lastErrorAt,
+            lastError: platformHealth.lastError,
+            successCount24h: platformHealth.successCount24h,
+            errorCount24h: platformHealth.errorCount24h,
+            staleHours: platformHealth.staleHours,
+          }
+        : null,
     };
   });
 

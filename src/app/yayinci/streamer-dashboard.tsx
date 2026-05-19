@@ -8,7 +8,7 @@ import {
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2, Lock,
   Plus, Pencil, Image as ImageIcon, Trash2, Clock,
   Check, X as CloseIcon, Link2, Activity, TrendingUp, Video,
-  Download, FileSpreadsheet, Target,
+  Download, FileSpreadsheet, Target, BarChart3,
 } from "lucide-react";
 import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
@@ -20,6 +20,8 @@ import {
 import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
+import { LinkDetailsModal } from "@/components/link-details-modal";
+import { detectPlatform } from "@/lib/social-api/platform-detect";
 import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
@@ -986,6 +988,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const [accountModal,  setAccountModal]  = useState<"new" | StreamerAccount | null>(null);
   const [linkModal,     setLinkModal]     = useState<"new" | BrandLink | null>(null);
   const [snapshotModal, setSnapshotModal] = useState<BrandLink | null>(null);
+  const [detailsLink,   setDetailsLink]   = useState<BrandLink | null>(null);
   const [walletEdit,    setWalletEdit]    = useState<string | null>(null); // null = not editing
 
   // ── Maaş hesapları ──
@@ -2062,6 +2065,16 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                                   )}
                                 </div>
                                 <div className="flex flex-col items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                  {detectPlatform(link.url, link.platform) != null && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setDetailsLink(link)}
+                                      title="API'den canlı detayları çek"
+                                      className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                    >
+                                      <BarChart3 size={12} />
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => setSnapshotModal(link)}
@@ -2303,6 +2316,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           />
         )}
       </Modal>
+
+      <LinkDetailsModal
+        link={detailsLink}
+        open={Boolean(detailsLink)}
+        onClose={() => setDetailsLink(null)}
+      />
     </div>
   );
 }

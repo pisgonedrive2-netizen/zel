@@ -30,6 +30,15 @@ interface PlatformStatus {
   lastRequestAt: string | null;
   rateLimit: string;
   apiHost: string;
+  health: {
+    status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastError: string | null;
+    successCount24h: number;
+    errorCount24h: number;
+    staleHours: number | null;
+  } | null;
 }
 
 interface RecentRun {
@@ -72,11 +81,21 @@ function platformIcon(platform: string): string {
   return "📊";
 }
 
+interface PingResult {
+  ok: boolean;
+  status: number;
+  message: string;
+  latencyMs: number;
+  platform: string;
+}
+
 export function AutoRefreshStatusPanel() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pingingPlatform, setPingingPlatform] = useState<string | null>(null);
+  const [pingResult, setPingResult] = useState<PingResult | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +111,37 @@ export function AutoRefreshStatusPanel() {
       setLoading(false);
     }
   }, []);
+
+  const testPlatform = useCallback(async (platform: string) => {
+    setPingingPlatform(platform);
+    setPingResult(null);
+    try {
+      const res = await fetch(`/api/admin/api-ping?platform=${platform}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = (await res.json()) as PingResult & { error?: string };
+      setPingResult({
+        ok: json.ok,
+        status: json.status ?? 0,
+        message: json.error ?? json.message ?? "?",
+        latencyMs: json.latencyMs ?? 0,
+        platform,
+      });
+      // Test bir quota tüketti, status'u yeniden yükle
+      await load();
+    } catch (err) {
+      setPingResult({
+        ok: false,
+        status: 0,
+        message: err instanceof Error ? err.message : "?",
+        latencyMs: 0,
+        platform,
+      });
+    } finally {
+      setPingingPlatform(null);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -163,29 +213,52 @@ export function AutoRefreshStatusPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {pingResult && (
+          <div
+            className={`rounded-md border px-3 py-2 text-xs ${
+              pingResult.ok
+                ? "border-emerald-300 bg-emerald-50/40 text-emerald-800 dark:border-emerald-500/45 dark:bg-emerald-950/30 dark:text-emerald-200"
+                : "border-red-300 bg-red-50/40 text-red-800 dark:border-red-500/45 dark:bg-red-950/30 dark:text-red-200"
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              {pingResult.ok ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+              <span className="font-medium">{pingResult.platform} ping</span>
+              <span className="opacity-75">·</span>
+              <span>HTTP {pingResult.status}</span>
+              <span className="opacity-75">·</span>
+              <span className="tabular-nums">{pingResult.latencyMs} ms</span>
+            </div>
+            {!pingResult.ok && pingResult.message && (
+              <p className="mt-1 text-[11px] opacity-90 break-words">{pingResult.message}</p>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-3 lg:grid-cols-3">
           {data.platforms.map((p) => {
             const usagePct = p.monthlyLimit > 0 ? (p.requestsUsed / p.monthlyLimit) * 100 : 0;
             const exhausted = p.batchSizePerRun === 0;
+            const hStatus = p.health?.status ?? "unknown";
+            const isPinging = pingingPlatform === p.platform;
+            const accent = exhausted
+              ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
+              : hStatus === "error"
+                ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
+                : hStatus === "warn" || usagePct > 70
+                  ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/45 dark:bg-amber-950/30"
+                  : "border-border bg-card";
             return (
-              <div
-                key={p.platform}
-                className={`rounded-lg border px-3 py-3 ${
-                  exhausted
-                    ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
-                    : usagePct > 70
-                      ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/45 dark:bg-amber-950/30"
-                      : "border-border bg-card"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-semibold text-sm flex items-center gap-1.5">
+              <div key={p.platform} className={`rounded-lg border px-3 py-3 ${accent}`}>
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <p className="font-semibold text-sm flex items-center gap-1.5 min-w-0">
                     <span className="text-base">{platformIcon(p.platform)}</span>
-                    {p.label}
+                    <span className="truncate">{p.label}</span>
+                    <HealthDot status={hStatus} />
                   </p>
                   <Badge
                     variant="outline"
-                    className={`text-[10px] tabular-nums ${
+                    className={`text-[10px] tabular-nums shrink-0 ${
                       exhausted
                         ? "border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300"
                         : ""
@@ -203,7 +276,19 @@ export function AutoRefreshStatusPanel() {
                   />
                 </div>
                 <dl className="text-xs space-y-1">
-                  <Row label="Takip edilen link">{p.trackedLinkCount} adet</Row>
+                  <Row label="Sağlık">
+                    <HealthLabel status={hStatus} />
+                  </Row>
+                  <Row label="Son 24sa">
+                    <span className="text-emerald-700 dark:text-emerald-300">
+                      {p.health?.successCount24h ?? 0}✓
+                    </span>
+                    <span className="mx-0.5">/</span>
+                    <span className={p.health && p.health.errorCount24h > 0 ? "text-red-700 dark:text-red-300" : "text-muted-foreground"}>
+                      {p.health?.errorCount24h ?? 0}✗
+                    </span>
+                  </Row>
+                  <Row label="Takip edilen">{p.trackedLinkCount} link</Row>
                   <Row label="Çalıştırma başına">
                     {p.batchSizePerRun} link
                     {p.batchSizePerRun === 0 && (
@@ -220,6 +305,24 @@ export function AutoRefreshStatusPanel() {
                   </Row>
                   <Row label="Rate limit">{p.rateLimit}</Row>
                 </dl>
+                {p.health?.lastError && hStatus !== "ok" && (
+                  <div className="mt-2 rounded border border-red-200 bg-red-50/50 px-2 py-1 text-[10px] text-red-800 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200">
+                    <span className="font-medium">Son hata: </span>
+                    <span className="break-words">{p.health.lastError.slice(0, 140)}</span>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void testPlatform(p.platform)}
+                  disabled={isPinging || exhausted}
+                  className="mt-2 h-7 w-full gap-1.5 text-[11px]"
+                  title={exhausted ? "Kota tükendi — manuel test bile yapılamıyor" : "API'ye gerçek bir test isteği gönderir (1 kota tüketir)"}
+                >
+                  {isPinging ? <Loader2 size={11} className="animate-spin" /> : <Activity size={11} />}
+                  {isPinging ? "Test ediliyor…" : "Bağlantıyı test et"}
+                </Button>
               </div>
             );
           })}
@@ -286,4 +389,27 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dd className="text-foreground">{children}</dd>
     </div>
   );
+}
+
+const HEALTH_COLORS: Record<string, { dot: string; label: string; text: string }> = {
+  ok:        { dot: "bg-emerald-500",   label: "çalışıyor",  text: "text-emerald-700 dark:text-emerald-300" },
+  warn:      { dot: "bg-amber-500",     label: "uyarı",      text: "text-amber-700 dark:text-amber-300" },
+  error:     { dot: "bg-red-500",       label: "hata",       text: "text-red-700 dark:text-red-300" },
+  exhausted: { dot: "bg-red-500",       label: "kota tükendi", text: "text-red-700 dark:text-red-300" },
+  unknown:   { dot: "bg-muted-foreground/40", label: "veri yok", text: "text-muted-foreground" },
+};
+
+function HealthDot({ status }: { status: string }) {
+  const c = HEALTH_COLORS[status] ?? HEALTH_COLORS.unknown;
+  return (
+    <span
+      className={`inline-block h-2 w-2 rounded-full ${c.dot} ${status === "ok" ? "animate-pulse" : ""}`}
+      title={c.label}
+    />
+  );
+}
+
+function HealthLabel({ status }: { status: string }) {
+  const c = HEALTH_COLORS[status] ?? HEALTH_COLORS.unknown;
+  return <span className={`font-medium ${c.text}`}>{c.label}</span>;
 }

@@ -7,6 +7,60 @@ hayata geçirilmesi ile sonuçlanmıştır.
 
 ---
 
+## 0. Currency, API health ve link detay penceresi (Mayıs 19 ek)
+
+### Currency
+* `BrandMonthlyStats` varsayılan para birimi **USD** oldu (önceden TRY).
+  Marka aylık operasyon formu artık ilk yatırım/çekim girişlerinde USD'yi varsayılan
+  gösteriyor; marka kullanıcısı dilerse EUR/TRY seçebilir.
+* Para birimi seçici form içinde en üste alındı ve etiketinde ★ ile vurgulandı.
+* Yatırım / çekim input label'larında seçilen sembol (`$`, `€`, `₺`) gösteriliyor.
+* PDF & CSV (`/marka/izlenmeler` → indir) çıktısı zaten her satırda
+  `fmtBrandMoney(amount, currency)` ile pre-formatted ürettiği için
+  USD seçildiğinde otomatik olarak `$` ile, TRY seçildiğinde `₺` ile basıyor —
+  ekstra düzenleme gerekmedi (regresyon değişikliği yok).
+
+### API sağlık sinyali (RapidAPI bağlı / kotada vs.)
+* `src/lib/social-api/health.ts` — `getPlatformHealth()` 24sa'lik
+  cron run kayıtlarından platform başına `ok | warn | error | exhausted | unknown`
+  hesaplar; son hata mesajı `brand_links.last_check_error` üzerinden çekilir.
+* `src/lib/social-api/health.ts` — `pingPlatform()` her platform için minimal
+  bir probe çağrısı yapar (kota: 1).
+* **Yeni endpoint:** `POST /api/admin/api-ping?platform=youtube|tiktok|instagram`
+  → admin/auditor; gerçek bir HTTP testi atar, latency ve durumu döner.
+* `GET /api/admin/refresh-status` çıkışına `health: { status, lastSuccessAt, ... }`
+  alanı eklendi.
+* `AutoRefreshStatusPanel`:
+  * Her platform kartında **HealthDot** + "Sağlık" satırı + son 24sa `✓ / ✗` sayıları
+    + son hata mesajı görünüyor.
+  * "Bağlantıyı test et" butonu kart bazında — 1 kota tüketir, sonucu inline
+    olarak banner ile gösterir.
+* **Yeni component:** `ApiHealthChip` (`src/components/api-health-chip.tsx`).
+  Admin/auditor için her sayfada (login/marka/yayıncı dışında) sağ üstte yüzen
+  küçük çip. En kötü platform durumunu özetler; 5dk'da bir status endpoint'ini
+  yoklar. Tıklanınca `/izlenme`'ye gider (Auto Refresh Status Panel orada).
+* `AuthShell` içinde `<ApiHealthChip />` render edildi.
+
+### Link başına zengin detay penceresi
+* `src/lib/social-api/clients.ts` — `fetchRichDetailsForLink()` eklendi:
+  YouTube/Instagram/TikTok için **title, description, thumbnail, publishedAt,
+  duration, author (avatar, follower, verified), hashtags, extras (music,
+  region, category, vs.)** içeren normalize edilmiş yapı döner.
+* **Yeni endpoint:** `GET /api/admin/link-details/[id]`
+  → admin, auditor, brand (kendi markası), streamer (kendi linki).
+  Her çağrı RapidAPI'den 1 kota tüketir; kota dolduysa 429 ile uyarı.
+  Aynı zamanda `brand_links` üzerindeki son metrikleri günceller.
+* **Yeni component:** `LinkDetailsModal` (`src/components/link-details-modal.tsx`).
+  Açıldığında otomatik çekilir, "Yeniden çek" butonu var (1 kota), thumbnail,
+  yazar avatarı, KPI tile'ları (Eye/Heart/MessageCircle/Share2), açıklama,
+  hashtag'ler ve ekstra alanlar gösterilir. Hata durumunda friendly uyarı.
+* Bu modal şu sayfalarda entegre edildi:
+  * `BrandLinksPanel` → her link satırında 📊 ikonlu "Detaylı veri" butonu
+    (sadece API'lerin desteklediği URL'ler için görünür).
+  * `StreamerDashboard` → `/yayinci/marka-linkleri` kart aksiyonlarında 📊 buton.
+
+---
+
 ## 1. PIN dayanıklılığı ve giriş güvenliği
 
 **Sorun:** Şifre güncellendikten ve oturum kapatıldıktan sonra `galabet` gibi

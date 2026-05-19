@@ -10,6 +10,7 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ImpersonationChip } from "@/components/impersonation-chip";
+import { ApiHealthChip } from "@/components/api-health-chip";
 import { Loader2, Menu, X } from "lucide-react";
 
 /**
@@ -92,6 +93,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     <>
       {!isLogin && <ThemeToggle variant="floating" />}
       {!isLogin && <ImpersonationChip />}
+      {!isLogin && <ApiHealthChip />}
 
       {!hydrated && (
         <div className="flex h-screen items-center justify-center">

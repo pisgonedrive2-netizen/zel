@@ -9,7 +9,9 @@ const EMPTY: Omit<BrandMonthlyStats, "id" | "brandId" | "month"> = {
   depositCount: 0,
   depositAmount: 0,
   withdrawalAmount: 0,
-  currency: "TRY",
+  // USD platformun ana metriği; markalar genel olarak USD bazlı rapor veriyor.
+  // Brand kullanıcısı isterse TRY/EUR seçebilir; PDF/CSV ve KPI'lar form.currency'ye göre çıkar.
+  currency: "USD",
   notes: "",
 };
 

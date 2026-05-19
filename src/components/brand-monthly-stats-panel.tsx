@@ -37,6 +37,10 @@ function parseMoneyField(v: string): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+function currencySymbol(c: BrandMonthlyStats["currency"]): string {
+  return c === "USD" ? "$" : c === "EUR" ? "€" : "₺";
+}
+
 function KpiTile({
   icon: Icon,
   label,
@@ -274,7 +278,29 @@ export function BrandMonthlyStatsPanel({
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground">Toplam yatırım</label>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Para birimi
+                  <span className="ml-1 text-violet-700 dark:text-violet-300">★</span>
+                </label>
+                <select
+                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={form.currency}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      currency: e.target.value as BrandMonthlyStats["currency"],
+                    }))
+                  }
+                >
+                  <option value="USD">USD ($) · varsayılan</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="TRY">TRY (₺)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Toplam yatırım ({currencySymbol(form.currency)})
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -287,7 +313,9 @@ export function BrandMonthlyStatsPanel({
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground">Toplam çekim</label>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Toplam çekim ({currencySymbol(form.currency)})
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -301,23 +329,6 @@ export function BrandMonthlyStatsPanel({
                     }))
                   }
                 />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-muted-foreground">Para birimi</label>
-                <select
-                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={form.currency}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      currency: e.target.value as BrandMonthlyStats["currency"],
-                    }))
-                  }
-                >
-                  <option value="TRY">TRY (₺)</option>
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                </select>
               </div>
             </div>
             <div>

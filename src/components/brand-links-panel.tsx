@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle,
+  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3,
 } from "lucide-react";
 import { detectPlatform } from "@/lib/social-api/platform-detect";
 import Modal from "@/components/ui/modal";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/field";
 import { BrandLogo } from "@/components/brand-logo";
 import { useStore, type Brand, type BrandLink, type Employee } from "@/store/store";
 import { linkViewsForMonth } from "@/lib/brand-month-metrics";
+import { LinkDetailsModal } from "@/components/link-details-modal";
 
 function monthTitleYm(ym: string) {
   return new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
@@ -71,6 +72,7 @@ export function BrandLinksPanel({
 }: BrandLinksPanelProps) {
   const { brandLinks, linkSnapshots } = useStore();
   const [search, setSearch] = useState("");
+  const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
 
   const links = useMemo(() => {
     if (!brand) return [];
@@ -236,6 +238,16 @@ export function BrandLinksPanel({
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-0.5">
+                          {apiSupported && (
+                            <button
+                              type="button"
+                              title="Detaylı veri (API'den canlı çek)"
+                              className="p-1.5 rounded hover:bg-accent text-emerald-700 dark:text-emerald-300"
+                              onClick={() => setDetailsLink(link)}
+                            >
+                              <BarChart3 size={13} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             title="Geçmiş"
@@ -274,6 +286,11 @@ export function BrandLinksPanel({
           </div>
         )}
       </div>
+      <LinkDetailsModal
+        link={detailsLink}
+        open={Boolean(detailsLink)}
+        onClose={() => setDetailsLink(null)}
+      />
     </Modal>
   );
 }
