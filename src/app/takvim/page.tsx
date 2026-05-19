@@ -165,13 +165,71 @@ function SlotForm({
 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function TakvimPage() {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const {
     employees, streamerAccounts, scheduleSlots, weeklyPlans,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
+    pushNotification,
   } = useStore();
+
+  const DAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+
+  /**
+   * Yayıncı plan değişikliklerini ilgili yayıncıya bildirir.
+   * Sadece yöneticinin başkasının slotunu değiştirdiği durumlarda atış yapar.
+   */
+  const notifySlotChange = (
+    action: "added" | "updated" | "deleted",
+    slot: ScheduleSlot,
+  ) => {
+    if (!user) return;
+    if (user.role !== "admin") return;
+    if (user.employeeId && slot.employeeId === user.employeeId) return;
+    const targetUser = users.find((u) => u.employeeId === slot.employeeId && u.role === "streamer");
+    if (!targetUser) return;
+    const day = DAY_LABELS[slot.dayOfWeek] ?? `Gün ${slot.dayOfWeek}`;
+    const slotDesc = `${day} ${slot.startTime}–${slot.endTime} · ${slot.platform || "—"}`;
+    const verb =
+      action === "added" ? "yeni slot eklendi"
+      : action === "deleted" ? "slot silindi"
+      : "slot güncellendi";
+    pushNotification({
+      type: "schedule_updated",
+      title: `Yayın planınız güncellendi · ${verb}`,
+      message: slotDesc,
+      forRole: "streamer",
+      forUserId: targetUser.id,
+      triggeredBy: user.id,
+      refId: slot.id,
+      href: "/yayinci/takvim",
+    });
+  };
+
+  const notifyPlanChange = (
+    action: "added" | "updated" | "deleted",
+    plan: WeeklyPlan,
+  ) => {
+    if (!user) return;
+    if (user.role !== "admin") return;
+    if (user.employeeId && plan.employeeId === user.employeeId) return;
+    const targetUser = users.find((u) => u.employeeId === plan.employeeId && u.role === "streamer");
+    if (!targetUser) return;
+    const verb =
+      action === "added" ? "yeni etkinlik" : action === "deleted" ? "silindi" : "güncellendi";
+    const time = plan.startTime ? ` · ${plan.startTime}${plan.endTime ? "–" + plan.endTime : ""}` : "";
+    pushNotification({
+      type: "schedule_updated",
+      title: `Haftalık planınız ${verb}`,
+      message: `${plan.date}${time} · ${plan.activity}${plan.brandName ? " · " + plan.brandName : ""}`,
+      forRole: "streamer",
+      forUserId: targetUser.id,
+      triggeredBy: user.id,
+      refId: plan.id,
+      href: "/yayinci/takvim",
+    });
+  };
 
   const yayincilar = useMemo(
     () => employees.filter(e => (e.kind === "streamer" || e.kind === "moderator") && e.status === "active"),
@@ -416,10 +474,23 @@ export default function TakvimPage() {
             defaultDay={slotModal.day}
             initial={slotModal.mode === "new" ? undefined : slotModal.mode}
             onSave={d => {
-              if (slotModal.mode === "new") addScheduleSlot(d);
-              else updateScheduleSlot(slotModal.mode.id, d);
+              if (slotModal.mode === "new") {
+                addScheduleSlot(d);
+                // Yeni eklenen slotun id'sini Zustand zorunlu kıldığı için bilmiyoruz;
+                // bildirim için geçici bir id kullan (sadece refId; UI'da kullanılmıyor).
+                notifySlotChange("added", { ...d, id: "new" });
+              } else {
+                const next = { ...(slotModal.mode as ScheduleSlot), ...d };
+                updateScheduleSlot(slotModal.mode.id, d);
+                notifySlotChange("updated", next);
+              }
             }}
-            onDelete={slotModal.mode !== "new" ? () => { deleteScheduleSlot((slotModal.mode as ScheduleSlot).id); setSlotModal(null); } : undefined}
+            onDelete={slotModal.mode !== "new" ? () => {
+              const current = slotModal.mode as ScheduleSlot;
+              deleteScheduleSlot(current.id);
+              notifySlotChange("deleted", current);
+              setSlotModal(null);
+            } : undefined}
             onClose={() => setSlotModal(null)}
           />
         )}
@@ -436,11 +507,22 @@ export default function TakvimPage() {
             employees={yayincilar}
             initial={planModal.mode === "new" ? undefined : planModal.mode}
             onSave={(d) => {
-              if (planModal.mode === "new") addWeeklyPlan(d);
-              else updateWeeklyPlan(planModal.mode.id, d);
+              if (planModal.mode === "new") {
+                addWeeklyPlan(d);
+                notifyPlanChange("added", { ...d, id: "new" });
+              } else {
+                const next = { ...(planModal.mode as WeeklyPlan), ...d };
+                updateWeeklyPlan(planModal.mode.id, d);
+                notifyPlanChange("updated", next);
+              }
             }}
             onDelete={planModal.mode !== "new"
-              ? () => { deleteWeeklyPlan((planModal.mode as WeeklyPlan).id); setPlanModal(null); }
+              ? () => {
+                  const cur = planModal.mode as WeeklyPlan;
+                  deleteWeeklyPlan(cur.id);
+                  notifyPlanChange("deleted", cur);
+                  setPlanModal(null);
+                }
               : undefined}
             onClose={() => setPlanModal(null)}
           />

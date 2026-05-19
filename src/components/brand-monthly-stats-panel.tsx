@@ -81,12 +81,16 @@ export function BrandMonthlyStatsPanel({
   readOnly?: boolean;
   className?: string;
 }) {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const { brandMonthlyStats, upsertBrandMonthlyStats } = useStore();
   const saved = useMemo(
     () => findBrandMonthlyStats(brandMonthlyStats, brandId, monthYm),
     [brandMonthlyStats, brandId, monthYm]
   );
+  const updatedByLabel = useMemo(() => {
+    if (!saved?.updatedBy) return null;
+    return users.find((u) => u.id === saved.updatedBy)?.name ?? null;
+  }, [saved?.updatedBy, users]);
 
   const [form, setForm] = useState<BrandMonthlyStats>(() =>
     draftBrandMonthlyStats(brandId, monthYm, saved)
@@ -357,6 +361,18 @@ export function BrandMonthlyStatsPanel({
           <p className="text-xs text-muted-foreground border-t border-border/60 pt-3">
             <span className="font-medium text-foreground">Not: </span>
             {form.notes}
+          </p>
+        )}
+        {saved?.updatedAt && (
+          <p className="text-[10px] text-muted-foreground/80 border-t border-border/40 pt-2 leading-snug">
+            Son güncelleme: {new Date(saved.updatedAt).toLocaleString("tr-TR", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            {updatedByLabel ? ` · ${updatedByLabel}` : ""}
           </p>
         )}
       </CardContent>

@@ -14,6 +14,7 @@ import {
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
+import { findBrandMonthlyStats, fmtBrandMoney, fmtBrandCount } from "@/lib/brand-monthly-stats";
 import { shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import {
   brandContentExpensesForMonth,
@@ -291,6 +292,157 @@ function SnapshotHistory({ link, snapshots, onEdit, readOnly }: {
   );
 }
 
+// ── Brand × yayıncı attribution kartı ─────────────────────────────────────
+import type { BrandViewership, BrandMonthlyStats, ContentExpense } from "@/store/store";
+
+function BrandAttributionCard({
+  brands,
+  brandViewership,
+  brandMonthlyStats,
+  contentExpenses,
+  viewMonth,
+  employees,
+}: {
+  brands: Brand[];
+  brandViewership: BrandViewership[];
+  brandMonthlyStats: BrandMonthlyStats[];
+  contentExpenses: ContentExpense[];
+  viewMonth: string;
+  employees: Employee[];
+}) {
+  const rows = useMemo(() => {
+    return brands
+      .filter((b) => b.status !== "inactive")
+      .map((b) => {
+        const stats = findBrandMonthlyStats(brandMonthlyStats, b.id, viewMonth);
+        const totalViews = brandViewership
+          .filter((v) => v.brandId === b.id)
+          .reduce((s, v) => s + v.views, 0);
+        const expenseUsd = contentExpenses
+          .filter(
+            (e) =>
+              e.month === viewMonth &&
+              (e.brandId === b.id ||
+                (!e.brandId && e.brandName === b.shortName)) &&
+              e.reviewStatus !== "rejected" &&
+              e.reviewStatus !== "cancelled"
+          )
+          .reduce((s, e) => s + e.amountUsd, 0);
+        const employeesForBrand = new Set(
+          brandViewership.filter((v) => v.brandId === b.id && v.employeeId).map((v) => v.employeeId!)
+        );
+        const cpr =
+          stats && stats.newRegistrations > 0
+            ? expenseUsd / stats.newRegistrations
+            : null;
+        return {
+          brand: b,
+          totalViews,
+          expenseUsd,
+          stats,
+          attribEmployees: Array.from(employeesForBrand),
+          cpr,
+        };
+      })
+      .filter(
+        (r) =>
+          r.totalViews > 0 ||
+          r.expenseUsd > 0 ||
+          (r.stats &&
+            (r.stats.newRegistrations > 0 || r.stats.depositAmount > 0))
+      );
+  }, [brands, brandViewership, brandMonthlyStats, contentExpenses, viewMonth]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card className="mb-6 border-emerald-200/60 dark:border-emerald-500/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp size={15} className="text-emerald-700 dark:text-emerald-300" />
+          Marka × yayıncı attribution
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Yayıncı izlenmeleri, içerik harcaması ve operasyon metrikleri yan yana — seçili ay:{" "}
+          {monthTitleYm(viewMonth)}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <th className="pb-2 pr-3 font-medium">Marka</th>
+              <th className="pb-2 pr-3 font-medium">Yayıncılar</th>
+              <th className="pb-2 pr-3 font-medium text-right">İzlenme (yayıncı)</th>
+              <th className="pb-2 pr-3 font-medium text-right">Kayıt</th>
+              <th className="pb-2 pr-3 font-medium text-right">FTD</th>
+              <th className="pb-2 pr-3 font-medium text-right">Net yatırım</th>
+              <th className="pb-2 pr-3 font-medium text-right">İçerik harc. (USD)</th>
+              <th className="pb-2 pr-3 font-medium text-right" title="Cost per registration: kayıt başına içerik maliyeti">
+                CPR
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const cur = r.stats?.currency ?? "TRY";
+              const net = r.stats
+                ? Number(r.stats.depositAmount) - Number(r.stats.withdrawalAmount)
+                : 0;
+              return (
+                <tr key={r.brand.id} className="border-b border-border/50 hover:bg-accent/20">
+                  <td className="py-2 pr-3 font-medium text-foreground">
+                    {r.brand.shortName}
+                  </td>
+                  <td className="py-2 pr-3 text-xs text-muted-foreground">
+                    {r.attribEmployees.length > 0
+                      ? r.attribEmployees
+                          .slice(0, 3)
+                          .map((eid) => employees.find((e) => e.id === eid)?.name ?? "?")
+                          .join(", ") +
+                        (r.attribEmployees.length > 3
+                          ? ` +${r.attribEmployees.length - 3}`
+                          : "")
+                      : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {r.totalViews > 0 ? fmtViews(r.totalViews) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {r.stats ? fmtBrandCount(r.stats.newRegistrations) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {r.stats ? fmtBrandCount(r.stats.firstTimeDepositors) : "—"}
+                  </td>
+                  <td
+                    className={`py-2 pr-3 text-right tabular-nums font-semibold ${
+                      net > 0
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : net < 0
+                          ? "text-red-700 dark:text-red-300"
+                          : ""
+                    }`}
+                  >
+                    {r.stats ? fmtBrandMoney(net, cur) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-amber-700 dark:text-amber-300">
+                    {r.expenseUsd > 0 ? `$${r.expenseUsd.toLocaleString("tr-TR")}` : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {r.cpr != null && Number.isFinite(r.cpr)
+                      ? `$${r.cpr.toFixed(2)}`
+                      : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Brand card ────────────────────────────────────────────────────────────
 function BrandCard({
   brand,
@@ -537,7 +689,7 @@ export default function IzlenmePage() {
   const [viewMonth, setViewMonth] = useState(() => todayYm);
 
   const {
-    employees, brands, brandLinks, linkSnapshots, brandViewership, contentExpenses,
+    employees, brands, brandLinks, linkSnapshots, brandViewership, brandMonthlyStats, contentExpenses,
     addBrand, updateBrand, deleteBrand,
     addBrandLink, updateBrandLink, deleteBrandLink,
     addLinkSnapshot, updateLinkSnapshot, deleteLinkSnapshot,
@@ -695,6 +847,18 @@ export default function IzlenmePage() {
             </table>
           </CardContent>
         </Card>
+      )}
+
+      {/* Marka × yayıncı attribution + operasyon — admin */}
+      {!readOnly && brands.length > 0 && (
+        <BrandAttributionCard
+          brands={brands}
+          brandViewership={monthlyViewership}
+          brandMonthlyStats={brandMonthlyStats}
+          contentExpenses={contentExpenses}
+          viewMonth={viewMonth}
+          employees={linkEmployees}
+        />
       )}
 
       {/* Help banner */}

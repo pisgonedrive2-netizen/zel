@@ -69,8 +69,10 @@ const AUDITOR_NAV: NavItem[] = [
 ];
 
 const BRAND_NAV: NavItem[] = [
-  { href: "/marka/takvim",     label: "Yayıncı takvimi", icon: CalendarDays, group: "Marka" },
-  { href: "/marka/izlenmeler", label: "İzlenmeler",      icon: Eye,            group: "Marka" },
+  { href: "/marka/izlenmeler",  label: "İzlenmeler",       icon: Eye,            group: "Marka" },
+  { href: "/marka/takvim",      label: "Yayıncı takvimi",  icon: CalendarDays,   group: "Marka" },
+  { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,         group: "Marka" },
+  { href: "/marka/bildirimler", label: "Bildirimler",      icon: Bell,           group: "Marka" },
 ];
 
 export default function Sidebar() {

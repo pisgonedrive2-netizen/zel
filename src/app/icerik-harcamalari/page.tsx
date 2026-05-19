@@ -10,6 +10,7 @@ import {
   calcKasaBalance,
   DEFAULT_KASA_ID,
   type ContentExpense,
+  type Employee,
   type Kasa,
   type KasaTransaction,
 } from "@/store/store";
@@ -149,6 +150,139 @@ function ExpenseForm({ initial, onSave, onDelete, onClose }: {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────
+function ExpenseSlaPanel({
+  pendingReviews,
+  employees,
+  onSelect,
+}: {
+  pendingReviews: ContentExpense[];
+  employees: Employee[];
+  onSelect: (e: ContentExpense) => void;
+}) {
+  const buckets = useMemo(() => {
+    const now = Date.now();
+    const fresh: ContentExpense[] = [];
+    const warning: ContentExpense[] = [];
+    const overdue: ContentExpense[] = [];
+    for (const e of pendingReviews) {
+      const submittedAt = e.submittedAt
+        ? new Date(e.submittedAt).getTime()
+        : new Date(e.date).getTime();
+      const ageDays = Math.floor((now - submittedAt) / 86_400_000);
+      if (ageDays >= 7) overdue.push(e);
+      else if (ageDays >= 3) warning.push(e);
+      else fresh.push(e);
+    }
+    return { fresh, warning, overdue };
+  }, [pendingReviews]);
+
+  const oldestEmployee = useMemo(() => {
+    const map = new Map<string, { count: number; oldest: number }>();
+    const now = Date.now();
+    for (const e of pendingReviews) {
+      const submitted = e.submittedAt ? new Date(e.submittedAt).getTime() : new Date(e.date).getTime();
+      const ageDays = Math.floor((now - submitted) / 86_400_000);
+      const cur = map.get(e.employeeId) ?? { count: 0, oldest: 0 };
+      cur.count += 1;
+      cur.oldest = Math.max(cur.oldest, ageDays);
+      map.set(e.employeeId, cur);
+    }
+    return Array.from(map.entries())
+      .map(([id, info]) => ({ id, ...info, name: employees.find((em) => em.id === id)?.name ?? "?" }))
+      .sort((a, b) => b.oldest - a.oldest);
+  }, [pendingReviews, employees]);
+
+  if (pendingReviews.length === 0) return null;
+
+  return (
+    <Card className="mb-6 border-blue-200 bg-blue-50/20 dark:border-blue-500/40 dark:bg-blue-950/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Clock size={15} className="text-blue-700 dark:text-blue-300" /> Onay SLA paneli
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Bekleyen yayıncı gönderimlerinin yaşlanması — 7+ gün “gecikme”, 3-6 gün “uyarı”.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <SlaTile label="Taze (≤2g)" count={buckets.fresh.length} accent="text-emerald-700 dark:text-emerald-300" />
+          <SlaTile label="Uyarı (3-6g)" count={buckets.warning.length} accent="text-amber-700 dark:text-amber-300" />
+          <SlaTile label="Gecikme (7+g)" count={buckets.overdue.length} accent="text-red-700 dark:text-red-300" />
+        </div>
+        {buckets.overdue.length > 0 && (
+          <div className="rounded-lg border border-red-300 bg-red-50/40 dark:border-red-500/45 dark:bg-red-950/30 px-3 py-2">
+            <p className="text-[11px] font-medium text-red-900 dark:text-red-100 mb-1">
+              7+ gün bekleyen ({buckets.overdue.length})
+            </p>
+            <ul className="space-y-1">
+              {buckets.overdue.slice(0, 5).map((e) => {
+                const emp = employees.find((em) => em.id === e.employeeId);
+                const submittedAt = e.submittedAt ? new Date(e.submittedAt).getTime() : new Date(e.date).getTime();
+                const ageDays = Math.floor((Date.now() - submittedAt) / 86_400_000);
+                return (
+                  <li key={e.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(e)}
+                      className="w-full flex items-center justify-between gap-3 px-2 py-1.5 rounded-md hover:bg-red-100/50 dark:hover:bg-red-900/30 text-left text-xs"
+                    >
+                      <span className="truncate">
+                        <span className="font-medium text-red-900 dark:text-red-100">{ageDays}g</span>
+                        {" · "}
+                        {emp?.name ?? "?"} · {e.brandName} · {e.description.slice(0, 60)}
+                      </span>
+                      <span className="tabular-nums font-semibold shrink-0 text-red-900 dark:text-red-100">
+                        {fmt(e.amountUsd)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              {buckets.overdue.length > 5 && (
+                <li className="text-[10px] text-muted-foreground italic px-2">
+                  +{buckets.overdue.length - 5} kayıt daha — aşağıdaki listede
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+        {oldestEmployee.length > 0 && (
+          <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs">
+            <p className="font-medium text-muted-foreground mb-1">Yayıncıya göre bekleme (en eski → )</p>
+            <div className="flex flex-wrap gap-1.5">
+              {oldestEmployee.slice(0, 6).map((s) => (
+                <Badge
+                  key={s.id}
+                  variant="outline"
+                  className={`text-[10px] ${
+                    s.oldest >= 7
+                      ? "text-red-700 border-red-300 bg-red-50 dark:text-red-300 dark:border-red-500/45 dark:bg-red-950/40"
+                      : s.oldest >= 3
+                        ? "text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/45 dark:bg-amber-950/40"
+                        : "text-muted-foreground border-border bg-muted/30"
+                  }`}
+                >
+                  {s.name} · {s.count} kayıt · max {s.oldest}g
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SlaTile({ label, count, accent }: { label: string; count: number; accent: string }) {
+  return (
+    <div className="rounded-md border border-border bg-card px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`text-xl font-bold tabular-nums ${accent}`}>{count}</p>
+    </div>
+  );
+}
+
 export default function ContentExpensesPage() {
   const { user } = useAuth();
   const readOnly = useIsReadOnly();
@@ -293,6 +427,15 @@ export default function ContentExpensesPage() {
           )}
         </div>
       </div>
+
+      {/* SLA / aging — admin & denetçi */}
+      {canReview && pendingReviews.length > 0 && (
+        <ExpenseSlaPanel
+          pendingReviews={pendingReviews}
+          employees={employees}
+          onSelect={(e) => setReviewModal(e)}
+        />
+      )}
 
       {/* Bekleyen onaylar — admin için */}
       {pendingReviews.length > 0 && canReview && (

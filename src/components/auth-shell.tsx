@@ -9,6 +9,7 @@ import { PanelViewBanner } from "@/components/panel-view-banner";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ImpersonationChip } from "@/components/impersonation-chip";
 import { Loader2, Menu, X } from "lucide-react";
 
 /**
@@ -22,8 +23,6 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const panelViewAs = usePanelView((s) => s.panelViewAs);
   const brandViewAs = usePanelView((s) => s.brandViewAs);
-  const exitStreamerPanel = usePanelView((s) => s.exitStreamerPanel);
-  const exitBrandPanel = usePanelView((s) => s.exitBrandPanel);
   const router   = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
@@ -84,14 +83,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Admin /marka veya /yayinci dışına çıktıysa stale impersonation state'i temizle.
-    if (user?.role === "admin" && brandViewAs && !pathname.startsWith("/marka")) {
-      exitBrandPanel();
-    }
-    if (user?.role === "admin" && panelViewAs && !pathname.startsWith("/yayinci")) {
-      exitStreamerPanel();
-    }
-  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin, exitBrandPanel, exitStreamerPanel]);
+  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin]);
 
   const canView =
     hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs);
@@ -99,6 +91,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       {!isLogin && <ThemeToggle variant="floating" />}
+      {!isLogin && <ImpersonationChip />}
 
       {!hydrated && (
         <div className="flex h-screen items-center justify-center">

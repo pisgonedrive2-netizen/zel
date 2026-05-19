@@ -16,6 +16,7 @@ import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
+import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
 import { findBrandMonthlyStats, brandStatsExportRows, deriveBrandMonthlyStats } from "@/lib/brand-monthly-stats";
 import { toYearMonthLocal } from "@/lib/data";
 import {
@@ -213,6 +214,8 @@ export default function MarkaIzlenmelerPage() {
       </div>
 
       <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} />
+
+      <BrandMonthlyTrend brandId={brandId} monthYm={month} months={6} />
 
       <div className="grid gap-4 md:grid-cols-2">
         {hasTarget && targetPct !== null && (

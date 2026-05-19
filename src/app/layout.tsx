@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   },
   description: "Foxstream — yayın, içerik ve finans operasyonları için tek panel.",
   applicationName: "Foxstream",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Foxstream",
+    statusBarStyle: "black-translucent",
+  },
   authors: [{ name: "Foxstream" }],
   metadataBase: new URL("https://foxstreaming.vercel.app"),
   openGraph: {

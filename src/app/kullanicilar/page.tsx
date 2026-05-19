@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, Pencil, Trash2, KeyRound, Copy, Check, Eye, EyeOff,
@@ -21,7 +21,7 @@ import { isMainAdmin } from "@/lib/user-guards";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
-import { useAuditLog, type AuditAction, logAudit } from "@/store/audit-log";
+import { useAuditLog, type AuditAction, type AuditEntry, logAudit } from "@/store/audit-log";
 import {
   pickAppHydratePayload,
   downloadJson,
@@ -276,6 +276,140 @@ function PinDisplayModal({ user, pin, onClose }: { user: AppUser; pin: string; o
         <Button variant="secondary" onClick={onClose}>Tamam</Button>
       </div>
     </div>
+  );
+}
+
+// ── Audit log paneli (filtreli) ─────────────────────────────────────────
+function AuditLogPanel({
+  auditEntries,
+  supabaseMode,
+}: {
+  auditEntries: ReadonlyArray<AuditEntry>;
+  supabaseMode: boolean;
+}) {
+  const [actionFilter, setActionFilter] = useState<"" | AuditAction>("");
+  const [actorFilter, setActorFilter] = useState<string>("");
+  const [searchQ, setSearchQ] = useState("");
+  const [days, setDays] = useState<"7" | "30" | "90" | "all">("30");
+
+  const uniqueActors = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of auditEntries) set.add(e.actorName || e.actorId);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"));
+  }, [auditEntries]);
+
+  const filtered = useMemo(() => {
+    const cutoff =
+      days === "all"
+        ? 0
+        : Date.now() - parseInt(days, 10) * 86_400_000;
+    const q = searchQ.trim().toLowerCase();
+    return auditEntries.filter((e) => {
+      if (cutoff > 0 && new Date(e.at).getTime() < cutoff) return false;
+      if (actionFilter && e.action !== actionFilter) return false;
+      if (actorFilter && (e.actorName || e.actorId) !== actorFilter) return false;
+      if (q) {
+        const hay = `${e.actorName} ${e.actorId} ${e.detail} ${AUDIT_TR[e.action] ?? e.action}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [auditEntries, actionFilter, actorFilter, searchQ, days]);
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ScrollText size={16} /> İşlem günlüğü
+        </CardTitle>
+        <CardDescription>
+          {supabaseMode
+            ? "Kullanıcı, yedek, oturum ve onay olayları (Supabase audit_logs)"
+            : "Son kullanıcı, yedek ve oturum olayları (yerel)"}
+          {" · "}
+          <span className="font-medium text-foreground">{filtered.length}</span>/
+          {auditEntries.length} kayıt
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Eylem</label>
+            <select
+              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value as typeof actionFilter)}
+            >
+              <option value="">Hepsi</option>
+              {(Object.keys(AUDIT_TR) as AuditAction[]).map((a) => (
+                <option key={a} value={a}>
+                  {AUDIT_TR[a]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Eylemi yapan</label>
+            <select
+              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+            >
+              <option value="">Hepsi</option>
+              {uniqueActors.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Dönem</label>
+            <select
+              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              value={days}
+              onChange={(e) => setDays(e.target.value as typeof days)}
+            >
+              <option value="7">Son 7 gün</option>
+              <option value="30">Son 30 gün</option>
+              <option value="90">Son 90 gün</option>
+              <option value="all">Tümü</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ara</label>
+            <Input
+              className="mt-1 h-8 text-xs"
+              placeholder="Detay, kullanıcı veya eylem"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Filtreye uyan kayıt yok.
+            </p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {filtered.slice(0, 200).map((e) => (
+                <li key={e.id} className="border-b border-border/50 pb-2 last:border-0">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {new Date(e.at).toLocaleString("tr-TR")}
+                  </span>
+                  <span className="ml-2 font-medium text-foreground">
+                    {AUDIT_TR[e.action] ?? e.action}
+                  </span>
+                  <span className="text-muted-foreground"> · {e.actorName || "?"}</span>
+                  <p className="text-xs text-muted-foreground mt-0.5 break-words">{e.detail}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -762,36 +896,10 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ScrollText size={16} /> İşlem günlüğü
-          </CardTitle>
-          <CardDescription>
-            {supabaseMode
-              ? "Son kullanıcı, yedek ve oturum olayları (Supabase audit_logs)"
-              : "Son kullanıcı, yedek ve oturum olayları (yerel)"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="max-h-72 overflow-y-auto">
-          {auditEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Henüz kayıt yok.</p>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {auditEntries.slice(0, 80).map((e) => (
-                <li key={e.id} className="border-b border-border/50 pb-2 last:border-0">
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(e.at).toLocaleString("tr-TR")}
-                  </span>
-                  <span className="ml-2 font-medium text-foreground">{AUDIT_TR[e.action]}</span>
-                  <span className="text-muted-foreground"> · {e.actorName}</span>
-                  <p className="text-xs text-muted-foreground mt-0.5 break-words">{e.detail}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      <AuditLogPanel
+        auditEntries={auditEntries}
+        supabaseMode={supabaseMode}
+      />
 
       <div className="mt-6 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50/40 dark:border-blue-500/40 dark:bg-blue-950/35">
         <p className="text-sm text-blue-900 dark:text-blue-100 font-medium mb-1 flex items-center gap-1.5">

@@ -1,0 +1,26 @@
+{
+  "name": "Foxstream",
+  "short_name": "Foxstream",
+  "description": "Yayın, içerik ve finans operasyonları için merkezi panel.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "orientation": "portrait",
+  "lang": "tr-TR",
+  "icons": [
+    {
+      "src": "/foxlogo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/foxlogo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "finance"]
+}

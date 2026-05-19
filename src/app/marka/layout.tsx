@@ -6,8 +6,10 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
 
 const NAV = [
-  { href: "/marka/takvim", label: "Yayıncı takvimi" },
   { href: "/marka/izlenmeler", label: "İzlenmeler" },
+  { href: "/marka/takvim", label: "Yayıncı takvimi" },
+  { href: "/marka/odemeler", label: "Ödeme planı" },
+  { href: "/marka/bildirimler", label: "Bildirimler" },
 ] as const;
 
 export default function MarkaLayout({ children }: { children: React.ReactNode }) {
