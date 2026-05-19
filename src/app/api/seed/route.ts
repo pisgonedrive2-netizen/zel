@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
-import { countAppUsers, pickSnapshot, syncAppData, upsertAppUser } from "@/lib/db/repository";
+import { countAppUsers, pickSnapshot, syncAppData, upsertAppUser, appUserExists } from "@/lib/db/repository";
 import { useStore } from "@/store/store";
 
 const SEED_USERS = [
@@ -38,11 +38,16 @@ export async function POST(req: Request) {
     avatar: "O",
   };
 
+  let created = 0;
+  let preserved = 0;
   for (const u of SEED_USERS) {
+    const exists = await appUserExists(u.id);
     await upsertAppUser(
       { ...u, pin: "", active: true },
-      u.pin
+      exists ? undefined : u.pin
     );
+    if (exists) preserved += 1;
+    else created += 1;
   }
 
   await syncAppData(
@@ -50,5 +55,11 @@ export async function POST(req: Request) {
     pickSnapshot(useStore.getState() as unknown as Record<string, unknown>)
   );
 
-  return NextResponse.json({ ok: true, users: SEED_USERS.length });
+  return NextResponse.json({
+    ok: true,
+    users: SEED_USERS.length,
+    created,
+    preserved,
+    note: "Mevcut kullanıcıların PIN hash değerleri korunur.",
+  });
 }

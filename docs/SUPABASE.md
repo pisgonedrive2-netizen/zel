@@ -47,12 +47,17 @@ Vercel projesine aynı env değişkenlerini ekleyin (Production + Preview).
 
 Deploy sonrası production URL’de seed’i **bir kez** çalıştırın (boş DB ise).
 
-## Tablolar (24)
+**Önemli — PIN güvenliği:** Kullanıcı PIN’leri yalnızca `app_users.pin_hash` (bcrypt) olarak saklanır. Deploy sonrası PIN’ler **sıfırlanmaz**; profil güncellemeleri hash’e dokunmaz. `/api/seed` mevcut kullanıcıların PIN’ini **asla değiştirmez** (yalnızca yeni kayıtlar seed PIN alır). Production’da seed’i tekrar tekrar çalıştırmayın.
+
+Ek migration’lar (sırayla): `20260518170000_auth_support_notifications.sql`, `20260519120000_brand_monthly_stats.sql`, `20260519130000_auth_pin_and_schema_hardening.sql`
+
+## Tablolar (24+)
 
 ### Çekirdek (kimlik, oturum, log)
 | Tablo | Açıklama |
 |--------|----------|
-| `app_users` | Giriş (username + PIN hash) — ana yönetici (`u-admin`) korumalıdır |
+| `app_users` | Giriş (username + `pin_hash`, `pin_updated_at`) — ana yönetici (`u-admin`) korumalıdır |
+| `brand_monthly_stats` | Marka bazlı aylık kayıt / yatırım metrikleri (`brand_id` + `YYYY-MM`) |
 | `audit_logs` | Kalıcı eylem günlüğü (`actor_id`, `action`, `detail`) |
 | `app_settings` | Anahtar/JSON yapılandırma (kasa eşiği, bordro hatırlatıcı, …) |
 | `notification_preferences` | Kullanıcı bazında bildirim tercihleri |

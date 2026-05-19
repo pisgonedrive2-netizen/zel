@@ -1,4 +1,5 @@
 import type { AppUser } from "@/store/auth";
+import { validatePlainPin } from "@/lib/pin-update";
 
 /** Yedek içe aktarımından sonra kullanıcı listesini Supabase ile hizalar. */
 export async function syncImportedUsersToServer(imported: AppUser[]): Promise<void> {
@@ -37,7 +38,8 @@ export async function syncImportedUsersToServer(imported: AppUser[]): Promise<vo
         avatar: u.avatar,
         active: u.active,
       };
-      if (u.pin) body.newPin = u.pin;
+      const plain = u.pin ? validatePlainPin(u.pin) : undefined;
+      if (plain) body.newPin = plain;
       const patch = await fetch(`/api/users/${u.id}`, {
         method: "PATCH",
         credentials: "include",

@@ -67,12 +67,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <ThemeToggle
-        variant="floating"
-        className={
-          isLogin ? "top-[max(env(safe-area-inset-top),56px)]" : undefined
-        }
-      />
+      {!isLogin && <ThemeToggle variant="floating" />}
 
       {!hydrated && (
         <div className="flex h-screen items-center justify-center">

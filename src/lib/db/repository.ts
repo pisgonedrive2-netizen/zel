@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { verifyPin, hashPin } from "@/lib/password";
-import { resolvePlainPin } from "@/lib/pin-update";
+import { verifyPin } from "@/lib/password";
+import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
+export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
 import type { AppHydratePayload } from "@/store/store";
 import type { AppUser } from "@/store/auth";
@@ -367,27 +368,6 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
     column: "employee_id",
     value: employeeId,
   });
-}
-
-export async function upsertAppUser(user: AppUser, pinPlain?: string) {
-  let pinHash = "";
-  const plain = pinPlain?.trim();
-  if (plain) {
-    pinHash = await hashPin(plain);
-  } else {
-    const { data } = await getSupabaseAdmin()
-      .from("app_users")
-      .select("pin_hash")
-      .eq("id", user.id)
-      .maybeSingle();
-    pinHash = data ? String((data as { pin_hash: string }).pin_hash) : await hashPin("changeme");
-  }
-  const row = {
-    ...appUserToRow(user, pinHash),
-    ...(plain ? { pin_updated_at: new Date().toISOString() } : {}),
-  };
-  const { error } = await getSupabaseAdmin().from("app_users").upsert(row);
-  if (error) throw new Error(error.message);
 }
 
 export async function deleteAppUser(id: string) {

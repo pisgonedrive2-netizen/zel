@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePlainPin } from "./pin-update";
+import { resolvePlainPin, validatePlainPin } from "./pin-update";
 
 describe("resolvePlainPin", () => {
   it("prefers newPin over pin", () => {
@@ -14,5 +14,10 @@ describe("resolvePlainPin", () => {
     expect(resolvePlainPin({ pin: "***" })).toBeUndefined();
     expect(resolvePlainPin({ pin: "  " })).toBeUndefined();
     expect(resolvePlainPin({})).toBeUndefined();
+  });
+
+  it("rejects too short pin", () => {
+    expect(resolvePlainPin({ pin: "123" })).toBeUndefined();
+    expect(validatePlainPin("123")).toBeUndefined();
   });
 });

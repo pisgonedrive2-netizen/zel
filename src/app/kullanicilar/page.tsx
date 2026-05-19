@@ -73,6 +73,7 @@ function UserForm({ initial, onSave, onClose }: {
   const { employees, brands } = useStore();
   const isNew = !initial;
   const lockedMainAdmin = !!initial && isMainAdmin(initial);
+  const [pinDirty, setPinDirty] = useState(false);
   const [form, setForm] = useState<Omit<AppUser, "id">>({
     username:   initial?.username   ?? "",
     pin:        initial?.pin        ?? (isNew ? generatePin() : ""),
@@ -86,7 +87,18 @@ function UserForm({ initial, onSave, onClose }: {
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form, form.pin.trim() || undefined); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (isNew) {
+          onSave(form, form.pin.trim() || undefined);
+          return;
+        }
+        const pin = pinDirty && form.pin.trim() ? form.pin.trim() : "";
+        const { pin: _drop, ...profile } = form;
+        onSave({ ...profile, pin }, undefined);
+      }}
+    >
       <div className="grid gap-4">
         {lockedMainAdmin && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-900 dark:border-blue-500/40 dark:bg-blue-950/35 dark:text-blue-100 leading-relaxed">
@@ -160,7 +172,15 @@ function UserForm({ initial, onSave, onClose }: {
         )}
         <Field label="PIN" hint={isNew ? "Otomatik üretildi. Kayıt sonrası bir daha gösterilmez — kopyalayın!" : "Manuel değiştirmek için"}>
           <div className="flex gap-2">
-            <Input value={form.pin} onChange={e => set("pin", e.target.value)} className="font-mono" />
+            <Input
+              value={form.pin}
+              onChange={(e) => {
+                setPinDirty(true);
+                set("pin", e.target.value);
+              }}
+              className="font-mono"
+              placeholder={isNew ? undefined : "Değiştirmek için yeni PIN yazın"}
+            />
             <Button type="button" variant="outline" size="sm" onClick={() => set("pin", generatePin())} className="gap-1.5">
               <Sparkles size={13} /> Yeni PIN
             </Button>
