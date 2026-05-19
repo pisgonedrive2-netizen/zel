@@ -122,6 +122,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             return;
           }
           setSyncError(null);
+          const st = useStore.getState();
+          const fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, st.salaryExtras);
+          if (fixedExtras !== st.salaryExtras) {
+            skipSync.current = true;
+            useStore.setState({ salaryExtras: fixedExtras });
+            setTimeout(() => {
+              skipSync.current = false;
+            }, 500);
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Ağ hatası";
           setSyncError(`Veriler sunucuya kaydedilemedi: ${msg}`);

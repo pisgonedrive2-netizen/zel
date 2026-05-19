@@ -1341,11 +1341,29 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         // rentSupport değiştiyse: salaryExtras üzerinde tip="rent" kayıtları
         // mevcut ay ve sonraki tüm aylar için otomatik güncellensin.
         if (typeof e.rentSupport === "number" && e.rentSupport !== before.rentSupport) {
-          const today = new Date().toISOString().slice(0, 7);
-          const fromMonth = ymGte(today, after.payrollStartMonth) ? today : after.payrollStartMonth;
           return {
             employees,
-            salaryExtras: propagateRentForEmployee(s.salaryExtras, after, e.rentSupport, fromMonth),
+            salaryExtras: propagateRentForEmployee(
+              s.salaryExtras,
+              after,
+              e.rentSupport,
+              after.payrollStartMonth
+            ),
+          };
+        }
+        if (
+          e.payrollStartMonth &&
+          e.payrollStartMonth !== before.payrollStartMonth &&
+          after.rentSupport > 0
+        ) {
+          return {
+            employees,
+            salaryExtras: propagateRentForEmployee(
+              s.salaryExtras,
+              after,
+              after.rentSupport,
+              after.payrollStartMonth
+            ),
           };
         }
         return { employees };
@@ -1837,9 +1855,18 @@ const storePersistConfig = {
           kasasSrc.some((k) => k.id === DEFAULT_KASA_ID)
             ? kasasSrc
             : [...initialKasas, ...kasasSrc];
+        const employees = Array.isArray(p.employees)
+          ? p.employees
+          : currentState.employees;
+        const salaryExtrasRaw = Array.isArray(p.salaryExtras)
+          ? p.salaryExtras
+          : currentState.salaryExtras;
+        const salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtrasRaw);
         return {
           ...currentState,
           ...p,
+          employees,
+          salaryExtras,
           projects,
           kasas: ensuredKasas,
           kasaTransactions: migrateKasaTransactions(kasaSrc),

@@ -425,7 +425,14 @@ function EmployeeDetailRow({
               {active && !readOnly && <button onClick={() => setExtraModal("new")} className="text-[10px] text-blue-600 hover:text-blue-700 transition-colors">+ Ekle</button>}
             </div>
             {empExtras.length === 0 ? (
-              <p className="text-muted-foreground/50 text-xs italic">Kalem yok</p>
+              active && employee.rentSupport > 0 ? (
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  Sözleşme kira desteği: <span className="font-semibold tabular-nums">{fmt(employee.rentSupport)}</span>
+                  <span className="text-muted-foreground"> · nete dahil, kalem henüz oluşturulmadı</span>
+                </p>
+              ) : (
+                <p className="text-muted-foreground/50 text-xs italic">Kalem yok</p>
+              )
             ) : (
               <div className="space-y-1">
                 {empExtras.map(e => {
@@ -760,8 +767,10 @@ export default function MaaslarPage() {
       const empAdv  = advances.filter((a) => a.employeeId === emp.id && a.month === ym);
       const empExt  = salaryExtras.filter((e) => e.employeeId === emp.id && e.month === ym);
       const carry   = calcCarryForward(emp.id, ym, advances, paymentStatuses);
-      const rent    = empExt.filter((e) => e.type === "rent").reduce((s, e) => s + e.amount, 0);
-      const add     = empExt.filter((e) => e.type !== "deduction").reduce((s, e) => s + e.amount, 0);
+      const rentAmt   = getRentForMonth(emp, ym, salaryExtras);
+      const totalBonus = empExt
+        .filter((e) => e.type !== "deduction" && e.type !== "rent")
+        .reduce((s, e) => s + e.amount, 0);
       const ded     = empExt.filter((e) => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
       const status  = paymentStatuses.find((p) => p.employeeId === emp.id && p.month === ym);
       return {
@@ -770,11 +779,11 @@ export default function MaaslarPage() {
         department:       emp.department,
         paymentDay:       emp.paymentDay,
         baseSalary:       emp.baseSalary,
-        rentSupport:      rent,
+        rentSupport:      rentAmt,
         carryForward:     carry,
         thisMonthAdvance: empAdv.reduce((s, a) => s + a.amount, 0),
         openAdvanceAfter: calcOpenAdvanceBalance(emp, ym, salaryExtras),
-        totalBonus:       add - rent,
+        totalBonus,
         totalDeduction:   ded,
         netPayable:       calcNetPayable(emp, ym, advances, salaryExtras, paymentStatuses),
         contentApproved:  sumApprovedContentExpenses(contentExpenses, emp.id, ym),
