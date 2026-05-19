@@ -498,7 +498,7 @@ export function viewershipToRow(v: BrandViewership) {
 }
 
 export function brandMonthlyStatsFromRow(r: Record<string, unknown>): BrandMonthlyStats {
-  const cur = str(r.currency, "TRY");
+  const cur = str(r.currency, "USD");
   return {
     id: str(r.id),
     brandId: str(r.brand_id),
@@ -509,7 +509,7 @@ export function brandMonthlyStatsFromRow(r: Record<string, unknown>): BrandMonth
     depositCount: Number(r.deposit_count ?? 0),
     depositAmount: num(r.deposit_amount),
     withdrawalAmount: num(r.withdrawal_amount),
-    currency: cur === "USD" || cur === "EUR" ? cur : "TRY",
+    currency: cur === "TRY" || cur === "EUR" ? cur : "USD",
     notes: str(r.notes),
     updatedBy: r.updated_by ? str(r.updated_by) : undefined,
     updatedAt: r.updated_at ? str(r.updated_at) : undefined,

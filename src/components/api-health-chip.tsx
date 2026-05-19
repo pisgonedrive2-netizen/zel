@@ -111,7 +111,7 @@ export function ApiHealthChip() {
     <Link
       href="/izlenme"
       title={`API durumu — ${summary}`}
-      className={`fixed right-3 top-3 z-[55] flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] shadow-sm backdrop-blur ${meta.cls}`}
+      className={`fixed right-[max(env(safe-area-inset-right),12px)] top-[max(calc(env(safe-area-inset-top)+48px),56px)] z-[55] flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] shadow-sm backdrop-blur ${meta.cls}`}
     >
       {loading ? (
         <Loader2 size={11} className="animate-spin" />
