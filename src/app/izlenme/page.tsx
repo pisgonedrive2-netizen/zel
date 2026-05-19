@@ -786,6 +786,21 @@ export default function IzlenmePage() {
         </div>
       </div>
 
+      {brandLinks.length === 0 && (
+        <div className="mb-6 rounded-xl border border-amber-200/80 bg-amber-50/50 px-4 py-4 dark:border-amber-500/40 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-amber-950 dark:text-amber-100">Henüz marka linki yok</p>
+          <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-1 leading-relaxed">
+            İzlenme takibi için önce marka seçip platform linklerini ekleyin. Kayıtlar otomatik olarak Supabase&apos;e yazılır;
+            snapshot ve API yenileme bu linklere bağlıdır.
+          </p>
+          {!readOnly && (
+            <Button size="sm" className="mt-3 gap-1.5" onClick={() => setLinkModal({ mode: "new" })}>
+              <Plus size={14} /> İlk linki ekle
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[

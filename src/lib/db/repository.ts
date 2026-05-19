@@ -43,9 +43,9 @@ async function deleteNotIn(table: string, ids: string[], extraFilter?: { column:
   const existing = (data ?? []).map((r) => String((r as { id: string }).id));
   const toDelete = existing.filter((id) => !ids.includes(id));
   if (toDelete.length === 0) return;
-  // Güvenlik: client tarafı tüm satırları silmek isterse (boş upsert + dolu mevcut),
-  // bu büyük olasılıkla bootstrap çatışması veya hatalı senkronizasyondur — engelle.
-  if (ids.length === 0 && existing.length > 0) {
+  // Güvenlik: kapsamlı tablolarda boş liste ile toplu silme bootstrap hatasına işaret eder.
+  // owner_id / employee_id ile kapsamlı silmelerde boş liste kasıtlı olabilir (tüm linkleri sil).
+  if (ids.length === 0 && existing.length > 0 && !extraFilter) {
     throw new Error(
       `${table}: senkronizasyon güvenliği — boş listeyle mevcut ${existing.length} satır silinemez.`
     );

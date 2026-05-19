@@ -1,6 +1,10 @@
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
+import { requestSyncFlush } from "@/lib/sync-client";
+
+/** Marka link / snapshot / izlenme — Supabase'e hemen yaz. */
+const flushLinkData = () => queueMicrotask(() => requestSyncFlush());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipler
@@ -1622,11 +1626,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       deleteScheduleSlot: (id)    => set((s) => ({ scheduleSlots: s.scheduleSlots.filter((x) => x.id !== id) })),
 
       // Viewership
-      addBrandViewership:    (v)     => set((s) => ({ brandViewership: [...s.brandViewership, { ...v, id: uid() }] })),
-      updateBrandViewership: (id, v) => set((s) => ({ brandViewership: s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x)) })),
-      deleteBrandViewership: (id)    => set((s) => ({ brandViewership: s.brandViewership.filter((x) => x.id !== id) })),
+      addBrandViewership: (v) => {
+        set((s) => ({ brandViewership: [...s.brandViewership, { ...v, id: uid() }] }));
+        flushLinkData();
+      },
+      updateBrandViewership: (id, v) => {
+        set((s) => ({ brandViewership: s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x)) }));
+        flushLinkData();
+      },
+      deleteBrandViewership: (id) => {
+        set((s) => ({ brandViewership: s.brandViewership.filter((x) => x.id !== id) }));
+        flushLinkData();
+      },
 
-      upsertBrandMonthlyStats: (stats) =>
+      upsertBrandMonthlyStats: (stats) => {
         set((s) => {
           const idx = s.brandMonthlyStats.findIndex(
             (x) => x.brandId === stats.brandId && x.month === stats.month
@@ -1655,22 +1668,56 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             return { brandMonthlyStats: next };
           }
           return { brandMonthlyStats: [...s.brandMonthlyStats, row] };
-        }),
+        });
+        flushLinkData();
+      },
 
       // Brand
       addBrand:    (b)     => set((s) => ({ brands: [...s.brands, { ...b, id: uid() }] })),
       updateBrand: (id, b) => set((s) => ({ brands: s.brands.map((x) => (x.id === id ? { ...x, ...b } : x)) })),
-      deleteBrand: (id)    => set((s) => ({ brands: s.brands.filter((x) => x.id !== id) })),
+      deleteBrand: (id) => {
+        set((s) => {
+          const linkIds = new Set(s.brandLinks.filter((l) => l.brandId === id).map((l) => l.id));
+          return {
+            brands: s.brands.filter((x) => x.id !== id),
+            brandLinks: s.brandLinks.filter((l) => l.brandId !== id),
+            linkSnapshots: s.linkSnapshots.filter((sn) => !linkIds.has(sn.linkId)),
+            brandViewership: s.brandViewership.filter((v) => v.brandId !== id),
+          };
+        });
+        flushLinkData();
+      },
 
       // Brand link
-      addBrandLink:    (l)     => set((s) => ({ brandLinks: [...s.brandLinks, { ...l, id: uid() }] })),
-      updateBrandLink: (id, l) => set((s) => ({ brandLinks: s.brandLinks.map((x) => (x.id === id ? { ...x, ...l } : x)) })),
-      deleteBrandLink: (id)    => set((s) => ({ brandLinks: s.brandLinks.filter((x) => x.id !== id) })),
+      addBrandLink: (l) => {
+        set((s) => ({ brandLinks: [...s.brandLinks, { ...l, id: uid() }] }));
+        flushLinkData();
+      },
+      updateBrandLink: (id, l) => {
+        set((s) => ({ brandLinks: s.brandLinks.map((x) => (x.id === id ? { ...x, ...l } : x)) }));
+        flushLinkData();
+      },
+      deleteBrandLink: (id) => {
+        set((s) => ({
+          brandLinks: s.brandLinks.filter((x) => x.id !== id),
+          linkSnapshots: s.linkSnapshots.filter((sn) => sn.linkId !== id),
+        }));
+        flushLinkData();
+      },
 
       // Link snapshot
-      addLinkSnapshot:    (sn)    => set((s) => ({ linkSnapshots: [...s.linkSnapshots, { ...sn, id: uid() }] })),
-      updateLinkSnapshot: (id, sn)=> set((s) => ({ linkSnapshots: s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x)) })),
-      deleteLinkSnapshot: (id)    => set((s) => ({ linkSnapshots: s.linkSnapshots.filter((x) => x.id !== id) })),
+      addLinkSnapshot: (sn) => {
+        set((s) => ({ linkSnapshots: [...s.linkSnapshots, { ...sn, id: uid() }] }));
+        flushLinkData();
+      },
+      updateLinkSnapshot: (id, sn) => {
+        set((s) => ({ linkSnapshots: s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x)) }));
+        flushLinkData();
+      },
+      deleteLinkSnapshot: (id) => {
+        set((s) => ({ linkSnapshots: s.linkSnapshots.filter((x) => x.id !== id) }));
+        flushLinkData();
+      },
 
       // Kasa hesapları
       addKasa: (k) =>

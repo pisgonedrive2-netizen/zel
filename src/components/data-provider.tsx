@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { registerSyncFlushHandler } from "@/lib/sync-client";
 import { Loader2 } from "lucide-react";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import {
@@ -33,6 +34,48 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [bootstrapOk, setBootstrapOk] = useState(!supabaseMode);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSync = useRef(true);
+  const syncInFlight = useRef(false);
+
+  const runSyncNow = useCallback(async () => {
+    if (!supabaseMode || !user || !ready || !bootstrapOk || skipSync.current) return;
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
+    if (syncTimer.current) {
+      clearTimeout(syncTimer.current);
+      syncTimer.current = null;
+    }
+    try {
+      const res = await fetch("/api/sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pickStoreSnapshot()),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        const msg = data.error ?? `Senkronizasyon başarısız (${res.status})`;
+        setSyncError(msg);
+        console.error("Sync failed:", msg);
+        return;
+      }
+      setSyncError(null);
+      const st = useStore.getState();
+      const fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, st.salaryExtras);
+      if (fixedExtras !== st.salaryExtras) {
+        skipSync.current = true;
+        useStore.setState({ salaryExtras: fixedExtras });
+        setTimeout(() => {
+          skipSync.current = false;
+        }, 500);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Ağ hatası";
+      setSyncError(`Veriler sunucuya kaydedilemedi: ${msg}`);
+      console.error("Sync failed:", e);
+    } finally {
+      syncInFlight.current = false;
+    }
+  }, [supabaseMode, user, ready, bootstrapOk]);
 
   useEffect(() => {
     if (!supabaseMode) {
@@ -100,50 +143,36 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabaseMode, user?.id]);
 
   useEffect(() => {
+    registerSyncFlushHandler(() => {
+      void runSyncNow();
+    });
+    return () => registerSyncFlushHandler(null);
+  }, [runSyncNow]);
+
+  useEffect(() => {
     if (!supabaseMode || !user || !ready || !bootstrapOk) return;
+
+    const onPageHide = () => {
+      if (skipSync.current || syncTimer.current == null) return;
+      void runSyncNow();
+    };
+    window.addEventListener("pagehide", onPageHide);
 
     const unsub = useStore.subscribe(() => {
       if (skipSync.current) return;
       if (!bootstrapOk) return;
       if (syncTimer.current) clearTimeout(syncTimer.current);
-      syncTimer.current = setTimeout(async () => {
-        try {
-          const res = await fetch("/api/sync", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pickStoreSnapshot()),
-          });
-          if (!res.ok) {
-            const data = (await res.json().catch(() => ({}))) as { error?: string };
-            const msg = data.error ?? `Senkronizasyon başarısız (${res.status})`;
-            setSyncError(msg);
-            console.error("Sync failed:", msg);
-            return;
-          }
-          setSyncError(null);
-          const st = useStore.getState();
-          const fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, st.salaryExtras);
-          if (fixedExtras !== st.salaryExtras) {
-            skipSync.current = true;
-            useStore.setState({ salaryExtras: fixedExtras });
-            setTimeout(() => {
-              skipSync.current = false;
-            }, 500);
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Ağ hatası";
-          setSyncError(`Veriler sunucuya kaydedilemedi: ${msg}`);
-          console.error("Sync failed:", e);
-        }
+      syncTimer.current = setTimeout(() => {
+        void runSyncNow();
       }, SYNC_MS);
     });
 
     return () => {
       unsub();
+      window.removeEventListener("pagehide", onPageHide);
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
-  }, [supabaseMode, user?.id, ready, bootstrapOk]);
+  }, [supabaseMode, user?.id, ready, bootstrapOk, runSyncNow]);
 
   if (!ready && supabaseMode) {
     return (

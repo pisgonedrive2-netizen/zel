@@ -449,7 +449,7 @@ export function brandLinkToRow(l: BrandLink) {
     notes: l.notes,
     last_snapshot_date: l.lastSnapshotDate ?? null,
     last_views: l.lastViews ?? null,
-    auto_track: l.autoTrack ?? null,
+    auto_track: l.autoTrack ?? true,
     // Auto-refresh alanlarını client kayıt yaparken NULL göndermek için
     // diğer kolonları açıkça `undefined` bırakıyoruz — bunlar sunucu tarafı
     // (refresh runner) tarafından yönetilir. Eğer bir admin elle düzenlediyse
