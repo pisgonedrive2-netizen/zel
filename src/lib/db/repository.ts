@@ -231,11 +231,29 @@ export async function syncAppData(
     return;
   }
 
+  if (session.role === "brand") {
+    if (!session.brandId) throw new Error("Marka brand_id eksik.");
+    await syncBrandScoped(session.brandId, payload);
+    return;
+  }
+
   if (session.role !== "admin") {
     throw new Error("Bu rol için senkronizasyon izni yok.");
   }
 
   await syncAdminFull(payload);
+}
+
+async function syncBrandScoped(brandId: string, payload: AppHydratePayload) {
+  // Marka yalnızca kendi brand_id'sine ait brand_monthly_stats satırını yazabilir.
+  // (brand_id, month) UNIQUE olduğundan id kısıtlaması üzerinden değil bu çift üzerinden upsert ediyoruz.
+  const stats = (payload.brandMonthlyStats ?? []).filter((s) => s.brandId === brandId);
+  if (stats.length === 0) return;
+  const rows = stats.map(brandMonthlyStatsToRow);
+  const { error } = await getSupabaseAdmin()
+    .from("brand_monthly_stats")
+    .upsert(rows, { onConflict: "brand_id,month" });
+  if (error) throw new Error(`brand_monthly_stats: ${error.message}`);
 }
 
 async function syncAuditorScoped(payload: AppHydratePayload) {

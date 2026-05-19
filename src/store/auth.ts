@@ -7,7 +7,7 @@ import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { cacheAdminPin, mergeUsersWithPinCache, removeCachedAdminPin } from "@/lib/admin-pin-cache";
-import type { PanelViewAs } from "@/store/panel-view";
+import type { BrandViewAs, PanelViewAs } from "@/store/panel-view";
 
 export type Role = "admin" | "streamer" | "auditor" | "brand";
 
@@ -402,7 +402,8 @@ export const ROUTE_ACCESS = {
 export function canAccess(
   pathname: string,
   role: Role | null,
-  panelViewAs?: PanelViewAs | null
+  panelViewAs?: PanelViewAs | null,
+  brandViewAs?: BrandViewAs | null
 ): boolean {
   if (ROUTE_ACCESS.public.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
   if (!role) return false;
@@ -410,6 +411,12 @@ export function canAccess(
     if (
       panelViewAs &&
       ROUTE_ACCESS.streamer.some((p) => pathname === p || pathname.startsWith(p + "/"))
+    ) {
+      return true;
+    }
+    if (
+      brandViewAs &&
+      ROUTE_ACCESS.brand.some((p) => pathname === p || pathname.startsWith(p + "/"))
     ) {
       return true;
     }

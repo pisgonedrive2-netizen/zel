@@ -12,6 +12,7 @@ import {
   Target,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
@@ -49,14 +50,18 @@ const fmtViews = (n: number) => {
 
 export default function MarkaIzlenmelerPage() {
   const { user } = useAuth();
+  const brandViewAs = usePanelView((s) => s.brandViewAs);
   const { brands, brandLinks, brandViewership, brandMonthlyStats, weekBrandReels, linkSnapshots, employees } = useStore();
 
   const today = new Date();
   const todayYm = toYearMonthLocal(today);
   const [month, setMonth] = useState(todayYm);
 
-  const brandId = user?.brandId ?? "";
+  const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
   const brand = brands.find((b) => b.id === brandId);
+  const isAdminView = user?.role === "admin" && !!brandViewAs;
+  const isBrandUser = user?.role === "brand";
+  const canViewBrand = isBrandUser || isAdminView;
 
   const navMonth = (dir: 1 | -1) => {
     const [y, m] = month.split("-").map(Number);
@@ -150,7 +155,7 @@ export default function MarkaIzlenmelerPage() {
     else downloadBrandMonthCsv(p, brand?.shortName);
   };
 
-  if (!user || user.role !== "brand") {
+  if (!user || !canViewBrand) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
         <Lock className="text-muted-foreground" size={28} />
@@ -207,7 +212,7 @@ export default function MarkaIzlenmelerPage() {
         </Button>
       </div>
 
-      <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} readOnly />
+      <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} />
 
       <div className="grid gap-4 md:grid-cols-2">
         {hasTarget && targetPct !== null && (

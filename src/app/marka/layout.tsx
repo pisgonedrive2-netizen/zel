@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 
 const NAV = [
   { href: "/marka/takvim", label: "Yayıncı takvimi" },
@@ -13,13 +14,21 @@ const NAV = [
 export default function MarkaLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const brandViewAs = usePanelView((s) => s.brandViewAs);
+  const isAdminView = user?.role === "admin" && !!brandViewAs;
 
   return (
     <div className="w-full min-w-0">
       {user?.role === "brand" && (
         <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-500/40 dark:bg-violet-950/35 px-4 py-2 text-xs text-violet-900 dark:text-violet-100">
-          <strong>Marka hesabı:</strong> Sadece genel yayın takvimini ve bu markaya ait izlenme özetini
-          görüntülüyorsunuz. Düzenleme yetkisi yoktur.
+          <strong>Marka hesabı:</strong> Bu ay kayıt olan üye, yatırım yapan üye ve tutarları aşağıdaki
+          formdan girip kaydedebilirsiniz. Veriler yöneticiyle senkron olur.
+        </div>
+      )}
+      {isAdminView && (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/35 px-4 py-2 text-xs text-amber-900 dark:text-amber-100">
+          <strong>Yönetici görünümü:</strong> {brandViewAs?.brandName} markasının panelini
+          inceliyorsunuz. Yukarıdaki şeritteki <em>“Yönetici paneline dön”</em> ile çıkın.
         </div>
       )}
       <nav

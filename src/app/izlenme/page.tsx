@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Plus, Pencil, ExternalLink, Eye, TrendingUp, TrendingDown, RefreshCw,
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2,
   ChevronDown, ChevronRight, Target, History, ChevronLeft, Link2,
+  LogIn,
 } from "lucide-react";
 import {
   useStore, SOCIAL_PLATFORMS,
   type Brand, type BrandLink, type LinkSnapshot, type Employee,
 } from "@/store/store";
-import { useIsReadOnly } from "@/store/auth";
+import { useAuth, useIsReadOnly } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import {
   brandContentExpensesForMonth,
@@ -297,6 +300,7 @@ function BrandCard({
   employees,
   onEditBrand,
   onOpenLinks,
+  onEnterBrandPanel,
 }: {
   brand: Brand;
   viewMonth: string;
@@ -305,6 +309,7 @@ function BrandCard({
   employees: Employee[];
   onEditBrand: () => void;
   onOpenLinks: () => void;
+  onEnterBrandPanel?: () => void;
 }) {
   const { brandLinks, linkSnapshots, contentExpenses, updateBrand } = useStore();
   const [goalDraft, setGoalDraft] = useState("");
@@ -371,6 +376,17 @@ function BrandCard({
           </div>
         </div>
         <div className="flex gap-1.5 shrink-0">
+          {onEnterBrandPanel && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/45 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              onClick={onEnterBrandPanel}
+              title="Bu markanın paneline geçici olarak gir"
+            >
+              <LogIn size={12} /> Marka paneli
+            </Button>
+          )}
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={onOpenLinks}>
             <Link2 size={12} /> Linkleri yönet ({links.length})
           </Button>
@@ -514,6 +530,9 @@ function BrandCard({
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function IzlenmePage() {
   const readOnly = useIsReadOnly();
+  const router = useRouter();
+  const { user } = useAuth();
+  const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
   const todayYm = toYearMonthLocal(new Date());
   const [viewMonth, setViewMonth] = useState(() => todayYm);
 
@@ -703,6 +722,14 @@ export default function IzlenmePage() {
             employees={linkEmployees}
             onEditBrand={() => setBrandModal(b)}
             onOpenLinks={() => setLinksPanelBrand(b)}
+            onEnterBrandPanel={
+              user?.role === "admin"
+                ? () => {
+                    enterBrandPanel(b.id, b.name);
+                    router.push("/marka/izlenmeler");
+                  }
+                : undefined
+            }
           />
         ))}
         {brands.length === 0 && (

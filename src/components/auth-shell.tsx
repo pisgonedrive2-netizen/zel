@@ -21,6 +21,7 @@ import { Loader2, Menu, X } from "lucide-react";
 export default function AuthShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const panelViewAs = usePanelView((s) => s.panelViewAs);
+  const brandViewAs = usePanelView((s) => s.brandViewAs);
   const router   = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
@@ -57,13 +58,13 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     }
 
     // Erişim yetkisi yoksa kendi landing'e
-    if (user && !canAccess(pathname, user.role, panelViewAs)) {
+    if (user && !canAccess(pathname, user.role, panelViewAs, brandViewAs)) {
       router.replace(landingFor(user.role));
     }
-  }, [hydrated, user, pathname, router, panelViewAs, isLogin]);
+  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin]);
 
   const canView =
-    hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs);
+    hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs);
 
   return (
     <>
@@ -83,14 +84,14 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
       {hydrated && !isLogin && !user && null}
 
-      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs) && null}
+      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs, brandViewAs) && null}
 
       {canView && (
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 sm:px-6 md:px-8 lg:px-10">
             <MobileSidebarTrigger />
-            {pathname.startsWith("/yayinci") && <PanelViewBanner />}
+            {(pathname.startsWith("/yayinci") || pathname.startsWith("/marka")) && <PanelViewBanner />}
             <div className="min-h-0 min-w-0 flex-1">{children}</div>
           </main>
         </div>

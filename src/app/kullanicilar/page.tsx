@@ -11,6 +11,7 @@ import {
   ScrollText,
   Bell,
   ExternalLink,
+  ShieldQuestion,
 } from "lucide-react";
 import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -282,6 +283,7 @@ function PinDisplayModal({ user, pin, onClose }: { user: AppUser; pin: string; o
 export default function UsersPage() {
   const router = useRouter();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
+  const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
   const { users, user: currentUser, addUser, updateUser, resetPin, deleteUser } = useAuth();
   const hydrateFromBackup = useStore((s) => s.hydrateFromBackup);
   const auditEntries = useAuditLog((s) => s.entries);
@@ -453,6 +455,57 @@ export default function UsersPage() {
     }
     setPinModal({ user: { ...u, pin: newPin }, pin: newPin });
     setFlash(`✓ ${u.name} için PIN sıfırlandı ve sunucuya kaydedildi.`);
+  };
+
+  const handleVerifyPin = async (u: AppUser) => {
+    if (!supabaseMode) {
+      setFlash("Yerel modda sunucu doğrulaması yapılamaz.");
+      return;
+    }
+    const input = window.prompt(
+      `${u.name} kullanıcısının PIN'ini test et (sunucudaki hash ile karşılaştırır):`,
+      u.pin && u.pin.length >= 4 ? u.pin : ""
+    );
+    if (!input) return;
+    const trimmed = input.trim();
+    if (trimmed.length < 4) {
+      setFlash("PIN en az 4 karakter olmalı.");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/users/${u.id}/verify-pin`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: trimmed }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        active?: boolean;
+      };
+      if (!res.ok) {
+        setFlash(data.error ?? `Doğrulama hatası (${res.status})`);
+        return;
+      }
+      if (data.ok) {
+        cacheAdminPin(u.id, trimmed);
+        useAuth.setState({
+          users: useAuth.getState().users.map((x) => (x.id === u.id ? { ...x, pin: trimmed } : x)),
+        });
+        setFlash(
+          data.active === false
+            ? `⚠ ${u.name}: PIN doğru fakat hesap pasif — kullanıcı giriş yapamaz.`
+            : `✓ ${u.name}: PIN sunucuda doğru. Bu kullanıcı giriş yapabilir.`
+        );
+      } else {
+        setFlash(
+          `✗ ${u.name}: PIN sunucuda eşleşmedi. "PIN sıfırla" ile yeni PIN atayın.`
+        );
+      }
+    } catch (e) {
+      setFlash(`Doğrulama hatası: ${e instanceof Error ? e.message : "bilinmiyor"}`);
+    }
   };
 
   return (
@@ -638,11 +691,31 @@ export default function UsersPage() {
                               <ExternalLink size={13} />
                             </button>
                           )}
+                          {u.role === "brand" && linkedBrand && (
+                            <button
+                              type="button"
+                              title="Marka paneline gir"
+                              onClick={() => {
+                                enterBrandPanel(linkedBrand.id, linkedBrand.name);
+                                router.push("/marka/izlenmeler");
+                              }}
+                              className="p-1.5 rounded hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition-colors"
+                            >
+                              <ExternalLink size={13} />
+                            </button>
+                          )}
                           <button onClick={() => handleResetPin(u)}
                             title="PIN sıfırla"
                             className="p-1.5 rounded hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 transition-colors">
                             <KeyRound size={13} />
                           </button>
+                          {supabaseMode && (
+                            <button onClick={() => void handleVerifyPin(u)}
+                              title="PIN'i sunucuda test et"
+                              className="p-1.5 rounded hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 transition-colors">
+                              <ShieldQuestion size={13} />
+                            </button>
+                          )}
                           {!locked ? (
                             <button onClick={async () => {
                               const r = await updateUser(u.id, { active: !u.active });

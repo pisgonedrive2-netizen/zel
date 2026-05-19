@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useStore, type Employee, WEEKDAYS_LONG } from "@/store/store";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Lock } from "lucide-react";
@@ -51,6 +52,7 @@ function RowFragment({ emp, children }: { emp: Employee; children: React.ReactNo
 
 export default function MarkaTakvimPage() {
   const { user } = useAuth();
+  const brandViewAs = usePanelView((s) => s.brandViewAs);
   const { employees, scheduleSlots } = useStore();
 
   const yayincilar = useMemo(
@@ -58,7 +60,9 @@ export default function MarkaTakvimPage() {
     [employees]
   );
 
-  if (!user || user.role !== "brand") {
+  const isAllowed =
+    user?.role === "brand" || (user?.role === "admin" && !!brandViewAs);
+  if (!user || !isAllowed) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
         <Lock className="text-muted-foreground" size={28} />

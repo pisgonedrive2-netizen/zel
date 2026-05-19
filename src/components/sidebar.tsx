@@ -107,18 +107,23 @@ export default function Sidebar() {
   }, [open]);
 
   const panelViewAs = usePanelView((s) => s.panelViewAs);
+  const brandViewAs = usePanelView((s) => s.brandViewAs);
   const adminViewingStreamer =
     user?.role === "admin" && !!panelViewAs && pathname.startsWith("/yayinci");
+  const adminViewingBrand =
+    user?.role === "admin" && !!brandViewAs && pathname.startsWith("/marka");
 
   // Rol bazlı nav
   const nav: NavItem[] =
     adminViewingStreamer      ? STREAMER_NAV :
+    adminViewingBrand         ? BRAND_NAV    :
     user?.role === "admin"    ? ADMIN_NAV    :
     user?.role === "auditor"  ? AUDITOR_NAV  :
     user?.role === "brand"    ? BRAND_NAV    :
     STREAMER_NAV;
   const groups: NavItem["group"][] =
     adminViewingStreamer     ? ["Yayıncı"] :
+    adminViewingBrand        ? ["Marka"] :
     user?.role === "admin"   ? ["Yönetim", "Yayın", "Finans"] :
     user?.role === "auditor" ? ["Denetim"] :
     user?.role === "brand"   ? ["Marka"] :
