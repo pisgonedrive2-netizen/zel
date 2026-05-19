@@ -36,6 +36,7 @@ const TYPE_LABEL: Record<AppNotification["type"], string> = {
   brand_payment_reminder: "Marka ödeme hatırlatıcı",
   password_reset_request: "Şifre sıfırlama talebi",
   account_registration_request: "Hesap kayıt talebi",
+  api_refresh_alert:  "API izlenme uyarısı",
   general:            "Genel duyuru",
 };
 

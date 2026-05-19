@@ -6,6 +6,8 @@ import {
   currentMonthKey,
   type SocialPlatform,
 } from "./config";
+import { getApiRefreshSettings } from "./settings";
+import { notifyApiRefreshIssues } from "./notify-alerts";
 import { detectPlatform } from "./platform-detect";
 import { fetchMetricsForLink, type FetchedMetrics } from "./clients";
 import { getMonthlyUsage, incrementUsage } from "./quota";
@@ -69,6 +71,26 @@ async function pickLinksForPlatform(
     .limit(limit);
   if (error) throw new Error(`brand_links pick: ${error.message}`);
   return (data ?? []) as BrandLinkRow[];
+}
+
+/** Son cron çalışmasından bu yana yeterli saat geçmediyse atla. */
+async function shouldSkipDueToInterval(
+  platform: SocialPlatform,
+  intervalHours: number,
+  triggeredBy: "cron" | "manual"
+): Promise<boolean> {
+  if (triggeredBy !== "cron") return false;
+  const { data } = await getSupabaseAdmin()
+    .from("api_refresh_runs")
+    .select("started_at")
+    .eq("platform", platform)
+    .eq("triggered_by", "cron")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data?.started_at) return false;
+  const hours = (Date.now() - new Date(String(data.started_at)).getTime()) / 3_600_000;
+  return hours < intervalHours;
 }
 
 /** BrandLink.platform (Türkçe dropdown) → kanonik platform slug. */
@@ -175,13 +197,36 @@ async function finishRun(runId: string, summary: Omit<PlatformRunSummary, "platf
  */
 export async function runPlatformRefresh(
   platform: SocialPlatform,
-  opts: { triggeredBy: "cron" | "manual"; userId?: string } = { triggeredBy: "cron" }
+  opts: { triggeredBy: "cron" | "manual"; userId?: string; cronIntervalHours?: number } = {
+    triggeredBy: "cron",
+  }
 ): Promise<PlatformRunSummary> {
   if (!isRapidApiEnabled()) {
     throw new Error("RAPIDAPI_KEY eksik — otomatik yenileme devre dışı.");
   }
+  const settings = await getApiRefreshSettings();
+  const intervalHours = opts.cronIntervalHours ?? settings.cronIntervalHours;
+
+  if (await shouldSkipDueToInterval(platform, intervalHours, opts.triggeredBy)) {
+    const usage = await getMonthlyUsage(platform);
+    return {
+      platform,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      quotaBefore: usage.requestsUsed,
+      quotaAfter: usage.requestsUsed,
+      monthlyLimit: SOCIAL_PLANS[platform].monthlyLimit,
+      results: [],
+    };
+  }
+
   const usage = await getMonthlyUsage(platform);
-  const { batchSize } = calcBatchSize({ platform, usedThisMonth: usage.requestsUsed });
+  const { batchSize } = calcBatchSize({
+    platform,
+    usedThisMonth: usage.requestsUsed,
+    cronIntervalHours: intervalHours,
+  });
   const summary: PlatformRunSummary = {
     platform,
     attempted: 0,
@@ -244,10 +289,14 @@ export async function runPlatformRefresh(
 
 /** Cron entry point — tüm platformları sırayla çalıştırır. */
 export async function runAllPlatformsRefresh(opts: { triggeredBy: "cron" | "manual"; userId?: string } = { triggeredBy: "cron" }): Promise<PlatformRunSummary[]> {
+  const settings = await getApiRefreshSettings();
   const out: PlatformRunSummary[] = [];
   for (const p of PLATFORMS) {
     try {
-      const s = await runPlatformRefresh(p, opts);
+      const s = await runPlatformRefresh(p, {
+        ...opts,
+        cronIntervalHours: settings.cronIntervalHours,
+      });
       out.push(s);
     } catch (err) {
       out.push({
@@ -268,6 +317,9 @@ export async function runAllPlatformsRefresh(opts: { triggeredBy: "cron" | "manu
         ],
       });
     }
+  }
+  if (opts.triggeredBy === "cron") {
+    await notifyApiRefreshIssues(out).catch(() => undefined);
   }
   return out;
 }

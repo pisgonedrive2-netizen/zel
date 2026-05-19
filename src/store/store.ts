@@ -406,6 +406,7 @@ export interface AppNotification {
     | "expense_paid"
     | "password_reset_request"
     | "account_registration_request"
+    | "api_refresh_alert"
     | "general";
   title: string;
   message: string;

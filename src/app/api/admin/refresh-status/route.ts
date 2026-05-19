@@ -5,13 +5,13 @@ import { isSupabaseEnabled, isRapidApiEnabled } from "@/lib/env";
 import { getAllUsage } from "@/lib/social-api/quota";
 import { getPlatformHealth } from "@/lib/social-api/health";
 import {
-  CRON_INTERVAL_HOURS,
   SOCIAL_PLANS,
   calcBatchSize,
   estimateRefreshIntervalHours,
   formatRefreshInterval,
   type SocialPlatform,
 } from "@/lib/social-api/config";
+import { getApiRefreshSettings, suggestMinCronIntervalHours } from "@/lib/social-api/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,7 +60,12 @@ export async function GET(_req: NextRequest) {
   }
 
   const db = getSupabaseAdmin();
-  const [usage, health] = await Promise.all([getAllUsage(), getPlatformHealth()]);
+  const [usage, health, refreshSettings] = await Promise.all([
+    getAllUsage(),
+    getPlatformHealth(),
+    getApiRefreshSettings(),
+  ]);
+  const cronIntervalHours = refreshSettings.cronIntervalHours;
 
   // Aktif & auto_track linklerin platforma göre dağılımı
   const counts: Record<SocialPlatform, number> = { youtube: 0, instagram: 0, tiktok: 0 };
@@ -82,13 +87,16 @@ export async function GET(_req: NextRequest) {
     const calc = calcBatchSize({
       platform: u.platform,
       usedThisMonth: u.requestsUsed,
+      cronIntervalHours,
     });
     const trackedLinkCount = counts[u.platform];
     const intervalHours = estimateRefreshIntervalHours({
       platform: u.platform,
       trackedLinkCount,
       batchSizePerRun: calc.batchSize,
+      cronIntervalHours,
     });
+    const minSuggestedHours = suggestMinCronIntervalHours(u.platform, trackedLinkCount);
     const platformHealth = health.find((h) => h.platform === u.platform);
     return {
       platform: u.platform,
@@ -104,6 +112,8 @@ export async function GET(_req: NextRequest) {
       lastRequestAt: u.lastRequestAt,
       rateLimit: SOCIAL_PLANS[u.platform].rateLimit,
       apiHost: SOCIAL_PLANS[u.platform].apiHost,
+      minSuggestedHours,
+      intervalTooAggressive: cronIntervalHours < minSuggestedHours,
       // Sağlık sinyali — UI bunu kullanır
       health: platformHealth
         ? {
@@ -129,7 +139,8 @@ export async function GET(_req: NextRequest) {
   return NextResponse.json({
     ok: true,
     rapidApiEnabled: isRapidApiEnabled(),
-    cronIntervalHours: CRON_INTERVAL_HOURS,
+    cronIntervalHours,
+    settings: refreshSettings,
     platforms,
     recentRuns: runs ?? [],
   });

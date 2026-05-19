@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -11,10 +12,14 @@ import {
   Clock,
   Loader2,
   PlayCircle,
+  Save,
+  Settings2,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SocialPlatformIcon } from "@/components/social-platform-icon";
+import { useAuth } from "@/store/auth";
 
 interface PlatformStatus {
   platform: "youtube" | "tiktok" | "instagram";
@@ -30,6 +35,8 @@ interface PlatformStatus {
   lastRequestAt: string | null;
   rateLimit: string;
   apiHost: string;
+  minSuggestedHours?: number;
+  intervalTooAggressive?: boolean;
   health: {
     status: "ok" | "warn" | "error" | "exhausted" | "unknown";
     lastSuccessAt: string | null;
@@ -55,10 +62,17 @@ interface RecentRun {
   error_summary: string;
 }
 
+interface RefreshSettings {
+  cronIntervalHours: number;
+  notifyEnabled: boolean;
+  notifyCooldownHours: number;
+}
+
 interface StatusResponse {
   ok: boolean;
   rapidApiEnabled: boolean;
   cronIntervalHours: number;
+  settings?: RefreshSettings;
   platforms: PlatformStatus[];
   recentRuns: RecentRun[];
   error?: string;
@@ -74,13 +88,6 @@ function fmtDate(iso?: string | null): string {
   });
 }
 
-function platformIcon(platform: string): string {
-  if (platform === "youtube") return "🎬";
-  if (platform === "instagram") return "📷";
-  if (platform === "tiktok") return "🎵";
-  return "📊";
-}
-
 interface PingResult {
   ok: boolean;
   status: number;
@@ -90,12 +97,18 @@ interface PingResult {
 }
 
 export function AutoRefreshStatusPanel() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pingingPlatform, setPingingPlatform] = useState<string | null>(null);
   const [pingResult, setPingResult] = useState<PingResult | null>(null);
+  const [draftSettings, setDraftSettings] = useState<RefreshSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +118,7 @@ export function AutoRefreshStatusPanel() {
       const json = (await res.json()) as StatusResponse;
       if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setData(json);
+      if (json.settings) setDraftSettings(json.settings);
     } catch (err) {
       setError(err instanceof Error ? err.message : "?");
     } finally {
@@ -142,6 +156,29 @@ export function AutoRefreshStatusPanel() {
       setPingingPlatform(null);
     }
   }, [load]);
+
+  const saveSettings = useCallback(async () => {
+    if (!draftSettings || !isAdmin) return;
+    setSavingSettings(true);
+    setSettingsMsg(null);
+    try {
+      const res = await fetch("/api/admin/api-refresh-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draftSettings),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; settings?: RefreshSettings };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setSettingsMsg("Ayarlar kaydedildi.");
+      if (json.settings) setDraftSettings(json.settings);
+      await load();
+    } catch (err) {
+      setSettingsMsg(err instanceof Error ? err.message : "Kayıt hatası");
+    } finally {
+      setSavingSettings(false);
+    }
+  }, [draftSettings, isAdmin, load]);
 
   useEffect(() => {
     void load();
@@ -195,24 +232,97 @@ export function AutoRefreshStatusPanel() {
               Otomatik link yenileme
             </CardTitle>
             <CardDescription className="text-xs">
-              YouTube · Instagram · TikTok izlenmelerini RapidAPI ile{" "}
-              <span className="font-medium text-foreground">günde {Math.round(24 / data.cronIntervalHours)} kez</span>{" "}
-              kontrol eder · Basic plan kotalarına göre adaptif batch.
+              YouTube · Instagram · TikTok — RapidAPI Basic (YT/IG 100, TikTok 300/ay, %85 güvenli kota).
+              Kontrol:{" "}
+              <span className="font-medium text-foreground">her {data.cronIntervalHours} saatte bir</span>.
             </CardDescription>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => void load()}
-            className="h-7 gap-1.5 text-xs"
-            disabled={loading}
-          >
-            <Activity size={12} /> Yenile
-          </Button>
+          <div className="flex flex-wrap gap-1.5">
+            {isAdmin && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setSettingsOpen((v) => !v)}
+                className="h-7 gap-1.5 text-xs"
+              >
+                <Settings2 size={12} /> Ayarlar
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void load()}
+              className="h-7 gap-1.5 text-xs"
+              disabled={loading}
+            >
+              <Activity size={12} /> Yenile
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {settingsOpen && draftSettings && isAdmin && (
+          <div className="rounded-lg border border-violet-200/60 bg-violet-50/30 dark:border-violet-500/40 dark:bg-violet-950/25 p-3 space-y-3">
+            <p className="text-xs font-medium flex items-center gap-1.5">
+              <Settings2 size={13} /> Otomatik yenileme ayarları
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-[11px] text-muted-foreground">Kontrol aralığı (saat)</label>
+                <select
+                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={draftSettings.cronIntervalHours}
+                  onChange={(e) =>
+                    setDraftSettings((s) =>
+                      s ? { ...s, cronIntervalHours: Number(e.target.value) } : s
+                    )
+                  }
+                >
+                  {[6, 12, 24, 48, 72].map((h) => (
+                    <option key={h} value={h}>{h} saatte bir</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">Bildirim bekleme (saat)</label>
+                <select
+                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  value={draftSettings.notifyCooldownHours}
+                  onChange={(e) =>
+                    setDraftSettings((s) =>
+                      s ? { ...s, notifyCooldownHours: Number(e.target.value) } : s
+                    )
+                  }
+                >
+                  {[4, 8, 12, 24, 48].map((h) => (
+                    <option key={h} value={h}>{h} saat</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draftSettings.notifyEnabled}
+                onChange={(e) =>
+                  setDraftSettings((s) => (s ? { ...s, notifyEnabled: e.target.checked } : s))
+                }
+                className="rounded border-input"
+              />
+              <Bell size={12} /> Kota / hata / ödeme uyarıları
+            </label>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" className="h-7 gap-1 text-xs" disabled={savingSettings} onClick={() => void saveSettings()}>
+                {savingSettings ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                Kaydet
+              </Button>
+              {settingsMsg && <span className="text-[11px] text-muted-foreground">{settingsMsg}</span>}
+            </div>
+          </div>
+        )}
+
         {pingResult && (
           <div
             className={`rounded-md border px-3 py-2 text-xs ${
@@ -252,7 +362,7 @@ export function AutoRefreshStatusPanel() {
               <div key={p.platform} className={`rounded-lg border px-3 py-3 ${accent}`}>
                 <div className="flex items-center justify-between mb-2 gap-2">
                   <p className="font-semibold text-sm flex items-center gap-1.5 min-w-0">
-                    <span className="text-base">{platformIcon(p.platform)}</span>
+                    <SocialPlatformIcon platform={p.platform} size={22} />
                     <span className="truncate">{p.label}</span>
                     <HealthDot status={hStatus} />
                   </p>
@@ -304,6 +414,13 @@ export function AutoRefreshStatusPanel() {
                     {p.requestsUsed}/{p.monthlyBudget} güvenli
                   </Row>
                   <Row label="Rate limit">{p.rateLimit}</Row>
+                  {p.minSuggestedHours != null && (
+                    <Row label="Önerilen min.">
+                      <span className={p.intervalTooAggressive ? "text-amber-700 dark:text-amber-300 font-medium" : ""}>
+                        {p.minSuggestedHours} saat
+                      </span>
+                    </Row>
+                  )}
                 </dl>
                 {p.health?.lastError && hStatus !== "ok" && (
                   <div className="mt-2 rounded border border-red-200 bg-red-50/50 px-2 py-1 text-[10px] text-red-800 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200">
@@ -353,7 +470,8 @@ export function AutoRefreshStatusPanel() {
                     ) : (
                       <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400" />
                     )}
-                    <span className="font-medium">{platformIcon(r.platform)} {r.platform}</span>
+                    <SocialPlatformIcon platform={r.platform} size={14} />
+                    <span className="font-medium">{r.platform}</span>
                     <Badge variant="outline" className="text-[9px]">
                       {r.triggered_by === "manual" ? "manuel" : "cron"}
                     </Badge>
