@@ -135,6 +135,17 @@ export function brandStatsExportRows(
           },
         ]
       : []),
-    ...(s.notes.trim() ? [{ label: "Not", value: s.notes.trim() }] : []),
+    ...(s.liveDemoAllocated > 0 || s.liveDemoRemaining > 0
+      ? [
+          { label: "Canli demo tahsis", value: fmtBrandMoney(s.liveDemoAllocated, cur) },
+          { label: "Canli demo kalan", value: fmtBrandMoney(s.liveDemoRemaining, cur) },
+          {
+            label: "Canli demo kullanim",
+            value: fmtBrandMoney(Math.max(0, s.liveDemoAllocated - s.liveDemoRemaining), cur),
+          },
+        ]
+      : []),
+    ...(s.liveDemoNotes.trim() ? [{ label: "Canli demo notu", value: s.liveDemoNotes.trim() }] : []),
+    ...(s.notes.trim() ? [{ label: "Genel not", value: s.notes.trim() }] : []),
   ];
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   propagateRentForEmployee,
+  applyRentToMonths,
+  getRentForMonth,
   type Employee,
   type SalaryExtra,
 } from "./store";
@@ -115,5 +117,15 @@ describe("propagateRentForEmployee", () => {
     const out = propagateRentForEmployee(seed, lucy, 800, "2026-05");
     expect(out.find((e) => e.employeeId === "emp-ramiz")?.amount).toBe(1400);
     expect(out.find((e) => e.employeeId === "emp-lucy")?.amount).toBe(800);
+  });
+});
+
+describe("applyRentToMonths", () => {
+  it("sets different months without touching others", () => {
+    const seed = makeRentSeed("emp-lucy", ["2026-04"], 500);
+    const out = applyRentToMonths(seed, lucy, ["2026-05", "2026-06"], 600);
+    expect(getRentForMonth(lucy, "2026-04", out)).toBe(500);
+    expect(getRentForMonth(lucy, "2026-05", out)).toBe(600);
+    expect(getRentForMonth(lucy, "2026-06", out)).toBe(600);
   });
 });

@@ -88,6 +88,15 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const canView =
     hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs);
 
+  /** Tema + API çipi — içerikle çakışmasın diye üst/sağ boşluk */
+  const floatingControlsInset =
+    user &&
+    (user.role === "admin" || user.role === "auditor") &&
+    pathname !== "/login" &&
+    pathname !== "/izlenme" &&
+    !pathname.startsWith("/marka") &&
+    !pathname.startsWith("/yayinci");
+
   return (
     <>
       {!isLogin && <FloatingTopControls />}
@@ -112,7 +121,13 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       {canView && (
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 pt-14 sm:px-6 md:px-8 md:pt-2 md:pr-4 lg:px-10 lg:pr-6 max-md:pr-14">
+          <main
+            className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 pt-14 sm:px-6 md:px-8 lg:px-10 max-md:pr-14 ${
+              floatingControlsInset
+                ? "md:pt-[5.25rem] md:pr-20 lg:pr-24"
+                : "md:pt-2 md:pr-4 lg:pr-6"
+            }`}
+          >
             <MobileSidebarTrigger />
             {(pathname.startsWith("/yayinci") || pathname.startsWith("/marka")) && <PanelViewBanner />}
             <div className="min-h-0 min-w-0 flex-1">{children}</div>

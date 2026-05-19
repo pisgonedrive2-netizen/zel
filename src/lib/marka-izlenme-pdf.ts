@@ -186,6 +186,91 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
   doc.save(`izlenme_${slug}_${input.monthYm}.pdf`);
 }
 
+export type BrandOperationPdfInput = {
+  brandFullName: string;
+  monthYm: string;
+  monthTitle: string;
+  operationStats: Array<{ label: string; value: string }>;
+};
+
+/** Operasyon özeti — kayıt, yatırım, çekim ve canlı demo metrikleri. */
+export function downloadBrandOperationPdf(input: BrandOperationPdfInput, filenamePrefix?: string): void {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const title = latin1ish(input.brandFullName);
+  const mt = latin1ish(input.monthTitle);
+
+  doc.setFontSize(16);
+  doc.text("Operasyon ozeti raporu", 14, 16);
+  doc.setFontSize(11);
+  doc.text(`Marka: ${title}`, 14, 24);
+  doc.text(`Donem: ${mt} (${input.monthYm})`, 14, 30);
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text(
+    latin1ish("Kayit olan uye, yatirim yapan uye, tutarlar ve canli demo bakiyesi."),
+    14,
+    36
+  );
+  doc.setTextColor(0);
+
+  if (input.operationStats.length > 0) {
+    autoTable(doc, {
+      startY: 44,
+      head: [[latin1ish("Metrik"), latin1ish("Deger")]],
+      body: input.operationStats.map((r) => [latin1ish(r.label), latin1ish(r.value)]),
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [124, 58, 237] },
+      margin: { left: 14, right: 14 },
+    });
+  } else {
+    doc.setFontSize(10);
+    doc.text(latin1ish("Bu donem icin kayitli operasyon verisi yok."), 14, 48);
+  }
+
+  const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
+  if (typeof window === "undefined") {
+    throw new Error("PDF indirme yalnızca tarayıcıda kullanılabilir.");
+  }
+  doc.save(`operasyon_${slug}_${input.monthYm}.pdf`);
+}
+
+export function downloadBrandOperationCsv(
+  input: BrandOperationPdfInput,
+  filenamePrefix?: string
+): void {
+  const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
+  const sections: CsvReport["sections"] = [
+    summarySection("Rapor ozeti", [
+      { metric: "Marka", value: input.brandFullName, unit: "" },
+      { metric: "Donem", value: `${input.monthTitle} (${input.monthYm})`, unit: "" },
+      { metric: "Metrik sayisi", value: input.operationStats.length, unit: "adet" },
+    ]),
+  ];
+
+  if (input.operationStats.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Operasyon metrikleri",
+        ["Metrik", "Deger"],
+        input.operationStats.map((r) => [r.label, r.value]),
+        `Kayit ve yatirim · ${input.monthYm}`
+      )
+    );
+  }
+
+  downloadProfessionalCsv({
+    filename: `operasyon_${slug}_${input.monthYm}.csv`,
+    metadata: {
+      Uygulama: "Foxstream",
+      "Rapor turu": "Marka operasyon ozeti",
+      Marka: input.brandFullName,
+      Donem: `${input.monthTitle} (${input.monthYm})`,
+      "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+    },
+    sections,
+  });
+}
+
 export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?: string): void {
   const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
   const sections: CsvReport["sections"] = [

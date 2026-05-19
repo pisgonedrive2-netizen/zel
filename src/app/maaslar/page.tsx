@@ -2,7 +2,7 @@
 
 import { useState, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, ChevronLeft, ChevronRight, CheckCircle2, Clock, AlertTriangle, CalendarClock, ExternalLink } from "lucide-react";
+import { Plus, Pencil, ChevronLeft, ChevronRight, CheckCircle2, Clock, AlertTriangle, CalendarClock, ExternalLink, Home } from "lucide-react";
 import {
   useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
   sumApprovedContentExpenses, sumPaidContentExpenses, plannedPayrollPlusApprovedContent,
@@ -26,6 +26,7 @@ import { Field, Input as FInput, NumberInput, Select, Textarea, FormGrid, FormAc
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
+import { BulkRentModal } from "@/components/bulk-rent-modal";
 import {
   exportSalaryMonthCsv,
   exportSalaryMonthPdf,
@@ -226,11 +227,13 @@ function EmployeeDetailRow({
   month,
   readOnly,
   currentUserId,
+  onBulkRent,
 }: {
   employee: Employee;
   month: string;
   readOnly: boolean;
   currentUserId?: string;
+  onBulkRent?: (employeeId: string) => void;
 }) {
   const { advances, salaryExtras, paymentStatuses, contentExpenses, kasas, kasaTransactions,
     updateEmployee, addAdvance, updateAdvance, deleteAdvance,
@@ -422,7 +425,20 @@ function EmployeeDetailRow({
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Kira / Prim / Kesinti</p>
-              {active && !readOnly && <button onClick={() => setExtraModal("new")} className="text-[10px] text-blue-600 hover:text-blue-700 transition-colors">+ Ekle</button>}
+              {active && !readOnly && (
+                <div className="flex items-center gap-2">
+                  {onBulkRent && (
+                    <button
+                      type="button"
+                      onClick={() => onBulkRent(employee.id)}
+                      className="text-[10px] text-blue-600 hover:text-blue-700 transition-colors"
+                    >
+                      Toplu kira
+                    </button>
+                  )}
+                  <button onClick={() => setExtraModal("new")} className="text-[10px] text-blue-600 hover:text-blue-700 transition-colors">+ Ekle</button>
+                </div>
+              )}
             </div>
             {empExtras.length === 0 ? (
               active && employee.rentSupport > 0 ? (
@@ -722,6 +738,7 @@ export default function MaaslarPage() {
   const [month, setMonth]     = useState(() => toYearMonthLocal(new Date()));
   const [search, setSearch]   = useState("");
   const [empModal, setEmpModal] = useState<"new" | Employee | null>(null);
+  const [bulkRent, setBulkRent] = useState<{ employeeId?: string } | null>(null);
 
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && e.status === "active");
   const aktifBuAy = bordrolu.filter(e => isPayrollActive(e, month));
@@ -834,9 +851,19 @@ export default function MaaslarPage() {
             />
           )}
           {!readOnly && (
-            <Button onClick={() => setEmpModal("new")} size="sm" className="gap-1.5">
-              <Plus size={14} /> Çalışan Ekle
-            </Button>
+            <>
+              <Button
+                onClick={() => setBulkRent({})}
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+              >
+                <Home size={14} /> Toplu kira
+              </Button>
+              <Button onClick={() => setEmpModal("new")} size="sm" className="gap-1.5">
+                <Plus size={14} /> Çalışan Ekle
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -887,6 +914,7 @@ export default function MaaslarPage() {
               month={month}
               readOnly={readOnly}
               currentUserId={user?.id}
+              onBulkRent={readOnly ? undefined : (id) => setBulkRent({ employeeId: id })}
             />
           ))}
       </div>
@@ -1029,6 +1057,14 @@ export default function MaaslarPage() {
           onClose={() => setEmpModal(null)}
         />
       </Modal>
+
+      <BulkRentModal
+        open={bulkRent !== null}
+        onClose={() => setBulkRent(null)}
+        employees={employees}
+        defaultEmployeeId={bulkRent?.employeeId}
+        defaultFromMonth={month}
+      />
     </div>
   );
 }

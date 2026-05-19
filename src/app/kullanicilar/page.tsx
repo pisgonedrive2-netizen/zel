@@ -727,8 +727,8 @@ export default function UsersPage() {
           {flash}
         </div>
       )}
-      <div className="flex items-start justify-between mb-8">
-        <div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold text-foreground">Kullanıcılar</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın
@@ -739,7 +739,10 @@ export default function UsersPage() {
             )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 sm:justify-end shrink-0">
+          <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
+            <Plus size={14} /> Yeni Kullanıcı
+          </Button>
           <Button size="sm" variant="outline" onClick={runExportBackup} className="gap-1.5">
             <Download size={13} /> Yedek indir
           </Button>
@@ -752,9 +755,6 @@ export default function UsersPage() {
           <Button size="sm" variant="outline" onClick={() => setShowPins(s => !s)} className="gap-1.5">
             {showPins ? <EyeOff size={13} /> : <Eye size={13} />}
             {showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
-          </Button>
-          <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
-            <Plus size={14} /> Yeni Kullanıcı
           </Button>
         </div>
       </div>

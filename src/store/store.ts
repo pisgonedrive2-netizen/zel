@@ -489,6 +489,10 @@ interface AppStore {
   updateSalaryExtra: (id: string, e: Partial<SalaryExtra>) => void;
   deleteSalaryExtra: (id: string) => void;
   syncRentSupportFromMonth: (employeeId: string, fromMonth: string, amount: number) => void;
+  /** Seçilen aylara kira tutarı (ay bazlı salary_extras). */
+  setRentForMonths: (employeeId: string, months: string[], amount: number) => void;
+  /** Sözleşme `rentSupport` alanı — mevcut ay kalemlerini silmeden varsayılanı günceller. */
+  setEmployeeRentSupport: (employeeId: string, amount: number) => void;
 
   setPaymentStatus: (employeeId: string, month: string, paid: boolean, paidDate?: string, paidBy?: string) => void;
 
@@ -1258,6 +1262,54 @@ export function propagateRentForEmployee(
   return next;
 }
 
+/** Tek ay için kira kalemi oluşturur veya günceller; amount ≤ 0 ise siler. */
+export function upsertRentExtraForMonth(
+  salaryExtras: SalaryExtra[],
+  employee: Employee,
+  monthYm: string,
+  amount: number
+): SalaryExtra[] {
+  const existing = salaryExtras.find(
+    (e) => e.employeeId === employee.id && e.type === "rent" && e.month === monthYm
+  );
+  if (amount <= 0) {
+    if (!existing) return salaryExtras;
+    return salaryExtras.filter((e) => e.id !== existing.id);
+  }
+  if (existing) {
+    return salaryExtras.map((e) =>
+      e.id === existing.id ? { ...e, amount } : e
+    );
+  }
+  return [
+    ...salaryExtras,
+    {
+      id: `se-${employee.id.replace(/^emp-/, "")}-rent-${monthYm}`,
+      employeeId: employee.id,
+      month: monthYm,
+      amount,
+      description: "Ev kira desteği (aylık)",
+      type: "rent" as const,
+    },
+  ];
+}
+
+/** Seçilen aylara aynı kira tutarını yazar (yayıncı profili `getRentForMonth` ile okur). */
+export function applyRentToMonths(
+  salaryExtras: SalaryExtra[],
+  employee: Employee,
+  months: string[],
+  amount: number
+): SalaryExtra[] {
+  const unique = [...new Set(months)].sort();
+  let next = salaryExtras;
+  for (const m of unique) {
+    if (!isPayrollActive(employee, m)) continue;
+    next = upsertRentExtraForMonth(next, employee, m, amount);
+  }
+  return next;
+}
+
 /**
  * Çalışan sözleşmesindeki `rentSupport` ile bu ayın `salary_extras` (tip=rent)
  * kaydı uyumsuzsa otomatik düzeltir. Eski bug sonrası DB/localStorage'ta kalan
@@ -1391,6 +1443,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             salaryExtras: propagateRentForEmployee(s.salaryExtras, employee, amount, fromMonth),
           };
         }),
+      setRentForMonths: (employeeId, months, amount) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          return {
+            salaryExtras: applyRentToMonths(s.salaryExtras, employee, months, amount),
+          };
+        }),
+      setEmployeeRentSupport: (employeeId, amount) =>
+        set((s) => ({
+          employees: s.employees.map((e) =>
+            e.id === employeeId ? { ...e, rentSupport: Math.max(0, amount) } : e
+          ),
+        })),
 
       setPaymentStatus: (employeeId, month, paid, paidDate, paidBy) =>
         set((s) => {

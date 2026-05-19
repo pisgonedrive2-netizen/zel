@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, ChevronLeft, ChevronRight,
   Search, X, CalendarDays, Eye,
   Wallet, Clapperboard, LogOut, ShieldCheck,
-  Bell, Headphones, KeyRound, Link2, Activity,
+  Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
@@ -69,6 +69,7 @@ const AUDITOR_NAV: NavItem[] = [
 ];
 
 const BRAND_NAV: NavItem[] = [
+  { href: "/marka/operasyon",    label: "Operasyon özeti",  icon: BarChart3,      group: "Marka" },
   { href: "/marka/izlenmeler",  label: "İzlenmeler",       icon: Eye,            group: "Marka" },
   { href: "/marka/takvim",      label: "Yayıncı takvimi",  icon: CalendarDays,   group: "Marka" },
   { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,         group: "Marka" },

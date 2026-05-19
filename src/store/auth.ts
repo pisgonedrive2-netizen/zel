@@ -447,7 +447,7 @@ export function canAccess(
 export function landingFor(role: Role): string {
   if (role === "admin")   return "/ozet";
   if (role === "auditor") return "/denetci";
-  if (role === "brand")   return "/marka/izlenmeler";
+  if (role === "brand")   return "/marka/operasyon";
   return "/yayinci/maas";
 }
 

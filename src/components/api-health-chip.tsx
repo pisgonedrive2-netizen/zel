@@ -125,7 +125,9 @@ export function ApiHealthChip({ embedded = false }: { embedded?: boolean }) {
         <Activity size={11} />
       )}
       <span className="font-medium">API</span>
-      <span className="opacity-80 hidden sm:inline truncate">· {summary}</span>
+      {!embedded && (
+        <span className="opacity-80 hidden sm:inline truncate">· {summary}</span>
+      )}
     </Link>
   );
 }

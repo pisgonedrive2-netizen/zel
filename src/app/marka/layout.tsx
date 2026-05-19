@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
 
 const NAV = [
+  { href: "/marka/operasyon", label: "Operasyon özeti" },
   { href: "/marka/izlenmeler", label: "İzlenmeler" },
   { href: "/marka/takvim", label: "Yayıncı takvimi" },
   { href: "/marka/odemeler", label: "Ödeme planı" },
@@ -18,10 +19,10 @@ export default function MarkaLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="w-full min-w-0">
-      {user?.role === "brand" && (
+      {user?.role === "brand" && pathname.startsWith("/marka/operasyon") && (
         <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-500/40 dark:bg-violet-950/35 px-4 py-2 text-xs text-violet-900 dark:text-violet-100">
-          <strong>Marka hesabı:</strong> Bu ay kayıt olan üye, yatırım yapan üye ve tutarları aşağıdaki
-          formdan girip kaydedebilirsiniz. Veriler yöneticiyle senkron olur.
+          <strong>Marka hesabı:</strong> Bu ay kayıt olan üye, yatırım yapan üye ve tutarları{" "}
+          <strong>Operasyon özeti</strong> formundan girip kaydedebilirsiniz. Veriler yöneticiyle senkron olur.
         </div>
       )}
       <nav
