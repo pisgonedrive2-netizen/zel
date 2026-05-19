@@ -15,6 +15,7 @@ import {
 import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
+import { cacheAdminPin, mergeUsersWithPinCache } from "@/lib/admin-pin-cache";
 import { isMainAdmin } from "@/lib/user-guards";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
@@ -298,9 +299,8 @@ export default function UsersPage() {
       if (!res.ok) return;
       const data = (await res.json()) as { users?: AppUser[] };
       if (!data.users) return;
-      const pinById = new Map(useAuth.getState().users.map((u) => [u.id, u.pin]));
       useAuth.setState({
-        users: data.users.map((u) => ({ ...u, pin: pinById.get(u.id) ?? "" })),
+        users: mergeUsersWithPinCache(data.users, useAuth.getState().users),
       });
     } catch {
       /* sessiz */
@@ -438,6 +438,9 @@ export default function UsersPage() {
         setFlash(r.reason);
         return;
       }
+      if (sanitized.pin && sanitized.pin.length >= 4) {
+        cacheAdminPin(modal.id, sanitized.pin);
+      }
       setFlash("✓ Kullanıcı güncellendi.");
     }
     setModal(null);
@@ -478,6 +481,11 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-foreground">Kullanıcılar</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın
+            {supabaseMode && (
+              <span className="block text-[11px] mt-1 text-muted-foreground/90">
+                Supabase modunda PIN yalnızca oluşturma/sıfırlama sonrası bu tarayıcı oturumunda görüntülenebilir.
+              </span>
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -580,12 +588,23 @@ export default function UsersPage() {
                       <td className="px-4 py-3 font-mono text-xs">{u.username}</td>
                       <td className="px-4 py-3 font-mono text-xs">
                         {showPins ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="font-bold text-foreground">{u.pin}</span>
-                            <CopyCredentialsBtn user={u} pin={u.pin} />
-                          </span>
+                          u.pin && u.pin.length >= 4 ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="font-bold text-foreground">{u.pin}</span>
+                              <CopyCredentialsBtn user={u} pin={u.pin} />
+                            </span>
+                          ) : (
+                            <span
+                              className="text-[11px] text-muted-foreground italic max-w-[140px] leading-snug"
+                              title="PIN sunucuda hash olarak saklanır. Görmek için PIN sıfırlayın veya bu oturumda yeni PIN atayın."
+                            >
+                              Bu oturumda kayıtlı değil
+                            </span>
+                          )
                         ) : (
-                          <span className="text-muted-foreground tracking-widest">{"•".repeat(Math.min(8, u.pin.length))}</span>
+                          <span className="text-muted-foreground tracking-widest">
+                            {u.pin.length > 0 ? "•".repeat(Math.min(8, u.pin.length)) : "••••••••"}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{linkLabel}</td>

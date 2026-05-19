@@ -6,6 +6,7 @@ import { canApplyUserPatch, canDeleteUser } from "@/lib/user-guards";
 import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
+import { cacheAdminPin, mergeUsersWithPinCache, removeCachedAdminPin } from "@/lib/admin-pin-cache";
 import type { PanelViewAs } from "@/store/panel-view";
 
 export type Role = "admin" | "streamer" | "auditor" | "brand";
@@ -86,18 +87,15 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
     if (!res.ok) return false;
     const data = (await res.json()) as { users?: AppUser[] };
     if (!data.users) return false;
-    set((s) => {
-      const pinById = new Map(s.users.map((u) => [u.id, u.pin]));
-      return {
-        users: data.users!.map((u) => ({ ...u, pin: pinById.get(u.id) ?? "" })),
-      };
-    });
+    set((s) => ({
+      users: mergeUsersWithPinCache(data.users!, s.users),
+    }));
     return true;
   };
 
   return {
       user:  null,
-      users: INITIAL_USERS,
+      users: isSupabaseClientMode() ? [] : INITIAL_USERS,
 
       login: async (username, pin) => {
         if (isSupabaseClientMode()) {
@@ -168,6 +166,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
               return { ok: false as const, reason: "Sunucu kullanıcı döndürmedi." };
             }
             const saved: AppUser = { ...data.user, pin: u.pin };
+            cacheAdminPin(saved.id, u.pin);
             await refreshUsersFromServer();
             logAudit({
               actorId: actor?.id ?? "system",
@@ -222,6 +221,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
             }
+            if (plainPin) cacheAdminPin(id, plainPin);
             await refreshUsersFromServer();
             if (plainPin) {
               set((s) => ({
@@ -269,17 +269,22 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
             }
+            cacheAdminPin(id, trimmed);
             await refreshUsersFromServer();
+            set((s) => ({
+              users: s.users.map((x) => (x.id === id ? { ...x, pin: trimmed } : x)),
+            }));
           } catch {
             return {
               ok: false as const,
               reason: "Ağ hatası — PIN Supabase'e yazılamadı.",
             };
           }
+        } else {
+          set((s) => ({
+            users: s.users.map((x) => (x.id === id ? { ...x, pin: trimmed } : x)),
+          }));
         }
-        set((s) => ({
-          users: s.users.map((x) => (x.id === id ? { ...x, pin: trimmed } : x)),
-        }));
         logAudit({
           actorId: actor?.id ?? "system",
           actorName: actor?.name ?? "Bilinmiyor",
@@ -302,6 +307,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             if (!res.ok) {
               return { ok: false as const, reason: await readApiError(res) };
             }
+            removeCachedAdminPin(id);
             await refreshUsersFromServer();
           } catch {
             return {
@@ -310,6 +316,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             };
           }
         } else {
+          removeCachedAdminPin(id);
           set((s) => ({
             users: s.users.filter((u) => u.id !== id),
             user: s.user?.id === id ? null : s.user,
