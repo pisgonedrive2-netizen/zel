@@ -19,6 +19,9 @@ const sample: BrandMonthlyStats = {
   depositAmount: 500_000,
   withdrawalAmount: 120_000,
   currency: "TRY",
+  liveDemoAllocated: 5000,
+  liveDemoRemaining: 1200,
+  liveDemoNotes: "Slot demo",
   notes: "",
 };
 

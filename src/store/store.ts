@@ -213,6 +213,11 @@ export interface BrandMonthlyStats {
   depositAmount: number;
   withdrawalAmount: number;
   currency: "TRY" | "USD" | "EUR";
+  /** Canlı yayın demo oyun bakiyesi — aylık tahsis. */
+  liveDemoAllocated: number;
+  /** Kalan demo bakiye (oyun için). */
+  liveDemoRemaining: number;
+  liveDemoNotes: string;
   notes: string;
   /** Son kaydı güncelleyen admin (app_users.id). */
   updatedBy?: string;
@@ -1609,6 +1614,9 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             depositAmount: Math.max(0, Number(stats.depositAmount) || 0),
             withdrawalAmount: Math.max(0, Number(stats.withdrawalAmount) || 0),
             currency: stats.currency ?? "USD",
+            liveDemoAllocated: Math.max(0, Number(stats.liveDemoAllocated) || 0),
+            liveDemoRemaining: Math.max(0, Number(stats.liveDemoRemaining) || 0),
+            liveDemoNotes: stats.liveDemoNotes ?? "",
             notes: stats.notes ?? "",
             updatedBy: stats.updatedBy,
             updatedAt: new Date().toISOString(),

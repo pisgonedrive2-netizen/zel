@@ -10,11 +10,15 @@ import {
   ArrowUpCircle,
   Save,
   BarChart3,
+  Radio,
+  Gamepad2,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { useStore, type BrandMonthlyStats } from "@/store/store";
 import {
   deriveBrandMonthlyStats,
+  deriveLiveDemoUsage,
   draftBrandMonthlyStats,
   findBrandMonthlyStats,
   fmtBrandCount,
@@ -107,8 +111,10 @@ export function BrandMonthlyStatsPanel({
   }, [brandId, monthYm, saved]);
 
   const derived = useMemo(() => deriveBrandMonthlyStats(form), [form]);
+  const liveDemo = useMemo(() => deriveLiveDemoUsage(form), [form]);
   const hasData = hasBrandMonthlyStatsData(form);
   const cur = form.currency;
+  const sym = currencySymbol(cur);
 
   const handleSave = () => {
     upsertBrandMonthlyStats({
@@ -122,6 +128,9 @@ export function BrandMonthlyStatsPanel({
       depositAmount: parseMoneyField(String(form.depositAmount)),
       withdrawalAmount: parseMoneyField(String(form.withdrawalAmount)),
       currency: form.currency,
+      liveDemoAllocated: parseMoneyField(String(form.liveDemoAllocated)),
+      liveDemoRemaining: parseMoneyField(String(form.liveDemoRemaining)),
+      liveDemoNotes: form.liveDemoNotes,
       notes: form.notes,
       updatedBy: user?.id,
     });
@@ -167,6 +176,122 @@ export function BrandMonthlyStatsPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4 pt-0">
+        <div
+          className={cn(
+            "rounded-xl border p-3 space-y-3",
+            liveDemo.low
+              ? "border-amber-300/80 bg-amber-50/40 dark:border-amber-500/40 dark:bg-amber-950/25"
+              : "border-emerald-200/70 bg-emerald-50/30 dark:border-emerald-500/35 dark:bg-emerald-950/20"
+          )}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
+                <Radio size={14} className="text-emerald-700 dark:text-emerald-300" />
+                Canlı yayın demo bakiyesi
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Yayında oyun için kalan demo bakiye — {monthYm}
+              </p>
+            </div>
+            {liveDemo.low && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                <AlertTriangle size={11} /> Düşük bakiye
+              </span>
+            )}
+          </div>
+          {readOnly ? (
+            <div className="grid gap-2 sm:grid-cols-3">
+              <KpiTile
+                icon={Gamepad2}
+                label="Tahsis"
+                value={fmtBrandMoney(form.liveDemoAllocated, cur)}
+                accent="green"
+              />
+              <KpiTile
+                icon={Wallet}
+                label="Kalan"
+                value={fmtBrandMoney(form.liveDemoRemaining, cur)}
+                sub={
+                  liveDemo.usedPct != null ? `%${(100 - liveDemo.usedPct).toFixed(0)} kaldı` : undefined
+                }
+                accent={liveDemo.low ? "amber" : "green"}
+              />
+              <KpiTile
+                icon={BarChart3}
+                label="Harcanan"
+                value={fmtBrandMoney(liveDemo.used, cur)}
+                sub={liveDemo.usedPct != null ? `%${liveDemo.usedPct.toFixed(0)} kullanıldı` : undefined}
+                accent="violet"
+              />
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Tahsis edilen demo ({sym})
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.liveDemoAllocated || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      liveDemoAllocated: parseMoneyField(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Kalan demo ({sym})
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.liveDemoRemaining || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      liveDemoRemaining: parseMoneyField(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-[11px] font-medium text-muted-foreground">Demo notu</label>
+                <Input
+                  className="h-8 mt-1 text-sm"
+                  placeholder="Örn. slot demo, rulet masası, platform adı"
+                  value={form.liveDemoNotes}
+                  onChange={(e) => setForm((f) => ({ ...f, liveDemoNotes: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+          {form.liveDemoAllocated > 0 && (
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full transition-all",
+                  liveDemo.low ? "bg-amber-500" : "bg-emerald-500"
+                )}
+                style={{
+                  width: `${Math.min(100, (form.liveDemoRemaining / form.liveDemoAllocated) * 100)}%`,
+                }}
+              />
+            </div>
+          )}
+          {readOnly && form.liveDemoNotes.trim() && (
+            <p className="text-[11px] text-muted-foreground">{form.liveDemoNotes}</p>
+          )}
+        </div>
+
         {readOnly ? (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <KpiTile

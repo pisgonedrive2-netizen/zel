@@ -49,7 +49,11 @@ Deploy sonrası production URL’de seed’i **bir kez** çalıştırın (boş D
 
 **Önemli — PIN güvenliği:** Kullanıcı PIN’leri yalnızca `app_users.pin_hash` (bcrypt) olarak saklanır. Deploy sonrası PIN’ler **sıfırlanmaz**; profil güncellemeleri hash’e dokunmaz. `/api/seed` mevcut kullanıcıların PIN’ini **asla değiştirmez** (yalnızca yeni kayıtlar seed PIN alır). Production’da seed’i tekrar tekrar çalıştırmayın.
 
-Ek migration’lar (sırayla): `20260518170000_auth_support_notifications.sql`, `20260519120000_brand_monthly_stats.sql`, `20260519130000_auth_pin_and_schema_hardening.sql`
+Ek migration’lar (sırayla): `20260518170000_auth_support_notifications.sql`, `20260519120000_brand_monthly_stats.sql`, `20260519130000_auth_pin_and_schema_hardening.sql`, `20260520130000_api_refresh_settings.sql`, `20260520140000_expense_brand_link.sql`, `20260520150000_brand_live_demo_balance.sql`
+
+## Veritabanı şifresi
+
+PostgreSQL şifresi projede **saklanmaz** (yalnızca `SUPABASE_SERVICE_ROLE_KEY` kullanılır). Şifreyi görmek veya sıfırlamak için: Supabase Dashboard → **Project Settings** → **Database** → **Database password** → *Reset database password*.
 
 ## Tablolar (24+)
 

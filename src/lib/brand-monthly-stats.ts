@@ -12,6 +12,9 @@ const EMPTY: Omit<BrandMonthlyStats, "id" | "brandId" | "month"> = {
   // USD platformun ana metriği; markalar genel olarak USD bazlı rapor veriyor.
   // Brand kullanıcısı isterse TRY/EUR seçebilir; PDF/CSV ve KPI'lar form.currency'ye göre çıkar.
   currency: "USD",
+  liveDemoAllocated: 0,
+  liveDemoRemaining: 0,
+  liveDemoNotes: "",
   notes: "",
 };
 
@@ -46,8 +49,24 @@ export function hasBrandMonthlyStatsData(s: BrandMonthlyStats): boolean {
     s.depositCount > 0 ||
     s.depositAmount > 0 ||
     s.withdrawalAmount > 0 ||
+    s.liveDemoAllocated > 0 ||
+    s.liveDemoRemaining > 0 ||
+    Boolean(s.liveDemoNotes.trim()) ||
     Boolean(s.notes.trim())
   );
+}
+
+export function deriveLiveDemoUsage(s: BrandMonthlyStats): {
+  used: number;
+  usedPct: number | null;
+  low: boolean;
+} {
+  const allocated = s.liveDemoAllocated;
+  const remaining = s.liveDemoRemaining;
+  const used = Math.max(0, allocated - remaining);
+  const usedPct = allocated > 0 ? Math.min(100, (used / allocated) * 100) : null;
+  const low = allocated > 0 && remaining / allocated < 0.2;
+  return { used, usedPct, low };
 }
 
 export type BrandMonthlyStatsDerived = {
