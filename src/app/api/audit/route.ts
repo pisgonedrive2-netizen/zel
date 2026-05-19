@@ -14,17 +14,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as {
-    actorId?: string;
-    actorName?: string;
     action?: string;
     detail?: string;
   };
   if (!body.action) {
     return NextResponse.json({ error: "action zorunlu" }, { status: 400 });
   }
+  // Actor sunucu oturumundan türetilir; istemci bunu spoof edemez.
   const { error } = await getSupabaseAdmin().from("audit_logs").insert({
-    actor_id: body.actorId || session.userId,
-    actor_name: body.actorName || session.name,
+    actor_id: session.userId,
+    actor_name: session.name,
     action: body.action,
     detail: body.detail ?? "",
   });

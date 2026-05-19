@@ -30,6 +30,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const user = useAuth((s) => s.user);
   const [ready, setReady] = useState(!supabaseMode);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [bootstrapOk, setBootstrapOk] = useState(!supabaseMode);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSync = useRef(true);
 
@@ -48,11 +49,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     if (!user) {
       setReady(true);
+      setBootstrapOk(false);
       skipSync.current = true;
       return;
     }
 
     let cancelled = false;
+    setBootstrapOk(false);
     (async () => {
       try {
         const res = await fetch("/api/bootstrap", { credentials: "include" });
@@ -81,10 +84,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
         skipSync.current = true;
         setReady(true);
+        setBootstrapOk(true);
         setTimeout(() => { skipSync.current = false; }, 500);
       } catch (e) {
         console.error("Bootstrap failed:", e);
         setReady(true);
+        setBootstrapOk(false);
+        setSyncError(
+          "İlk yükleme başarısız oldu. Sunucu kaydı bu oturumda devre dışı bırakıldı — sayfayı yenileyin."
+        );
       }
     })();
 
@@ -92,10 +100,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabaseMode, user?.id]);
 
   useEffect(() => {
-    if (!supabaseMode || !user || !ready) return;
+    if (!supabaseMode || !user || !ready || !bootstrapOk) return;
 
     const unsub = useStore.subscribe(() => {
       if (skipSync.current) return;
+      if (!bootstrapOk) return;
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(async () => {
         try {
@@ -125,7 +134,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       unsub();
       if (syncTimer.current) clearTimeout(syncTimer.current);
     };
-  }, [supabaseMode, user?.id, ready]);
+  }, [supabaseMode, user?.id, ready, bootstrapOk]);
 
   if (!ready && supabaseMode) {
     return (

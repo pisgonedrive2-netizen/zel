@@ -346,6 +346,7 @@ export default function Sidebar() {
           <div className="p-3 space-y-1">
             <button
               onClick={handleLogout}
+              aria-label="Çıkış Yap"
               title={collapsed ? "Çıkış Yap" : undefined}
               className={cn(
                 "w-full flex items-center rounded-md text-left transition-all duration-200 group",
@@ -382,6 +383,8 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-label={`Bildirimler${unreadCount > 0 ? ` (${unreadCount} okunmamış)` : ""}`}
+        aria-expanded={open}
         className={cn(
           "w-full flex items-center justify-between px-3 py-2 rounded-md transition-colors",
           "bg-card border border-border hover:border-primary/40"

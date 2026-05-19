@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 
 const NAV: { href: string; label: string; match: string }[] = [
@@ -19,9 +20,11 @@ const NAV: { href: string; label: string; match: string }[] = [
 export default function YayinciLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const panelViewAs = usePanelView((s) => s.panelViewAs);
   const contentExpenses = useStore((s) => s.contentExpenses);
   const employees      = useStore((s) => s.employees);
-  const me             = employees.find((e) => e.id === user?.employeeId);
+  const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
+  const me             = employees.find((e) => e.id === targetEmployeeId);
   const pendingCount   = me
     ? contentExpenses.filter((e) => e.employeeId === me.id && e.reviewStatus === "pending").length
     : 0;

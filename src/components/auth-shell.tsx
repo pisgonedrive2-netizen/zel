@@ -22,6 +22,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const panelViewAs = usePanelView((s) => s.panelViewAs);
   const brandViewAs = usePanelView((s) => s.brandViewAs);
+  const exitStreamerPanel = usePanelView((s) => s.exitStreamerPanel);
+  const exitBrandPanel = usePanelView((s) => s.exitBrandPanel);
   const router   = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
@@ -60,8 +62,36 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     // Erişim yetkisi yoksa kendi landing'e
     if (user && !canAccess(pathname, user.role, panelViewAs, brandViewAs)) {
       router.replace(landingFor(user.role));
+      return;
     }
-  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin]);
+
+    // Admin doğrudan /marka/* URL'sine impersonation olmadan gelirse → /izlenme
+    if (
+      user?.role === "admin" &&
+      pathname.startsWith("/marka") &&
+      !brandViewAs
+    ) {
+      router.replace("/izlenme");
+      return;
+    }
+    // Admin doğrudan /yayinci/* URL'sine impersonation olmadan gelirse → /maaslar
+    if (
+      user?.role === "admin" &&
+      pathname.startsWith("/yayinci") &&
+      !panelViewAs
+    ) {
+      router.replace("/maaslar");
+      return;
+    }
+
+    // Admin /marka veya /yayinci dışına çıktıysa stale impersonation state'i temizle.
+    if (user?.role === "admin" && brandViewAs && !pathname.startsWith("/marka")) {
+      exitBrandPanel();
+    }
+    if (user?.role === "admin" && panelViewAs && !pathname.startsWith("/yayinci")) {
+      exitStreamerPanel();
+    }
+  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin, exitBrandPanel, exitStreamerPanel]);
 
   const canView =
     hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs);
@@ -89,7 +119,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       {canView && (
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 sm:px-6 md:px-8 lg:px-10">
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-3 pb-4 pt-14 sm:px-6 md:px-8 md:pt-0 lg:px-10">
             <MobileSidebarTrigger />
             {(pathname.startsWith("/yayinci") || pathname.startsWith("/marka")) && <PanelViewBanner />}
             <div className="min-h-0 min-w-0 flex-1">{children}</div>

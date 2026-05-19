@@ -651,7 +651,7 @@ export function weeklyPlanFromRow(r: Record<string, unknown>): WeeklyPlan {
 }
 
 export function weeklyPlanToRow(p: WeeklyPlan) {
-  return {
+  const row: Record<string, unknown> = {
     id: p.id,
     employee_id: p.employeeId,
     week_start: p.weekStart,
@@ -663,8 +663,10 @@ export function weeklyPlanToRow(p: WeeklyPlan) {
     notes: p.notes,
     status: p.status,
     created_by: p.createdBy ?? null,
-    created_at: p.createdAt ?? new Date().toISOString(),
   };
+  // Mevcut bir created_at varsa koru; yoksa sunucu DEFAULT now() kullansın.
+  if (p.createdAt) row.created_at = p.createdAt;
+  return row;
 }
 
 export function weekBrandReelFromRow(r: Record<string, unknown>): WeekBrandReel {

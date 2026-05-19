@@ -41,10 +41,15 @@ async function deleteNotIn(table: string, ids: string[], extraFilter?: { column:
   const { data, error } = await q;
   if (error) throw new Error(`${table} select ids: ${error.message}`);
   const existing = (data ?? []).map((r) => String((r as { id: string }).id));
-  const toDelete = extraFilter
-    ? existing.filter((id) => !ids.includes(id))
-    : existing.filter((id) => !ids.includes(id));
+  const toDelete = existing.filter((id) => !ids.includes(id));
   if (toDelete.length === 0) return;
+  // Güvenlik: client tarafı tüm satırları silmek isterse (boş upsert + dolu mevcut),
+  // bu büyük olasılıkla bootstrap çatışması veya hatalı senkronizasyondur — engelle.
+  if (ids.length === 0 && existing.length > 0) {
+    throw new Error(
+      `${table}: senkronizasyon güvenliği — boş listeyle mevcut ${existing.length} satır silinemez.`
+    );
+  }
   const { error: delErr } = await getSupabaseAdmin().from(table).delete().in("id", toDelete);
   if (delErr) throw new Error(`${table} delete: ${delErr.message}`);
 }

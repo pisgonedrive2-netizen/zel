@@ -7,7 +7,7 @@ import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { cacheAdminPin, mergeUsersWithPinCache, removeCachedAdminPin } from "@/lib/admin-pin-cache";
-import type { BrandViewAs, PanelViewAs } from "@/store/panel-view";
+import { usePanelView, type BrandViewAs, type PanelViewAs } from "@/store/panel-view";
 
 export type Role = "admin" | "streamer" | "auditor" | "brand";
 
@@ -98,6 +98,12 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
       users: isSupabaseClientMode() ? [] : INITIAL_USERS,
 
       login: async (username, pin) => {
+        // Yeni oturumda eski impersonation state'i taşımayalım.
+        try {
+          usePanelView.setState({ panelViewAs: null, brandViewAs: null });
+        } catch {
+          /* SSR */
+        }
         if (isSupabaseClientMode()) {
           const res = await fetch("/api/auth/login", {
             method: "POST",
@@ -128,6 +134,11 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
       logout: async () => {
         if (isSupabaseClientMode()) {
           await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+        }
+        try {
+          usePanelView.setState({ panelViewAs: null, brandViewAs: null });
+        } catch {
+          /* SSR güvenliği */
         }
         set({ user: null });
       },
