@@ -68,7 +68,9 @@ export function linkViewsForMonth(
   if (monthYm === todayYm) {
     const lastViews = link.lastViews ?? 0;
     const refDate = link.lastSnapshotDate ?? null;
-    const stale = !link.lastSnapshotDate && lastViews === 0;
+    const hasEngagement =
+      link.lastLikes != null || link.lastComments != null || link.lastShares != null;
+    const stale = !link.lastSnapshotDate && lastViews === 0 && !hasEngagement;
     return { lastViews, refDate, stale, snapsInMonth: [] };
   }
   return { lastViews: 0, refDate: null, stale: true, snapsInMonth: [] };

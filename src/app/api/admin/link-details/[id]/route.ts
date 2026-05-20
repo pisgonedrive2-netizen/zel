@@ -103,6 +103,9 @@ export async function GET(
       details,
       linkUpdate: {
         lastViews: persisted.lastViews,
+        lastLikes: persisted.lastLikes,
+        lastComments: persisted.lastComments,
+        lastShares: persisted.lastShares,
         lastSnapshotDate: persisted.snapshotDate,
         lastCheckedAt: persisted.lastCheckedAt,
         externalRef: persisted.externalRef,

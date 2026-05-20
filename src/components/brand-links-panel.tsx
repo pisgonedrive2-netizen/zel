@@ -24,6 +24,11 @@ function fmtViews(n: number) {
   return n.toLocaleString("tr-TR");
 }
 
+function fmtEngagement(n?: number | null) {
+  if (n == null) return null;
+  return fmtViews(n);
+}
+
 function daysAgo(iso?: string) {
   if (!iso) return null;
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -166,12 +171,22 @@ export function BrandLinksPanel({
                 </h3>
                 <div className="space-y-1.5">
                   {groupLinks.map((link) => {
-                    const { lastViews, refDate, stale } = linkViewsForMonth(
+                    const monthMeta = linkViewsForMonth(
                       link,
                       viewMonth,
                       linkSnapshots,
                       todayYm
                     );
+                    const { lastViews, refDate, stale } = monthMeta;
+                    const hasEngagement =
+                      link.lastLikes != null ||
+                      link.lastComments != null ||
+                      link.lastShares != null;
+                    const showStale =
+                      stale &&
+                      lastViews === 0 &&
+                      !hasEngagement &&
+                      !link.lastSnapshotDate?.startsWith(viewMonth);
                     const apiSupported = isAutoTrackable(
                       link.url,
                       link.platform,
@@ -230,15 +245,46 @@ export function BrandLinksPanel({
                             <span className="text-xs text-muted-foreground italic">URL yok</span>
                           )}
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="text-right shrink-0 min-w-[72px]">
                           <p className="text-sm font-bold tabular-nums">
-                            {lastViews > 0 ? fmtViews(lastViews) : "—"}
+                            {lastViews > 0
+                              ? fmtViews(lastViews)
+                              : link.lastShares != null
+                                ? fmtViews(link.lastShares)
+                                : link.lastLikes != null
+                                  ? fmtViews(link.lastLikes)
+                                  : "—"}
                           </p>
+                          {(link.lastLikes != null ||
+                            link.lastComments != null ||
+                            link.lastShares != null) && (
+                            <p className="text-[9px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                              {link.lastLikes != null && (
+                                <span className="text-rose-600 dark:text-rose-400">
+                                  ♥{fmtEngagement(link.lastLikes)}
+                                </span>
+                              )}
+                              {link.lastComments != null && (
+                                <span className="ml-1 text-amber-700 dark:text-amber-300">
+                                  💬{fmtEngagement(link.lastComments)}
+                                </span>
+                              )}
+                              {link.lastShares != null && (
+                                <span className="ml-1 text-violet-700 dark:text-violet-300">
+                                  ↗{fmtEngagement(link.lastShares)}
+                                </span>
+                              )}
+                            </p>
+                          )}
                           <p className="text-[10px] text-muted-foreground">
-                            {stale ? (
-                              <span className="text-amber-600">bu ay yok</span>
+                            {showStale ? (
+                              <span className="text-amber-600 dark:text-amber-400">bu ay yok</span>
+                            ) : refDate ? (
+                              daysAgo(refDate)
+                            ) : link.lastCheckedAt ? (
+                              <span className="text-emerald-600 dark:text-emerald-400">API · {hoursAgo(link.lastCheckedAt)}</span>
                             ) : (
-                              refDate ? daysAgo(refDate) : "—"
+                              "—"
                             )}
                           </p>
                         </div>

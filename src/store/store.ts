@@ -588,6 +588,8 @@ interface AppStore {
 
   // Link snapshot
   addLinkSnapshot: (s: Omit<LinkSnapshot, "id">) => void;
+  /** Aynı id varsa günceller (API otomatik snapshot ile uyumlu). */
+  upsertLinkSnapshot: (s: LinkSnapshot) => void;
   updateLinkSnapshot: (id: string, s: Partial<LinkSnapshot>) => void;
   deleteLinkSnapshot: (id: string) => void;
 
@@ -1774,6 +1776,18 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Link snapshot
       addLinkSnapshot: (sn) => {
         set((s) => ({ linkSnapshots: [...s.linkSnapshots, { ...sn, id: uid() }] }));
+        flushLinkData();
+      },
+      upsertLinkSnapshot: (sn) => {
+        set((s) => {
+          const idx = s.linkSnapshots.findIndex((x) => x.id === sn.id);
+          if (idx >= 0) {
+            const next = [...s.linkSnapshots];
+            next[idx] = { ...next[idx], ...sn };
+            return { linkSnapshots: next };
+          }
+          return { linkSnapshots: [...s.linkSnapshots, sn] };
+        });
         flushLinkData();
       },
       updateLinkSnapshot: (id, sn) => {

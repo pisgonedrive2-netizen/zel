@@ -59,11 +59,38 @@ interface ApiResponse {
   platform?: string;
   linkUpdate?: {
     lastViews?: number;
+    lastLikes?: number | null;
+    lastComments?: number | null;
+    lastShares?: number | null;
     lastSnapshotDate?: string;
     lastCheckedAt?: string;
     externalRef?: string;
     snapshot?: LinkSnapshot;
   };
+}
+
+function applyLinkUpdateToStore(
+  linkId: string,
+  update: ApiResponse["linkUpdate"],
+  actions: {
+    updateBrandLink: (id: string, patch: Partial<BrandLink>) => void;
+    upsertLinkSnapshot: (s: LinkSnapshot) => void;
+  }
+) {
+  if (!update) return;
+  actions.updateBrandLink(linkId, {
+    lastViews: update.lastViews,
+    lastLikes: update.lastLikes ?? undefined,
+    lastComments: update.lastComments ?? undefined,
+    lastShares: update.lastShares ?? undefined,
+    lastSnapshotDate: update.lastSnapshotDate,
+    lastCheckedAt: update.lastCheckedAt,
+    externalRef: update.externalRef,
+    lastCheckError: undefined,
+  });
+  if (update.snapshot) {
+    actions.upsertLinkSnapshot(update.snapshot);
+  }
 }
 
 function fmtNum(n: number | null | undefined): string {
@@ -115,7 +142,7 @@ export interface LinkDetailsModalProps {
  */
 export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps) {
   const updateBrandLink = useStore((s) => s.updateBrandLink);
-  const addLinkSnapshot = useStore((s) => s.addLinkSnapshot);
+  const upsertLinkSnapshot = useStore((s) => s.upsertLinkSnapshot);
   const [details, setDetails] = useState<RichLinkDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -136,12 +163,18 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
         throw new Error(json.error ?? `HTTP ${res.status}`);
       }
       setDetails(json.details ?? null);
+      if (json.linkUpdate && link) {
+        applyLinkUpdateToStore(link.id, json.linkUpdate, {
+          updateBrandLink,
+          upsertLinkSnapshot,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "?");
     } finally {
       setLoading(false);
     }
-  }, [link, updateBrandLink, addLinkSnapshot]);
+  }, [link, updateBrandLink, upsertLinkSnapshot]);
 
   // Modal her açıldığında ya da link değiştiğinde yükle
   useEffect(() => {
@@ -351,8 +384,8 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
         )}
 
         <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-2 leading-relaxed">
-          Her "Yeniden çek" RapidAPI'den 1 kota tüketir. Otomatik olarak çekilen sayılar
-          ana panelde her gün güncellenir — bu pencere ek detay göstermek içindir.
+          Her çekim 1 kota tüketir. Başarılı olunca izlenme, beğeni, yorum ve paylaşım listeye
+          ve bu ayın snapshot kaydına yazılır — satırdaki &quot;bu ay yok&quot; kalkar.
         </p>
       </div>
     </Modal>
