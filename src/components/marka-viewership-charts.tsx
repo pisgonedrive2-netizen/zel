@@ -3,8 +3,6 @@
 import { useMemo } from "react";
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   Cell,
@@ -12,9 +10,8 @@ import {
   XAxis,
   YAxis,
   Tooltip as RTooltip,
-  Legend,
-  ReferenceLine,
 } from "recharts";
+import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
 import { BarChart3, TrendingDown, TrendingUp, Layers } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +94,32 @@ export function MarkaViewershipCharts({
 
   const hasChartData = series.some((r) => r.totalViews > 0);
   const selectedRow = series.find((r) => r.month === monthYm);
+  const highlightIndex = series.findIndex((r) => r.month === monthYm);
+
+  const chartLabels = series.map((r) => r.monthLabel);
+  const smoothSeries = [
+    {
+      key: "total",
+      label: "Toplam",
+      color: "#6366f1",
+      values: series.map((r) => r.totalViews),
+      fillOpacity: 0.12,
+    },
+    {
+      key: "links",
+      label: "Linkler",
+      color: "#3b82f6",
+      values: series.map((r) => r.linkViews),
+      fillOpacity: 0.08,
+    },
+    {
+      key: "streamer",
+      label: "Yayıncı",
+      color: "#10b981",
+      values: series.map((r) => r.streamerViews),
+      fillOpacity: 0.06,
+    },
+  ];
 
   if (!hasChartData) {
     return (
@@ -177,64 +200,20 @@ export function MarkaViewershipCharts({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-xl border border-border/60 bg-card/80 p-2 shadow-sm">
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={series} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="marka-total-views" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.45} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="marka-link-views" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.35} />
-                <XAxis dataKey="monthLabel" tick={{ fontSize: 10 }} stroke="#6b7280" />
-                <YAxis tick={{ fontSize: 10 }} stroke="#6b7280" tickFormatter={fmtViews} />
-                <ReferenceLine x={series.find((r) => r.month === monthYm)?.monthLabel} stroke="#8b5cf6" strokeDasharray="4 4" />
-                <RTooltip
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 10,
-                    fontSize: 12,
-                  }}
-                  formatter={(value: number, name: string) => [
-                    fmtViews(value),
-                    name === "totalViews"
-                      ? "Toplam"
-                      : name === "linkViews"
-                        ? "Linkler"
-                        : "Yayıncı",
-                  ]}
-                  labelFormatter={(_, payload) => {
-                    const row = payload?.[0]?.payload as { month?: string } | undefined;
-                    return row?.month ? monthLabelTr(row.month) : "";
-                  }}
-                />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Area
-                  type="monotone"
-                  dataKey="linkViews"
-                  name="Linkler"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#marka-link-views)"
-                  stackId="1"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="streamerViews"
-                  name="Yayıncı"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fill="#10b98133"
-                  stackId="1"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="rounded-xl border border-border/60 bg-card/90 shadow-sm overflow-hidden">
+            <ModernSmoothLineChart
+              labels={chartLabels}
+              series={smoothSeries}
+              formatValue={fmtViews}
+              highlightLabelIndex={highlightIndex >= 0 ? highlightIndex : undefined}
+              height={340}
+              periods={[
+                { key: "12", label: "Son 12 ay", takeLast: 12 },
+                { key: "6", label: "Son 6 ay", takeLast: 6 },
+                { key: "3", label: "Son 3 ay", takeLast: 3 },
+              ]}
+              defaultPeriodKey="12"
+            />
           </div>
         </CardContent>
       </Card>

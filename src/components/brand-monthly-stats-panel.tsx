@@ -138,7 +138,7 @@ export function BrandMonthlyStatsPanel({
     setTimeout(() => setSavedFlash(false), 2000);
   };
 
-  if (readOnly && !hasData && !saved) {
+  if (readOnly && !saved) {
     return (
       <Card className={cn("border-dashed", className)}>
         <CardHeader className="pb-2">
@@ -147,7 +147,8 @@ export function BrandMonthlyStatsPanel({
             Operasyon özeti
           </CardTitle>
           <CardDescription>
-            Bu ay için kayıt ve yatırım verileri henüz paylaşılmadı.
+            Bu ay ({monthYm}) için kayıt ve yatırım verileri henüz paylaşılmadı. Marka portalından
+            girilebilir.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -292,6 +293,11 @@ export function BrandMonthlyStatsPanel({
           )}
         </div>
 
+        {readOnly && !hasData && saved && (
+          <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-500/40 rounded-lg px-3 py-2">
+            Bu ay için kayıt var ancak tüm metrikler sıfır — marka portalından güncelleyin.
+          </p>
+        )}
         {readOnly ? (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <KpiTile

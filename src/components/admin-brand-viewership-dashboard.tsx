@@ -8,8 +8,6 @@ import {
   Area,
   BarChart,
   Bar,
-  LineChart,
-  Line,
   ScatterChart,
   Scatter,
   XAxis,
@@ -18,7 +16,6 @@ import {
   CartesianGrid,
   Tooltip as RTooltip,
   Cell,
-  Legend,
 } from "recharts";
 import { BarChart3, Crown, TrendingUp, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +30,7 @@ import {
   type BrandRankRow,
 } from "@/lib/brand-viewership-series";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
+import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
 
 function fmtViews(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -104,6 +102,28 @@ export function AdminBrandViewershipDashboard({
         fill: brandChartColor(r.brandId, i),
       })),
     [ranking]
+  );
+
+  const trendLabels = useMemo(
+    () => trendData.map((p) => String(p.monthLabel ?? "")),
+    [trendData]
+  );
+
+  const trendSmoothSeries = useMemo(
+    () =>
+      activeBrands.map((brand, i) => ({
+        key: brand.id,
+        label: brand.shortName,
+        color: brandChartColor(brand.id, i),
+        values: trendData.map((p) => Number(p[brand.id] ?? 0)),
+        fillOpacity: 0.06,
+      })),
+    [activeBrands, trendData]
+  );
+
+  const trendHighlightIndex = useMemo(
+    () => trendData.findIndex((p) => p.month === viewMonth),
+    [trendData, viewMonth]
   );
 
   const shareData = useMemo(
@@ -265,50 +285,20 @@ export function AdminBrandViewershipDashboard({
             <CardDescription>Son aylar · her marka ayrı renk</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-xl border border-border/60 bg-card/80 p-2 h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
-                  <XAxis dataKey="monthLabel" tick={{ fontSize: 10 }} />
-                  <YAxis tickFormatter={fmtViews} tick={{ fontSize: 10 }} width={48} />
-                  <RTooltip
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 10,
-                      fontSize: 12,
-                    }}
-                    formatter={(value: number, key: string) => {
-                      const b = activeBrands.find((x) => x.id === key);
-                      return [fmtViews(value), b?.shortName ?? key];
-                    }}
-                    labelFormatter={(_, payload) => {
-                      const m = payload?.[0]?.payload?.month as string | undefined;
-                      return m ? monthTitleShort(m) : "";
-                    }}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontSize: 11 }}
-                    formatter={(value) =>
-                      activeBrands.find((b) => b.id === value)?.shortName ?? value
-                    }
-                  />
-                  {activeBrands.map((brand, i) => (
-                    <Line
-                      key={brand.id}
-                      type="monotone"
-                      dataKey={brand.id}
-                      name={brand.id}
-                      stroke={brandChartColor(brand.id, i)}
-                      strokeWidth={2.5}
-                      dot={{ r: 4, fill: brandChartColor(brand.id, i), strokeWidth: 0 }}
-                      activeDot={{ r: 6 }}
-                      animationDuration={900}
-                      animationEasing="ease-out"
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="rounded-xl border border-border/60 bg-card/90 shadow-sm overflow-hidden">
+              <ModernSmoothLineChart
+                labels={trendLabels}
+                series={trendSmoothSeries}
+                formatValue={fmtViews}
+                highlightLabelIndex={trendHighlightIndex >= 0 ? trendHighlightIndex : undefined}
+                height={360}
+                periods={[
+                  { key: "8", label: "Son 8 ay", takeLast: 8 },
+                  { key: "6", label: "Son 6 ay", takeLast: 6 },
+                  { key: "3", label: "Son 3 ay", takeLast: 3 },
+                ]}
+                defaultPeriodKey="8"
+              />
             </div>
           </CardContent>
         </Card>

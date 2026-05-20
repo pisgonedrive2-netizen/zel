@@ -1,6 +1,13 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { SOCIAL_PLANS, type SocialPlatform } from "./config";
 
+/** brand_links.platform değerleri (Türkçe / slug karışık). */
+export function platformLinkLabels(platform: SocialPlatform): string[] {
+  if (platform === "youtube") return ["YouTube", "Youtube", "youtube"];
+  if (platform === "instagram") return ["Instagram", "instagram"];
+  return ["TikTok", "Tiktok", "tiktok"];
+}
+
 export interface PlatformHealth {
   platform: SocialPlatform;
   status: "ok" | "warn" | "error" | "exhausted" | "unknown";
@@ -36,14 +43,6 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
     .gte("started_at", since)
     .order("started_at", { ascending: false });
 
-  // Son hata mesajı için brand_links içinden çek
-  const { data: errLinks } = await db
-    .from("brand_links")
-    .select("platform, last_check_error, last_checked_at")
-    .not("last_check_error", "is", null)
-    .order("last_checked_at", { ascending: false })
-    .limit(30);
-
   const platforms: SocialPlatform[] = ["youtube", "instagram", "tiktok"];
   const now = Date.now();
 
@@ -60,28 +59,35 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
     const totalFail = platformRuns.reduce((s, r) => s + (r.links_failed ?? 0), 0);
 
     const lastSuccessRun = platformRuns.find((r) => (r.links_succeeded ?? 0) > 0);
-    const lastFailRun = platformRuns.find((r) => (r.links_failed ?? 0) > 0);
-
-    const labelsForPlatform = (() => {
-      if (p === "youtube") return ["YouTube", "Youtube", "youtube"];
-      if (p === "instagram") return ["Instagram", "instagram"];
-      return ["TikTok", "Tiktok", "tiktok"];
-    })();
-    const matchingErr = (errLinks ?? []).find((e) => labelsForPlatform.includes(String((e as { platform: string }).platform)));
-    const lastError = matchingErr ? String((matchingErr as { last_check_error: string }).last_check_error) : lastFailRun?.error_summary ?? null;
+    const lastFailRun = platformRuns.find(
+      (r) => (r.links_failed ?? 0) > 0 && Boolean(r.error_summary?.trim())
+    );
 
     const lastSuccessAt = lastSuccessRun?.started_at ?? null;
     const lastErrorAt = lastFailRun?.started_at ?? null;
+    const successNewerThanError =
+      lastSuccessAt &&
+      (!lastErrorAt || new Date(lastSuccessAt).getTime() >= new Date(lastErrorAt).getTime());
+
+    const lastError =
+      successNewerThanError
+        ? null
+        : lastFailRun?.error_summary?.trim()
+          ? lastFailRun.error_summary.slice(0, 200)
+          : null;
+
     const staleHours = lastSuccessAt
       ? (now - new Date(lastSuccessAt).getTime()) / 3_600_000
       : null;
 
     let status: PlatformHealth["status"] = "unknown";
     if (platformRuns.length > 0) {
+      const failRate = totalFail + totalSuccess > 0 ? totalFail / (totalFail + totalSuccess) : 0;
       if (totalSuccess === 0 && totalFail > 0) status = "error";
-      else if ((staleHours != null && staleHours > 36) || (totalFail > 0 && totalFail / (totalFail + totalSuccess) >= 0.5))
-        status = "warn";
-      else status = "ok";
+      else if (staleHours != null && staleHours > 36 && totalSuccess === 0) status = "warn";
+      else if (failRate >= 0.5 && totalFail > 2) status = "warn";
+      else if (totalSuccess > 0) status = "ok";
+      else status = "warn";
     }
 
     return {
@@ -95,6 +101,32 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
       staleHours,
     };
   });
+}
+
+/** Başarılı manuel ping — sağlık durumunu yeşile çeker, eski link hata bayraklarını temizler. */
+export async function recordPlatformPingSuccess(platform: SocialPlatform): Promise<void> {
+  const db = getSupabaseAdmin();
+  const now = new Date().toISOString();
+  const id = `ping-${platform}-${Date.now()}`;
+  await db.from("api_refresh_runs").insert({
+    id,
+    platform,
+    triggered_by: "manual",
+    started_at: now,
+    finished_at: now,
+    links_attempted: 1,
+    links_succeeded: 1,
+    links_failed: 0,
+    quota_used: 1,
+    error_summary: "",
+    notes: "connection_probe",
+  });
+
+  const labels = platformLinkLabels(platform);
+  await db
+    .from("brand_links")
+    .update({ last_check_error: null, last_checked_at: now })
+    .in("platform", labels);
 }
 
 /**

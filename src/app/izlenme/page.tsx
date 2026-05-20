@@ -14,7 +14,12 @@ import {
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
-import { findBrandMonthlyStats, fmtBrandMoney, fmtBrandCount } from "@/lib/brand-monthly-stats";
+import {
+  findBrandMonthlyStats,
+  fmtBrandMoney,
+  fmtBrandCount,
+  hasBrandMonthlyStatsData,
+} from "@/lib/brand-monthly-stats";
 import { shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import {
   brandContentExpensesForMonth,
@@ -347,16 +352,14 @@ function BrandAttributionCard({
           cpr,
         };
       })
-      .filter(
-        (r) =>
-          r.totalViews > 0 ||
-          r.expenseUsd > 0 ||
-          (r.stats &&
-            (r.stats.newRegistrations > 0 || r.stats.depositAmount > 0))
-      );
+      .sort((a, b) => {
+        const aHas = a.stats && hasBrandMonthlyStatsData(a.stats) ? 1 : 0;
+        const bHas = b.stats && hasBrandMonthlyStatsData(b.stats) ? 1 : 0;
+        return bHas - aHas || b.totalViews - a.totalViews;
+      });
   }, [brands, brandViewership, brandMonthlyStats, contentExpenses, viewMonth]);
 
-  if (rows.length === 0) return null;
+  const rowsWithStats = rows.filter((r) => r.stats && hasBrandMonthlyStatsData(r.stats));
 
   return (
     <Card className="mb-6 border-emerald-200/60 dark:border-emerald-500/30">
@@ -371,6 +374,12 @@ function BrandAttributionCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
+        {rowsWithStats.length === 0 && (
+          <p className="text-xs text-muted-foreground mb-3 px-1">
+            Bu ay için operasyon metrikleri henüz girilmemiş. Marka kartlarından veya marka portalından
+            kayıt / yatırım verilerini kaydedin.
+          </p>
+        )}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -412,10 +421,14 @@ function BrandAttributionCard({
                     {r.totalViews > 0 ? fmtViews(r.totalViews) : "—"}
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums">
-                    {r.stats ? fmtBrandCount(r.stats.newRegistrations) : "—"}
+                    {r.stats && hasBrandMonthlyStatsData(r.stats)
+                      ? fmtBrandCount(r.stats.newRegistrations)
+                      : "—"}
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums">
-                    {r.stats ? fmtBrandCount(r.stats.firstTimeDepositors) : "—"}
+                    {r.stats && hasBrandMonthlyStatsData(r.stats)
+                      ? fmtBrandCount(r.stats.firstTimeDepositors)
+                      : "—"}
                   </td>
                   <td
                     className={`py-2 pr-3 text-right tabular-nums font-semibold ${
@@ -426,7 +439,9 @@ function BrandAttributionCard({
                           : ""
                     }`}
                   >
-                    {r.stats ? fmtBrandMoney(net, cur) : "—"}
+                    {r.stats && hasBrandMonthlyStatsData(r.stats)
+                      ? fmtBrandMoney(net, cur)
+                      : "—"}
                   </td>
                   <td className="py-2 pr-3 text-right tabular-nums text-amber-700 dark:text-amber-300">
                     {r.expenseUsd > 0 ? `$${r.expenseUsd.toLocaleString("tr-TR")}` : "—"}

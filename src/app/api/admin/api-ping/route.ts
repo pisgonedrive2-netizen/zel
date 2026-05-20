@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isRapidApiEnabled, isSupabaseEnabled } from "@/lib/env";
 import { incrementUsage } from "@/lib/social-api/quota";
-import { pingPlatform } from "@/lib/social-api/health";
+import { pingPlatform, recordPlatformPingSuccess } from "@/lib/social-api/health";
 import type { SocialPlatform } from "@/lib/social-api/config";
 
 export const runtime = "nodejs";
@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
   // Probe başarılı olsa da olmasa da gerçek bir HTTP isteği gitti; kotadan 1 düş.
   if (result.status > 0) {
     await incrementUsage(platform, 1).catch(() => undefined);
+  }
+  if (result.ok) {
+    await recordPlatformPingSuccess(platform).catch(() => undefined);
   }
   return NextResponse.json({
     ok: result.ok,

@@ -142,7 +142,30 @@ export function AutoRefreshStatusPanel() {
         latencyMs: json.latencyMs ?? 0,
         platform,
       });
-      // Test bir quota tüketti, status'u yeniden yükle
+      if (json.ok) {
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            platforms: prev.platforms.map((p) =>
+              p.platform === platform
+                ? {
+                    ...p,
+                    health: {
+                      status: "ok" as const,
+                      lastSuccessAt: new Date().toISOString(),
+                      lastErrorAt: null,
+                      lastError: null,
+                      successCount24h: (p.health?.successCount24h ?? 0) + 1,
+                      errorCount24h: p.health?.errorCount24h ?? 0,
+                      staleHours: 0,
+                    },
+                  }
+                : p
+            ),
+          };
+        });
+      }
       await load();
     } catch (err) {
       setPingResult({
@@ -422,7 +445,7 @@ export function AutoRefreshStatusPanel() {
                     </Row>
                   )}
                 </dl>
-                {p.health?.lastError && hStatus !== "ok" && (
+                {p.health?.lastError && hStatus !== "ok" && hStatus !== "unknown" && (
                   <div className="mt-2 rounded border border-red-200 bg-red-50/50 px-2 py-1 text-[10px] text-red-800 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200">
                     <span className="font-medium">Son hata: </span>
                     <span className="break-words">{p.health.lastError.slice(0, 140)}</span>
