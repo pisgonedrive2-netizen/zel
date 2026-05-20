@@ -109,8 +109,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       )}
 
       {hydrated && isLogin && (
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-          <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-black">
+          {children}
         </main>
       )}
 

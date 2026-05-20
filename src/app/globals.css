@@ -200,5 +200,9 @@
   .animate-brand-marquee-left,
   .animate-brand-marquee-right {
     animation: none;
+    transform: translateX(0);
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
   }
 }

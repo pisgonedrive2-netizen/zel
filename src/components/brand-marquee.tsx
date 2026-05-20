@@ -20,27 +20,29 @@ function MarqueeTrack({
   const doubled = useMemo(() => [...items, ...items], [items]);
 
   return (
-    <div
-      className={cn(
-        "flex w-max shrink-0 items-center gap-3 sm:gap-5",
-        direction === "left" ? "animate-brand-marquee-left" : "animate-brand-marquee-right"
-      )}
-      aria-hidden
-    >
-      {doubled.map((b, i) => (
-        <div
-          key={`${b.id}-${i}`}
-          className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-black/45 px-4 py-2 backdrop-blur-md shadow-lg shadow-black/30"
-        >
-          <BrandLogo brandId={b.id} title={b.name} size={28} className="rounded-full" />
-          <span className="text-sm font-semibold tracking-wide text-white whitespace-nowrap">
-            {b.shortName}
-          </span>
-          <span className="hidden sm:inline text-xs text-white/45 font-normal whitespace-nowrap">
-            {b.name}
-          </span>
-        </div>
-      ))}
+    <div className="overflow-hidden w-full min-h-[44px] flex items-center">
+      <div
+        className={cn(
+          "flex w-max shrink-0 items-center gap-3 sm:gap-5 motion-reduce:translate-x-0",
+          direction === "left" ? "animate-brand-marquee-left" : "animate-brand-marquee-right"
+        )}
+        aria-hidden
+      >
+        {doubled.map((b, i) => (
+          <div
+            key={`${b.id}-${i}`}
+            className="inline-flex items-center gap-2.5 rounded-full border border-orange-500/40 bg-black/80 px-4 py-2.5 shadow-[0_0_24px_rgba(255,107,0,0.15)] backdrop-blur-md"
+          >
+            <BrandLogo brandId={b.id} title={b.name} size={30} className="rounded-full" />
+            <span className="text-sm font-bold tracking-wide text-white whitespace-nowrap drop-shadow-sm">
+              {b.shortName}
+            </span>
+            <span className="hidden sm:inline text-xs text-orange-200/80 font-medium whitespace-nowrap">
+              {b.name}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -66,15 +68,13 @@ export function BrandMarquee({
       className={cn("relative w-full select-none", className)}
       aria-label={label}
     >
-      <p className="text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50 mb-3">
+      <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300/90 mb-3 drop-shadow-md">
         {label}
       </p>
 
-      <div className="relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_12%,black_88%,transparent)]">
-        <div className="flex flex-col gap-3">
-          <MarqueeTrack items={sorted} direction="left" />
-          <MarqueeTrack items={[...sorted].reverse()} direction="right" />
-        </div>
+      <div className="flex flex-col gap-2.5">
+        <MarqueeTrack items={sorted} direction="left" />
+        <MarqueeTrack items={[...sorted].reverse()} direction="right" />
       </div>
     </section>
   );

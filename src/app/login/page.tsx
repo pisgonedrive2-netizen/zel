@@ -359,9 +359,11 @@ export default function LoginPage() {
 
   const marqueeBrands = useMemo(() => {
     const source = storeBrands.length > 0 ? storeBrands : initialBrands;
-    return source
-      .filter((b) => b.status === "active" || b.status === "paused")
-      .map((b) => ({ id: b.id, name: b.name, shortName: b.shortName }));
+    const active = source.filter((b) => b.status === "active" || b.status === "paused");
+    const list = (active.length > 0 ? active : initialBrands.filter((b) => b.status === "active")).map(
+      (b) => ({ id: b.id, name: b.name, shortName: b.shortName })
+    );
+    return list;
   }, [storeBrands]);
 
   const [u, setU] = useState("");
@@ -401,7 +403,7 @@ export default function LoginPage() {
     "h-9 rounded-lg px-3.5 text-sm font-semibold transition active:scale-[0.98] shadow-lg";
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black">
+    <div className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden bg-black">
       {/* Mobil görsel */}
       <div className="md:hidden absolute inset-0">
         <Image
@@ -465,12 +467,10 @@ export default function LoginPage() {
         </button>
       </header>
 
-      {/* Marka marquee — giriş landing */}
-      {marqueeBrands.length > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-[max(env(safe-area-inset-bottom),20px)] pt-8 bg-gradient-to-t from-black/85 via-black/50 to-transparent pointer-events-none">
-          <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" />
-        </div>
-      )}
+      {/* Marka marquee — sabit alt bant (her zaman görünür) */}
+      <div className="fixed bottom-0 left-0 right-0 z-[25] px-3 sm:px-6 pb-[max(env(safe-area-inset-bottom),16px)] pt-10 bg-gradient-to-t from-black via-black/90 to-transparent pointer-events-none">
+        <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" />
+      </div>
 
       {/* Giriş popup */}
       <Dialog open={modal === "login"} onOpenChange={(open) => !open && closeModal()}>
