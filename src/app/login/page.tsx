@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth, landingFor } from "@/store/auth";
+import { useStore, initialBrands } from "@/store/store";
+import { BrandMarquee } from "@/components/brand-marquee";
 import {
   Dialog,
   DialogContent,
@@ -353,6 +355,14 @@ type AuthModal = "login" | "register" | "forgot" | null;
 export default function LoginPage() {
   const { login, user } = useAuth();
   const router = useRouter();
+  const storeBrands = useStore((s) => s.brands);
+
+  const marqueeBrands = useMemo(() => {
+    const source = storeBrands.length > 0 ? storeBrands : initialBrands;
+    return source
+      .filter((b) => b.status === "active" || b.status === "paused")
+      .map((b) => ({ id: b.id, name: b.name, shortName: b.shortName }));
+  }, [storeBrands]);
 
   const [u, setU] = useState("");
   const [p, setP] = useState("");
@@ -454,6 +464,13 @@ export default function LoginPage() {
           Giriş Yap
         </button>
       </header>
+
+      {/* Marka marquee — giriş landing */}
+      {marqueeBrands.length > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-[max(env(safe-area-inset-bottom),20px)] pt-8 bg-gradient-to-t from-black/85 via-black/50 to-transparent pointer-events-none">
+          <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" />
+        </div>
+      )}
 
       {/* Giriş popup */}
       <Dialog open={modal === "login"} onOpenChange={(open) => !open && closeModal()}>

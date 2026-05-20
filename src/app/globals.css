@@ -168,3 +168,37 @@
 .dark .recharts-tooltip-label { color: oklch(0.74 0.02 256) !important; }
 .dark .recharts-cartesian-axis-tick text { fill: oklch(0.74 0.02 256) !important; }
 .dark .recharts-cartesian-grid line { stroke: oklch(0.32 0.02 260) !important; }
+
+/* ─── Login brand marquee ───────────────────────────────────────────────── */
+@keyframes brand-marquee-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes brand-marquee-right {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-brand-marquee-left {
+  animation: brand-marquee-left 42s linear infinite;
+}
+
+.animate-brand-marquee-right {
+  animation: brand-marquee-right 38s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-brand-marquee-left,
+  .animate-brand-marquee-right {
+    animation: none;
+  }
+}
