@@ -198,18 +198,21 @@ export default function MarkaIzlenmelerPage() {
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-3xl">
             <ViewDotCard
               target={totalLinkViewsMonth + totalStreamerViewsMonth}
+              metricCaption="Views"
               label={`${monthTitle} · Toplam`}
               sub="Link + yayıncı kayıtları"
               accent="violet"
             />
             <ViewDotCard
               target={totalLinkViewsMonth}
+              metricCaption="Views"
               label="Marka linkleri"
               sub={`${linksForBrand.length} link`}
               accent="blue"
             />
             <ViewDotCard
               target={totalStreamerViewsMonth}
+              metricCaption="Views"
               label="Yayıncı kayıtları"
               sub={`${viewRows.length} satır`}
               accent="emerald"

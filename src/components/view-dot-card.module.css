@@ -79,6 +79,16 @@
   pointer-events: none;
 }
 
+.metric {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--vdc-accent) 75%, var(--muted-foreground));
+  z-index: 2;
+  margin-bottom: 2px;
+}
+
 .text {
   font-size: 2rem;
   font-weight: 700;

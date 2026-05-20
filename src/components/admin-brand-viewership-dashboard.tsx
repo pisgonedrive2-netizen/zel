@@ -8,11 +8,8 @@ import {
   Area,
   BarChart,
   Bar,
-  ScatterChart,
-  Scatter,
   XAxis,
   YAxis,
-  ZAxis,
   CartesianGrid,
   Tooltip as RTooltip,
   Cell,
@@ -31,7 +28,7 @@ import {
 } from "@/lib/brand-viewership-series";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
 import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
-import { ViewDotCard, type ViewDotCardAccent } from "@/components/view-dot-card";
+import { ViewershipDotMap, brandViewDotLabel } from "@/components/view-dot-card";
 
 function fmtViews(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -92,15 +89,15 @@ export function AdminBrandViewershipDashboard({
 
   const maxViews = Math.max(1, ...ranking.map((r) => r.views));
 
-  const scatterData = useMemo(
+  const dotMapItems = useMemo(
     () =>
       ranking.map((r, i) => ({
-        name: r.shortName,
-        brandId: r.brandId,
-        x: i + 1,
-        y: r.views,
-        z: Math.max(r.views, 1),
-        fill: brandChartColor(r.brandId, i),
+        id: r.brandId,
+        name: r.name,
+        shortName: r.shortName,
+        views: r.views,
+        sharePct: r.sharePct,
+        rank: i + 1,
       })),
     [ranking]
   );
@@ -174,23 +171,6 @@ export function AdminBrandViewershipDashboard({
 
       {hasData && (
       <div className="space-y-4">
-      {ranking.length > 0 && (
-        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-          {ranking.slice(0, 5).map((row, i) => {
-            const accents: ViewDotCardAccent[] = ["violet", "blue", "emerald", "amber", "rose"];
-            return (
-              <ViewDotCard
-                key={row.brandId}
-                target={row.views}
-                label={row.shortName}
-                sub={`%${row.sharePct.toFixed(0)} pay · ${monthTitleShort(viewMonth)}`}
-                accent={accents[i % accents.length]}
-                size={i >= 3 ? "sm" : "md"}
-              />
-            );
-          })}
-        </div>
-      )}
       <div className="grid gap-4 xl:grid-cols-12">
         {/* Animated leaderboard */}
         <Card className="xl:col-span-5 overflow-hidden border-indigo-200/50 dark:border-indigo-500/30 bg-gradient-to-br from-indigo-50/30 via-card to-violet-50/20 dark:from-indigo-950/25 dark:to-violet-950/10">
@@ -216,73 +196,16 @@ export function AdminBrandViewershipDashboard({
           </CardContent>
         </Card>
 
-        {/* Dot / bubble scatter */}
-        <Card className="xl:col-span-7">
+        {/* İzlenme haritası — DotCard */}
+        <Card className="xl:col-span-7 overflow-hidden border-violet-200/50 dark:border-violet-500/30 bg-gradient-to-br from-violet-50/25 via-card to-indigo-50/15 dark:from-violet-950/20 dark:via-card dark:to-indigo-950/10">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">İzlenme haritası (nokta)</CardTitle>
+            <CardTitle className="text-base">İzlenme haritası</CardTitle>
             <CardDescription>
-              Yatay eksen sıra · dikey eksen izlenme · nokta büyüklüğü hacim
+              {monthTitleShort(viewMonth)} — her marka için animasyonlu izlenme kartı (Views)
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="rounded-xl border border-border/60 bg-card/80 p-2 h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 12, right: 16, bottom: 8, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name="Sıra"
-                    domain={[0.5, ranking.length + 0.5]}
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v) => {
-                      const row = ranking[Math.round(v) - 1];
-                      return row?.shortName ?? "";
-                    }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name="İzlenme"
-                    tickFormatter={fmtViews}
-                    tick={{ fontSize: 10 }}
-                  />
-                  <ZAxis type="number" dataKey="z" range={[80, 520]} />
-                  <RTooltip
-                    cursor={{ strokeDasharray: "3 3" }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.[0]) return null;
-                      const d = payload[0].payload as { name: string; y: number; share?: number };
-                      return (
-                        <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-lg">
-                          <p className="font-semibold">{d.name}</p>
-                          <p className="tabular-nums text-muted-foreground">{fmtViews(d.y)} izlenme</p>
-                        </div>
-                      );
-                    }}
-                  />
-                  <Scatter data={scatterData} animationDuration={800}>
-                    {scatterData.map((entry, i) => (
-                      <Cell key={entry.brandId} fill={entry.fill} fillOpacity={0.85} />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex flex-wrap justify-center gap-3 mt-3">
-              {ranking.map((r, i) => (
-                <span
-                  key={r.brandId}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-medium"
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: brandChartColor(r.brandId, i) }}
-                  />
-                  {r.shortName}
-                </span>
-              ))}
-            </div>
+          <CardContent className="pb-5">
+            <ViewershipDotMap items={dotMapItems} />
           </CardContent>
         </Card>
       </div>
@@ -444,7 +367,9 @@ function LeaderboardRow({
         </motion.span>
         <BrandLogo brandId={row.brandId} title={row.name} size={32} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{row.shortName}</p>
+          <p className="text-sm font-semibold truncate">
+            {brandViewDotLabel(row.brandId, row.shortName)}
+          </p>
           <p className="text-[10px] text-muted-foreground truncate">{row.name}</p>
         </div>
         <div className="text-right shrink-0">

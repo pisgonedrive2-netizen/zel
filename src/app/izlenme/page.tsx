@@ -889,13 +889,15 @@ export default function IzlenmePage() {
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-6 mb-6">
         <ViewDotCard
           target={totalViewsMonth}
-          label={`${monthTitleYm(viewMonth)} · İzlenme`}
+          metricCaption="Views"
+          label={`${monthTitleYm(viewMonth)} · Toplam`}
           sub={`Canlı: ${fmtViews(totalViewsLive)}`}
           accent="violet"
           className="col-span-1 sm:col-span-1 lg:col-span-2"
         />
         <ViewDotCard
           target={monthlyViewershipTotal}
+          metricCaption="Views"
           label="Yayıncı kayıtları"
           sub={`${monthlyViewership.length} satır`}
           accent="emerald"
@@ -903,6 +905,7 @@ export default function IzlenmePage() {
         />
         <ViewDotCard
           target={recent}
+          metricCaption="Views"
           label="Son 30 gün"
           sub="Snapshot toplamı"
           accent="blue"

@@ -1,20 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip as RTooltip,
-} from "recharts";
 import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
-import { BarChart3, TrendingDown, TrendingUp, Layers } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import type { Brand, BrandLink, BrandViewership, LinkSnapshot } from "@/store/store";
 import {
   buildBrandViewershipSeries,
@@ -23,7 +12,6 @@ import {
   brandDataSpanLabel,
   collectBrandDataMonths,
 } from "@/lib/brand-viewership-series";
-import { SocialPlatformIcon } from "@/components/social-platform-icon";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
 import { ViewDotCard } from "@/components/view-dot-card";
 
@@ -144,59 +132,42 @@ export function MarkaViewershipCharts({
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <ViewDotCard
           target={selectedRow?.totalViews ?? 0}
+          metricCaption="Views"
           label={`${monthLabelTr(monthYm)} · Toplam`}
-          sub={`Link + yayıncı`}
+          sub="Link + yayıncı"
           accent="violet"
         />
         <ViewDotCard
           target={selectedRow?.linkViews ?? 0}
-          label="Link izlenme"
+          metricCaption="Views"
+          label="Linkler"
           accent="blue"
         />
         <ViewDotCard
           target={selectedRow?.streamerViews ?? 0}
-          label="Yayıncı izlenme"
+          metricCaption="Views"
+          label="Yayıncı"
           accent="emerald"
         />
-        <StatTile
-          label="Önceki aya göre"
-          value={
-            mom.pct == null
-              ? "—"
-              : `${mom.pct >= 0 ? "+" : ""}${mom.pct.toFixed(0)}%`
+        <ViewDotCard
+          displayText={
+            mom.pct == null ? "—" : `${mom.pct >= 0 ? "+" : ""}${mom.pct.toFixed(0)}%`
           }
+          metricCaption="Değişim"
+          label="Önceki aya göre"
           sub={
             mom.prevMonth
               ? `${monthLabelTr(mom.prevMonth)}: ${fmtViews(mom.previous)}`
               : "Karşılaştırma yok"
           }
-          accent={
-            mom.pct == null
-              ? "text-muted-foreground"
-              : mom.pct >= 0
-                ? "text-emerald-700 dark:text-emerald-300"
-                : "text-amber-700 dark:text-amber-300"
-          }
-          icon={
-            mom.pct != null && mom.pct >= 0 ? (
-              <TrendingUp size={14} className="text-emerald-600" />
-            ) : mom.pct != null ? (
-              <TrendingDown size={14} className="text-amber-600" />
-            ) : null
-          }
+          accent={mom.pct != null && mom.pct >= 0 ? "emerald" : "amber"}
         />
-        <StatTile
+        <ViewDotCard
+          displayText={brandDataSpanLabel(dataMonths)}
+          metricCaption={null}
           label="Veri aralığı"
-          value={brandDataSpanLabel(dataMonths)}
           sub={`${dataMonths.length} ay kayıtlı`}
-          accent="text-violet-700 dark:text-violet-300"
-        />
-        <StatTile
-          label="Aktif platform"
-          value={String(platformSlices.length)}
-          sub={platformSlices.slice(0, 3).map((p) => p.platform).join(" · ") || "—"}
-          accent="text-foreground"
-          icon={<Layers size={14} className="text-muted-foreground" />}
+          accent="violet"
         />
       </div>
 
@@ -230,91 +201,27 @@ export function MarkaViewershipCharts({
       </Card>
 
       {platformSlices.length > 0 && (
-        <Card>
+        <Card className="border-violet-200/40 dark:border-violet-500/25">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">{monthLabelTr(monthYm)} · platform dağılımı</CardTitle>
-            <CardDescription>Seçili ayda link bazlı izlenme</CardDescription>
+            <CardTitle className="text-base">{monthLabelTr(monthYm)} · Platform izlenme haritası</CardTitle>
+            <CardDescription>Seçili ayda link bazlı Views</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-xl border border-border/60 bg-card/80 p-2">
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart
-                    data={platformSlices}
-                    layout="vertical"
-                    margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.35} />
-                    <XAxis type="number" tickFormatter={fmtViews} tick={{ fontSize: 10 }} />
-                    <YAxis
-                      type="category"
-                      dataKey="platform"
-                      width={88}
-                      tick={{ fontSize: 10 }}
-                    />
-                    <RTooltip formatter={(v: number) => fmtViews(v)} />
-                    <Bar dataKey="views" radius={[0, 4, 4, 0]}>
-                      {platformSlices.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <ul className="space-y-2">
-                {platformSlices.map((p, i) => (
-                  <li
-                    key={p.platform}
-                    className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2.5"
-                  >
-                    <SocialPlatformIcon platform={p.platform} size={22} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{p.platform}</p>
-                      <div className="h-1.5 rounded-full bg-muted mt-1 overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, (p.views / (platformSlices[0]?.views || 1)) * 100)}%`,
-                            backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="tabular-nums shrink-0">
-                      {fmtViews(p.views)}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              {platformSlices.map((p, i) => (
+                <ViewDotCard
+                  key={p.platform}
+                  target={p.views}
+                  metricCaption="Views"
+                  label={p.platform}
+                  color={CHART_COLORS[i % CHART_COLORS.length]}
+                  size="sm"
+                />
+              ))}
             </div>
           </CardContent>
         </Card>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  sub,
-  accent,
-  icon,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  accent: string;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-border/80 bg-card/90 px-4 py-3 shadow-sm">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-        {icon}
-        {label}
-      </p>
-      <p className={`text-xl font-bold tabular-nums mt-1 ${accent}`}>{value}</p>
-      <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{sub}</p>
     </div>
   );
 }
