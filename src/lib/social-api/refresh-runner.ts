@@ -8,8 +8,9 @@ import {
 } from "./config";
 import { getApiRefreshSettings } from "./settings";
 import { notifyApiRefreshIssues } from "./notify-alerts";
-import { detectPlatform } from "./platform-detect";
+import { resolveLinkDetection } from "./platform-detect";
 import { fetchMetricsForLink, type FetchedMetrics } from "./clients";
+import { persistLinkMetricsUpdate } from "./link-persist";
 import { getMonthlyUsage, incrementUsage } from "./quota";
 
 interface BrandLinkRow {
@@ -99,57 +100,6 @@ function labelsForPlatform(platform: SocialPlatform): string[] {
   if (platform === "instagram") return ["Instagram", "instagram"];
   if (platform === "tiktok") return ["TikTok", "Tiktok", "tiktok"];
   return [];
-}
-
-async function recordSnapshot(linkId: string, views: number): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
-  const id = `s-auto-${linkId.slice(0, 8)}-${today.replace(/-/g, "")}`;
-  // Upsert by id — aynı gün otomatik refresh için aynı satırı günceller.
-  const { error } = await getSupabaseAdmin().from("link_snapshots").upsert(
-    {
-      id,
-      link_id: linkId,
-      date: today,
-      views,
-      notes: "auto",
-    },
-    { onConflict: "id" }
-  );
-  if (error) throw new Error(`link_snapshots: ${error.message}`);
-}
-
-async function persistLinkUpdate(
-  row: BrandLinkRow,
-  metrics: FetchedMetrics,
-  externalRef: string
-): Promise<number | null> {
-  const today = new Date().toISOString().slice(0, 10);
-  const updates: Record<string, unknown> = {
-    last_checked_at: new Date().toISOString(),
-    check_count: (row.check_count ?? 0) + 1,
-    last_check_error: null,
-    external_ref: externalRef,
-  };
-  let delta: number | null = null;
-  if (metrics.views != null) {
-    updates.last_views = metrics.views;
-    updates.last_snapshot_date = today;
-    delta = (row.last_views ?? 0) === 0 ? null : metrics.views - (row.last_views ?? 0);
-  }
-  if (metrics.likes != null) updates.last_likes = metrics.likes;
-  if (metrics.comments != null) updates.last_comments = metrics.comments;
-  if (metrics.shares != null) updates.last_shares = metrics.shares;
-
-  const { error } = await getSupabaseAdmin()
-    .from("brand_links")
-    .update(updates)
-    .eq("id", row.id);
-  if (error) throw new Error(`brand_links update: ${error.message}`);
-
-  if (metrics.views != null) {
-    await recordSnapshot(row.id, metrics.views);
-  }
-  return delta;
 }
 
 async function persistLinkError(row: BrandLinkRow, errMsg: string): Promise<void> {
@@ -246,7 +196,12 @@ export async function runPlatformRefresh(
 
   for (const row of links) {
     summary.attempted += 1;
-    const detected = detectPlatform(row.url, row.platform);
+    const detected = resolveLinkDetection({
+      url: row.url,
+      platform: row.platform,
+      handle: row.handle,
+      externalRef: row.external_ref ?? undefined,
+    });
     if (!detected || detected.platform !== platform) {
       const msg = "URL platform tespiti başarısız";
       summary.failed += 1;
@@ -260,7 +215,14 @@ export async function runPlatformRefresh(
       // Kotayı API başarılı dönerse artır
       await incrementUsage(platform, 1);
       summary.quotaAfter += 1;
-      const delta = await persistLinkUpdate(row, metrics, detected.externalRef);
+      const persisted = await persistLinkMetricsUpdate({
+        linkId: row.id,
+        metrics,
+        externalRef: detected.externalRef,
+        previousViews: row.last_views,
+        checkCount: row.check_count,
+      });
+      const delta = persisted.delta;
       summary.succeeded += 1;
       summary.results.push({
         linkId: row.id,
@@ -338,7 +300,12 @@ export async function refreshSingleLink(linkId: string, opts: { userId?: string 
     .single();
   if (error || !data) return { linkId, ok: false, platform: null, error: error?.message ?? "Link bulunamadı" };
   const row = data as BrandLinkRow;
-  const detected = detectPlatform(row.url, row.platform);
+  const detected = resolveLinkDetection({
+    url: row.url,
+    platform: row.platform,
+    handle: row.handle,
+    externalRef: row.external_ref ?? undefined,
+  });
   if (!detected) return { linkId, ok: false, platform: null, error: "URL desteklenmiyor" };
 
   // Manuel refresh için de aylık kota dolmuşsa engelle.
@@ -356,7 +323,13 @@ export async function refreshSingleLink(linkId: string, opts: { userId?: string 
   try {
     const metrics = await fetchMetricsForLink(detected);
     await incrementUsage(detected.platform, 1);
-    const delta = await persistLinkUpdate(row, metrics, detected.externalRef);
+    const persisted = await persistLinkMetricsUpdate({
+      linkId: row.id,
+      metrics,
+      externalRef: detected.externalRef,
+      previousViews: row.last_views,
+      checkCount: row.check_count,
+    });
     if (runId) {
       await finishRun(runId, {
         attempted: 1,
@@ -365,7 +338,13 @@ export async function refreshSingleLink(linkId: string, opts: { userId?: string 
         results: [],
       });
     }
-    return { linkId, ok: true, platform: detected.platform, metrics, delta: delta ?? undefined };
+    return {
+      linkId,
+      ok: true,
+      platform: detected.platform,
+      metrics,
+      delta: persisted.delta,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Bilinmeyen hata";
     await persistLinkError(row, msg).catch(() => undefined);

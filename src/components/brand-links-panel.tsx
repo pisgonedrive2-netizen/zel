@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3,
 } from "lucide-react";
-import { detectPlatform } from "@/lib/social-api/platform-detect";
+import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -172,7 +172,12 @@ export function BrandLinksPanel({
                       linkSnapshots,
                       todayYm
                     );
-                    const apiSupported = detectPlatform(link.url, link.platform) != null;
+                    const apiSupported = isAutoTrackable(
+                      link.url,
+                      link.platform,
+                      link.handle,
+                      link.externalRef
+                    );
                     return (
                       <div key={link.id} className="flex items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2.5 hover:bg-accent/20 transition-colors">
                         <div className="flex-1 min-w-0">

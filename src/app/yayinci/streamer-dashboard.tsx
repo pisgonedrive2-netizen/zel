@@ -21,7 +21,7 @@ import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
-import { detectPlatform } from "@/lib/social-api/platform-detect";
+import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
@@ -2074,7 +2074,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                                   )}
                                 </div>
                                 <div className="flex flex-col items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                  {detectPlatform(link.url, link.platform) != null && (
+                                  {isAutoTrackable(
+                                    link.url,
+                                    link.platform,
+                                    link.handle,
+                                    link.externalRef
+                                  ) && (
                                     <button
                                       type="button"
                                       onClick={() => setDetailsLink(link)}

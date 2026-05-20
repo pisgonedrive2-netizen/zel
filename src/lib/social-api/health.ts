@@ -116,7 +116,7 @@ export async function pingPlatform(platform: SocialPlatform): Promise<{
       platform === "youtube"
         ? "/video/details/?id=dQw4w9WgXcQ" // canlı bir video id
         : platform === "instagram"
-          ? "/user_info_by_username?username=instagram"
+          ? "/profile?username=instagram"
           : "/user/info?unique_id=@tiktok";
     const res = await fetch(`https://${plan.apiHost}${probePath}`, {
       method: "GET",

@@ -22,7 +22,7 @@ import {
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { BrandLink } from "@/store/store";
+import { useStore, type BrandLink, type LinkSnapshot } from "@/store/store";
 
 interface RichLinkDetails {
   platform: "youtube" | "instagram" | "tiktok";
@@ -57,6 +57,13 @@ interface ApiResponse {
   error?: string;
   quotaExhausted?: boolean;
   platform?: string;
+  linkUpdate?: {
+    lastViews?: number;
+    lastSnapshotDate?: string;
+    lastCheckedAt?: string;
+    externalRef?: string;
+    snapshot?: LinkSnapshot;
+  };
 }
 
 function fmtNum(n: number | null | undefined): string {
@@ -107,6 +114,8 @@ export interface LinkDetailsModalProps {
  *   - Kota dolduysa friendly bir uyarı gösterir, çağrı yapmaz.
  */
 export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps) {
+  const updateBrandLink = useStore((s) => s.updateBrandLink);
+  const addLinkSnapshot = useStore((s) => s.addLinkSnapshot);
   const [details, setDetails] = useState<RichLinkDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +141,7 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
     } finally {
       setLoading(false);
     }
-  }, [link]);
+  }, [link, updateBrandLink, addLinkSnapshot]);
 
   // Modal her açıldığında ya da link değiştiğinde yükle
   useEffect(() => {

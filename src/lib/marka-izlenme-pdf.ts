@@ -62,6 +62,7 @@ export type BrandMonthPdfInput = {
     platform: string;
     handle: string;
     url: string;
+    owner?: string;
     lastViews: string;
     lastSnapshot: string;
   }>;
@@ -73,6 +74,7 @@ export type BrandMonthPdfInput = {
   }>;
   reels: Array<{
     hafta: string;
+    yayıncı?: string;
     platform: string;
     link: string;
     not: string;
@@ -121,9 +123,10 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
     y += 4;
     autoTable(doc, {
       startY: y,
-      head: [[latin1ish("Platform"), "Handle", "URL", latin1ish("Son izlenme"), latin1ish("Snapshot tarihi")]],
+      head: [[latin1ish("Platform"), latin1ish("Yayinci"), "Handle", "URL", latin1ish("Son izlenme"), latin1ish("Snapshot tarihi")]],
       body: input.links.map((r) => [
         latin1ish(r.platform),
+        latin1ish(r.owner ?? "-"),
         latin1ish(r.handle),
         r.url.length > 55 ? r.url.slice(0, 52) + "..." : r.url,
         r.lastViews,
@@ -166,9 +169,10 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
     y += 4;
     autoTable(doc, {
       startY: y,
-      head: [[latin1ish("Hafta"), "Platform", "Link", latin1ish("Not")]],
+      head: [[latin1ish("Hafta"), latin1ish("Yayinci"), "Platform", "Link", latin1ish("Not")]],
       body: input.reels.map((r) => [
         latin1ish(r.hafta),
+        latin1ish(r.yayıncı ?? "-"),
         latin1ish(r.platform),
         r.link.length > 45 ? r.link.slice(0, 42) + "..." : r.link,
         latin1ish(r.not),
@@ -298,8 +302,15 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
     sections.push(
       numberedDetailSection(
         "Marka linkleri",
-        ["Platform", "Handle", "URL", "Son_Izlenme", "Snapshot_Tarihi"],
-        input.links.map((r) => [r.platform, r.handle, r.url, r.lastViews, r.lastSnapshot]),
+        ["Platform", "Yayinci", "Handle", "URL", "Son_Izlenme", "Snapshot_Tarihi"],
+        input.links.map((r) => [
+          r.platform,
+          r.owner ?? "-",
+          r.handle,
+          r.url,
+          r.lastViews,
+          r.lastSnapshot,
+        ]),
         "Aktif marka hesap linkleri",
       ),
     );
@@ -320,8 +331,8 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
     sections.push(
       numberedDetailSection(
         "Haftalik reel / icerik linkleri",
-        ["Hafta", "Platform", "Link", "Not"],
-        input.reels.map((r) => [r.hafta, r.platform, r.link, r.not]),
+        ["Hafta", "Yayinci", "Platform", "Link", "Not"],
+        input.reels.map((r) => [r.hafta, r.yayıncı ?? "-", r.platform, r.link, r.not]),
         `Filtre: ${input.monthYm} donemine dusen haftalar`,
       ),
     );

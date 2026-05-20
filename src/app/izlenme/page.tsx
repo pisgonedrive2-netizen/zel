@@ -6,7 +6,7 @@ import {
   Plus, Pencil, ExternalLink, Eye, TrendingUp, TrendingDown, RefreshCw,
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2,
   ChevronDown, ChevronRight, Target, History, ChevronLeft, Link2,
-  LogIn,
+  LogIn, Filter, ChevronsDownUp, Users,
 } from "lucide-react";
 import {
   useStore, SOCIAL_PLATFORMS,
@@ -27,6 +27,8 @@ import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandLinksPanel } from "@/components/brand-links-panel";
 import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
+import { AdminBrandViewershipDashboard } from "@/components/admin-brand-viewership-dashboard";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
@@ -451,6 +453,8 @@ function BrandCard({
   todayYm,
   readOnly,
   employees,
+  expanded,
+  onToggleExpanded,
   onEditBrand,
   onOpenLinks,
   onEnterBrandPanel,
@@ -460,6 +464,8 @@ function BrandCard({
   todayYm: string;
   readOnly: boolean;
   employees: Employee[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
   onEditBrand: () => void;
   onOpenLinks: () => void;
   onEnterBrandPanel?: () => void;
@@ -491,6 +497,15 @@ function BrandCard({
   return (
     <Card className="gap-2 py-5">
       <CardHeader className="flex-row items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onToggleExpanded}
+          className="shrink-0 p-1 rounded-md hover:bg-accent text-muted-foreground"
+          aria-expanded={expanded}
+          title={expanded ? "Daralt" : "Genişlet"}
+        >
+          <ChevronDown size={18} className={expanded ? "rotate-180 transition-transform" : "transition-transform"} />
+        </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <div className="min-w-0 flex-1">
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
@@ -551,6 +566,8 @@ function BrandCard({
         </div>
       </CardHeader>
 
+      {expanded && (
+      <>
       {/* Aylık izlenme hedefi — düzenleme yetkisi: karttan giriş; salt okunur: yalnız çubuk */}
       {(readOnly ? hasTarget : true) && (
         <div className="px-6 -mt-1 space-y-2">
@@ -675,6 +692,8 @@ function BrandCard({
             </div>
           )}
         </CardContent>
+      </>
+      )}
 
     </Card>
   );
@@ -701,6 +720,9 @@ export default function IzlenmePage() {
   const [linkModal,     setLinkModal]     = useState<{ mode: "new" | BrandLink; brandId?: string } | null>(null);
   const [snapshotModal, setSnapshotModal] = useState<{ link: BrandLink; snapshot?: LinkSnapshot } | null>(null);
   const [historyModal,  setHistoryModal]  = useState<BrandLink | null>(null);
+  const [brandStatusFilter, setBrandStatusFilter] = useState<"all" | "active" | "paused">("active");
+  const [onlyBrandsWithMonthData, setOnlyBrandsWithMonthData] = useState(false);
+  const [openBrandIds, setOpenBrandIds] = useState<Record<string, boolean>>({});
 
   const linkEmployees = useMemo(
     () => employees.filter((e) => e.status === "active" && e.kind !== "coordinator"),
@@ -747,6 +769,52 @@ export default function IzlenmePage() {
   };
 
   const navVm = (delta: number) => setViewMonth(shiftCalendarMonthYm(viewMonth, delta));
+
+  const filteredBrands = useMemo(() => {
+    let list = [...brands];
+    if (brandStatusFilter === "active") list = list.filter((b) => b.status === "active");
+    else if (brandStatusFilter === "paused") list = list.filter((b) => b.status === "paused");
+    if (onlyBrandsWithMonthData) {
+      list = list.filter((b) => {
+        const links = brandLinks.filter((l) => l.brandId === b.id);
+        const linkTotal = totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm);
+        const streamerTotal = brandViewership
+          .filter((v) => v.brandId === b.id && v.month === viewMonth)
+          .reduce((s, v) => s + v.views, 0);
+        return linkTotal > 0 || streamerTotal > 0;
+      });
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name, "tr"));
+  }, [
+    brands,
+    brandStatusFilter,
+    onlyBrandsWithMonthData,
+    brandLinks,
+    linkSnapshots,
+    brandViewership,
+    viewMonth,
+    todayYm,
+  ]);
+
+  useEffect(() => {
+    setOpenBrandIds((prev) => {
+      const next = { ...prev };
+      let anyOpen = Object.values(next).some(Boolean);
+      for (const b of filteredBrands) {
+        if (next[b.id] === undefined) next[b.id] = !anyOpen;
+        if (next[b.id]) anyOpen = true;
+      }
+      if (!anyOpen && filteredBrands[0]) next[filteredBrands[0].id] = true;
+      return next;
+    });
+  }, [viewMonth, filteredBrands.map((b) => b.id).join(",")]);
+
+  const expandAllBrands = () => {
+    setOpenBrandIds(Object.fromEntries(filteredBrands.map((b) => [b.id, true])));
+  };
+  const collapseAllBrands = () => {
+    setOpenBrandIds(Object.fromEntries(filteredBrands.map((b) => [b.id, false])));
+  };
 
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
@@ -826,16 +894,39 @@ export default function IzlenmePage() {
         ))}
       </div>
 
+      {/* 5 marka karşılaştırma panosu — yönetici / denetçi */}
+      {brands.filter((b) => b.status === "active").length > 0 && (
+        <AdminBrandViewershipDashboard
+          brands={brands}
+          brandLinks={brandLinks}
+          linkSnapshots={linkSnapshots}
+          brandViewership={brandViewership}
+          viewMonth={viewMonth}
+          todayYm={todayYm}
+        />
+      )}
+
       {/* Otomatik link yenileme — RapidAPI Basic plan bütçesine göre */}
       {!readOnly && (
-        <div className="mb-6">
+        <CollapsibleSection
+          defaultOpen={false}
+          className="mb-6"
+          title="Otomatik API yenileme"
+          description="RapidAPI kotası ve platform sağlığı"
+        >
           <AutoRefreshStatusPanel />
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* Yayıncı aylık izlenme raporları (brand_viewership) */}
       {monthlyViewership.length > 0 && (
-        <Card className="mb-6">
+        <CollapsibleSection
+          defaultOpen={false}
+          className="mb-6"
+          title="Yayıncı aylık izlenme raporları"
+          description={`${monthTitleYm(viewMonth)} · toplam ${fmtViews(monthlyViewershipTotal)}`}
+        >
+        <Card className="border-0 shadow-none">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Eye size={15} /> Yayıncı Aylık İzlenme Raporları
@@ -870,10 +961,17 @@ export default function IzlenmePage() {
             </table>
           </CardContent>
         </Card>
+        </CollapsibleSection>
       )}
 
       {/* Marka × yayıncı attribution + operasyon — admin */}
       {!readOnly && brands.length > 0 && (
+        <CollapsibleSection
+          defaultOpen={false}
+          className="mb-6"
+          title="Marka × yayıncı operasyon özeti"
+          description="Kayıt, FTD, net yatırım, harcama — seçili ay"
+        >
         <BrandAttributionCard
           brands={brands}
           brandViewership={monthlyViewership}
@@ -882,6 +980,7 @@ export default function IzlenmePage() {
           viewMonth={viewMonth}
           employees={linkEmployees}
         />
+        </CollapsibleSection>
       )}
 
       {/* Help banner */}
@@ -897,9 +996,50 @@ export default function IzlenmePage() {
         </div>
       )}
 
-      {/* Brand cards */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-        {brands.map(b => (
+      {/* Marka kartları — filtre + açılır/kapanır */}
+      <CollapsibleSection
+        defaultOpen
+        className="mb-6"
+        title={`Marka kartları (${filteredBrands.length})`}
+        description="Her markayı açıp link, hedef ve operasyon detayına inin"
+        trailing={
+          <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+            <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px] px-2" onClick={expandAllBrands}>
+              Tümünü aç
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px] px-2" onClick={collapseAllBrands}>
+              Tümünü kapat
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-border/60">
+          <Filter size={14} className="text-muted-foreground shrink-0" />
+          <Select
+            value={brandStatusFilter}
+            onChange={(e) => setBrandStatusFilter(e.target.value as typeof brandStatusFilter)}
+            className="h-8 text-xs max-w-[140px]"
+            options={[
+              { value: "active", label: "Aktif markalar" },
+              { value: "all", label: "Tüm markalar" },
+              { value: "paused", label: "Duraklatılmış" },
+            ]}
+          />
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyBrandsWithMonthData}
+              onChange={(e) => setOnlyBrandsWithMonthData(e.target.checked)}
+              className="rounded border-border"
+            />
+            Sadece bu ay verisi olan
+          </label>
+          <span className="text-[10px] text-muted-foreground ml-auto flex items-center gap-1">
+            <ChevronsDownUp size={12} /> Kart başlığından genişletin
+          </span>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        {filteredBrands.map((b) => (
           <BrandCard
             key={b.id}
             brand={b}
@@ -907,6 +1047,10 @@ export default function IzlenmePage() {
             todayYm={todayYm}
             readOnly={readOnly}
             employees={linkEmployees}
+            expanded={!!openBrandIds[b.id]}
+            onToggleExpanded={() =>
+              setOpenBrandIds((s) => ({ ...s, [b.id]: !s[b.id] }))
+            }
             onEditBrand={() => setBrandModal(b)}
             onOpenLinks={() => setLinksPanelBrand(b)}
             onEnterBrandPanel={
@@ -919,12 +1063,13 @@ export default function IzlenmePage() {
             }
           />
         ))}
-        {brands.length === 0 && (
+        {filteredBrands.length === 0 && (
           <div className="col-span-full text-center py-12 text-sm text-muted-foreground">
-            {readOnly ? "Henüz marka kaydı yok." : "Henüz marka eklenmemiş. \"Marka Ekle\" ile başlayın."}
+            Filtreye uyan marka yok. Ay veya filtreleri değiştirin.
           </div>
         )}
-      </div>
+        </div>
+      </CollapsibleSection>
 
       <BrandLinksPanel
         brand={linksPanelBrand}

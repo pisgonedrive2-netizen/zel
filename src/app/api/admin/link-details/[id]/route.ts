@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isRapidApiEnabled, isSupabaseEnabled } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { detectPlatform } from "@/lib/social-api/platform-detect";
+import { resolveLinkDetection } from "@/lib/social-api/platform-detect";
 import { fetchRichDetailsForLink } from "@/lib/social-api/clients";
+import { persistLinkMetricsUpdate } from "@/lib/social-api/link-persist";
 import { getMonthlyUsage, incrementUsage } from "@/lib/social-api/quota";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
 
@@ -16,10 +17,8 @@ export const dynamic = "force-dynamic";
  * Tek bir brand_link için RapidAPI'den zengin detayları getirir
  * (başlık, açıklama, kapak, yayın tarihi, yazar, etiketler, ham metrikler).
  *
- * Bu istek kotadan 1 tüketir; bu yüzden admin/auditor/brand kendi linki
- * için talep edebilir (kendi paneli üzerinden tıklatınca).
- *
- * Kota tükenmişse 429 döner — UI'da uyarı gösterilir.
+ * Bu istek kotadan 1 tüketir; başarılı olunca brand_links + link_snapshots
+ * güncellenir — izlenme panelinde görünür.
  */
 export async function GET(
   _req: NextRequest,
@@ -37,33 +36,34 @@ export async function GET(
   const db = getSupabaseAdmin();
   const { data: link, error } = await db
     .from("brand_links")
-    .select("id, brand_id, url, platform, owner_id")
+    .select(
+      "id, brand_id, url, platform, handle, owner_id, external_ref, last_views, check_count"
+    )
     .eq("id", id)
     .single();
   if (error || !link) {
     return NextResponse.json({ ok: false, error: "Link bulunamadı" }, { status: 404 });
   }
-  // Rol-bazlı yetki kontrolü
   if (!["admin", "auditor", "brand", "streamer"].includes(session.role)) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
-  // Brand: yalnızca kendi markasının linkleri
   if (session.role === "brand") {
     if (!session.brandId || link.brand_id !== session.brandId) {
       return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
     }
   }
-  // Streamer: yalnızca kendi owner_id'sine bağlı linkler
   if (session.role === "streamer") {
     if (!session.employeeId || link.owner_id !== session.employeeId) {
       return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
     }
   }
 
-  const detected = detectPlatform(
-    String(link.url),
-    link.platform ? String(link.platform) : undefined
-  );
+  const detected = resolveLinkDetection({
+    url: String(link.url ?? ""),
+    platform: link.platform ? String(link.platform) : undefined,
+    handle: link.handle ? String(link.handle) : undefined,
+    externalRef: link.external_ref ? String(link.external_ref) : undefined,
+  });
   if (!detected) {
     return NextResponse.json(
       { ok: false, error: "Bu URL'den otomatik veri çekilemiyor (platform desteklenmiyor)." },
@@ -71,7 +71,6 @@ export async function GET(
     );
   }
 
-  // Kota kontrolü — refresh-runner ile aynı güvenli sınır (%85)
   const usage = await getMonthlyUsage(detected.platform);
   const plan = SOCIAL_PLANS[detected.platform];
   const safeLimit = Math.floor(plan.monthlyLimit * plan.safeFraction);
@@ -89,31 +88,42 @@ export async function GET(
 
   try {
     const details = await fetchRichDetailsForLink(detected);
-    // Yalnızca başarılı API çağrısında kotadan düş (refresh-runner ile tutarlı)
     await incrementUsage(detected.platform, 1);
 
-    const now = new Date().toISOString();
-    await db
-      .from("brand_links")
-      .update({
-        external_ref: detected.externalRef,
-        last_checked_at: now,
-        last_views: details.metrics.views,
-        last_likes: details.metrics.likes,
-        last_comments: details.metrics.comments,
-        last_shares: details.metrics.shares,
-        last_check_error: null,
-      })
-      .eq("id", id);
+    const persisted = await persistLinkMetricsUpdate({
+      linkId: id,
+      metrics: details.metrics,
+      externalRef: detected.externalRef,
+      previousViews: link.last_views != null ? Number(link.last_views) : null,
+      checkCount: link.check_count != null ? Number(link.check_count) : 0,
+    });
 
-    return NextResponse.json({ ok: true, details });
+    return NextResponse.json({
+      ok: true,
+      details,
+      linkUpdate: {
+        lastViews: persisted.lastViews,
+        lastSnapshotDate: persisted.snapshotDate,
+        lastCheckedAt: persisted.lastCheckedAt,
+        externalRef: persisted.externalRef,
+        snapshot:
+          persisted.snapshotId && persisted.snapshotDate && persisted.lastViews != null
+            ? {
+                id: persisted.snapshotId,
+                linkId: id,
+                date: persisted.snapshotDate,
+                views: persisted.lastViews,
+                notes: "auto",
+              }
+            : undefined,
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "API hatası";
     await db
       .from("brand_links")
       .update({ last_check_error: msg.slice(0, 500) })
       .eq("id", id);
-    /* hata kaydı başarısız olsa bile 502 dönmeye devam et */
     return NextResponse.json(
       {
         ok: false,
