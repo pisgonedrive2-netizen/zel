@@ -31,6 +31,7 @@ import {
 } from "@/lib/brand-viewership-series";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
 import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
+import { ViewDotCard, type ViewDotCardAccent } from "@/components/view-dot-card";
 
 function fmtViews(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -173,6 +174,23 @@ export function AdminBrandViewershipDashboard({
 
       {hasData && (
       <div className="space-y-4">
+      {ranking.length > 0 && (
+        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+          {ranking.slice(0, 5).map((row, i) => {
+            const accents: ViewDotCardAccent[] = ["violet", "blue", "emerald", "amber", "rose"];
+            return (
+              <ViewDotCard
+                key={row.brandId}
+                target={row.views}
+                label={row.shortName}
+                sub={`%${row.sharePct.toFixed(0)} pay · ${monthTitleShort(viewMonth)}`}
+                accent={accents[i % accents.length]}
+                size={i >= 3 ? "sm" : "md"}
+              />
+            );
+          })}
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-12">
         {/* Animated leaderboard */}
         <Card className="xl:col-span-5 overflow-hidden border-indigo-200/50 dark:border-indigo-500/30 bg-gradient-to-br from-indigo-50/30 via-card to-violet-50/20 dark:from-indigo-950/25 dark:to-violet-950/10">

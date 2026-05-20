@@ -34,6 +34,7 @@ import { BrandLinksPanel } from "@/components/brand-links-panel";
 import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
 import { AdminBrandViewershipDashboard } from "@/components/admin-brand-viewership-dashboard";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { ViewDotCard } from "@/components/view-dot-card";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
@@ -884,27 +885,59 @@ export default function IzlenmePage() {
         </div>
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      {/* KPIs — izlenme dot kartları + özet kutular */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-6 mb-6">
+        <ViewDotCard
+          target={totalViewsMonth}
+          label={`${monthTitleYm(viewMonth)} · İzlenme`}
+          sub={`Canlı: ${fmtViews(totalViewsLive)}`}
+          accent="violet"
+          className="col-span-1 sm:col-span-1 lg:col-span-2"
+        />
+        <ViewDotCard
+          target={monthlyViewershipTotal}
+          label="Yayıncı kayıtları"
+          sub={`${monthlyViewership.length} satır`}
+          accent="emerald"
+          className="col-span-1 lg:col-span-2"
+        />
+        <ViewDotCard
+          target={recent}
+          label="Son 30 gün"
+          sub="Snapshot toplamı"
+          accent="blue"
+          size="sm"
+          className="col-span-1 lg:col-span-2"
+        />
         {[
-          { label: "Aktif Marka",      value: String(totalBrands),                       cls: "text-foreground" },
-          { label: "Takip Edilen Link",value: `${linksWithUrl} / ${activeLinks}`,        cls: "text-blue-600" },
-          { label: "Seçili Ay İzlenme", value: fmtViews(totalViewsMonth),               cls: "text-foreground font-bold",
-            sub: `Canlı (tüm aylar): ${fmtViews(totalViewsLive)}` },
-          { label: "Seçili Ay Harcama", value: totalExpensesMonth > 0 ? `$${totalExpensesMonth.toLocaleString("tr-TR")}` : "—",
-            cls: totalExpensesMonth > 0 ? "text-amber-700 dark:text-amber-300 font-bold" : "text-muted-foreground",
-            sub: "İçerik harcamaları (iptal/red hariç)" },
-          { label: "Son 30 Gün (snapshot)", value: fmtViews(recent),                   cls: recent > 0 ? "text-green-600" : "text-muted-foreground",
-            icon: recent > 0 ? TrendingUp : TrendingDown,
-            sub: "Ay seçiciden bağımsız · son 30 gün" },
-        ].map(k => (
-          <div key={k.label} className="border border-border rounded-xl px-4 py-3 bg-card">
-            <p className="text-muted-foreground text-xs mb-1 flex items-center gap-1.5">
-              {k.icon && <k.icon size={11} />}
-              {k.label}
-            </p>
+          { label: "Aktif Marka", value: String(totalBrands), cls: "text-foreground" },
+          {
+            label: "Takip Edilen Link",
+            value: `${linksWithUrl} / ${activeLinks}`,
+            cls: "text-blue-600 dark:text-blue-400",
+          },
+          {
+            label: "Seçili Ay Harcama",
+            value:
+              totalExpensesMonth > 0
+                ? `$${totalExpensesMonth.toLocaleString("tr-TR")}`
+                : "—",
+            cls:
+              totalExpensesMonth > 0
+                ? "text-amber-700 dark:text-amber-300 font-bold"
+                : "text-muted-foreground",
+            sub: "İçerik harcamaları",
+          },
+        ].map((k) => (
+          <div
+            key={k.label}
+            className="border border-border rounded-xl px-4 py-3 bg-card flex flex-col justify-center"
+          >
+            <p className="text-muted-foreground text-xs mb-1">{k.label}</p>
             <p className={`text-xl tabular-nums ${k.cls}`}>{k.value}</p>
-            {"sub" in k && k.sub && <p className="text-[10px] text-muted-foreground mt-0.5">{k.sub}</p>}
+            {"sub" in k && k.sub && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">{k.sub}</p>
+            )}
           </div>
         ))}
       </div>

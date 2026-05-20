@@ -1,0 +1,179 @@
+.outer {
+  position: relative;
+  width: 100%;
+  max-width: 240px;
+  height: 148px;
+  margin-inline: auto;
+  --vdc-glow: #6366f1;
+  --vdc-accent: #818cf8;
+  --vdc-ray: rgba(99, 102, 241, 0.35);
+}
+
+.outerSm {
+  max-width: 200px;
+  height: 124px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 40px 12px var(--vdc-glow),
+    0 0 80px 24px color-mix(in srgb, var(--vdc-glow) 40%, transparent);
+  z-index: 3;
+  animation: vdc-pulse 2.4s ease-in-out infinite;
+}
+
+.card {
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--card) 92%, var(--vdc-glow) 8%) 0%,
+    color-mix(in srgb, var(--card) 98%, transparent) 55%
+  );
+  border: 1px solid color-mix(in srgb, var(--vdc-accent) 35%, var(--border));
+  box-shadow:
+    0 4px 24px color-mix(in srgb, var(--vdc-glow) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding-top: 8px;
+}
+
+:global(.dark) .card {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--card) 75%, var(--vdc-glow) 25%) 0%,
+    color-mix(in srgb, var(--card) 90%, transparent) 60%
+  );
+  box-shadow:
+    0 8px 32px color-mix(in srgb, var(--vdc-glow) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+}
+
+.ray {
+  position: absolute;
+  top: -60%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 180%;
+  height: 160%;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    var(--vdc-ray) 0%,
+    transparent 68%
+  );
+  pointer-events: none;
+}
+
+.text {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  z-index: 2;
+  background: linear-gradient(180deg, var(--foreground) 0%, color-mix(in srgb, var(--foreground) 70%, var(--vdc-accent)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.outerSm .text {
+  font-size: 1.65rem;
+}
+
+.label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+  z-index: 2;
+}
+
+.sub {
+  font-size: 0.6rem;
+  color: color-mix(in srgb, var(--muted-foreground) 85%, transparent);
+  z-index: 2;
+  max-width: 90%;
+  text-align: center;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+
+.line {
+  position: absolute;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--vdc-accent) 80%, transparent),
+    transparent
+  );
+  opacity: 0.7;
+}
+
+.topl {
+  top: 0;
+  left: 18%;
+  right: 18%;
+  height: 1px;
+}
+
+.bottoml {
+  bottom: 0;
+  left: 18%;
+  right: 18%;
+  height: 1px;
+}
+
+.leftl {
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--vdc-accent) 80%, transparent),
+    transparent
+  );
+}
+
+.rightl {
+  right: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in srgb, var(--vdc-accent) 80%, transparent),
+    transparent
+  );
+}
+
+@keyframes vdc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translateX(-50%) scale(1.15);
+  }
+}

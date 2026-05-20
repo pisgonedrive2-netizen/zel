@@ -25,6 +25,7 @@ import {
 } from "@/lib/brand-viewership-series";
 import { SocialPlatformIcon } from "@/components/social-platform-icon";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
+import { ViewDotCard } from "@/components/view-dot-card";
 
 const CHART_COLORS = ["#3b82f6", "#8b5cf6", "#10b981", "#f59e0b", "#ec4899"];
 
@@ -140,12 +141,22 @@ export function MarkaViewershipCharts({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatTile
-          label={`${monthLabelTr(monthYm)} toplam`}
-          value={fmtViews(selectedRow?.totalViews ?? 0)}
-          sub={`Link: ${fmtViews(selectedRow?.linkViews ?? 0)} · Yayın: ${fmtViews(selectedRow?.streamerViews ?? 0)}`}
-          accent="text-blue-700 dark:text-blue-300"
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <ViewDotCard
+          target={selectedRow?.totalViews ?? 0}
+          label={`${monthLabelTr(monthYm)} · Toplam`}
+          sub={`Link + yayıncı`}
+          accent="violet"
+        />
+        <ViewDotCard
+          target={selectedRow?.linkViews ?? 0}
+          label="Link izlenme"
+          accent="blue"
+        />
+        <ViewDotCard
+          target={selectedRow?.streamerViews ?? 0}
+          label="Yayıncı izlenme"
+          accent="emerald"
         />
         <StatTile
           label="Önceki aya göre"

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SocialPlatformIcon, platformAccentClass } from "@/components/social-platform-icon";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { ViewDotCard } from "@/components/view-dot-card";
 import { Select } from "@/components/ui/field";
 
 const CARD_PREVIEW_LIMIT = 5;
@@ -96,6 +97,11 @@ export default function MarkaIzlenmelerPage() {
   const totalLinkViewsMonth = useMemo(
     () => linksWithMonthViews.reduce((s, r) => s + r.lastViews, 0),
     [linksWithMonthViews]
+  );
+
+  const totalStreamerViewsMonth = useMemo(
+    () => viewRows.reduce((s, v) => s + v.views, 0),
+    [viewRows]
   );
 
   const hasTarget = Boolean(brand?.monthlyTarget != null && brand.monthlyTarget > 0);
@@ -188,6 +194,28 @@ export default function MarkaIzlenmelerPage() {
           </div>
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
+
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-3xl">
+            <ViewDotCard
+              target={totalLinkViewsMonth + totalStreamerViewsMonth}
+              label={`${monthTitle} · Toplam`}
+              sub="Link + yayıncı kayıtları"
+              accent="violet"
+            />
+            <ViewDotCard
+              target={totalLinkViewsMonth}
+              label="Marka linkleri"
+              sub={`${linksForBrand.length} link`}
+              accent="blue"
+            />
+            <ViewDotCard
+              target={totalStreamerViewsMonth}
+              label="Yayıncı kayıtları"
+              sub={`${viewRows.length} satır`}
+              accent="emerald"
+              size="sm"
+            />
+          </div>
 
           <CollapsibleSection
             defaultOpen
