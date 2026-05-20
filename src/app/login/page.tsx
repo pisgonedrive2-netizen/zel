@@ -403,9 +403,9 @@ export default function LoginPage() {
     "h-9 rounded-lg px-3.5 text-sm font-semibold transition active:scale-[0.98] shadow-lg";
 
   return (
-    <div className="relative h-[100dvh] min-h-[100dvh] w-full overflow-hidden bg-black">
+    <div className="relative isolate flex h-full min-h-[100dvh] w-full flex-col overflow-hidden bg-black">
       {/* Mobil görsel */}
-      <div className="md:hidden absolute inset-0">
+      <div className="pointer-events-none absolute inset-0 z-0 md:hidden">
         <Image
           src="/moblogin.png"
           alt="Fox Streaming"
@@ -417,7 +417,7 @@ export default function LoginPage() {
       </div>
 
       {/* Masaüstü görsel */}
-      <div className="hidden md:block absolute inset-0">
+      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
         <Image
           src="/login-bg-dash4.png"
           alt=""
@@ -467,8 +467,8 @@ export default function LoginPage() {
         </button>
       </header>
 
-      {/* Marka marquee — sabit alt bant (her zaman görünür) */}
-      <div className="fixed bottom-0 left-0 right-0 z-[25] px-3 sm:px-6 pb-[max(env(safe-area-inset-bottom),16px)] pt-10 bg-gradient-to-t from-black via-black/90 to-transparent pointer-events-none">
+      {/* Marka marquee — DotCard tarzı, Padisah 1. sırada */}
+      <div className="relative z-10 mt-auto w-full shrink-0 px-2 sm:px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-6 bg-gradient-to-t from-black via-black/95 to-transparent pointer-events-none">
         <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" />
       </div>
 

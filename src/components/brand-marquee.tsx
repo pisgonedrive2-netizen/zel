@@ -2,13 +2,70 @@
 
 import { useMemo } from "react";
 import { BrandLogo } from "@/components/brand-logo";
+import { brandChartColor } from "@/lib/brand-viewership-series";
 import { cn } from "@/lib/utils";
+import styles from "./brand-marquee.module.css";
 
 export type BrandMarqueeItem = {
   id: string;
   name: string;
   shortName: string;
 };
+
+const PADISAH_BRAND_ID = "br-padi";
+
+/** Marquee’de gösterilecek kısa isim (Padi → Padisah). */
+export function marqueeDisplayName(brand: BrandMarqueeItem): string {
+  if (brand.id === PADISAH_BRAND_ID) return "Padisah";
+  return brand.shortName;
+}
+
+/** Padisah her zaman 1. sırada, sonra alfabetik. */
+export function sortBrandsForMarquee(brands: BrandMarqueeItem[]): BrandMarqueeItem[] {
+  return [...brands].sort((a, b) => {
+    if (a.id === PADISAH_BRAND_ID) return -1;
+    if (b.id === PADISAH_BRAND_ID) return 1;
+    return marqueeDisplayName(a).localeCompare(marqueeDisplayName(b), "tr");
+  });
+}
+
+function BrandDotCard({
+  brand,
+  index,
+}: {
+  brand: BrandMarqueeItem;
+  index: number;
+}) {
+  const glow = brandChartColor(brand.id, index);
+  const display = marqueeDisplayName(brand);
+
+  return (
+    <div
+      className={styles.itemOuter}
+      style={
+        {
+          "--bm-glow": glow,
+          "--bm-accent": glow,
+          "--bm-ray": `${glow}55`,
+        } as React.CSSProperties
+      }
+    >
+      <div className={styles.dot} aria-hidden />
+      <div className={styles.card}>
+        <div className={styles.ray} aria-hidden />
+        <div className={styles.logoWrap}>
+          <BrandLogo brandId={brand.id} title={brand.name} size={26} className="rounded-md" />
+        </div>
+        <div className={styles.text}>{display}</div>
+        <div className={styles.label}>Partner</div>
+        <div className={cn(styles.line, styles.topl)} aria-hidden />
+        <div className={cn(styles.line, styles.leftl)} aria-hidden />
+        <div className={cn(styles.line, styles.bottoml)} aria-hidden />
+        <div className={cn(styles.line, styles.rightl)} aria-hidden />
+      </div>
+    </div>
+  );
+}
 
 function MarqueeTrack({
   items,
@@ -20,27 +77,16 @@ function MarqueeTrack({
   const doubled = useMemo(() => [...items, ...items], [items]);
 
   return (
-    <div className="overflow-hidden w-full min-h-[44px] flex items-center">
+    <div className={styles.track}>
       <div
         className={cn(
-          "flex w-max shrink-0 items-center gap-3 sm:gap-5 motion-reduce:translate-x-0",
-          direction === "left" ? "animate-brand-marquee-left" : "animate-brand-marquee-right"
+          styles.trackInner,
+          direction === "left" ? styles.trackInnerLeft : styles.trackInnerRight
         )}
         aria-hidden
       >
         {doubled.map((b, i) => (
-          <div
-            key={`${b.id}-${i}`}
-            className="inline-flex items-center gap-2.5 rounded-full border border-orange-500/40 bg-black/80 px-4 py-2.5 shadow-[0_0_24px_rgba(255,107,0,0.15)] backdrop-blur-md"
-          >
-            <BrandLogo brandId={b.id} title={b.name} size={30} className="rounded-full" />
-            <span className="text-sm font-bold tracking-wide text-white whitespace-nowrap drop-shadow-sm">
-              {b.shortName}
-            </span>
-            <span className="hidden sm:inline text-xs text-orange-200/80 font-medium whitespace-nowrap">
-              {b.name}
-            </span>
-          </div>
+          <BrandDotCard key={`${b.id}-${i}`} brand={b} index={i % items.length} />
         ))}
       </div>
     </div>
@@ -56,23 +102,20 @@ export function BrandMarquee({
   className?: string;
   label?: string;
 }) {
-  if (brands.length === 0) return null;
+  const sorted = useMemo(() => sortBrandsForMarquee(brands), [brands]);
 
-  const sorted = useMemo(
-    () => [...brands].sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")),
-    [brands]
-  );
+  if (sorted.length === 0) return null;
 
   return (
     <section
-      className={cn("relative w-full select-none", className)}
+      className={cn("relative w-full max-w-[100vw] select-none", className)}
       aria-label={label}
     >
       <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300/90 mb-3 drop-shadow-md">
         {label}
       </p>
 
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         <MarqueeTrack items={sorted} direction="left" />
         <MarqueeTrack items={[...sorted].reverse()} direction="right" />
       </div>
