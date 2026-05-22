@@ -1,10 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BrandLogo } from "@/components/brand-logo";
-import { brandChartColor } from "@/lib/brand-viewership-series";
 import { cn } from "@/lib/utils";
-import styles from "./brand-marquee.module.css";
 
 export type BrandMarqueeItem = {
   id: string;
@@ -14,7 +11,7 @@ export type BrandMarqueeItem = {
 
 const PADISAH_BRAND_ID = "br-padi";
 
-/** Marquee’de gösterilecek kısa isim (Padi → Padisah). */
+/** Marquee'de gösterilecek kısa isim (Padi → Padisah). */
 export function marqueeDisplayName(brand: BrandMarqueeItem): string {
   if (brand.id === PADISAH_BRAND_ID) return "Padisah";
   return brand.shortName;
@@ -29,64 +26,47 @@ export function sortBrandsForMarquee(brands: BrandMarqueeItem[]): BrandMarqueeIt
   });
 }
 
-function BrandDotCard({
-  brand,
-  index,
-}: {
-  brand: BrandMarqueeItem;
-  index: number;
-}) {
-  const glow = brandChartColor(brand.id, index);
-  const display = marqueeDisplayName(brand);
-
+function BrandChip({ brand }: { brand: BrandMarqueeItem }) {
   return (
-    <div
-      className={styles.itemOuter}
-      style={
-        {
-          "--bm-glow": glow,
-          "--bm-accent": glow,
-          "--bm-ray": `${glow}55`,
-        } as React.CSSProperties
-      }
-    >
-      <div className={styles.dot} aria-hidden />
-      <div className={styles.card}>
-        <div className={styles.ray} aria-hidden />
-        <div className={styles.logoWrap}>
-          <BrandLogo brandId={brand.id} title={brand.name} size={26} className="rounded-md" />
-        </div>
-        <div className={styles.text}>{display}</div>
-        <div className={styles.label}>Partner</div>
-        <div className={cn(styles.line, styles.topl)} aria-hidden />
-        <div className={cn(styles.line, styles.leftl)} aria-hidden />
-        <div className={cn(styles.line, styles.bottoml)} aria-hidden />
-        <div className={cn(styles.line, styles.rightl)} aria-hidden />
-      </div>
+    <div className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-black/45 px-4 py-2 shadow-lg shadow-black/30 backdrop-blur-md">
+      <span className="whitespace-nowrap text-sm font-semibold tracking-wide text-white">
+        {marqueeDisplayName(brand)}
+      </span>
     </div>
   );
 }
 
-function MarqueeTrack({
+function repeatItems(items: BrandMarqueeItem[], copies: number) {
+  return Array.from({ length: copies }).flatMap(() => items);
+}
+
+/** Sabit geniş track: her grup viewport'tan geniş, animasyon bir grubu kaydırır. */
+function MarqueeRow({
   items,
   direction = "left",
 }: {
   items: BrandMarqueeItem[];
   direction?: "left" | "right";
 }) {
-  const doubled = useMemo(() => [...items, ...items], [items]);
+  const group = useMemo(() => repeatItems(items, 8), [items]);
 
   return (
-    <div className={styles.track}>
+    <div
+      className="brand-marquee-window w-full overflow-hidden"
+      aria-hidden
+    >
       <div
         className={cn(
-          styles.trackInner,
-          direction === "left" ? styles.trackInnerLeft : styles.trackInnerRight
+          "brand-marquee-track flex w-max items-center gap-4",
+          direction === "right" && "brand-marquee-track--reverse",
         )}
-        aria-hidden
       >
-        {doubled.map((b, i) => (
-          <BrandDotCard key={`${b.id}-${i}`} brand={b} index={i % items.length} />
+        {[0, 1].map((groupIndex) => (
+          <div key={groupIndex} className="brand-marquee-group flex min-w-screen shrink-0 items-center justify-around gap-4 pr-4">
+            {group.map((b, i) => (
+              <BrandChip key={`${direction}-${groupIndex}-${b.id}-${i}`} brand={b} />
+            ))}
+          </div>
         ))}
       </div>
     </div>
@@ -97,10 +77,13 @@ export function BrandMarquee({
   brands,
   className,
   label = "Partner markalarımız",
+  dualRow = false,
 }: {
   brands: BrandMarqueeItem[];
   className?: string;
   label?: string;
+  /** İki satır (ters yön). Varsayılan tek satır — daha sade landing. */
+  dualRow?: boolean;
 }) {
   const sorted = useMemo(() => sortBrandsForMarquee(brands), [brands]);
 
@@ -108,16 +91,18 @@ export function BrandMarquee({
 
   return (
     <section
-      className={cn("relative w-full max-w-[100vw] select-none", className)}
+      className={cn("relative w-full select-none", className)}
       aria-label={label}
     >
-      <p className="text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-300/90 mb-3 drop-shadow-md">
-        {label}
-      </p>
+      {label ? (
+        <p className="mb-3 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">
+          {label}
+        </p>
+      ) : null}
 
-      <div className="flex flex-col gap-3">
-        <MarqueeTrack items={sorted} direction="left" />
-        <MarqueeTrack items={[...sorted].reverse()} direction="right" />
+      <div className={cn("flex w-full flex-col", dualRow ? "gap-3" : "")}>
+        <MarqueeRow items={sorted} direction="left" />
+        {dualRow && <MarqueeRow items={[...sorted].reverse()} direction="right" />}
       </div>
     </section>
   );

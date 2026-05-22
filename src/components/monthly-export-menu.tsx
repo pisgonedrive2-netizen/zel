@@ -80,10 +80,10 @@ export function MonthlyExportMenu({
           </DropdownMenuLabel>
           <div className="px-1 pb-2" onPointerDown={(e) => e.stopPropagation()}>
             <select
+              aria-label="Rapor ayı seç"
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
               className="w-full h-8 rounded-md border border-border bg-background text-sm px-2"
-              aria-label="Rapor ayı"
             >
               {months.map((m) => (
                 <option key={m} value={m}>

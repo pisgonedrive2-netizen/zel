@@ -51,6 +51,8 @@ export interface SalaryExtra {
   amount: number;
   description: string;
   type: "bonus" | "expense" | "deduction" | "rent" | "other";
+  /** İçerik harcamasından otomatik oluşturulduysa kaynak id. */
+  contentExpenseId?: string;
 }
 
 export interface MonthPaymentStatus {
@@ -120,6 +122,8 @@ export interface ExpenseEntry {
   kasaTxId?: string;
   /** Markaya atanmış genel gider (marka panelinde görünür). */
   brandId?: string;
+  /** Planlanan kalemden aktarıldıysa kaynak plan id'si. */
+  plannedItemId?: string;
 }
 
 export type PlannedCategory = "capex" | "opex" | "revenue" | "growth" | "other";
@@ -152,6 +156,8 @@ export interface PlannedItem {
   recurrence: PlannedRecurrence;
   /** Giderlere aktarım sonrası expense_entries.id */
   expenseEntryId?: string;
+  /** Kasaya aktarım sonrası kasa_transactions.id */
+  kasaTxId?: string;
 }
 
 /** Planlanan kalemin taksit / dönem ödemesi. */
@@ -288,6 +294,12 @@ export interface BrandLink {
   checkCount?: number;
   /** Toplam hatalı kontrol sayısı. */
   errorCount?: number;
+  /** Toplam başarılı API yenileme sayısı. */
+  refreshCountTotal?: number;
+  /** Son yenileme sonucu: ok | error | quota | not_supported */
+  lastRefreshStatus?: "ok" | "error" | "quota" | "not_supported";
+  /** DB tarafından üretilen oluşturulma zamanı (ISO). */
+  createdAt?: string;
 }
 
 /** Bir linke ait belirli bir tarihteki izlenme/abone snapshot'ı. */
@@ -297,6 +309,12 @@ export interface LinkSnapshot {
   date: string;        // YYYY-MM-DD
   views: number;
   notes: string;
+  /** O günkü engagement (null = ölçülmedi). */
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  /** API yenileme anının zaman damgası. */
+  refreshedAt?: string;
 }
 
 /** Kasa hesabı — birden çok kasa açılabilir (Genel, USDT, Banka vb.). */
@@ -329,6 +347,8 @@ export interface KasaTransaction {
   /** TXID / dekont / kanıt link. */
   proof: string;
   notes: string;
+  /** Planlanan kalemden oluşan kasa hareketiyse kaynak plan id'si. */
+  plannedItemId?: string;
 }
 
 /** İçerik üretim / vlog harcaması — Ramiz vb. yayıncıların aylık raporu. */
@@ -365,6 +385,10 @@ export interface ContentExpense {
   audited?: boolean;
   /** "Ödendi" olarak işaretlenirken oluşturulan kasa hareketinin id'si. */
   kasaTxId?: string;
+  /** Ödeme yolu: kasa çıkışı veya bordro masrafı. */
+  settlementMode?: "kasa" | "payroll";
+  /** Bordroya eklendiyse bağlı salary_extra id. */
+  salaryExtraId?: string;
 }
 
 /** Yayıncı haftalık plan kaydı — `ScheduleSlot`'tan ayrı, tarihli ve özel. */
@@ -555,6 +579,24 @@ interface AppStore {
   addPlannedItemPayment: (p: Omit<PlannedItemPayment, "id">) => void;
   updatePlannedItemPayment: (id: string, p: Partial<PlannedItemPayment>) => void;
   deletePlannedItemPayment: (id: string) => void;
+  transferPlannedToExpense: (args: {
+    plannedItemId: string;
+    amount: number;
+    date: string;
+    description?: string;
+    category?: string;
+    markCompleted?: boolean;
+  }) => void;
+  transferPlannedToKasa: (args: {
+    plannedItemId: string;
+    kasaId: string;
+    amount: number;
+    date: string;
+    feeUsd?: number;
+    notes?: string;
+    proof?: string;
+    markCompleted?: boolean;
+  }) => void;
 
   // Streamer accounts
   addStreamerAccount: (a: Omit<StreamerAccount, "id">) => void;
@@ -604,9 +646,13 @@ interface AppStore {
   deleteKasaTransaction: (id: string) => void;
 
   // Content expense
-  addContentExpense: (e: Omit<ContentExpense, "id">) => void;
+  addContentExpense: (e: Omit<ContentExpense, "id">) => string;
   updateContentExpense: (id: string, e: Partial<ContentExpense>) => void;
   deleteContentExpense: (id: string) => void;
+  /** Onaylı harcamayı bordroya masraf kalemi olarak ekler (maaş netine dahil). */
+  settleContentExpenseToPayroll: (contentExpenseId: string) => void;
+  /** Bordro bağlantısını kaldırır; salary_extra silinir. */
+  unsettleContentExpenseFromPayroll: (contentExpenseId: string) => void;
   /**
    * Atomik "ödendi" işaretleme: hem ilgili `content_expense` satırını günceller
    * hem seçilen kasada `out` yönlü hareket yaratıp `kasaTxId` ile bağlar.
@@ -688,6 +734,27 @@ function formatPayrollMonthLabel(ym: string): string {
   const idx = Number(m[2]) - 1;
   if (idx < 0 || idx > 11) return ym;
   return `${MONTH_NAMES_TR_SHORT[idx]} ${m[1]}`;
+}
+
+function paidPlannedTotal(
+  payments: PlannedItemPayment[],
+  plannedItemId: string,
+  extraPaid = 0,
+): number {
+  const paid = payments
+    .filter((p) => p.plannedItemId === plannedItemId && p.status === "paid")
+    .reduce((sum, p) => sum + p.amount, 0);
+  return paid + extraPaid;
+}
+
+function plannedStatusAfterSpend(
+  item: PlannedItem,
+  spent: number,
+  markCompleted?: boolean,
+): PlannedStatus {
+  if (markCompleted || spent >= item.budget) return "completed";
+  if (spent > 0 && item.status === "planned") return "in-progress";
+  return item.status;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1436,7 +1503,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Salary extra
       addSalaryExtra:    (e)     => set((s) => ({ salaryExtras: [...s.salaryExtras, { ...e, id: uid() }] })),
       updateSalaryExtra: (id, e) => set((s) => ({ salaryExtras: s.salaryExtras.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
-      deleteSalaryExtra: (id)    => set((s) => ({ salaryExtras: s.salaryExtras.filter((x) => x.id !== id) })),
+      deleteSalaryExtra: (id) =>
+        set((s) => {
+          const extra = s.salaryExtras.find((x) => x.id === id);
+          return {
+            salaryExtras: s.salaryExtras.filter((x) => x.id !== id),
+            contentExpenses: extra?.contentExpenseId
+              ? s.contentExpenses.map((ce) =>
+                  ce.id === extra.contentExpenseId
+                    ? { ...ce, salaryExtraId: undefined, settlementMode: undefined }
+                    : ce
+                )
+              : s.contentExpenses,
+          };
+        }),
       syncRentSupportFromMonth: (employeeId, fromMonth, amount) =>
         set((s) => {
           const employee = s.employees.find((e) => e.id === employeeId);
@@ -1609,7 +1689,27 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
 
       // Expense
       addExpense:    (e)         => set((s) => ({ expenses: [...s.expenses, { ...e, id: uid() }] })),
-      updateExpense: (id, e)     => set((s) => ({ expenses: s.expenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
+      updateExpense: (id, e)     => set((s) => {
+        const before = s.expenses.find((x) => x.id === id);
+        const nextExpense = before ? { ...before, ...e } : undefined;
+        return {
+          expenses: s.expenses.map((x) => (x.id === id ? { ...x, ...e } : x)),
+          kasaTransactions:
+            before?.kasaTxId && nextExpense
+              ? s.kasaTransactions.map((tx) =>
+                  tx.id === before.kasaTxId
+                    ? {
+                        ...tx,
+                        amountUsd: nextExpense.amount,
+                        date: `${nextExpense.date}T00:00`,
+                        purpose: `[Gider] ${nextExpense.category} · ${nextExpense.description}`,
+                        counterparty: nextExpense.description || nextExpense.category,
+                      }
+                    : tx
+                )
+              : s.kasaTransactions,
+        };
+      }),
       deleteExpense: (id)        => set((s) => {
         const target = s.expenses.find((x) => x.id === id);
         const kasaTransactions = target?.kasaTxId
@@ -1618,6 +1718,13 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         return {
           expenses: s.expenses.filter((x) => x.id !== id),
           kasaTransactions,
+          plannedItems: target
+            ? s.plannedItems.map((p) =>
+                p.expenseEntryId === target.id
+                  ? { ...p, expenseEntryId: undefined, spent: paidPlannedTotal(s.plannedItemPayments, p.id) }
+                  : p
+              )
+            : s.plannedItems,
         };
       }),
 
@@ -1646,6 +1753,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             counterparty: data.description || data.category,
             proof: kasa.proof ?? "",
             notes: kasa.notes ?? "",
+            plannedItemId: data.plannedItemId,
           };
           return {
             expenses: [...s.expenses, { ...data, id: expenseId, kasaTxId: txId }],
@@ -1671,17 +1779,149 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       deletePlannedItem: (id) => set((s) => ({
         plannedItems: s.plannedItems.filter((x) => x.id !== id),
         plannedItemPayments: s.plannedItemPayments.filter((p) => p.plannedItemId !== id),
+        expenses: s.expenses.map((e) =>
+          e.plannedItemId === id ? { ...e, plannedItemId: undefined } : e
+        ),
+        kasaTransactions: s.kasaTransactions.map((t) =>
+          t.plannedItemId === id ? { ...t, plannedItemId: undefined } : t
+        ),
       })),
 
-      addPlannedItemPayment: (p) => set((s) => ({
-        plannedItemPayments: [...s.plannedItemPayments, { ...p, id: uid() }],
-      })),
-      updatePlannedItemPayment: (id, p) => set((s) => ({
-        plannedItemPayments: s.plannedItemPayments.map((x) => (x.id === id ? { ...x, ...p } : x)),
-      })),
-      deletePlannedItemPayment: (id) => set((s) => ({
-        plannedItemPayments: s.plannedItemPayments.filter((x) => x.id !== id),
-      })),
+      addPlannedItemPayment: (p) => set((s) => {
+        const existing = s.plannedItemPayments.find(
+          (x) => x.plannedItemId === p.plannedItemId && x.month === p.month
+        );
+        const plannedItemPayments = existing
+          ? s.plannedItemPayments.map((x) => (x.id === existing.id ? { ...x, ...p } : x))
+          : [...s.plannedItemPayments, { ...p, id: uid() }];
+        return {
+          plannedItemPayments,
+          plannedItems: s.plannedItems.map((item) =>
+            item.id === p.plannedItemId
+              ? {
+                  ...item,
+                  spent: paidPlannedTotal(plannedItemPayments, item.id),
+                  status: plannedStatusAfterSpend(
+                    item,
+                    paidPlannedTotal(plannedItemPayments, item.id),
+                  ),
+                }
+              : item
+          ),
+        };
+      }),
+      updatePlannedItemPayment: (id, p) => set((s) => {
+        const before = s.plannedItemPayments.find((x) => x.id === id);
+        const plannedItemPayments = s.plannedItemPayments.map((x) => (x.id === id ? { ...x, ...p } : x));
+        const affectedId = (p.plannedItemId ?? before?.plannedItemId);
+        return {
+          plannedItemPayments,
+          plannedItems: affectedId
+            ? s.plannedItems.map((item) =>
+                item.id === affectedId
+                  ? {
+                      ...item,
+                      spent: paidPlannedTotal(plannedItemPayments, item.id),
+                      status: plannedStatusAfterSpend(
+                        item,
+                        paidPlannedTotal(plannedItemPayments, item.id),
+                      ),
+                    }
+                  : item
+              )
+            : s.plannedItems,
+        };
+      }),
+      deletePlannedItemPayment: (id) => set((s) => {
+        const before = s.plannedItemPayments.find((x) => x.id === id);
+        const plannedItemPayments = s.plannedItemPayments.filter((x) => x.id !== id);
+        return {
+          plannedItemPayments,
+          plannedItems: before
+            ? s.plannedItems.map((item) =>
+                item.id === before.plannedItemId
+                  ? {
+                      ...item,
+                      spent: paidPlannedTotal(plannedItemPayments, item.id),
+                      status:
+                        paidPlannedTotal(plannedItemPayments, item.id) > 0 && item.status === "completed"
+                          ? "in-progress"
+                          : item.status,
+                    }
+                  : item
+              )
+            : s.plannedItems,
+        };
+      }),
+
+      transferPlannedToExpense: ({ plannedItemId, amount, date, description, category, markCompleted }) =>
+        set((s) => {
+          const item = s.plannedItems.find((x) => x.id === plannedItemId);
+          if (!item || amount <= 0) return {};
+          const expenseId = uid();
+          const expense: ExpenseEntry = {
+            id: expenseId,
+            category: category ?? "Diğer",
+            amount,
+            date,
+            description: description || `[Planlanan] ${item.name}`,
+            brandId: item.brandId,
+            plannedItemId: item.id,
+          };
+          const spent = Math.min(item.budget, paidPlannedTotal(s.plannedItemPayments, item.id, amount));
+          return {
+            expenses: [...s.expenses, expense],
+            plannedItems: s.plannedItems.map((x) =>
+              x.id === item.id
+                ? {
+                    ...x,
+                    spent,
+                    expenseEntryId: expenseId,
+                    status: plannedStatusAfterSpend(x, spent, markCompleted),
+                  }
+                : x
+            ),
+          };
+        }),
+
+      transferPlannedToKasa: ({ plannedItemId, kasaId, amount, date, feeUsd = 0, notes = "", proof = "", markCompleted }) =>
+        set((s) => {
+          const item = s.plannedItems.find((x) => x.id === plannedItemId);
+          if (!item || amount <= 0) return {};
+          const targetKasa =
+            s.kasas.find((k) => k.id === kasaId && !k.archived) ??
+            s.kasas.find((k) => k.isDefault && !k.archived) ??
+            s.kasas[0];
+          if (!targetKasa) return {};
+          const txId = uid();
+          const tx: KasaTransaction = {
+            id: txId,
+            kasaId: targetKasa.id,
+            date: `${date}T12:00`,
+            direction: "out",
+            amountUsd: amount,
+            feeUsd,
+            purpose: `[Planlanan] ${item.name}`,
+            counterparty: "Planlanan yatırım",
+            proof,
+            notes: notes || item.notes,
+            plannedItemId: item.id,
+          };
+          const spent = Math.min(item.budget, paidPlannedTotal(s.plannedItemPayments, item.id, amount));
+          return {
+            kasaTransactions: [...s.kasaTransactions, tx],
+            plannedItems: s.plannedItems.map((x) =>
+              x.id === item.id
+                ? {
+                    ...x,
+                    spent,
+                    kasaTxId: txId,
+                    status: plannedStatusAfterSpend(x, spent, markCompleted),
+                  }
+                : x
+            ),
+          };
+        }),
 
       // Streamer accounts
       addStreamerAccount:    (a)     => set((s) => ({ streamerAccounts: [...s.streamerAccounts, { ...a, id: uid() }] })),
@@ -1758,7 +1998,12 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
 
       // Brand link
       addBrandLink: (l) => {
-        set((s) => ({ brandLinks: [...s.brandLinks, { ...l, id: uid() }] }));
+        set((s) => ({
+          brandLinks: [
+            ...s.brandLinks,
+            { ...l, id: uid(), createdAt: l.createdAt ?? new Date().toISOString() },
+          ],
+        }));
         flushLinkData();
       },
       updateBrandLink: (id, l) => {
@@ -1839,21 +2084,107 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         return { kasaTransactions: [...s.kasaTransactions, { ...t, kasaId, id: uid() }] };
       }),
       updateKasaTransaction: (id, t) => set((s) => ({ kasaTransactions: s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x)) })),
-      deleteKasaTransaction: (id)    => set((s) => ({ kasaTransactions: s.kasaTransactions.filter((x) => x.id !== id) })),
+      deleteKasaTransaction: (id)    => set((s) => ({
+        kasaTransactions: s.kasaTransactions.filter((x) => x.id !== id),
+        expenses: s.expenses.map((e) =>
+          e.kasaTxId === id ? { ...e, kasaTxId: undefined } : e
+        ),
+        contentExpenses: s.contentExpenses.map((e) =>
+          e.kasaTxId === id
+            ? {
+                ...e,
+                kasaTxId: undefined,
+                paid: false,
+                paidDate: undefined,
+                settlementMode: e.settlementMode === "kasa" ? undefined : e.settlementMode,
+              }
+            : e
+        ),
+        plannedItems: s.plannedItems.map((p) =>
+          p.kasaTxId === id
+            ? {
+                ...p,
+                kasaTxId: undefined,
+                spent: paidPlannedTotal(s.plannedItemPayments, p.id),
+              }
+            : p
+        ),
+      })),
 
       // Content expense
-      addContentExpense:    (e)     => set((s) => ({ contentExpenses: [...s.contentExpenses, { ...e, id: uid() }] })),
+      addContentExpense: (e) => {
+        const id = uid();
+        set((s) => ({ contentExpenses: [...s.contentExpenses, { ...e, id }] }));
+        return id;
+      },
       updateContentExpense: (id, e) => set((s) => ({ contentExpenses: s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
       deleteContentExpense: (id)    => set((s) => {
         const target = s.contentExpenses.find((x) => x.id === id);
         const kasaTransactions = target?.kasaTxId
           ? s.kasaTransactions.filter((t) => t.id !== target.kasaTxId)
           : s.kasaTransactions;
+        const salaryExtras = target?.salaryExtraId
+          ? s.salaryExtras.filter((x) => x.id !== target.salaryExtraId)
+          : s.salaryExtras;
         return {
           contentExpenses: s.contentExpenses.filter((x) => x.id !== id),
           kasaTransactions,
+          salaryExtras,
         };
       }),
+
+      settleContentExpenseToPayroll: (contentExpenseId) =>
+        set((s) => {
+          const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
+          if (!expense || expense.salaryExtraId) return {};
+          const extraId = uid();
+          const desc = `İçerik: ${expense.brandName} · ${expense.category}${expense.description ? ` — ${expense.description.slice(0, 80)}` : ""}`;
+          const newExtra: SalaryExtra = {
+            id: extraId,
+            employeeId: expense.employeeId,
+            month: expense.month,
+            amount: expense.amountUsd,
+            description: desc,
+            type: "expense",
+            contentExpenseId: expense.id,
+          };
+          const reviewStatus =
+            expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
+              ? ("approved" as const)
+              : expense.reviewStatus;
+          return {
+            salaryExtras: [...s.salaryExtras, newExtra],
+            contentExpenses: s.contentExpenses.map((x) =>
+              x.id === contentExpenseId
+                ? {
+                    ...x,
+                    settlementMode: "payroll" as const,
+                    salaryExtraId: extraId,
+                    reviewStatus,
+                    reviewedAt: x.reviewedAt ?? new Date().toISOString(),
+                  }
+                : x
+            ),
+          };
+        }),
+
+      unsettleContentExpenseFromPayroll: (contentExpenseId) =>
+        set((s) => {
+          const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
+          if (!expense?.salaryExtraId) return {};
+          return {
+            salaryExtras: s.salaryExtras.filter((x) => x.id !== expense.salaryExtraId),
+            contentExpenses: s.contentExpenses.map((x) =>
+              x.id === contentExpenseId
+                ? {
+                    ...x,
+                    settlementMode: undefined,
+                    salaryExtraId: undefined,
+                  }
+                : x
+            ),
+          };
+        }),
 
       payContentExpense: ({ contentExpenseId, kasaId, paidDate, feeUsd = 0, notes = "", proof = "" }) =>
         set((s) => {
@@ -1890,7 +2221,14 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             kasaTransactions: [...trimmedTx, newTx],
             contentExpenses: s.contentExpenses.map((x) =>
               x.id === contentExpenseId
-                ? { ...x, paid: true, paidDate, kasaTxId: txId }
+                ? {
+                    ...x,
+                    paid: true,
+                    paidDate,
+                    kasaTxId: txId,
+                    settlementMode: "kasa" as const,
+                    salaryExtraId: undefined,
+                  }
                 : x
             ),
           };
@@ -1906,7 +2244,13 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             kasaTransactions,
             contentExpenses: s.contentExpenses.map((x) =>
               x.id === id
-                ? { ...x, paid: false, paidDate: undefined, kasaTxId: undefined }
+                ? {
+                    ...x,
+                    paid: false,
+                    paidDate: undefined,
+                    kasaTxId: undefined,
+                    settlementMode: x.settlementMode === "kasa" ? undefined : x.settlementMode,
+                  }
                 : x
             ),
           };
@@ -2030,17 +2374,38 @@ export function pendingExpenseCount(expenses: ContentExpense[]): number {
   return expenses.filter((e) => e.reviewStatus === "pending").length;
 }
 
+/** Sadece admin / auditor için anlamlı, yayıncı ve markalardan gizlenen bildirim tipleri. */
+export const OPS_ONLY_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
+  "api_refresh_alert",
+  "kasa_low",
+  "payroll_reminder",
+  "brand_payment_reminder",
+  "password_reset_request",
+  "account_registration_request",
+]);
+
+/** Rol için (operasyonel bildirimler filtrelenmiş) görüntülenebilir bildirimler. */
+export function visibleNotificationsForRole(
+  notifications: AppNotification[],
+  role: "admin" | "auditor" | "streamer" | "brand",
+  userId?: string
+): AppNotification[] {
+  const isOpsRole = role === "admin" || role === "auditor";
+  return notifications.filter((n) => {
+    if (n.forRole !== role) return false;
+    if (n.forUserId && userId && n.forUserId !== userId) return false;
+    if (!isOpsRole && OPS_ONLY_NOTIFICATION_TYPES.has(n.type)) return false;
+    return true;
+  });
+}
+
 /** Rol için okunmamış bildirim sayısı. */
 export function unreadNotificationCount(
   notifications: AppNotification[],
   role: "admin" | "auditor" | "streamer" | "brand",
   userId?: string
 ): number {
-  return notifications.filter((n) =>
-    !n.read &&
-    n.forRole === role &&
-    (!n.forUserId || !userId || n.forUserId === userId)
-  ).length;
+  return visibleNotificationsForRole(notifications, role, userId).filter((n) => !n.read).length;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2156,8 +2521,29 @@ export function sumApprovedContentExpenses(
       if (e.employeeId !== employeeId || e.month !== month) return false;
       if (e.reviewStatus === "rejected" || e.reviewStatus === "cancelled") return false;
       if (e.reviewStatus === "pending" || e.reviewStatus === "needs_info") return false;
+      // Bordroya veya kasaya işlendi — plan toplamında tekrar sayma
+      if (e.salaryExtraId || e.settlementMode === "payroll") return false;
+      if (e.paid && (e.kasaTxId || e.settlementMode === "kasa")) return false;
       return true;
     })
+    .reduce((s, e) => s + e.amountUsd, 0);
+}
+
+/** Bordroya masraf olarak eklenmiş onaylı içerik toplamı. */
+export function sumPayrollSettledContentExpenses(
+  expenses: ContentExpense[],
+  employeeId: string,
+  month: string
+): number {
+  return expenses
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        e.month === month &&
+        (e.salaryExtraId || e.settlementMode === "payroll") &&
+        e.reviewStatus !== "rejected" &&
+        e.reviewStatus !== "cancelled"
+    )
     .reduce((s, e) => s + e.amountUsd, 0);
 }
 

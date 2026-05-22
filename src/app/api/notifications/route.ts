@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
   }
   const session = await getSession();
-  if (!session || session.role !== "admin") {
+  if (!session || (session.role !== "admin" && session.role !== "auditor")) {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
   const body = (await req.json().catch(() => ({}))) as Partial<AppNotification>;
@@ -102,6 +102,24 @@ export async function DELETE(req: NextRequest) {
   const isAdmin = session.role === "admin";
   const isSelfRole =
     session.role === "brand" || session.role === "streamer";
+
+  let bodyIds: string[] | undefined;
+  try {
+    const jsonBody = (await req.json().catch(() => null)) as { ids?: string[] } | null;
+    if (jsonBody?.ids && Array.isArray(jsonBody.ids)) bodyIds = jsonBody.ids;
+  } catch {
+    bodyIds = undefined;
+  }
+
+  if (bodyIds && bodyIds.length > 0 && isAdmin) {
+    const unique = [...new Set(bodyIds)].slice(0, 500);
+    const { error, count } = await db
+      .from("app_notifications")
+      .delete({ count: "exact" })
+      .in("id", unique);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, deleted: count ?? unique.length });
+  }
 
   if (id) {
     if (isAdmin) {
@@ -169,11 +187,21 @@ export async function PATCH(req: NextRequest) {
     id?: string;
     read?: boolean;
     markAll?: boolean;
+    markAllPanel?: boolean;
     forRole?: AppNotification["forRole"];
     forUserId?: string;
   };
 
   const db = getSupabaseAdmin();
+
+  if (body.markAll && body.markAllPanel && isElevated) {
+    const { error } = await db
+      .from("app_notifications")
+      .update({ read: true })
+      .eq("read", false);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
 
   if (body.markAll) {
     if (isSelfRole) {

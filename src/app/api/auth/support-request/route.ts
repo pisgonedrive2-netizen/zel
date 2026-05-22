@@ -4,6 +4,7 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { notificationToRow } from "@/lib/db/mappers";
 import type { AppNotification } from "@/store/store";
 import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
+import { fmtDateTime } from "@/lib/fmt-date";
 
 export const runtime = "nodejs";
 
@@ -94,7 +95,7 @@ export async function POST(req: Request) {
         `Kullanıcı adı: ${username}`,
         contact ? `İletişim: ${contact}` : null,
         note ? `Not: ${note}` : null,
-        `Tarih: ${new Date().toLocaleString("tr-TR")}`,
+        `Tarih: ${fmtDateTime(new Date())}`,
       ].filter(Boolean);
 
       const notif: AppNotification = {
@@ -140,7 +141,7 @@ export async function POST(req: Request) {
         `Hesap türü: ${accountType}`,
         contact ? `İletişim: ${contact}` : null,
         note ? `Mesaj: ${note}` : null,
-        `Tarih: ${new Date().toLocaleString("tr-TR")}`,
+        `Tarih: ${fmtDateTime(new Date())}`,
       ].filter(Boolean);
 
       const notif: AppNotification = {

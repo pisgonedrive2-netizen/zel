@@ -35,6 +35,51 @@ describe("platform-detect", () => {
     expect(d?.externalRef).toBe("ABC123xyz");
   });
 
+  it("detects Instagram profile with /reels/ subpath", () => {
+    const d = detectPlatform("https://www.instagram.com/foxstreaming/reels/", "Instagram");
+    expect(d?.platform).toBe("instagram");
+    expect(d?.kind).toBe("user");
+    expect(d?.externalRef).toBe("foxstreaming");
+  });
+
+  it("detects Instagram reel nested under username", () => {
+    const d = detectPlatform(
+      "https://www.instagram.com/foxstreaming/reel/ABC123xyz/",
+      "Instagram"
+    );
+    expect(d?.platform).toBe("instagram");
+    expect(d?.kind).toBe("video");
+    expect(d?.externalRef).toBe("ABC123xyz");
+  });
+
+  it("detects Instagram from handle when URL path is unrecognized", () => {
+    const d = resolveLinkDetection({
+      url: "https://www.instagram.com/stories/highlights/12345/",
+      platform: "Instagram",
+      handle: "foxstreaming",
+    });
+    expect(d?.platform).toBe("instagram");
+    expect(d?.externalRef).toBe("foxstreaming");
+    expect(d?.kind).toBe("user");
+  });
+
+  it("detects Instagram share link as media", () => {
+    const d = detectPlatform("https://www.instagram.com/share/AbCdEfGh/", "Instagram");
+    expect(d?.platform).toBe("instagram");
+    expect(d?.kind).toBe("video");
+    expect(d?.externalRef).toBe("AbCdEfGh");
+  });
+
+  it("detects Instagram profile from handle only (empty url)", () => {
+    const d = resolveLinkDetection({
+      url: "",
+      platform: "Instagram",
+      handle: "@brandname",
+    });
+    expect(d?.platform).toBe("instagram");
+    expect(d?.externalRef).toBe("brandname");
+  });
+
   it("falls back to stored external_ref for TikTok", () => {
     const d = resolveLinkDetection({
       url: "https://vm.tiktok.com/ZZZ/",

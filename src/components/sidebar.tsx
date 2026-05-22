@@ -17,12 +17,13 @@ import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
 import { DeveloperAttribution } from "@/components/developer-attribution";
-import { useStore, unreadNotificationCount } from "@/store/store";
+import { useStore, unreadNotificationCount, visibleNotificationsForRole } from "@/store/store";
 import {
   markNotificationReadPersisted,
   markAllNotificationsReadPersisted,
   deleteNotificationPersisted,
 } from "@/lib/notification-actions";
+import { fmtDateShort } from "@/lib/fmt-date";
 
 type NavItem = {
   href:  string;
@@ -53,8 +54,10 @@ const STREAMER_NAV: NavItem[] = [
   { href: "/yayinci/takvim",         label: "Haftalık Planım",    icon: CalendarDays,    group: "Yayıncı" },
   { href: "/yayinci/izlenmeler",     label: "İzlenmeler",         icon: Eye,             group: "Yayıncı" },
   { href: "/yayinci/hesaplar",       label: "Hesaplarım",         icon: Link2,           group: "Yayıncı" },
-  { href: "/yayinci/marka-linkleri", label: "Marka Linkleri",    icon: Activity,        group: "Yayıncı" },
-  { href: "/yayinci/gecmis",         label: "Geçmiş Aylar",      icon: CalendarRange,   group: "Yayıncı" },
+  { href: "/yayinci/marka-linkleri", label: "Marka Linkleri",     icon: Activity,        group: "Yayıncı" },
+  { href: "/yayinci/gecmis",         label: "Geçmiş Aylar",       icon: CalendarRange,   group: "Yayıncı" },
+  { href: "/yayinci/bildirimler",    label: "Bildirimlerim",      icon: Bell,            group: "Yayıncı" },
+  { href: "/yayinci/istatistikler",  label: "İstatistiklerim",    icon: BarChart3,       group: "Yayıncı" },
 ];
 
 const AUDITOR_NAV: NavItem[] = [
@@ -215,6 +218,7 @@ export default function Sidebar() {
               <input
                 type="text"
                 placeholder="Ara..."
+                aria-label="Menüde ara"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all duration-200"
@@ -378,9 +382,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
   const { notifications } = useStore();
 
   if (!user) return null;
-  const my = notifications
-    .filter((n) => n.forRole === user.role && (!n.forUserId || n.forUserId === user.id))
-    .slice(0, 30);
+  const my = visibleNotificationsForRole(notifications, user.role, user.id).slice(0, 30);
 
   return (
     <div className="relative">
@@ -463,7 +465,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                         <p className="text-xs font-medium text-foreground">{n.title}</p>
                         <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{n.message}</p>
                         <p className="text-[9px] text-muted-foreground/80 mt-0.5">
-                          {new Date(n.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {fmtDateShort(n.createdAt)}
                         </p>
                       </div>
                       <button

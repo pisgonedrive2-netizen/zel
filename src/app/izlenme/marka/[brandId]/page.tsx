@@ -1,0 +1,1011 @@
+"use client";
+
+import { use, useMemo, useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  ArrowLeft, AlertCircle, BarChart3, Bot, Camera, ExternalLink,
+  Eye, Globe, History, Instagram, Loader2, LogIn, MessageCircle, Music2, Plus,
+  RefreshCw, Send, Target, TrendingDown, TrendingUp, Twitch, Youtube,
+} from "lucide-react";
+import {
+  AreaChart, Area, BarChart, Bar, CartesianGrid, LineChart, Line,
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
+  Legend,
+} from "recharts";
+import { useStore, type BrandLink, type LinkSnapshot } from "@/store/store";
+import { useAuth, useIsReadOnly } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
+import {
+  brandContentExpensesForMonth,
+  filterLinksForViewMonth,
+  linkEngagementForMonth,
+  linkViewsForMonth,
+  totalLinkViewsForMonth,
+} from "@/lib/brand-month-metrics";
+import { isAutoTrackable } from "@/lib/social-api/platform-detect";
+import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
+import { LinkDetailsModal } from "@/components/link-details-modal";
+import { findBrandMonthlyStats, fmtBrandMoney, fmtBrandCount } from "@/lib/brand-monthly-stats";
+import { shiftCalendarMonthYm, defaultSnapshotDateInMonth } from "@/lib/data";
+import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
+import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
+import { BrandLinkFormModal } from "@/components/brand-link-form-modal";
+import { BrandLogo } from "@/components/brand-logo";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ViewDotCard } from "@/components/view-dot-card";
+import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
+import { BrandLinksPanel } from "@/components/brand-links-panel";
+import Modal from "@/components/ui/modal";
+import { Field, Input, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
+const fmtViews = (n: number) => {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return n.toLocaleString("tr-TR");
+};
+
+const monthTitleYm = (ym: string) =>
+  new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+
+function platformIcon(platform: string) {
+  const p = platform.toLowerCase();
+  if (p.includes("youtube")) return Youtube;
+  if (p.includes("twitch")) return Twitch;
+  if (p.includes("instagram")) return Instagram;
+  if (p.includes("tiktok")) return Music2;
+  if (p.includes("telegram")) return Send;
+  if (p.includes("twitter") || p.includes("x")) return MessageCircle;
+  return Globe;
+}
+
+const PIE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
+
+type ChartMode = "area" | "bar" | "line";
+
+export default function BrandDetailPage({
+  params,
+}: {
+  params: Promise<{ brandId: string }>;
+}) {
+  const { brandId } = use(params);
+  const router = useRouter();
+  const { user } = useAuth();
+  const readOnly = useIsReadOnly();
+  const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
+
+  const {
+    brands, brandLinks, linkSnapshots, brandViewership, brandMonthlyStats,
+    contentExpenses, employees,
+    addLinkSnapshot, updateLinkSnapshot, deleteLinkSnapshot,
+    updateBrandLink, upsertLinkSnapshot,
+    addBrandLink, deleteBrandLink,
+  } = useStore();
+
+  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const [linksPanelOpen, setLinksPanelOpen] = useState(false);
+  const [linkForm, setLinkForm] = useState<BrandLink | null | undefined>(undefined);
+  const [chartMode, setChartMode] = useState<ChartMode>("area");
+  const [snapshotModal, setSnapshotModal] = useState<{ link: BrandLink; snapshot?: LinkSnapshot } | null>(null);
+  const [historyModal, setHistoryModal] = useState<BrandLink | null>(null);
+  const [showAllLinks, setShowAllLinks] = useState(false);
+  const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
+  const [refreshingLinkId, setRefreshingLinkId] = useState<string | null>(null);
+  const isAdmin = user?.role === "admin" || user?.role === "auditor";
+
+  const brand = brands.find((b) => b.id === brandId);
+
+  const allBrandLinks = useMemo(
+    () => brandLinks.filter((l) => l.brandId === brandId),
+    [brandLinks, brandId]
+  );
+
+  const links = useMemo(
+    () =>
+      filterLinksForViewMonth(
+        allBrandLinks,
+        viewMonth,
+        linkSnapshots,
+        todayYm,
+        showAllLinks
+      ),
+    [allBrandLinks, viewMonth, linkSnapshots, todayYm, showAllLinks]
+  );
+
+  useEffect(() => {
+    setShowAllLinks(false);
+  }, [viewMonth]);
+
+  const totalCurrentMonth = useMemo(
+    () => totalLinkViewsForMonth(allBrandLinks, viewMonth, linkSnapshots, todayYm),
+    [allBrandLinks, viewMonth, linkSnapshots, todayYm]
+  );
+
+  const monthExpenses = useMemo(
+    () => (brand ? brandContentExpensesForMonth(contentExpenses, brand, viewMonth) : []),
+    [brand, contentExpenses, viewMonth]
+  );
+  const totalExpenses = monthExpenses.reduce((s, e) => s + e.amountUsd, 0);
+
+  const stats = useMemo(
+    () => findBrandMonthlyStats(brandMonthlyStats, brandId, viewMonth),
+    [brandMonthlyStats, brandId, viewMonth]
+  );
+
+  // Son 6 ayın izlenme trendi
+  const monthlyTrend = useMemo(() => {
+    const arr: { month: string; views: number; label: string }[] = [];
+    for (let i = -5; i <= 0; i++) {
+      const m = shiftCalendarMonthYm(viewMonth, i);
+      const v = totalLinkViewsForMonth(links, m, linkSnapshots, todayYm);
+      arr.push({
+        month: m,
+        views: v,
+        label: new Date(m + "-01").toLocaleDateString("tr-TR", { month: "short" }),
+      });
+    }
+    return arr;
+  }, [allBrandLinks, linkSnapshots, viewMonth, todayYm]);
+
+  // Platforma göre dağılım
+  const platformBreakdown = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of allBrandLinks) {
+      const v = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm).lastViews;
+      if (v <= 0) continue;
+      map.set(l.platform, (map.get(l.platform) ?? 0) + v);
+    }
+    return Array.from(map.entries())
+      .map(([platform, views]) => ({ platform, views }))
+      .sort((a, b) => b.views - a.views);
+  }, [allBrandLinks, linkSnapshots, viewMonth, todayYm]);
+
+  // Yayıncı / link sahibi bazlı izlenme dağılımı
+  const ownerBreakdown = useMemo(() => {
+    const map = new Map<string, { name: string; views: number; count: number }>();
+    for (const l of allBrandLinks) {
+      const v = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm).lastViews;
+      if (v <= 0) continue;
+      const key = l.ownerId ?? "_none";
+      const name = l.ownerId
+        ? employees.find((e) => e.id === l.ownerId)?.name ?? "?"
+        : "Genel";
+      const e = map.get(key) ?? { name, views: 0, count: 0 };
+      e.views += v;
+      e.count += 1;
+      map.set(key, e);
+    }
+    return Array.from(map.values()).sort((a, b) => b.views - a.views);
+  }, [allBrandLinks, linkSnapshots, viewMonth, todayYm, employees]);
+
+  // Geçmiş ayla karşılaştırma
+  const prevMonth = shiftCalendarMonthYm(viewMonth, -1);
+  const prevTotal = totalLinkViewsForMonth(allBrandLinks, prevMonth, linkSnapshots, todayYm);
+  const momPct =
+    prevTotal > 0 ? ((totalCurrentMonth - prevTotal) / prevTotal) * 100 : null;
+
+  // Hedefe ilerleme
+  const hasTarget = brand?.monthlyTarget != null && brand.monthlyTarget > 0;
+  const targetPct = hasTarget
+    ? Math.min(100, (totalCurrentMonth / brand!.monthlyTarget!) * 100)
+    : null;
+
+  if (!brand) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <Link href="/izlenme" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+          <ArrowLeft size={14} /> İzlenmeye dön
+        </Link>
+        <Card>
+          <CardHeader>
+            <CardTitle>Marka bulunamadı</CardTitle>
+            <CardDescription>
+              Bu marka silinmiş veya henüz yüklenmemiş olabilir.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  const navbarBrands = brands.filter((b) => b.status === "active").length;
+  const navbarStreamers = new Set(allBrandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const navbarLinks = allBrandLinks.length;
+
+  const refreshLink = async (linkId: string) => {
+    if (!isAdmin || readOnly) return;
+    setRefreshingLinkId(linkId);
+    try {
+      const res = await fetch(`/api/admin/refresh-link/${linkId}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        result?: { ok: boolean; linkUpdate?: Parameters<typeof applyLinkMetricsToStore>[1]; error?: string };
+      };
+      const update = json.result?.linkUpdate;
+      if (json.result?.ok && update) {
+        applyLinkMetricsToStore(linkId, update, { updateBrandLink, upsertLinkSnapshot });
+      } else if (json.result?.error) {
+        updateBrandLink(linkId, { lastCheckError: json.result.error });
+      }
+    } finally {
+      setRefreshingLinkId(null);
+    }
+  };
+
+  const fmtEngagement = (n?: number | null) => {
+    if (n == null) return null;
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+    return n.toLocaleString("tr-TR");
+  };
+
+  return (
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+      <IzlenmeNavbar
+        viewMonth={viewMonth}
+        onChangeMonth={setViewMonth}
+        totalBrands={navbarBrands}
+        totalStreamers={navbarStreamers}
+        totalLinks={navbarLinks}
+        totalViews={totalCurrentMonth}
+        readOnly={readOnly}
+      />
+
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <Link
+          href={izlenmeHref("/izlenme/markalar", viewMonth)}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft size={14} /> Tüm markalar
+        </Link>
+        <span className="text-muted-foreground/40">/</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <BrandLogo brandId={brand.id} title={brand.name} size={28} className="rounded-lg shrink-0" />
+          <span className="text-sm font-medium truncate">{brand.name}</span>
+        </div>
+        {user?.role === "admin" && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 h-8 ml-auto border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/45 dark:text-amber-300 dark:hover:bg-amber-950/40"
+            onClick={() => {
+              enterBrandPanel(brand.id, brand.name);
+              router.push("/marka/izlenmeler");
+            }}
+            title="Bu markanın paneline gir"
+          >
+            <LogIn size={12} /> Marka paneli
+          </Button>
+        )}
+      </div>
+
+      {/* KPI kartları */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <ViewDotCard
+          target={totalCurrentMonth}
+          metricCaption="Views"
+          label={monthTitleYm(viewMonth)}
+          sub={
+            showAllLinks
+              ? `${allBrandLinks.length} link`
+              : `${links.length} / ${allBrandLinks.length} link (bu ay)`
+          }
+          accent="violet"
+        />
+        <Card className="gap-1 py-4">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Geçen ayla
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-0">
+            <p
+              className={`text-2xl font-bold tabular-nums ${
+                momPct == null
+                  ? "text-muted-foreground"
+                  : momPct >= 0
+                    ? "text-emerald-700 dark:text-emerald-300"
+                    : "text-red-700 dark:text-red-300"
+              }`}
+            >
+              {momPct == null ? "—" : `${momPct >= 0 ? "+" : ""}${momPct.toFixed(1)}%`}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {monthTitleYm(prevMonth)}: {fmtViews(prevTotal)}{" "}
+              {momPct != null && (
+                momPct >= 0
+                  ? <TrendingUp size={10} className="inline text-emerald-500" />
+                  : <TrendingDown size={10} className="inline text-red-500" />
+              )}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="gap-1 py-4">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              İçerik harcaması
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-0">
+            <p className="text-2xl font-bold tabular-nums text-amber-700 dark:text-amber-300">
+              ${totalExpenses.toLocaleString("tr-TR")}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {monthExpenses.length} kayıt
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="gap-1 py-4">
+          <CardHeader className="pb-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Hedef
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-0 space-y-1">
+            {hasTarget && targetPct != null ? (
+              <>
+                <p className="text-2xl font-bold tabular-nums">
+                  {targetPct.toFixed(0)}%
+                </p>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full ${targetPct >= 100 ? "bg-emerald-500" : "bg-blue-500"}`}
+                    style={{ width: `${targetPct}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  <Target size={9} className="inline mr-1" />
+                  {fmtViews(brand.monthlyTarget!)} hedef
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">Hedef yok</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Operasyon metrikleri */}
+      {stats && (
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Operasyon · {monthTitleYm(viewMonth)}</CardTitle>
+            <CardDescription className="text-xs">
+              Kayıt, yatırım, çekim ve canlı/demo ayrıştırması
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BrandMonthlyStatsPanel brandId={brand.id} monthYm={viewMonth} readOnly={readOnly} className="shadow-none" />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Trend grafiği — mod değiştirilebilir */}
+      <Card className="mb-6">
+        <CardHeader className="pb-2 flex-row items-center justify-between flex-wrap gap-2">
+          <div>
+            <CardTitle className="text-base">6 aylık izlenme trendi</CardTitle>
+            <CardDescription className="text-xs">
+              Seçili ay dahil son 6 ayın toplam link izlenmesi
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-1 border border-border rounded-md p-0.5">
+            {(["area", "line", "bar"] as ChartMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setChartMode(m)}
+                className={`text-[10px] px-2 py-1 rounded ${
+                  chartMode === m
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {m === "area" ? "Alan" : m === "line" ? "Çizgi" : "Sütun"}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={240}>
+            {chartMode === "area" ? (
+              <AreaChart data={monthlyTrend}>
+                <defs>
+                  <linearGradient id="bv" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="label" stroke="#6b7280" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={fmtViews} />
+                <RTooltip formatter={(v: number) => fmtViews(v)} contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
+                <Area type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} fill="url(#bv)" />
+              </AreaChart>
+            ) : chartMode === "line" ? (
+              <LineChart data={monthlyTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="label" stroke="#6b7280" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={fmtViews} />
+                <RTooltip formatter={(v: number) => fmtViews(v)} contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
+                <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4 }} />
+              </LineChart>
+            ) : (
+              <BarChart data={monthlyTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="label" stroke="#6b7280" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={fmtViews} />
+                <RTooltip formatter={(v: number) => fmtViews(v)} contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
+                <Bar dataKey="views" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Platform + Yayıncı dağılımı */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Platforma göre izlenme</CardTitle>
+            <CardDescription className="text-xs">{monthTitleYm(viewMonth)} dönemi</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {platformBreakdown.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic py-6 text-center">
+                Bu ay için platform verisi yok.
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie
+                    data={platformBreakdown}
+                    dataKey="views"
+                    nameKey="platform"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={85}
+                    paddingAngle={2}
+                  >
+                    {platformBreakdown.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <RTooltip formatter={(v: number) => fmtViews(v)} contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: "11px" }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2 flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Yayıncı / operatör dağılımı</CardTitle>
+              <CardDescription className="text-xs">Link sahiplerinin katkısı</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {ownerBreakdown.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic py-6 text-center">
+                Bu ay için yayıncı izlenme verisi yok.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {ownerBreakdown.map((o, i) => {
+                  const total = ownerBreakdown.reduce((s, x) => s + x.views, 0);
+                  const pct = total > 0 ? (o.views / total) * 100 : 0;
+                  return (
+                    <div key={o.name + i}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium">{o.name}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {fmtViews(o.views)}{" "}
+                          <span className="text-[10px] opacity-60">({pct.toFixed(0)}%)</span>
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Linkler listesi — ay bazlı filtre + API yenileme */}
+      <Card className="mb-6" key={viewMonth}>
+        <CardHeader className="pb-2 flex-row items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="text-base">
+              Linkler ({links.length}
+              {!showAllLinks && allBrandLinks.length !== links.length
+                ? ` · ${allBrandLinks.length} toplam`
+                : ""}
+              )
+            </CardTitle>
+            <CardDescription className="text-xs">
+              {monthTitleYm(viewMonth)} — yalnızca bu aya ait veriler gösterilir
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showAllLinks}
+                onChange={(e) => setShowAllLinks(e.target.checked)}
+                className="rounded"
+              />
+              Tüm linkleri göster
+            </label>
+            <Button size="sm" variant="outline" onClick={() => setLinksPanelOpen(true)}>
+              <Plus size={12} /> Yönet
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {allBrandLinks.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-3">Henüz link yok.</p>
+          ) : links.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-6 text-center">
+              {monthTitleYm(viewMonth)} için kayıtlı snapshot veya canlı veri yok.{" "}
+              {!showAllLinks && (
+                <button
+                  type="button"
+                  className="text-primary underline"
+                  onClick={() => setShowAllLinks(true)}
+                >
+                  Tüm linkleri göster
+                </button>
+              )}
+            </p>
+          ) : (
+            links.map((l) => {
+              const Icon = platformIcon(l.platform);
+              const monthMeta = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm);
+              const { lastViews, refDate, stale, snapsInMonth } = monthMeta;
+              const engagement = linkEngagementForMonth(l, viewMonth, linkSnapshots, todayYm);
+              const owner = l.ownerId ? employees.find((e) => e.id === l.ownerId) : null;
+              const apiSupported = isAutoTrackable(l.url, l.platform, l.handle, l.externalRef);
+              const canRefresh = isAdmin && !readOnly && viewMonth === todayYm && apiSupported;
+              const showStale =
+                stale &&
+                lastViews === 0 &&
+                !engagement.likes &&
+                !engagement.comments &&
+                !engagement.shares;
+              return (
+                <div
+                  key={`${l.id}-${viewMonth}`}
+                  className="flex items-center gap-2 px-2.5 py-2.5 rounded-md border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
+                >
+                  <Icon size={14} className="shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium text-sm">{l.platform}</span>
+                      {l.handle && (
+                        <span className="text-xs text-muted-foreground truncate">{l.handle}</span>
+                      )}
+                      {owner && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {owner.name}
+                        </Badge>
+                      )}
+                      {l.autoTrack && apiSupported && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] gap-0.5 border-emerald-300 text-emerald-700 dark:border-emerald-500/45 dark:text-emerald-300"
+                        >
+                          <Bot size={9} /> API
+                        </Badge>
+                      )}
+                      {l.lastCheckError && viewMonth === todayYm && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] gap-0.5 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300"
+                          title={l.lastCheckError}
+                        >
+                          <AlertCircle size={9} /> hata
+                        </Badge>
+                      )}
+                      {l.url && (
+                        <a
+                          href={l.url}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-blue-600 hover:text-blue-700"
+                          title="Linki aç"
+                        >
+                          <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {snapsInMonth.length} snapshot ({monthTitleYm(viewMonth)})
+                      {refDate ? ` · kayıt: ${refDate}` : ""}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0 min-w-[88px]">
+                    <p className="text-sm font-bold tabular-nums">
+                      {lastViews > 0 ? fmtViews(lastViews) : "—"}
+                    </p>
+                    {(engagement.likes != null ||
+                      engagement.comments != null ||
+                      engagement.shares != null) && (
+                      <p className="text-[9px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                        {engagement.likes != null && (
+                          <span className="text-rose-600 dark:text-rose-400">
+                            ♥{fmtEngagement(engagement.likes)}
+                          </span>
+                        )}
+                        {engagement.comments != null && (
+                          <span className="ml-1 text-amber-700 dark:text-amber-300">
+                            💬{fmtEngagement(engagement.comments)}
+                          </span>
+                        )}
+                        {engagement.shares != null && (
+                          <span className="ml-1 text-violet-700 dark:text-violet-300">
+                            ↗{fmtEngagement(engagement.shares)}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {showStale ? (
+                        <span className="text-amber-600 dark:text-amber-400">bu ay yok</span>
+                      ) : (
+                        monthTitleYm(viewMonth)
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-0.5">
+                    {apiSupported && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-emerald-700 dark:text-emerald-300"
+                        title="Detaylı metrikler"
+                        onClick={() => setDetailsLink(l)}
+                      >
+                        <BarChart3 size={12} />
+                      </Button>
+                    )}
+                    {canRefresh && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        title="API ile yenile (izlenme + etkileşim)"
+                        disabled={refreshingLinkId === l.id}
+                        onClick={() => void refreshLink(l.id)}
+                      >
+                        {refreshingLinkId === l.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={12} />
+                        )}
+                      </Button>
+                    )}
+                    {!readOnly && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 w-7 p-0"
+                        title="Snapshot ekle"
+                        onClick={() => setSnapshotModal({ link: l })}
+                      >
+                        <Camera size={12} />
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0"
+                      title="Snapshot geçmişi"
+                      onClick={() => setHistoryModal(l)}
+                    >
+                      <History size={12} />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+
+      <LinkDetailsModal
+        link={detailsLink}
+        open={detailsLink !== null}
+        onClose={() => setDetailsLink(null)}
+      />
+
+      <BrandLinkFormModal
+        open={linkForm !== undefined}
+        onClose={() => setLinkForm(undefined)}
+        brand={brand}
+        employees={employees}
+        initial={linkForm ?? undefined}
+        onSave={(d) => {
+          if (linkForm) {
+            updateBrandLink(linkForm.id, d);
+          } else {
+            addBrandLink(d);
+          }
+        }}
+        onDelete={
+          linkForm
+            ? () => {
+                deleteBrandLink(linkForm.id);
+                setLinkForm(undefined);
+              }
+            : undefined
+        }
+      />
+
+      <BrandLinksPanel
+        brand={linksPanelOpen ? brand : null}
+        open={linksPanelOpen}
+        onClose={() => setLinksPanelOpen(false)}
+        viewMonth={viewMonth}
+        todayYm={todayYm}
+        readOnly={readOnly}
+        employees={employees}
+        onAddLink={() => {
+          setLinksPanelOpen(false);
+          router.push(`/izlenme?brand=${brand.id}`);
+        }}
+        onEditLink={() => {
+          setLinksPanelOpen(false);
+          router.push(`/izlenme?brand=${brand.id}`);
+        }}
+        onAddSnapshot={(l) => {
+          setLinksPanelOpen(false);
+          setSnapshotModal({ link: l });
+        }}
+        onViewHistory={(l) => {
+          setLinksPanelOpen(false);
+          setHistoryModal(l);
+        }}
+      />
+
+      {/* Snapshot ekle/düzenle */}
+      <Modal
+        open={snapshotModal !== null}
+        onClose={() => setSnapshotModal(null)}
+        title={snapshotModal?.snapshot ? "Snapshot'ı Düzenle" : "Yeni İzlenme Snapshot'ı"}
+      >
+        {snapshotModal && readOnly && (
+          <p className="text-sm text-muted-foreground py-4">
+            Denetçi görünümünde snapshot eklenemez veya düzenlenemez.
+          </p>
+        )}
+        {snapshotModal && !readOnly && (
+          <SnapshotForm
+            key={snapshotModal.snapshot?.id ?? `new-${snapshotModal.link.id}-${viewMonth}`}
+            link={snapshotModal.link}
+            initial={snapshotModal.snapshot}
+            defaultDateForNew={defaultSnapshotDateInMonth(viewMonth)}
+            suggestedViewsForNew={
+              snapshotModal.snapshot
+                ? undefined
+                : linkViewsForMonth(snapshotModal.link, viewMonth, linkSnapshots, todayYm).lastViews
+            }
+            onSave={(d) => {
+              if (snapshotModal.snapshot) {
+                updateLinkSnapshot(snapshotModal.snapshot.id, d);
+              } else {
+                addLinkSnapshot({ ...d, linkId: snapshotModal.link.id });
+              }
+              setSnapshotModal(null);
+            }}
+            onDelete={
+              snapshotModal.snapshot
+                ? () => {
+                    deleteLinkSnapshot(snapshotModal.snapshot!.id);
+                    setSnapshotModal(null);
+                  }
+                : undefined
+            }
+            onClose={() => setSnapshotModal(null)}
+          />
+        )}
+      </Modal>
+
+      {/* Snapshot geçmişi */}
+      <Modal
+        open={historyModal !== null}
+        onClose={() => setHistoryModal(null)}
+        title={`Snapshot geçmişi · ${historyModal?.platform ?? ""}`}
+      >
+        {historyModal && (
+          <SnapshotHistory
+            link={historyModal}
+            snapshots={linkSnapshots.filter((s) => s.linkId === historyModal.id)}
+            readOnly={readOnly}
+            onEdit={(s) => {
+              setHistoryModal(null);
+              setSnapshotModal({ link: historyModal, snapshot: s });
+            }}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ── Snapshot Form ─────────────────────────────────────────────────────────
+function SnapshotForm({
+  link,
+  initial,
+  defaultDateForNew,
+  suggestedViewsForNew,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  link: BrandLink;
+  initial?: LinkSnapshot;
+  defaultDateForNew: string;
+  suggestedViewsForNew?: number;
+  onSave: (d: Omit<LinkSnapshot, "id">) => void;
+  onDelete?: () => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<Omit<LinkSnapshot, "id">>({
+    linkId: link.id,
+    date: initial?.date ?? defaultDateForNew,
+    views: initial?.views ?? suggestedViewsForNew ?? 0,
+    notes: initial?.notes ?? "",
+  });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(form);
+      }}
+    >
+      <FormGrid>
+        <Field label="Tarih">
+          <DateTimePicker
+            mode="date"
+            value={form.date}
+            onChange={(v) => setForm({ ...form, date: v })}
+            required
+          />
+        </Field>
+        <Field label="Toplam izlenme">
+          <Input
+            type="number"
+            min={0}
+            value={form.views}
+            onChange={(e) => setForm({ ...form, views: Number(e.target.value) || 0 })}
+            required
+          />
+        </Field>
+      </FormGrid>
+      <Field label="Not" hint="Opsiyonel açıklama (kampanya, kaynak vs.)">
+        <Textarea
+          rows={2}
+          value={form.notes ?? ""}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+        />
+      </Field>
+      <FormActions
+        onCancel={onClose}
+        onDelete={onDelete}
+        submitLabel={initial ? "Güncelle" : "Snapshot Kaydet"}
+      />
+    </form>
+  );
+}
+
+// ── Snapshot history ──────────────────────────────────────────────────────
+function SnapshotHistory({
+  link,
+  snapshots,
+  onEdit,
+  readOnly,
+}: {
+  link: BrandLink;
+  snapshots: LinkSnapshot[];
+  onEdit: (s: LinkSnapshot) => void;
+  readOnly: boolean;
+}) {
+  const sorted = useMemo(
+    () => [...snapshots].sort((a, b) => a.date.localeCompare(b.date)),
+    [snapshots]
+  );
+  if (sorted.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground italic py-4">
+        Henüz snapshot yok.
+      </p>
+    );
+  }
+  const max = Math.max(...sorted.map((s) => s.views), 1);
+  return (
+    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+      <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart data={sorted}>
+            <defs>
+              <linearGradient id="snaphist" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis dataKey="date" stroke="#6b7280" tick={{ fontSize: 10 }} />
+            <YAxis
+              stroke="#6b7280"
+              tick={{ fontSize: 10 }}
+              tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))}
+            />
+            <RTooltip
+              contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 11 }}
+              formatter={(v: number) => v.toLocaleString("tr-TR")}
+            />
+            <Area type="monotone" dataKey="views" stroke="#10b981" strokeWidth={2} fill="url(#snaphist)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="space-y-1.5">
+        {[...sorted].reverse().map((s, i, arr) => {
+          const next = arr[i + 1];
+          const delta = next ? s.views - next.views : null;
+          return (
+            <div
+              key={s.id}
+              className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-border/60 bg-card"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium tabular-nums">
+                  {s.date} · {s.views.toLocaleString("tr-TR")} izlenme
+                  {delta != null && (
+                    <span
+                      className={`ml-2 text-[10px] tabular-nums ${
+                        delta > 0
+                          ? "text-emerald-600 dark:text-emerald-300"
+                          : delta < 0
+                            ? "text-red-600 dark:text-red-300"
+                            : "text-muted-foreground"
+                      }`}
+                    >
+                      {delta > 0 ? "+" : ""}
+                      {delta.toLocaleString("tr-TR")}
+                    </span>
+                  )}
+                </p>
+                {s.notes && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.notes}</p>
+                )}
+              </div>
+              {!readOnly && (
+                <Button size="sm" variant="ghost" className="h-7" onClick={() => onEdit(s)}>
+                  Düzenle
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

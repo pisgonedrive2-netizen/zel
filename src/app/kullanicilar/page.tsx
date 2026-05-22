@@ -19,6 +19,7 @@ import {
 import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
+import { fmtDateTime, fmtDateShort } from "@/lib/fmt-date";
 import { cacheAdminPin, mergeUsersWithPinCache } from "@/lib/admin-pin-cache";
 import { isMainAdmin } from "@/lib/user-guards";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
@@ -36,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, FormGrid, FormActions } from "@/components/ui/field";
+import { FilterChipBar } from "@/components/filter-chip-bar";
 
 const ROLE_LABELS: Record<Role, string> = {
   admin:    "Yönetici",
@@ -282,7 +284,7 @@ function PinDisplayModal({ user, pin, onClose }: { user: AppUser; pin: string; o
   );
 }
 
-// ── Audit log paneli (filtreli) ─────────────────────────────────────────
+// ── Audit log paneli (kart filtre — kullanıcı listesi ile aynı format) ───
 function AuditLogPanel({
   auditEntries,
   supabaseMode,
@@ -290,10 +292,10 @@ function AuditLogPanel({
   auditEntries: ReadonlyArray<AuditEntry>;
   supabaseMode: boolean;
 }) {
-  const [actionFilter, setActionFilter] = useState<"" | AuditAction>("");
-  const [actorFilter, setActorFilter] = useState<string>("");
+  const [actionFilter, setActionFilter] = useState<string>("all");
+  const [actorFilter, setActorFilter] = useState<string>("all");
   const [searchQ, setSearchQ] = useState("");
-  const [days, setDays] = useState<"7" | "30" | "90" | "all">("30");
+  const [days, setDays] = useState<string>("30");
 
   const uniqueActors = useMemo(() => {
     const set = new Set<string>();
@@ -301,115 +303,239 @@ function AuditLogPanel({
     return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"));
   }, [auditEntries]);
 
+  const inPeriod = useCallback(
+    (e: AuditEntry) => {
+      if (days === "all") return true;
+      const cutoff = Date.now() - parseInt(days, 10) * 86_400_000;
+      return new Date(e.at).getTime() >= cutoff;
+    },
+    [days]
+  );
+
+  const periodEntries = useMemo(
+    () => auditEntries.filter(inPeriod),
+    [auditEntries, inPeriod]
+  );
+
+  const periodChips = useMemo(() => {
+    const counts = (d: string) =>
+      auditEntries.filter((e) => {
+        if (d === "all") return true;
+        const cutoff = Date.now() - parseInt(d, 10) * 86_400_000;
+        return new Date(e.at).getTime() >= cutoff;
+      }).length;
+    return [
+      { id: "7", label: "7 gün", count: counts("7"), chipCls: "border-border bg-card hover:bg-accent/40" },
+      { id: "30", label: "30 gün", count: counts("30"), chipCls: "border-blue-300/70 bg-blue-50/60 text-blue-800 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-200" },
+      { id: "90", label: "90 gün", count: counts("90"), chipCls: "border-border bg-card hover:bg-accent/40" },
+      { id: "all", label: "Tümü", count: counts("all"), chipCls: "border-foreground/30 bg-card" },
+    ];
+  }, [auditEntries]);
+
+  const actionChips = useMemo(() => {
+    const base = periodEntries;
+    const chips = [
+      {
+        id: "all",
+        label: "Tüm eylemler",
+        count: base.length,
+        chipCls: "border-foreground/30 bg-card hover:bg-accent/40",
+      },
+    ];
+    for (const a of Object.keys(AUDIT_TR) as AuditAction[]) {
+      chips.push({
+        id: a,
+        label: AUDIT_TR[a],
+        count: base.filter((e) => e.action === a).length,
+        chipCls: "border-violet-300/60 bg-violet-50/50 text-violet-900 dark:border-violet-500/40 dark:bg-violet-950/35 dark:text-violet-200",
+      });
+    }
+    return chips;
+  }, [periodEntries]);
+
+  const actorChips = useMemo(() => {
+    const chips = [
+      {
+        id: "all",
+        label: "Tüm kullanıcılar",
+        count: periodEntries.length,
+        icon: UsersIcon,
+        chipCls: "border-foreground/30 bg-card hover:bg-accent/40",
+      },
+    ];
+    for (const a of uniqueActors) {
+      chips.push({
+        id: a,
+        label: a.length > 18 ? `${a.slice(0, 16)}…` : a,
+        count: periodEntries.filter((e) => (e.actorName || e.actorId) === a).length,
+        icon: UserIcon,
+        chipCls: "border-amber-300/60 bg-amber-50/50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/35 dark:text-amber-200",
+      });
+    }
+    return chips;
+  }, [periodEntries, uniqueActors]);
+
   const filtered = useMemo(() => {
-    const cutoff =
-      days === "all"
-        ? 0
-        : Date.now() - parseInt(days, 10) * 86_400_000;
     const q = searchQ.trim().toLowerCase();
-    return auditEntries.filter((e) => {
-      if (cutoff > 0 && new Date(e.at).getTime() < cutoff) return false;
-      if (actionFilter && e.action !== actionFilter) return false;
-      if (actorFilter && (e.actorName || e.actorId) !== actorFilter) return false;
+    return periodEntries.filter((e) => {
+      if (actionFilter !== "all" && e.action !== actionFilter) return false;
+      if (actorFilter !== "all" && (e.actorName || e.actorId) !== actorFilter) return false;
       if (q) {
         const hay = `${e.actorName} ${e.actorId} ${e.detail} ${AUDIT_TR[e.action] ?? e.action}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [auditEntries, actionFilter, actorFilter, searchQ, days]);
+  }, [periodEntries, actionFilter, actorFilter, searchQ]);
+
+  const hasExtraFilter =
+    actionFilter !== "all" || actorFilter !== "all" || searchQ.trim().length > 0;
 
   return (
     <Card className="mt-6">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ScrollText size={16} /> İşlem günlüğü
-        </CardTitle>
-        <CardDescription>
-          {supabaseMode
-            ? "Kullanıcı, yedek, oturum ve onay olayları (Supabase audit_logs)"
-            : "Son kullanıcı, yedek ve oturum olayları (yerel)"}
-          {" · "}
-          <span className="font-medium text-foreground">{filtered.length}</span>/
-          {auditEntries.length} kayıt
-        </CardDescription>
+      <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <ScrollText size={16} /> İşlem günlüğü
+          </CardTitle>
+          <CardDescription>
+            {supabaseMode
+              ? "Kullanıcı, yedek, oturum ve onay olayları (Supabase audit_logs)"
+              : "Son kullanıcı, yedek ve oturum olayları (yerel)"}
+          </CardDescription>
+        </div>
+        <Badge variant="outline" className="text-[10px] tabular-nums shrink-0">
+          {filtered.length} / {auditEntries.length}
+        </Badge>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <CardContent className="space-y-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Dönem
+          </p>
+          <FilterChipBar
+            ariaLabel="Günlük dönem filtreleri"
+            chips={periodChips}
+            value={days}
+            onChange={setDays}
+            columnsClass="grid-cols-2 sm:grid-cols-4"
+          />
+        </div>
+
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Eylem türü
+          </p>
+          <FilterChipBar
+            ariaLabel="Eylem filtreleri"
+            chips={actionChips}
+            value={actionFilter}
+            onChange={setActionFilter}
+            layout="wrap"
+          />
+        </div>
+
+        {uniqueActors.length > 0 && (
           <div>
-            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Eylem</label>
-            <select
-              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={actionFilter}
-              onChange={(e) => setActionFilter(e.target.value as typeof actionFilter)}
-            >
-              <option value="">Hepsi</option>
-              {(Object.keys(AUDIT_TR) as AuditAction[]).map((a) => (
-                <option key={a} value={a}>
-                  {AUDIT_TR[a]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Eylemi yapan</label>
-            <select
-              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Eylemi yapan
+            </p>
+            <FilterChipBar
+              ariaLabel="Kullanıcı filtreleri günlük"
+              chips={actorChips}
               value={actorFilter}
-              onChange={(e) => setActorFilter(e.target.value)}
-            >
-              <option value="">Hepsi</option>
-              {uniqueActors.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Dönem</label>
-            <select
-              className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-              value={days}
-              onChange={(e) => setDays(e.target.value as typeof days)}
-            >
-              <option value="7">Son 7 gün</option>
-              <option value="30">Son 30 gün</option>
-              <option value="90">Son 90 gün</option>
-              <option value="all">Tümü</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Ara</label>
-            <Input
-              className="mt-1 h-8 text-xs"
-              placeholder="Detay, kullanıcı veya eylem"
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
+              onChange={setActorFilter}
+              layout="wrap"
             />
           </div>
-        </div>
-        <div className="max-h-80 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              Filtreye uyan kayıt yok.
-            </p>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {filtered.slice(0, 200).map((e) => (
-                <li key={e.id} className="border-b border-border/50 pb-2 last:border-0">
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {new Date(e.at).toLocaleString("tr-TR")}
-                  </span>
-                  <span className="ml-2 font-medium text-foreground">
-                    {AUDIT_TR[e.action] ?? e.action}
-                  </span>
-                  <span className="text-muted-foreground"> · {e.actorName || "?"}</span>
-                  <p className="text-xs text-muted-foreground mt-0.5 break-words">{e.detail}</p>
-                </li>
-              ))}
-            </ul>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="text"
+              aria-label="Denetim kaydı ara"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="Detay, kullanıcı veya eylem ara..."
+              className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
+            {searchQ && (
+              <button
+                type="button"
+                onClick={() => setSearchQ("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-accent"
+                aria-label="Aramayı temizle"
+              >
+                <XIcon size={12} />
+              </button>
+            )}
+          </div>
+          {hasExtraFilter && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1 h-9 text-xs shrink-0"
+              onClick={() => {
+                setActionFilter("all");
+                setActorFilter("all");
+                setSearchQ("");
+              }}
+            >
+              <XIcon size={12} /> Ek filtreleri temizle
+            </Button>
           )}
+        </div>
+
+        <div className="overflow-x-auto max-h-[28rem] overflow-y-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm">
+              <tr className="border-b border-border">
+                {["Tarih", "Eylem", "Yapan", "Detay"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">
+                    Filtreye uyan kayıt yok.
+                  </td>
+                </tr>
+              ) : (
+                filtered.slice(0, 200).map((e) => (
+                  <tr
+                    key={e.id}
+                    className="border-b border-border/60 hover:bg-accent/20 transition-colors"
+                  >
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+                      {fmtDateTime(e.at)}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm font-medium whitespace-nowrap">
+                      {AUDIT_TR[e.action] ?? e.action}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm text-muted-foreground whitespace-nowrap">
+                      {e.actorName || e.actorId || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-md break-words">
+                      {e.detail || "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </CardContent>
     </Card>
@@ -709,7 +835,7 @@ export default function UsersPage() {
   };
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1200px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1200px]">
       <input
         ref={fileRef}
         type="file"
@@ -727,16 +853,11 @@ export default function UsersPage() {
           {flash}
         </div>
       )}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold text-foreground">Kullanıcılar</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın
-            {supabaseMode && (
-              <span className="block text-[11px] mt-1 text-muted-foreground/90">
-                Supabase modunda PIN yalnızca oluşturma/sıfırlama sonrası bu tarayıcı oturumunda görüntülenebilir.
-              </span>
-            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 sm:justify-end shrink-0">
@@ -759,119 +880,96 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Rol filtre çipleri — tıklanınca tabloyu o role göre süzer */}
-      <div
-        role="tablist"
-        aria-label="Kullanıcı filtreleri"
-        className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-4"
-      >
-        {filterChips.map((chip) => {
-          const active = roleFilter === chip.id;
-          const Icon = chip.icon;
-          return (
-            <button
-              key={chip.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setRoleFilter(chip.id)}
-              className={`group relative rounded-xl border px-3 py-2.5 text-left transition-all duration-150 ${
-                active
-                  ? "ring-2 ring-offset-1 ring-offset-background ring-foreground/30 shadow-sm "
-                  : "opacity-85 hover:opacity-100"
-              } ${chip.chipCls}`}
-            >
-              <span className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-medium">
-                  <Icon size={12} />
-                  {chip.label}
-                </span>
-                {active && <Check size={12} className="opacity-80" />}
-              </span>
-              <span className="block text-2xl font-bold tabular-nums mt-0.5">{chip.count}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Arama + sıralama */}
-      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            type="text"
-            value={userSearch}
-            onChange={(e) => setUserSearch(e.target.value)}
-            placeholder="Ad, kullanıcı adı veya bağlı yayıncı / marka ara..."
-            className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-ring/40"
-          />
-          {userSearch && (
-            <button
-              type="button"
-              onClick={() => setUserSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-accent"
-              title="Aramayı temizle"
-              aria-label="Aramayı temizle"
-            >
-              <XIcon size={12} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <label className="text-muted-foreground shrink-0" htmlFor="users-sort">
-            Sırala:
-          </label>
-          <select
-            id="users-sort"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
-          >
-            <option value="name">İsme göre (A→Z)</option>
-            <option value="role">Role göre</option>
-            <option value="lastLogin">Son girişe göre</option>
-            <option value="status">Aktif önce</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Tablo */}
+      {/* Kayıtlı kullanıcılar — kart filtre + tablo (tüm kolonlar korunur) */}
       <Card>
-        <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap">
+        <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap border-b border-border/60 pb-4">
           <div>
             <CardTitle className="flex items-center gap-2">
               Kayıtlı Kullanıcılar
-              <Badge variant="outline" className="text-[10px]">
+              <Badge variant="outline" className="text-[10px] tabular-nums">
                 {visibleUsers.length}
                 {visibleUsers.length !== users.length ? ` / ${users.length}` : ""}
               </Badge>
             </CardTitle>
             <CardDescription>
               {supabaseMode
-                ? "Kullanıcılar Supabase app_users tablosunda saklanır · PIN yalnızca oluşturma/sıfırlamada gösterilir"
+                ? "Kullanıcılar Supabase app_users tablosunda saklanır"
                 : "Yerel mod · kullanıcılar tarayıcıda saklanır · admin tüm PIN'leri sıfırlayabilir"}
             </CardDescription>
           </div>
-          {(roleFilter !== "all" || userSearch.trim()) && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-1 h-8 text-xs"
-              onClick={() => {
-                setRoleFilter("all");
-                setUserSearch("");
-              }}
-            >
-              <XIcon size={12} /> Filtreyi temizle
-            </Button>
-          )}
         </CardHeader>
-        <CardContent className="!p-0">
-          <div className="overflow-x-auto">
+        <CardContent className="space-y-4 pt-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+              Rol / durum
+            </p>
+            <FilterChipBar
+              ariaLabel="Kullanıcı filtreleri"
+              chips={filterChips}
+              value={roleFilter}
+              onChange={(id) => setRoleFilter(id as UserFilter)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                type="text"
+                aria-label="Kullanıcı ara"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Ad, kullanıcı adı veya bağlı yayıncı / marka ara..."
+                className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-9 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-ring/40"
+              />
+              {userSearch && (
+                <button
+                  type="button"
+                  onClick={() => setUserSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-accent"
+                  title="Aramayı temizle"
+                  aria-label="Aramayı temizle"
+                >
+                  <XIcon size={12} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs shrink-0">
+              <label className="text-muted-foreground" htmlFor="users-sort">
+                Sırala:
+              </label>
+              <select
+                id="users-sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-xs min-w-[10rem]"
+              >
+                <option value="name">İsme göre (A→Z)</option>
+                <option value="role">Role göre</option>
+                <option value="lastLogin">Son girişe göre</option>
+                <option value="status">Aktif önce</option>
+              </select>
+            </div>
+            {(roleFilter !== "all" || userSearch.trim()) && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1 h-9 text-xs shrink-0"
+                onClick={() => {
+                  setRoleFilter("all");
+                  setUserSearch("");
+                }}
+              >
+                <XIcon size={12} /> Filtreyi temizle
+              </Button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
@@ -971,7 +1069,7 @@ export default function UsersPage() {
                       <td className="px-4 py-3 text-xs text-muted-foreground">{linkLabel}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">
                         {u.lastLoginAt
-                          ? new Date(u.lastLoginAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                          ? fmtDateShort(u.lastLoginAt)
                           : <span className="opacity-50">henüz giriş yok</span>
                         }
                       </td>

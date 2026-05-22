@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { fmtDateShort } from "@/lib/fmt-date";
 import {
   Activity,
   AlertTriangle,
@@ -22,7 +23,11 @@ import {
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useStore, type BrandLink, type LinkSnapshot } from "@/store/store";
+import { useStore, type BrandLink } from "@/store/store";
+import {
+  applyLinkMetricsToStore,
+  type LinkMetricsStoreUpdate,
+} from "@/lib/social-api/link-store-sync";
 
 interface RichLinkDetails {
   platform: "youtube" | "instagram" | "tiktok";
@@ -57,40 +62,7 @@ interface ApiResponse {
   error?: string;
   quotaExhausted?: boolean;
   platform?: string;
-  linkUpdate?: {
-    lastViews?: number;
-    lastLikes?: number | null;
-    lastComments?: number | null;
-    lastShares?: number | null;
-    lastSnapshotDate?: string;
-    lastCheckedAt?: string;
-    externalRef?: string;
-    snapshot?: LinkSnapshot;
-  };
-}
-
-function applyLinkUpdateToStore(
-  linkId: string,
-  update: ApiResponse["linkUpdate"],
-  actions: {
-    updateBrandLink: (id: string, patch: Partial<BrandLink>) => void;
-    upsertLinkSnapshot: (s: LinkSnapshot) => void;
-  }
-) {
-  if (!update) return;
-  actions.updateBrandLink(linkId, {
-    lastViews: update.lastViews,
-    lastLikes: update.lastLikes ?? undefined,
-    lastComments: update.lastComments ?? undefined,
-    lastShares: update.lastShares ?? undefined,
-    lastSnapshotDate: update.lastSnapshotDate,
-    lastCheckedAt: update.lastCheckedAt,
-    externalRef: update.externalRef,
-    lastCheckError: undefined,
-  });
-  if (update.snapshot) {
-    actions.upsertLinkSnapshot(update.snapshot);
-  }
+  linkUpdate?: LinkMetricsStoreUpdate;
 }
 
 function fmtNum(n: number | null | undefined): string {
@@ -164,7 +136,7 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
       }
       setDetails(json.details ?? null);
       if (json.linkUpdate && link) {
-        applyLinkUpdateToStore(link.id, json.linkUpdate, {
+        applyLinkMetricsToStore(link.id, json.linkUpdate, {
           updateBrandLink,
           upsertLinkSnapshot,
         });
@@ -368,12 +340,7 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
             <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <CheckCircle2 size={10} className="text-emerald-600 dark:text-emerald-400" />
-                {new Date(details.fetchedAt).toLocaleString("tr-TR", {
-                  day: "2-digit",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {fmtDateShort(details.fetchedAt)}
               </span>
               <span className="inline-flex items-center gap-1">
                 <Activity size={10} />

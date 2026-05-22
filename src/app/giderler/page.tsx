@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Pencil, Eye, Wallet, Tag, Filter } from "lucide-react";
+import { Plus, Pencil, Eye, Wallet, Tag, Filter, Search, CalendarRange, Trash2 } from "lucide-react";
 import {
   useStore,
   calcKasaBalance,
@@ -247,6 +247,14 @@ export default function GiderlerPage() {
   const [filterCat, setFilterCat] = useState("Tümü");
   const [filterBrand, setFilterBrand] = useState("Tümü");
   const [filterKasa, setFilterKasa] = useState("Tümü");
+  const [filterMonth, setFilterMonth] = useState("Tümü");
+  const [filterSource, setFilterSource] = useState<"Tümü" | "Manuel" | "Planlanan">("Tümü");
+  const [filterLink, setFilterLink] = useState<"Tümü" | "Kasaya bağlı" | "Kasasız">("Tümü");
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [minAmount, setMinAmount] = useState<number>(0);
+  const [maxAmount, setMaxAmount] = useState<number>(0);
   const defaultKasaId =
     kasas.find((k) => k.isDefault && !k.archived)?.id ??
     kasas.find((k) => !k.archived)?.id ??
@@ -262,39 +270,103 @@ export default function GiderlerPage() {
     return m;
   }, [kasaTransactions]);
 
-  const totalYillik = expenses.reduce((s, e) => s + e.amount, 0);
-
-  // Group by category
-  const byCategory = EXPENSE_CATEGORIES.map((cat) => {
-    const items = expenses.filter((e) => e.category === cat);
-    return { kategori: cat, yillik: items.reduce((s, e) => s + e.amount, 0), count: items.length };
-  }).filter((c) => c.yillik > 0);
-
   const activeBrands = useMemo(
     () => brands.filter((b) => b.status === "active"),
     [brands]
   );
+  const months = useMemo(
+    () => Array.from(new Set(expenses.map((e) => e.date.slice(0, 7)))).sort((a, b) => b.localeCompare(a)),
+    [expenses]
+  );
 
   const displayedExpenses = useMemo(() => {
     return expenses.filter((e) => {
+      const q = search.trim().toLowerCase();
       if (filterCat !== "Tümü" && e.category !== filterCat) return false;
       if (filterBrand === "Markasız" && e.brandId) return false;
       if (filterBrand !== "Tümü" && filterBrand !== "Markasız" && e.brandId !== filterBrand) return false;
+      if (filterMonth !== "Tümü" && e.date.slice(0, 7) !== filterMonth) return false;
+      if (dateFrom && e.date < dateFrom) return false;
+      if (dateTo && e.date > dateTo) return false;
+      if (filterSource === "Planlanan" && !e.plannedItemId) return false;
+      if (filterSource === "Manuel" && e.plannedItemId) return false;
+      if (filterLink === "Kasaya bağlı" && !e.kasaTxId) return false;
+      if (filterLink === "Kasasız" && e.kasaTxId) return false;
+      if (minAmount > 0 && e.amount < minAmount) return false;
+      if (maxAmount > 0 && e.amount > maxAmount) return false;
       if (filterKasa !== "Tümü") {
         const tx = e.kasaTxId ? kasaTxIndex.get(e.kasaTxId) : undefined;
         if (!tx || tx.kasaId !== filterKasa) return false;
       }
+      if (q) {
+        const brand = e.brandId ? brandLabel(brands, e.brandId) : "";
+        if (
+          !e.description.toLowerCase().includes(q) &&
+          !e.category.toLowerCase().includes(q) &&
+          !brand.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+      }
       return true;
     });
-  }, [expenses, filterCat, filterBrand, filterKasa, kasaTxIndex]);
+  }, [
+    expenses,
+    filterCat,
+    filterBrand,
+    filterKasa,
+    filterMonth,
+    filterSource,
+    filterLink,
+    dateFrom,
+    dateTo,
+    minAmount,
+    maxAmount,
+    search,
+    kasaTxIndex,
+    brands,
+  ]);
 
   const sortedExpenses = [...displayedExpenses].sort((a, b) => b.date.localeCompare(a.date));
+  const totalYillik = displayedExpenses.reduce((s, e) => s + e.amount, 0);
+  const linkedTotal = displayedExpenses.filter((e) => e.kasaTxId).reduce((s, e) => s + e.amount, 0);
+  const plannedTotal = displayedExpenses.filter((e) => e.plannedItemId).reduce((s, e) => s + e.amount, 0);
+  const hasActiveFilters =
+    filterCat !== "Tümü" ||
+    filterBrand !== "Tümü" ||
+    filterKasa !== "Tümü" ||
+    filterMonth !== "Tümü" ||
+    filterSource !== "Tümü" ||
+    filterLink !== "Tümü" ||
+    !!search ||
+    !!dateFrom ||
+    !!dateTo ||
+    minAmount > 0 ||
+    maxAmount > 0;
+  const clearFilters = () => {
+    setFilterCat("Tümü");
+    setFilterBrand("Tümü");
+    setFilterKasa("Tümü");
+    setFilterMonth("Tümü");
+    setFilterSource("Tümü");
+    setFilterLink("Tümü");
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setMinAmount(0);
+    setMaxAmount(0);
+  };
+
+  const byCategory = EXPENSE_CATEGORIES.map((cat) => {
+    const items = displayedExpenses.filter((e) => e.category === cat);
+    return { kategori: cat, yillik: items.reduce((s, e) => s + e.amount, 0), count: items.length };
+  }).filter((c) => c.yillik > 0);
 
   const pieData = byCategory.map((c) => ({ name: c.kategori, value: c.yillik }));
   const barData = byCategory;
 
   return (
-    <div className="p-3 sm:p-6 md:p-8">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <PageHeader
         title="Giderler"
         subtitle="Şirket içi gider kalemlerini ekleyin, kategoriye göre analiz edin ve kasaya bağlayarak harcamayı düşürün."
@@ -302,12 +374,134 @@ export default function GiderlerPage() {
         badgeTone="red"
       />
 
+      <div className="rounded-xl border border-border bg-card p-4 mb-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 mr-auto">
+            <Filter size={14} className="text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Gider filtreleri</p>
+              <p className="text-xs text-muted-foreground">Varsayılan görünüm tüm geçmiş kayıtları gösterir.</p>
+            </div>
+          </div>
+          {!readOnly && (
+            <Button size="sm" onClick={() => setModal("new")} className="gap-1.5 h-8 text-xs shrink-0">
+              <Plus size={13} /> Gider Ekle
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs w-full">
+          <Select
+            className="h-8 w-auto min-w-[120px] text-xs"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            options={[
+              { value: "Tümü", label: "Tüm geçmiş" },
+              ...months.map((m) => ({ value: m, label: m })),
+            ]}
+          />
+          <Input
+            type="date"
+            className="h-8 w-36 text-xs"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="Başlangıç tarihi"
+          />
+          <Input
+            type="date"
+            className="h-8 w-36 text-xs"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="Bitiş tarihi"
+          />
+          <Select
+            className="h-8 w-auto min-w-[120px] text-xs"
+            value={filterBrand}
+            onChange={(e) => setFilterBrand(e.target.value)}
+            options={[
+              { value: "Tümü", label: "Tüm markalar" },
+              { value: "Markasız", label: "Markasız" },
+              ...activeBrands.map((b) => ({
+                value: b.id,
+                label: b.shortName || b.name,
+              })),
+            ]}
+          />
+          <Select
+            className="h-8 w-auto min-w-[110px] text-xs"
+            value={filterKasa}
+            onChange={(e) => setFilterKasa(e.target.value)}
+            options={[
+              { value: "Tümü", label: "Tüm kasalar" },
+              ...kasas
+                .filter((k) => !k.archived)
+                .map((k) => ({ value: k.id, label: k.name })),
+            ]}
+          />
+          <Select
+            className="h-8 w-auto min-w-[120px] text-xs"
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value as typeof filterSource)}
+            options={[
+              { value: "Tümü", label: "Tüm kaynaklar" },
+              { value: "Manuel", label: "Manuel" },
+              { value: "Planlanan", label: "Planlanan" },
+            ]}
+          />
+          <Select
+            className="h-8 w-auto min-w-[115px] text-xs"
+            value={filterLink}
+            onChange={(e) => setFilterLink(e.target.value as typeof filterLink)}
+            options={[
+              { value: "Tümü", label: "Kasa: tümü" },
+              { value: "Kasaya bağlı", label: "Kasaya bağlı" },
+              { value: "Kasasız", label: "Kasasız" },
+            ]}
+          />
+          <div className="relative">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-8 w-48 pl-7 text-xs"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Açıklama / marka ara"
+            />
+          </div>
+          <NumberInput value={minAmount} onChange={setMinAmount} min={0} step={50} className="h-8 w-24 text-xs" placeholder="Min" />
+          <NumberInput value={maxAmount} onChange={setMaxAmount} min={0} step={50} className="h-8 w-24 text-xs" placeholder="Max" />
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={clearFilters}
+            disabled={!hasActiveFilters}
+          >
+            Filtreleri temizle
+          </Button>
+        </div>
+        <div className="flex gap-1 flex-wrap w-full">
+          {["Tümü", ...EXPENSE_CATEGORIES.filter((c) => expenses.some((e) => e.category === c))].map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setFilterCat(cat)}
+              className={[
+                "text-xs px-2 py-1 rounded-md transition-colors",
+                filterCat === cat
+                  ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+              ].join(" ")}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {[
           { label: "Toplam Gider", value: fmt(totalYillik),                        cls: "text-red-400" },
-          { label: "Aylık Ort.",   value: fmt(Math.round(totalYillik / 12)),       cls: "text-amber-400" },
-          { label: "Kayıt Sayısı", value: String(expenses.length),                 cls: "text-foreground" },
-          { label: "Kategori",     value: String(byCategory.length),               cls: "text-foreground" },
+          { label: "Kasaya Bağlı", value: fmt(linkedTotal),                        cls: "text-green-500" },
+          { label: "Plan Kaynaklı", value: fmt(plannedTotal),                      cls: "text-blue-500" },
+          { label: "Kayıt Sayısı", value: String(displayedExpenses.length),        cls: "text-foreground" },
         ].map(k => (
           <div key={k.label} className="border border-border rounded-xl px-4 py-3 bg-card">
             <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">{k.label}</p>
@@ -334,59 +528,12 @@ export default function GiderlerPage() {
 
       {/* Expense entries */}
       <div className="border border-border rounded-xl overflow-hidden bg-card">
-        <div className="px-4 py-3 border-b border-border space-y-3">
+        <div className="px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2 flex-wrap w-full">
             <p className="text-sm font-medium text-foreground">Gider Kayıtları</p>
-            {!readOnly && (
-              <Button size="sm" onClick={() => setModal("new")} className="gap-1.5 h-7 text-xs shrink-0 ml-auto">
-                <Plus size={13} /> Gider Ekle
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs w-full">
-            <span className="text-muted-foreground flex items-center gap-1 shrink-0">
-              <Filter size={11} /> Filtre
+            <span className="text-xs text-muted-foreground ml-auto">
+              {displayedExpenses.length} / {expenses.length} kayıt gösteriliyor
             </span>
-            <Select
-              className="h-8 w-auto min-w-[120px] text-xs"
-              value={filterBrand}
-              onChange={(e) => setFilterBrand(e.target.value)}
-              options={[
-                { value: "Tümü", label: "Tüm markalar" },
-                { value: "Markasız", label: "Markasız" },
-                ...activeBrands.map((b) => ({
-                  value: b.id,
-                  label: b.shortName || b.name,
-                })),
-              ]}
-            />
-            <Select
-              className="h-8 w-auto min-w-[110px] text-xs"
-              value={filterKasa}
-              onChange={(e) => setFilterKasa(e.target.value)}
-              options={[
-                { value: "Tümü", label: "Tüm kasalar" },
-                ...kasas
-                  .filter((k) => !k.archived)
-                  .map((k) => ({ value: k.id, label: k.name })),
-              ]}
-            />
-          </div>
-          <div className="flex gap-1 flex-wrap w-full">
-              {["Tümü", ...EXPENSE_CATEGORIES.filter((c) => expenses.some((e) => e.category === c))].map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setFilterCat(cat)}
-                  className={[
-                    "text-xs px-2 py-1 rounded-md transition-colors",
-                    filterCat === cat
-                      ? "bg-primary/10 text-primary ring-1 ring-primary/30"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                  ].join(" ")}
-                >
-                  {cat}
-                </button>
-              ))}
           </div>
         </div>
 
@@ -394,7 +541,7 @@ export default function GiderlerPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/20">
-                {["Tarih","Kategori","Marka","Açıklama","Kasa","Tutar",""].map((h, i) => (
+                {["Tarih","Kategori","Marka","Açıklama","Kaynak","Kasa","Tutar",""].map((h, i) => (
                   <th key={i} className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide text-left">{h}</th>
                 ))}
               </tr>
@@ -418,7 +565,23 @@ export default function GiderlerPage() {
                         <span className="text-muted-foreground/40">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-foreground">{e.description}</td>
+                    <td className="px-4 py-3 text-foreground">
+                      <div>{e.description}</div>
+                      {e.plannedItemId && (
+                        <p className="text-[10px] text-blue-600 dark:text-blue-300 mt-0.5">
+                          Planlanan bağlantısı: {e.plannedItemId.slice(0, 8)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs">
+                      {e.plannedItemId ? (
+                        <Badge variant="outline" className="gap-1 text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-300 dark:border-blue-500/45 dark:bg-blue-950/40">
+                          <CalendarRange size={10} /> Planlanan
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">Manuel</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs">
                       {kasaLabel ? (
                         <span className="inline-flex items-center gap-1 text-muted-foreground">
@@ -430,20 +593,36 @@ export default function GiderlerPage() {
                     </td>
                     <td className="px-4 py-3 text-red-400 tabular-nums font-medium whitespace-nowrap">{fmt(e.amount)}</td>
                     <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => setModal(e)}
-                        className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                        aria-label={readOnly ? "Detayı görüntüle" : "Gideri düzenle"}
-                      >
-                        {readOnly ? <Eye size={13} /> : <Pencil size={13} />}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setModal(e)}
+                          className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                          aria-label={readOnly ? "Detayı görüntüle" : "Gideri düzenle"}
+                        >
+                          {readOnly ? <Eye size={13} /> : <Pencil size={13} />}
+                        </button>
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("Bu gider kaydı silinsin mi? Bağlı plan bağlantısı temizlenir.")) {
+                                deleteExpense(e.id);
+                              }
+                            }}
+                            className="text-muted-foreground/40 hover:text-red-500 transition-colors"
+                            aria-label="Gideri sil"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
               {sortedExpenses.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground/40">Kayıt bulunamadı</td></tr>
               )}
             </tbody>
           </table>

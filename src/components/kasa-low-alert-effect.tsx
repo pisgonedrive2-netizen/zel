@@ -13,8 +13,10 @@ import { fmt } from "@/lib/data";
  * okunur. Supabase devre dışıysa fallback olarak 5000 USDT kullanılır.
  */
 export function KasaLowAlertEffect() {
+  const kasas = useStore((s) => s.kasas);
   const kasaTransactions = useStore((s) => s.kasaTransactions);
   const notifications = useStore((s) => s.notifications);
+  const bootstrapReady = kasas.length > 0;
   const supabaseMode = isSupabaseClientMode();
   const user = useAuth((s) => s.user);
   const threshold = useRef(5000);
@@ -23,6 +25,7 @@ export function KasaLowAlertEffect() {
 
   // Yalnızca admin / auditor için ayarları çek.
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (loaded.current) return;
     if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
     if (!supabaseMode) {
@@ -51,9 +54,10 @@ export function KasaLowAlertEffect() {
         /* sessiz */
       }
     })();
-  }, [user, supabaseMode]);
+  }, [bootstrapReady, user, supabaseMode]);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
     if (silenced.current.has("kasa_low")) return;
 
@@ -89,7 +93,7 @@ export function KasaLowAlertEffect() {
         refId: refAud,
       });
     }
-  }, [user, kasaTransactions, notifications]);
+  }, [bootstrapReady, user, kasaTransactions, notifications]);
 
   return null;
 }

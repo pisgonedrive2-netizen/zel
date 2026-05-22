@@ -10,6 +10,7 @@ import {
   isPayrollActive, unreadNotificationCount,
 } from "@/store/store";
 import { isActiveContentExpense } from "@/lib/content-expense";
+import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import { fmt, toYearMonthLocal } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,7 +41,7 @@ export default function DenetciPage() {
   const unread = unreadNotificationCount(notifications, "auditor", user?.id);
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1240px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1240px]">
       {/* Header */}
       <div className="flex items-start justify-between mb-7">
         <div className="flex items-center gap-3">
@@ -189,7 +190,7 @@ export default function DenetciPage() {
                       <p className="text-xs text-muted-foreground line-clamp-1">{n.message}</p>
                     </div>
                     <span className="text-[10px] text-muted-foreground shrink-0">
-                      {new Date(n.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      {fmtDateShort(n.createdAt)}
                     </span>
                   </div>
                 </div>

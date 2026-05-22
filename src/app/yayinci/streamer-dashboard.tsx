@@ -14,14 +14,21 @@ import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
   WEEKDAYS_LONG, isPayrollActive, getRentForMonth, weekStartOf, nextWeekStartOf,
   sumApprovedContentExpenses, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth,
+  visibleNotificationsForRole,
   type Employee, type ContentExpense, type WeeklyPlan, type StreamerAccount, type BrandLink, type LinkSnapshot,
   type Brand, type BrandViewership, type WeekBrandReel,
 } from "@/store/store";
+import {
+  markNotificationReadPersisted,
+  markAllNotificationsReadPersisted,
+  deleteNotificationPersisted,
+} from "@/lib/notification-actions";
 import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
+import { fmtDateTime } from "@/lib/fmt-date";
 import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
@@ -136,19 +143,22 @@ function weekRangeLabel(weekStartIso: string) {
 const ACTIVITIES = ["Yayın", "Vlog Çekimi", "Yetişkin İçerik", "Site Videoları", "Edit / Post-Prod", "Reklam Çekimi", "Toplantı", "İzin"] as const;
 
 // ── Expense Submit Form ─────────────────────────────────────────────────
-function ExpenseSubmitForm({ employeeId, userId, initial, onSave, onDelete, onClose }: {
+function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, onDelete, onClose }: {
   employeeId: string;
   userId: string;
   initial?: ContentExpense;
+  /** Yeni kayıt için varsayılan tarih (seçili ay/hafta bağlamından). */
+  defaultDate?: string;
   onSave: (d: Omit<ContentExpense, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
   const { brands } = useStore();
   const today = new Date().toISOString().slice(0, 10);
+  const initDate = initial?.date ?? defaultDate ?? today;
   const [form, setForm] = useState<Omit<ContentExpense, "id">>({
-    date:        initial?.date        ?? today,
-    month:       initial?.month       ?? today.slice(0, 7),
+    date:        initDate,
+    month:       initDate.slice(0, 7),
     employeeId,
     brandId:     initial?.brandId,
     brandName:   initial?.brandName   ?? "",
@@ -184,7 +194,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, onSave, onDelete, onCl
     }}>
       <fieldset disabled={readOnly} className="grid gap-4 disabled:opacity-90">
         <FormGrid>
-          <Field label="Tarih" required>
+          <Field label="Tarih" hint="Geçmiş tarih seçebilirsiniz — sol ok ile geriye gidin" required>
             <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
           </Field>
           <Field label="Marka">
@@ -781,6 +791,24 @@ function AddWeekReelForm({
   onAdd: (r: Omit<WeekBrandReel, "id" | "createdAt">) => void;
 }) {
   const [wk, setWk] = useState(defaultWeekStart);
+
+  // Sync when parent's weekView changes (e.g. user navigates weeks)
+  useEffect(() => { setWk(defaultWeekStart); }, [defaultWeekStart]);
+
+  // Past 4 hafta + bu hafta + gelecek hafta
+  const weekOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = [];
+    for (let i = -4; i <= 1; i++) {
+      const d = new Date(thisWeek + "T00:00:00");
+      d.setDate(d.getDate() + i * 7);
+      const iso = d.toISOString().slice(0, 10);
+      const isThis = iso === thisWeek;
+      const isNext = iso === nextWeek;
+      const prefix = isThis ? "Bu hafta · " : isNext ? "Gelecek · " : i < 0 ? `${Math.abs(i)} hafta önce · ` : "";
+      opts.push({ value: iso, label: `${prefix}${weekRangeLabel(iso)}` });
+    }
+    return opts;
+  }, [thisWeek, nextWeek]);
   const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
   const [contentUrl, setContentUrl] = useState("");
   const [platform, setPlatform] = useState("Instagram");
@@ -829,10 +857,7 @@ function AddWeekReelForm({
           <Select
             value={wk}
             onChange={(e) => setWk(e.target.value)}
-            options={[
-              { value: thisWeek, label: `Bu hafta · ${weekRangeLabel(thisWeek)}` },
-              { value: nextWeek, label: `Gelecek · ${weekRangeLabel(nextWeek)}` },
-            ]}
+            options={weekOptions}
           />
         </Field>
         <Field label="Marka">
@@ -887,7 +912,7 @@ function AddWeekReelForm({
   );
 }
 
-export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "gecmis";
+export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "gecmis" | "bildirimler" | "istatistikler";
 
 // ── Page ─────────────────────────────────────────────────────────────────
 /**
@@ -983,6 +1008,33 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const nextWeek = nextWeekStartOf(today);
   const [month, setMonth] = useState<string>(todayYm);
 
+  // Takvim haftası navigasyonu — geçmişe gidebilir
+  const [weekView, setWeekView] = useState<string>(thisWeek);
+  const navWeek = (dir: 1 | -1) => {
+    const d = new Date(weekView + "T00:00:00");
+    d.setDate(d.getDate() + dir * 7);
+    setWeekView(d.toISOString().slice(0, 10));
+  };
+  const weekViewIsThisWeek = weekView === thisWeek;
+  const weekViewIsNextWeek = weekView === nextWeek;
+  const weekViewLabel = (() => {
+    if (weekViewIsThisWeek) return "Bu Hafta";
+    if (weekViewIsNextWeek) return "Gelecek Hafta";
+    const d = new Date(weekView + "T00:00:00");
+    const now = new Date(thisWeek + "T00:00:00");
+    const diff = Math.round((d.getTime() - now.getTime()) / (7 * 86400000));
+    if (diff < 0) return `${Math.abs(diff)} hafta önce`;
+    return `${diff} hafta sonra`;
+  })();
+  const weekViewPlans = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === weekView);
+
+  // Yeni harcama için varsayılan tarih — seçili ay/hafta bağlamına göre
+  const [expenseDefaultDate, setExpenseDefaultDate] = useState<string | undefined>(undefined);
+  const openNewExpense = (defaultDate?: string) => {
+    setExpenseDefaultDate(defaultDate);
+    setExpenseModal("new");
+  };
+
   const [expenseModal,  setExpenseModal]  = useState<"new" | ContentExpense | null>(null);
   const [planModal,     setPlanModal]     = useState<{ mode: "new" | WeeklyPlan; weekStart: string } | null>(null);
   const [accountModal,  setAccountModal]  = useState<"new" | StreamerAccount | null>(null);
@@ -1027,7 +1079,18 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   // ── Marka linkleri ──
   const myAccounts   = streamerAccounts.filter(a => a.employeeId === me.id);
+  // Tüm linkler — form / yardımcı işlemler için
   const myBrandLinks = brandLinks.filter(l => l.ownerId === me.id);
+  // Seçili aya ait linkler — listede yalnızca o ay (veya öncesi) eklenmiş ve hâlâ aktif olanlar gösterilir.
+  // createdAt yoksa (eski kayıtlar) liste dışı tutmamak için göster.
+  const myBrandLinksForMonth = useMemo(() => {
+    const monthEnd = new Date(`${month}-01T00:00:00`);
+    monthEnd.setMonth(monthEnd.getMonth() + 1);
+    return myBrandLinks.filter((l) => {
+      if (!l.createdAt) return true;
+      return new Date(l.createdAt).getTime() < monthEnd.getTime();
+    });
+  }, [myBrandLinks, month]);
 
   // ── Önceki aylar özeti ──
   const myHistory = useMemo(() => {
@@ -1073,12 +1136,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   const brandLinksByPlatform = useMemo(() => {
     const m = new Map<string, BrandLink[]>();
-    for (const l of myBrandLinks) {
+    for (const l of myBrandLinksForMonth) {
       if (!m.has(l.platform)) m.set(l.platform, []);
       m.get(l.platform)!.push(l);
     }
     return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0], "tr"));
-  }, [myBrandLinks]);
+  }, [myBrandLinksForMonth]);
 
   /** Seçili ay için marka başına: link snapshot (o ay) veya bu ay ise lastViews toplamı. */
   const linkViewsByBrandForMonth = useMemo(() => {
@@ -1129,17 +1192,18 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     setExpenseModal(null);
   };
 
-  const handleExpenseSave = (data: Omit<ContentExpense, "id">) => {
+  const handleExpenseSave = async (data: Omit<ContentExpense, "id">) => {
     if (data.amountUsd <= 0) return;
     if (expenseModal === "new") {
-      addContentExpense(data);
+      const newId = addContentExpense(data);
       pushNotification({
         type: "expense_submitted",
         title: `${me.name} yeni harcama gönderdi`,
         message: `${data.brandName} · ${data.category} · $${data.amountUsd} — ${data.description.slice(0, 80)}`,
         forRole: "admin",
         triggeredBy: user.id,
-        href: "/icerik-harcamalari",
+        refId: newId,
+        href: `/icerik-harcamalari?review=${newId}`,
       });
       pushNotification({
         type: "expense_submitted",
@@ -1147,8 +1211,23 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         message: `${me.name}: ${data.brandName} $${data.amountUsd}`,
         forRole: "auditor",
         triggeredBy: user.id,
-        href: "/icerik-harcamalari",
+        refId: newId,
+        href: `/icerik-harcamalari?review=${newId}`,
       });
+      void fetch("/api/content-expenses/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          expenseId: newId,
+          employeeName: me.name,
+          brandName: data.brandName,
+          category: data.category,
+          amountUsd: data.amountUsd,
+          description: data.description,
+          month: data.month,
+        }),
+      }).catch(() => {});
     } else if (expenseModal) {
       updateContentExpense(expenseModal.id, data);
     }
@@ -1156,18 +1235,24 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   const handlePlanSave = (data: Omit<WeeklyPlan, "id">) => {
     if (!planModal) return;
+    // KRITIK: weekStart'ı her zaman seçilen tarihten yeniden hesapla, böylece
+    // tarih farklı bir haftaya kaydırılsa bile admin takvimi doğru hücrede gösterir.
+    const normalized: Omit<WeeklyPlan, "id"> = {
+      ...data,
+      weekStart: weekStartOf(new Date(data.date + "T00:00:00")),
+    };
     if (planModal.mode === "new") {
-      addWeeklyPlan(data);
+      addWeeklyPlan(normalized);
       pushNotification({
         type: "schedule_updated",
         title: `${me.name} takvimini güncelledi`,
-        message: `${formatDateLong(data.date)} · ${data.activity}${data.brandName ? ` (${data.brandName})` : ""}`,
+        message: `${formatDateLong(normalized.date)} · ${normalized.activity}${normalized.brandName ? ` (${normalized.brandName})` : ""}`,
         forRole: "admin",
         triggeredBy: user.id,
-        href: "/takvim",
+        href: `/takvim?employee=${me.id}&week=${normalized.weekStart}`,
       });
     } else {
-      updateWeeklyPlan((planModal.mode as WeeklyPlan).id, data);
+      updateWeeklyPlan((planModal.mode as WeeklyPlan).id, normalized);
     }
   };
 
@@ -1198,13 +1283,22 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const exportStreamerBrandMonth = (b: Brand, kind: "pdf" | "csv") => {
     try {
     const linksForExport = myBrandLinks.filter((l) => l.brandId === b.id);
-    const linkRows = linksForExport.map((l) => ({
-      platform: l.platform,
-      handle: l.handle || "-",
-      url: l.url || "-",
-      lastViews: l.lastViews != null ? fmtViews(l.lastViews) : "-",
-      lastSnapshot: l.lastSnapshotDate ?? "-",
-    }));
+    const linkRows = linksForExport.map((l) => {
+      const views = l.lastViews ?? 0;
+      const eng = (l.lastLikes ?? 0) + (l.lastComments ?? 0) + (l.lastShares ?? 0);
+      const engagementRate = views > 0 ? `${((eng / views) * 100).toFixed(2)}%` : "-";
+      return {
+        platform: l.platform,
+        handle: l.handle || "-",
+        url: l.url || "-",
+        lastViews: l.lastViews != null ? fmtViews(l.lastViews) : "-",
+        lastSnapshot: l.lastSnapshotDate ?? "-",
+        lastLikes: l.lastLikes != null ? fmtViews(l.lastLikes) : undefined,
+        lastComments: l.lastComments != null ? fmtViews(l.lastComments) : undefined,
+        lastShares: l.lastShares != null ? fmtViews(l.lastShares) : undefined,
+        engagementRate,
+      };
+    });
     const vrow = brandViewership.find(
       (v) => v.brandId === b.id && v.month === month && v.employeeId === me.id
     );
@@ -1272,10 +1366,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setExpenseModal("new")} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} className="gap-1.5">
             <Plus size={14} /> Harcama Gönder
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setPlanModal({ mode: "new", weekStart: thisWeek })} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setPlanModal({ mode: "new", weekStart: section === "takvim" ? weekView : thisWeek })} className="gap-1.5">
             <Plus size={14} /> Plan Ekle
           </Button>
         </div>
@@ -1500,8 +1594,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 Haftalık gruplar halinde · yönetici onayından sonra ödeme
               </p>
             </div>
-            <Button size="sm" onClick={() => setExpenseModal("new")} className="gap-1.5 shrink-0 w-full sm:w-auto" type="button">
-              <Plus size={14} /> Harcama Gönder
+            <Button size="sm" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} className="gap-1.5 shrink-0 w-full sm:w-auto" type="button">
+              <Plus size={14} /> Harcama Gönder {month !== todayYm && <span className="text-[10px] opacity-70">({monthLabel(month)})</span>}
             </Button>
           </div>
 
@@ -1547,7 +1641,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                   <CardContent className="py-10 text-center">
                     <Receipt className="mx-auto text-muted-foreground/30 mb-2" size={28} />
                     <p className="text-sm text-muted-foreground">Henüz harcama göndermedin.</p>
-                    <Button size="sm" className="mt-4 gap-1.5" onClick={() => setExpenseModal("new")} type="button">
+                    <Button size="sm" className="mt-4 gap-1.5" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} type="button">
                       <Plus size={14} /> İlk harcamayı ekle
                     </Button>
                   </CardContent>
@@ -1586,19 +1680,33 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
       {section === "takvim" && (
           <div className="space-y-4 w-full min-w-0">
+            {/* Hafta navigatörü */}
+            <div className="flex items-center justify-between gap-3 -mx-1 px-1 pb-2 border-b border-border/60">
+              <Button variant="ghost" size="sm" type="button" className="h-8 w-8 p-0 shrink-0" onClick={() => navWeek(-1)} title="Önceki hafta">
+                <ChevronLeft size={15} />
+              </Button>
+              <div className="flex flex-col items-center gap-0.5 min-w-0">
+                <span className="text-xs font-semibold text-foreground">{weekViewLabel}</span>
+                <span className="text-[10px] text-muted-foreground">{weekRangeLabel(weekView)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {weekView !== thisWeek && (
+                  <Button variant="ghost" size="sm" type="button" className="h-7 px-2 text-[10px]" onClick={() => setWeekView(thisWeek)}>
+                    Bu Hafta
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" type="button" className="h-8 w-8 p-0 shrink-0" onClick={() => navWeek(1)} title="Sonraki hafta">
+                  <ChevronRight size={15} />
+                </Button>
+              </div>
+            </div>
+
             <PlanGrid
-              weekStart={thisWeek}
-              label="Bu Hafta"
-              plans={myPlansThisWeek}
-              onAdd={() => setPlanModal({ mode: "new", weekStart: thisWeek })}
-              onEdit={(p) => setPlanModal({ mode: p, weekStart: thisWeek })}
-            />
-            <PlanGrid
-              weekStart={nextWeek}
-              label="Gelecek Hafta"
-              plans={myPlansNextWeek}
-              onAdd={() => setPlanModal({ mode: "new", weekStart: nextWeek })}
-              onEdit={(p) => setPlanModal({ mode: p, weekStart: nextWeek })}
+              weekStart={weekView}
+              label={weekViewLabel}
+              plans={weekViewPlans}
+              onAdd={() => setPlanModal({ mode: "new", weekStart: weekView })}
+              onEdit={(p) => setPlanModal({ mode: p, weekStart: weekView })}
             />
 
             {/* Recurring template — read-only */}
@@ -1726,7 +1834,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               {activeBrands.length > 0 && (
                 <AddWeekReelForm
                   employeeId={me.id}
-                  defaultWeekStart={thisWeek}
+                  defaultWeekStart={weekView}
                   thisWeek={thisWeek}
                   nextWeek={nextWeek}
                   brands={activeBrands}
@@ -1974,12 +2082,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                   Platformlara göre linkler
                 </CardTitle>
                 <CardDescription>
-                  {monthLabel(month)} · {myBrandLinks.length} link · gösterilen izlenme bu aydaki son snapshot (yoksa bu ay + güncel değer)
+                  {monthLabel(month)} · {myBrandLinksForMonth.length} link · gösterilen izlenme bu aydaki son snapshot (yoksa bu ay + güncel değer)
                 </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
-              {myBrandLinks.length === 0 ? (
+              {myBrandLinksForMonth.length === 0 ? (
                 <div className="text-center py-8 px-4 border border-dashed border-border rounded-lg">
                   <Activity size={22} className="mx-auto text-muted-foreground/40 mb-2" />
                   <p className="text-sm text-muted-foreground">Henüz marka linki yok.</p>
@@ -2004,7 +2112,6 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                           {links.map((link) => {
                             const Icon = platformIcon(link.platform);
                             const brand = brands.find((b) => b.id === link.brandId);
-                            const fav = faviconFor(link.url);
                             const { displayViews, snapDate, snapsInMonth, delta } = linkMonthViewsMeta(
                               link,
                               month,
@@ -2016,23 +2123,11 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                                 key={link.id}
                                 className="group flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-background hover:border-purple-200 dark:hover:border-purple-500/50 transition-colors"
                               >
-                                <div className="flex shrink-0 items-start gap-1.5 mt-0.5">
-                                  <div
-                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-500/45 dark:bg-purple-950/50 dark:text-purple-100"
-                                    title={link.platform}
-                                  >
-                                    <Icon size={18} />
-                                  </div>
-                                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border bg-white">
-                                    {fav ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={fav} alt="" loading="lazy" className="h-full w-full object-contain p-1" />
-                                    ) : (
-                                      <div className="flex h-full w-full items-center justify-center bg-muted/30">
-                                        <Globe size={14} className="text-muted-foreground" />
-                                      </div>
-                                    )}
-                                  </div>
+                                <div
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-500/45 dark:bg-purple-950/50 dark:text-purple-100 mt-0.5"
+                                  title={link.platform}
+                                >
+                                  <Icon size={18} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -2209,6 +2304,93 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             </CardContent>
           </Card>
       )}
+      {section === "bildirimler" && (
+        <StreamerNotificationsSection userId={user.id} />
+      )}
+
+      {section === "istatistikler" && (() => {
+        const myLinks = brandLinks.filter((l) => l.ownerId === me.id && l.status === "active");
+        const totalViews = myLinks.reduce((s, l) => s + (l.lastViews ?? 0), 0);
+        const totalLikes = myLinks.reduce((s, l) => s + (l.lastLikes ?? 0), 0);
+        const totalComments = myLinks.reduce((s, l) => s + (l.lastComments ?? 0), 0);
+        const totalShares = myLinks.reduce((s, l) => s + (l.lastShares ?? 0), 0);
+        const totalEngagement = totalLikes + totalComments + totalShares;
+        const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + "M" : n >= 1_000 ? (n / 1_000).toFixed(1) + "k" : n.toString();
+        const platformGroups = myLinks.reduce<Record<string, number>>((acc, l) => {
+          acc[l.platform] = (acc[l.platform] ?? 0) + (l.lastViews ?? 0);
+          return acc;
+        }, {});
+        const brandMap: Record<string, string> = {};
+        brands.forEach((b) => { brandMap[b.id] = b.name; });
+        return (
+          <div className="space-y-4">
+            {/* KPI row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Toplam İzlenme", value: fmtN(totalViews), icon: "👁", cls: "text-violet-600 dark:text-violet-400" },
+                { label: "Toplam Beğeni",  value: fmtN(totalLikes), icon: "♥",  cls: "text-rose-500" },
+                { label: "Toplam Yorum",   value: fmtN(totalComments), icon: "💬", cls: "text-amber-600" },
+                { label: "Etkileşim",      value: fmtN(totalEngagement), icon: "⚡", cls: "text-emerald-600 dark:text-emerald-400" },
+              ].map((k) => (
+                <div key={k.label} className="rounded-xl border border-border bg-card px-4 py-3">
+                  <p className="text-muted-foreground text-xs mb-1">{k.icon} {k.label}</p>
+                  <p className={`text-xl font-bold tabular-nums ${k.cls}`}>{k.value || "—"}</p>
+                </div>
+              ))}
+            </div>
+            {/* Platform breakdown */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Platform bazlı izlenme</CardTitle>
+                <CardDescription>Aktif linklerinizdeki son API verisi</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {myLinks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">Aktif marka linki yok.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {Object.entries(platformGroups).sort(([, a], [, b]) => b - a).map(([plat, views]) => {
+                      const maxV = Math.max(...Object.values(platformGroups), 1);
+                      return (
+                        <div key={plat} className="flex items-center gap-3">
+                          <span className="text-xs font-medium w-24 truncate">{plat}</span>
+                          <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-violet-500"
+                              style={{ width: `${(views / maxV) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs tabular-nums font-semibold w-16 text-right">{fmtN(views)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            {/* Link list */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Tüm aktif linkler</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {myLinks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic">Henüz aktif link yok.</p>
+                ) : (
+                  myLinks.map((l) => (
+                    <div key={l.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border/60 bg-muted/20">
+                      <span className="text-xs font-medium w-24 truncate">{l.platform}</span>
+                      <span className="text-xs text-muted-foreground flex-1 truncate">{l.handle || l.url}</span>
+                      <span className="text-xs font-bold tabular-nums text-violet-600 dark:text-violet-400">{fmtN(l.lastViews ?? 0)}</span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
+
       <Modal open={expenseModal !== null} onClose={() => setExpenseModal(null)}
         title={expenseModal === "new" ? "Yeni Harcama Gönder" : "Harcamayı Düzenle"} size="lg">
         {expenseModal && (
@@ -2216,6 +2398,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             employeeId={me.id}
             userId={user.id}
             initial={expenseModal === "new" ? undefined : expenseModal}
+            defaultDate={expenseModal === "new" ? expenseDefaultDate : undefined}
             onSave={handleExpenseSave}
             onDelete={
               expenseModal !== "new" && canStreamerWithdrawExpense(expenseModal as ContentExpense)
@@ -2398,6 +2581,102 @@ function ExpenseRow({
         </Button>
       )}
     </div>
+  );
+}
+
+// ── Streamer notifications section (filtered + actionable) ───────────────
+function StreamerNotificationsSection({ userId }: { userId: string }) {
+  const notifications = useStore((s) => s.notifications);
+  const myNotifs = useMemo(
+    () =>
+      visibleNotificationsForRole(notifications, "streamer", userId)
+        .slice()
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [notifications, userId]
+  );
+  const unread = myNotifs.filter((n) => !n.read).length;
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-2">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            Bildirimlerim
+            {unread > 0 && <Badge className="text-[10px]">{unread} yeni</Badge>}
+          </CardTitle>
+          <CardDescription>Yöneticiden gelen mesajlar, takvim ve harcama durumları</CardDescription>
+        </div>
+        {unread > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void markAllNotificationsReadPersisted("streamer", userId)}
+          >
+            Tümünü okundu
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent>
+        {myNotifs.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic py-6 text-center">Henüz bildirim yok.</p>
+        ) : (
+          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+            {myNotifs.map((n) => (
+              <div
+                key={n.id}
+                className={`rounded-xl border p-3 transition-colors ${
+                  n.read ? "border-border bg-card" : "border-primary/30 bg-primary/5"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <Badge variant="outline" className="text-[10px] py-0">
+                        {n.type.replace(/_/g, " ")}
+                      </Badge>
+                      {!n.read && (
+                        <span className="text-[10px] text-primary font-semibold">YENİ</span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium">{n.title}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{n.message}</p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-1">
+                      {fmtDateTime(n.createdAt)}
+                      {n.href && (
+                        <>
+                          {" · "}
+                          <a href={n.href} className="text-primary hover:underline">
+                            Aç →
+                          </a>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {!n.read && (
+                      <button
+                        type="button"
+                        onClick={() => void markNotificationReadPersisted(n.id)}
+                        className="text-[10px] text-muted-foreground hover:text-primary"
+                      >
+                        Okundu
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void deleteNotificationPersisted(n.id)}
+                      className="text-[10px] text-muted-foreground/60 hover:text-destructive"
+                      title="Bildirimi sil"
+                    >
+                      Sil
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

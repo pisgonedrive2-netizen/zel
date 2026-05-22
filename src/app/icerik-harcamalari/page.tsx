@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, Search, CheckCircle2, Circle, Receipt, Calendar,
   ExternalLink, AlertCircle, X, Image as ImageIcon, MessageSquare, Clock, Wallet,
@@ -16,7 +17,8 @@ import {
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { logAudit } from "@/store/audit-log";
-import { fmt } from "@/lib/data";
+import { fmt, defaultSnapshotDateInMonth, toYearMonthLocal } from "@/lib/data";
+import { fmtDateTime } from "@/lib/fmt-date";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input as UInput } from "@/components/ui/input";
@@ -31,7 +33,13 @@ import {
   exportContentExpensesPdf,
   listAvailableMonths,
 } from "@/lib/monthly-exports";
-import { expenseReviewStatus, isActiveContentExpense } from "@/lib/content-expense";
+import {
+  expenseReviewStatus,
+  isActiveContentExpense,
+  settlementLabel,
+  CONTENT_EXPENSE_CATEGORIES,
+  isPayrollSettled,
+} from "@/lib/content-expense";
 import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
@@ -42,17 +50,20 @@ function ymLabel(m: string) {
 }
 
 // ── Expense form ──────────────────────────────────────────────────────────
-function ExpenseForm({ initial, onSave, onDelete, onClose }: {
+function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
   initial?: ContentExpense;
+  /** Yeni kayıt için varsayılan tarih (seçili ay filtresinden). */
+  defaultDate?: string;
   onSave: (d: Omit<ContentExpense, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
   const { brands, employees } = useStore();
   const today = new Date().toISOString().slice(0, 10);
+  const initDate = initial?.date ?? defaultDate ?? today;
   const [form, setForm] = useState<Omit<ContentExpense, "id">>({
-    date:        initial?.date        ?? today,
-    month:       initial?.month       ?? today.slice(0, 7),
+    date:        initDate,
+    month:       initDate.slice(0, 7),
     employeeId:  initial?.employeeId  ?? employees.find(e => e.kind === "streamer")?.id ?? "",
     brandId:     initial?.brandId,
     brandName:   initial?.brandName   ?? "",
@@ -283,16 +294,19 @@ function SlaTile({ label, count, accent }: { label: string; count: number; accen
   );
 }
 
-export default function ContentExpensesPage() {
+function ContentExpensesPageInner() {
   const { user } = useAuth();
   const readOnly = useIsReadOnly();
   const {
     contentExpenses, brands, employees,
     addContentExpense, updateContentExpense, deleteContentExpense,
     payContentExpense, unpayContentExpense,
+    settleContentExpenseToPayroll,
+    unsettleContentExpenseFromPayroll,
     kasas, kasaTransactions,
     pushNotification,
   } = useStore();
+  const searchParams = useSearchParams();
   const defaultKasaId =
     kasas.find((k) => k.isDefault && !k.archived)?.id ??
     kasas.find((k) => !k.archived)?.id ??
@@ -303,7 +317,23 @@ export default function ContentExpensesPage() {
   const [search, setSearch] = useState("");
   const [monthFilter, setMonthFilter] = useState<string>("all");
   const [brandFilter, setBrandFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [employeeFilter, setEmployeeFilter] = useState<string>("all");
   const [paidFilter,  setPaidFilter]  = useState<"all" | "paid" | "unpaid">("all");
+
+  useEffect(() => {
+    const m = searchParams.get("month");
+    const emp = searchParams.get("employee");
+    const cat = searchParams.get("category");
+    const review = searchParams.get("review");
+    if (m) setMonthFilter(m);
+    if (emp) setEmployeeFilter(emp);
+    if (cat) setCategoryFilter(cat);
+    if (review) {
+      const exp = contentExpenses.find((e) => e.id === review);
+      if (exp) setReviewModal(exp);
+    }
+  }, [searchParams, contentExpenses]);
 
   const months = useMemo(
     () => Array.from(new Set(contentExpenses.map(e => e.month))).sort((a, b) => b.localeCompare(a)),
@@ -313,19 +343,35 @@ export default function ContentExpensesPage() {
     () => Array.from(new Set(contentExpenses.map(e => e.brandName))).sort(),
     [contentExpenses]
   );
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...CONTENT_EXPENSE_CATEGORIES,
+          ...contentExpenses.map((e) => e.category).filter(Boolean),
+        ])
+      ).sort(),
+    [contentExpenses]
+  );
 
   const filtered = useMemo(
     () => contentExpenses
       .filter(e =>
         (monthFilter === "all" || e.month === monthFilter) &&
         (brandFilter === "all" || e.brandName === brandFilter) &&
+        (categoryFilter === "all" || e.category === categoryFilter) &&
+        (employeeFilter === "all" || e.employeeId === employeeFilter) &&
         (paidFilter  === "all" || (paidFilter === "paid" ? e.paid : !e.paid)) &&
         (search === "" ||
           e.description.toLowerCase().includes(search.toLowerCase()) ||
-          e.brandName.toLowerCase().includes(search.toLowerCase()))
+          e.brandName.toLowerCase().includes(search.toLowerCase()) ||
+          e.category.toLowerCase().includes(search.toLowerCase()) ||
+          (employees.find((em) => em.id === e.employeeId)?.name ?? "")
+            .toLowerCase()
+            .includes(search.toLowerCase()))
       )
       .sort((a, b) => b.date.localeCompare(a.date)),
-    [contentExpenses, monthFilter, brandFilter, paidFilter, search]
+    [contentExpenses, monthFilter, brandFilter, categoryFilter, employeeFilter, paidFilter, search, employees]
   );
 
   // Geri çekilen ve reddedilen kayıtlar hiçbir grafiğe/KPI'a girmemeli.
@@ -402,11 +448,11 @@ export default function ContentExpensesPage() {
   const canExport = user?.role === "admin" || user?.role === "auditor";
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
-      <div className="flex items-start justify-between mb-8">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+      <div className="flex items-start justify-between mb-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">İçerik Harcamaları</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">İçerik Harcamaları</h1>
+          <p className="text-muted-foreground text-xs mt-0.5">
             Yayıncı vlog / yetişkin içerik / site videosu üretim giderleri · marka bazlı izleme
           </p>
         </div>
@@ -423,6 +469,7 @@ export default function ContentExpensesPage() {
           {!readOnly && (
             <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
               <Plus size={14} /> Harcama Ekle
+              {monthFilter !== "all" && <span className="text-[10px] opacity-70">({ymLabel(monthFilter)})</span>}
             </Button>
           )}
         </div>
@@ -528,6 +575,15 @@ export default function ContentExpensesPage() {
           options={[{ value: "all", label: "Tüm Aylar" }, ...months.map(m => ({ value: m, label: ymLabel(m) }))]} />
         <Select value={brandFilter} onChange={e => setBrandFilter(e.target.value)} className="w-40 text-xs h-8"
           options={[{ value: "all", label: "Tüm Markalar" }, ...brandNames.map(b => ({ value: b, label: b }))]} />
+        <Select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="w-44 text-xs h-8"
+          options={[{ value: "all", label: "Tüm Kategoriler" }, ...categories.map(c => ({ value: c, label: c }))]} />
+        <Select value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)} className="w-44 text-xs h-8"
+          options={[
+            { value: "all", label: "Tüm Yayıncılar" },
+            ...employees
+              .filter((em) => contentExpenses.some((x) => x.employeeId === em.id))
+              .map((em) => ({ value: em.id, label: em.name })),
+          ]} />
         <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-card">
           {(["all", "unpaid", "paid"] as const).map(f => (
             <button key={f} onClick={() => setPaidFilter(f)}
@@ -540,7 +596,7 @@ export default function ContentExpensesPage() {
         </div>
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <UInput placeholder="Açıklama veya marka..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
+          <UInput aria-label="İçerik harcaması ara" placeholder="Açıklama veya marka..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
         </div>
       </div>
 
@@ -550,7 +606,7 @@ export default function ContentExpensesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {["Tarih","Yayıncı","Marka","Kategori","Açıklama","USD","Durum",""].map(h => (
+                {["Tarih","Yayıncı","Marka","Kategori","Açıklama","USD","Durum","Ödeme",""].map(h => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -617,6 +673,9 @@ export default function ContentExpensesPage() {
                         );
                       })()}
                     </td>
+                    <td className="px-3 py-2.5 text-[10px] text-muted-foreground whitespace-nowrap">
+                      {settlementLabel(e)}
+                    </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         {e.screenshotUrl && (
@@ -639,14 +698,48 @@ export default function ContentExpensesPage() {
                             İncele
                           </button>
                         )}
-                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !e.paid && (
+                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && !e.paid && (
                           <button
                             type="button"
                             onClick={() => markExpensePaid(e)}
                             className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-950/45 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
-                            aria-label="Onaylı harcamayı ödendi işaretle"
+                            aria-label="Kasadan öde"
                           >
-                            Ödeme Onayla
+                            Kasadan öde
+                          </button>
+                        )}
+                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              settleContentExpenseToPayroll(e.id);
+                              pushNotification({
+                                type: "expense_approved",
+                                title: "Harcaman bordroya eklendi",
+                                message: `${e.brandName} · ${fmt(e.amountUsd)} bu ay maaş masrafına işlendi.`,
+                                forRole: "streamer",
+                                forUserId: e.submittedBy,
+                                triggeredBy: user?.id,
+                                refId: e.id,
+                                href: "/yayinci/harcamalar",
+                              });
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-800 dark:bg-violet-950/45 dark:text-violet-200 hover:bg-violet-200 transition-colors"
+                          >
+                            Maaşa ekle
+                          </button>
+                        )}
+                        {canMarkPaid && isPayrollSettled(e) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("Bordro bağlantısı kaldırılsın mı? İlgili maaş kalemi silinir.")) {
+                                unsettleContentExpenseFromPayroll(e.id);
+                              }
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                          >
+                            Bordrodan çıkar
                           </button>
                         )}
                         {user?.role === "auditor" && e.reviewStatus !== "pending" && !e.audited && (
@@ -664,7 +757,7 @@ export default function ContentExpensesPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">Eşleşen kayıt yok.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-muted-foreground">Eşleşen kayıt yok.</td></tr>
               )}
             </tbody>
           </table>
@@ -676,8 +769,9 @@ export default function ContentExpensesPage() {
         title={modal === "new" ? "Yeni İçerik Harcaması" : "Harcamayı Düzenle"} size="lg">
         {modal && (
           <ExpenseForm
-            key={modal === "new" ? "new" : modal.id}
+            key={modal === "new" ? `new-${monthFilter}` : modal.id}
             initial={modal === "new" ? undefined : modal}
+            defaultDate={modal === "new" && monthFilter !== "all" ? defaultSnapshotDateInMonth(monthFilter) : undefined}
             onSave={d => { if (modal === "new") addContentExpense(d); else updateContentExpense(modal.id, d); }}
             onDelete={modal !== "new" ? () => { deleteContentExpense(modal.id); setModal(null); } : undefined}
             onClose={() => setModal(null)}
@@ -697,19 +791,15 @@ export default function ContentExpensesPage() {
             kasas={kasas}
             kasaTransactions={kasaTransactions}
             defaultKasaId={defaultKasaId}
-            onApprove={(note, markPaid, kasaPayload) => {
+            onApprove={(note, settlement, kasaPayload) => {
               const today = new Date().toISOString().slice(0, 10);
               updateContentExpense(reviewModal.id, {
                 reviewStatus: "approved",
                 reviewedAt: new Date().toISOString(),
                 reviewedBy: user?.id,
                 reviewerNote: note,
-                // Eğer ödeme kasaya bağlıysa payContentExpense paid alanını set edecek;
-                // burada yalnızca inceleme metadata'sını güncelliyoruz.
-                paid: markPaid && !kasaPayload ? true : reviewModal.paid,
-                paidDate: markPaid && !kasaPayload ? today : reviewModal.paidDate,
               });
-              if (markPaid && kasaPayload) {
+              if (settlement === "kasa" && kasaPayload) {
                 payContentExpense({
                   contentExpenseId: reviewModal.id,
                   kasaId: kasaPayload.kasaId,
@@ -717,12 +807,19 @@ export default function ContentExpensesPage() {
                   feeUsd: kasaPayload.feeUsd,
                   notes: note,
                 });
+              } else if (settlement === "payroll") {
+                settleContentExpenseToPayroll(reviewModal.id);
               }
-              const emp = employees.find(em => em.id === reviewModal.employeeId);
+              const paidNow = settlement === "kasa";
+              const payrollNow = settlement === "payroll";
               pushNotification({
-                type: markPaid ? "expense_paid" : "expense_approved",
-                title: markPaid ? "Harcaman onaylandı ve ödendi" : "Harcaman onaylandı",
-                message: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} — ${note || (markPaid ? "Ödendi" : "Onaylandı")}`,
+                type: paidNow ? "expense_paid" : "expense_approved",
+                title: paidNow
+                  ? "Harcaman onaylandı ve ödendi"
+                  : payrollNow
+                    ? "Harcaman onaylandı — maaşa masraf eklendi"
+                    : "Harcaman onaylandı",
+                message: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} — ${note || (paidNow ? "Kasadan ödendi" : payrollNow ? "Bordro masrafı" : "Onaylandı")}`,
                 forRole: "streamer",
                 forUserId: reviewModal.submittedBy,
                 triggeredBy: user?.id,
@@ -733,7 +830,7 @@ export default function ContentExpensesPage() {
                 actorId: user?.id ?? "unknown",
                 actorName: user?.name ?? "?",
                 action: "expense_approved",
-                detail: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} · ${reviewModal.id}`,
+                detail: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} · ${settlement} · ${reviewModal.id}`,
               });
               setReviewModal(null);
             }}
@@ -813,22 +910,28 @@ function ReviewForm({
   kasas: Kasa[];
   kasaTransactions: KasaTransaction[];
   defaultKasaId: string;
-  onApprove: (note: string, markPaid: boolean, kasa?: { kasaId: string; feeUsd: number }) => void;
+  onApprove: (
+    note: string,
+    settlement: "approve_only" | "kasa" | "payroll",
+    kasa?: { kasaId: string; feeUsd: number }
+  ) => void;
   onReject: (note: string) => void;
   onNeedsInfo: (note: string) => void;
   onClose: () => void;
 }) {
-  const [note, setNote]         = useState(expense.reviewerNote ?? "");
-  const [markPaid, setMarkPaid] = useState(canMarkPaid);
+  const [note, setNote] = useState(expense.reviewerNote ?? "");
+  const [settlement, setSettlement] = useState<"approve_only" | "kasa" | "payroll">(
+    canMarkPaid ? "kasa" : "approve_only"
+  );
   const activeKasas = kasas.filter((k) => !k.archived);
   const [kasaId, setKasaId] = useState<string>(defaultKasaId);
   const [feeUsd, setFeeUsd] = useState<number>(0);
   const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
   const balance = selectedKasa ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id) : 0;
   const projected = balance - (expense.amountUsd || 0) - feeUsd;
-  const isLow = markPaid && projected < 0;
+  const isLow = settlement === "kasa" && projected < 0;
   const emp = employees.find(em => em.id === expense.employeeId);
-  const submitted = expense.submittedAt ? new Date(expense.submittedAt).toLocaleString("tr-TR") : "—";
+  const submitted = expense.submittedAt ? fmtDateTime(expense.submittedAt) : "—";
 
   return (
     <div className="space-y-4">
@@ -877,12 +980,29 @@ function ReviewForm({
 
       {canMarkPaid ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm">
-            <input type="checkbox" id="markPaid" checked={markPaid} onChange={e => setMarkPaid(e.target.checked)}
-              className="rounded border-border" />
-            <label htmlFor="markPaid">Onayla ve aynı zamanda <strong>ödendi</strong> olarak işaretle (kasadan düş)</label>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ödeme yolu</p>
+          <div className="space-y-2 text-sm">
+            {([
+              { id: "approve_only" as const, label: "Sadece onayla", hint: "Ödeme yolu sonra seçilir" },
+              { id: "kasa" as const, label: "Kasadan düş", hint: "Hemen kasa çıkışı oluşturulur" },
+              { id: "payroll" as const, label: "Maaşa masraf ekle", hint: "Bu ay bordro netine dahil edilir" },
+            ]).map((opt) => (
+              <label key={opt.id} className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="settlement"
+                  checked={settlement === opt.id}
+                  onChange={() => setSettlement(opt.id)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <strong>{opt.label}</strong>
+                  <span className="block text-[10px] text-muted-foreground">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
           </div>
-          {markPaid && activeKasas.length > 0 && (
+          {settlement === "kasa" && activeKasas.length > 0 && (
             <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
               <FormGrid>
                 <Field label="Kasa" required>
@@ -941,8 +1061,8 @@ function ReviewForm({
           onClick={() =>
             onApprove(
               note,
-              canMarkPaid ? markPaid : false,
-              canMarkPaid && markPaid && selectedKasa
+              canMarkPaid ? settlement : "approve_only",
+              canMarkPaid && settlement === "kasa" && selectedKasa
                 ? { kasaId: selectedKasa.id, feeUsd }
                 : undefined,
             )
@@ -952,5 +1072,17 @@ function ReviewForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function ContentExpensesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-muted-foreground">İçerik harcamaları yükleniyor…</div>
+      }
+    >
+      <ContentExpensesPageInner />
+    </Suspense>
   );
 }

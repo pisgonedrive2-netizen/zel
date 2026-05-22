@@ -29,7 +29,7 @@ function pickStoreSnapshot(): AppHydratePayload {
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const supabaseMode = isSupabaseClientMode();
   const user = useAuth((s) => s.user);
-  const [ready, setReady] = useState(!supabaseMode);
+  const [ready, setReady] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [bootstrapOk, setBootstrapOk] = useState(!supabaseMode);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,6 +99,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
     setBootstrapOk(false);
+    skipSync.current = true;
+    const emptyPatch: Record<string, unknown> = {};
+    for (const k of APP_SNAPSHOT_KEYS) emptyPatch[k] = [];
+    useStore.setState(emptyPatch);
     (async () => {
       try {
         const res = await fetch("/api/bootstrap", { credentials: "include" });

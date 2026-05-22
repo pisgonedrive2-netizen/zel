@@ -10,8 +10,10 @@ import { getApiRefreshSettings } from "./settings";
 import { notifyApiRefreshIssues } from "./notify-alerts";
 import { resolveLinkDetection } from "./platform-detect";
 import { fetchMetricsForLink, type FetchedMetrics } from "./clients";
-import { persistLinkMetricsUpdate } from "./link-persist";
+import { persistLinkMetricsUpdate, type PersistedLinkMetrics } from "./link-persist";
+import { linkUpdateFromPersisted, type LinkMetricsStoreUpdate } from "./link-store-sync";
 import { getMonthlyUsage, incrementUsage } from "./quota";
+import { setBulkRefreshJobCurrent } from "./bulk-job-state";
 
 interface BrandLinkRow {
   id: string;
@@ -26,6 +28,7 @@ interface BrandLinkRow {
   check_count: number | null;
   error_count: number | null;
   external_ref: string | null;
+  refresh_count_total: number | null;
 }
 
 export interface LinkRefreshResult {
@@ -35,6 +38,15 @@ export interface LinkRefreshResult {
   metrics?: FetchedMetrics;
   delta?: number;
   error?: string;
+  linkUpdate?: LinkMetricsStoreUpdate;
+}
+
+export interface BulkRefreshSummary {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  skippedQuota: number;
+  results: LinkRefreshResult[];
 }
 
 export interface PlatformRunSummary {
@@ -54,6 +66,33 @@ const PLATFORMS: SocialPlatform[] = ["youtube", "instagram", "tiktok"];
  * Bir platform için en uzun süredir kontrol edilmemiş aktif & auto_track
  * linkleri döner (oldest-first round-robin).
  */
+/** Tüm aktif, API ile ölçülebilir linkler (auto_track şart değil). */
+async function pickAllActiveLinksForPlatform(
+  platform: SocialPlatform
+): Promise<BrandLinkRow[]> {
+  const labels = labelsForPlatform(platform);
+  if (labels.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_links")
+    .select(
+      "id, brand_id, platform, url, handle, status, auto_track, last_views, last_checked_at, check_count, error_count, external_ref, refresh_count_total"
+    )
+    .in("platform", labels)
+    .eq("status", "active")
+    .order("last_checked_at", { ascending: true, nullsFirst: true });
+  if (error) throw new Error(`brand_links pick all: ${error.message}`);
+  const rows = (data ?? []) as BrandLinkRow[];
+  return rows.filter((row) => {
+    const detected = resolveLinkDetection({
+      url: row.url,
+      platform: row.platform,
+      handle: row.handle,
+      externalRef: row.external_ref ?? undefined,
+    });
+    return detected?.platform === platform;
+  });
+}
+
 async function pickLinksForPlatform(
   platform: SocialPlatform,
   limit: number
@@ -63,7 +102,7 @@ async function pickLinksForPlatform(
   const { data, error } = await getSupabaseAdmin()
     .from("brand_links")
     .select(
-      "id, brand_id, platform, url, handle, status, auto_track, last_views, last_checked_at, check_count, error_count, external_ref"
+      "id, brand_id, platform, url, handle, status, auto_track, last_views, last_checked_at, check_count, error_count, external_ref, refresh_count_total"
     )
     .in("platform", labels)
     .eq("status", "active")
@@ -103,12 +142,22 @@ function labelsForPlatform(platform: SocialPlatform): string[] {
 }
 
 async function persistLinkError(row: BrandLinkRow, errMsg: string): Promise<void> {
+  // Hata tipini belirle: quota / not_supported / error
+  const lower = errMsg.toLowerCase();
+  const status: "quota" | "not_supported" | "error" =
+    lower.includes("quota") || lower.includes("kota")
+      ? "quota"
+      : lower.includes("not supported") || lower.includes("desteklen")
+        ? "not_supported"
+        : "error";
+
   const { error } = await getSupabaseAdmin()
     .from("brand_links")
     .update({
       last_checked_at: new Date().toISOString(),
       last_check_error: errMsg.slice(0, 240),
       error_count: (row.error_count ?? 0) + 1,
+      last_refresh_status: status,
     })
     .eq("id", row.id);
   if (error) throw new Error(`brand_links update (error): ${error.message}`);
@@ -147,7 +196,13 @@ async function finishRun(runId: string, summary: Omit<PlatformRunSummary, "platf
  */
 export async function runPlatformRefresh(
   platform: SocialPlatform,
-  opts: { triggeredBy: "cron" | "manual"; userId?: string; cronIntervalHours?: number } = {
+  opts: {
+    triggeredBy: "cron" | "manual";
+    userId?: string;
+    cronIntervalHours?: number;
+    /** Snapshot'ın hangi tarihe yazılacağı (geçmiş ay yenilemesi için). */
+    targetDate?: string;
+  } = {
     triggeredBy: "cron",
   }
 ): Promise<PlatformRunSummary> {
@@ -221,6 +276,8 @@ export async function runPlatformRefresh(
         externalRef: detected.externalRef,
         previousViews: row.last_views,
         checkCount: row.check_count,
+        refreshCountTotal: row.refresh_count_total,
+        targetDate: opts.targetDate,
       });
       const delta = persisted.delta;
       summary.succeeded += 1;
@@ -250,7 +307,12 @@ export async function runPlatformRefresh(
 }
 
 /** Cron entry point — tüm platformları sırayla çalıştırır. */
-export async function runAllPlatformsRefresh(opts: { triggeredBy: "cron" | "manual"; userId?: string } = { triggeredBy: "cron" }): Promise<PlatformRunSummary[]> {
+export async function runAllPlatformsRefresh(opts: {
+  triggeredBy: "cron" | "manual";
+  userId?: string;
+  /** Snapshot'ın hangi tarihe yazılacağı (geçmiş ay yenilemesi için). */
+  targetDate?: string;
+} = { triggeredBy: "cron" }): Promise<PlatformRunSummary[]> {
   const settings = await getApiRefreshSettings();
   const out: PlatformRunSummary[] = [];
   for (const p of PLATFORMS) {
@@ -286,40 +348,41 @@ export async function runAllPlatformsRefresh(opts: { triggeredBy: "cron" | "manu
   return out;
 }
 
-/** Tek link manuel refresh — admin UI'da "Şimdi yenile" butonu için. */
-export async function refreshSingleLink(linkId: string, opts: { userId?: string } = {}): Promise<LinkRefreshResult> {
-  if (!isRapidApiEnabled()) {
-    return { linkId, ok: false, platform: null, error: "RAPIDAPI_KEY eksik" };
-  }
-  const { data, error } = await getSupabaseAdmin()
-    .from("brand_links")
-    .select(
-      "id, brand_id, platform, url, handle, status, auto_track, last_views, last_checked_at, check_count, error_count, external_ref"
-    )
-    .eq("id", linkId)
-    .single();
-  if (error || !data) return { linkId, ok: false, platform: null, error: error?.message ?? "Link bulunamadı" };
-  const row = data as BrandLinkRow;
+function toLinkUpdate(linkId: string, persisted: PersistedLinkMetrics): LinkMetricsStoreUpdate {
+  return linkUpdateFromPersisted(linkId, persisted);
+}
+
+async function refreshLinkRow(
+  row: BrandLinkRow,
+  opts: { userId?: string; recordRun?: boolean; targetDate?: string }
+): Promise<LinkRefreshResult> {
   const detected = resolveLinkDetection({
     url: row.url,
     platform: row.platform,
     handle: row.handle,
     externalRef: row.external_ref ?? undefined,
   });
-  if (!detected) return { linkId, ok: false, platform: null, error: "URL desteklenmiyor" };
+  if (!detected) {
+    return { linkId: row.id, ok: false, platform: null, error: "URL desteklenmiyor" };
+  }
 
-  // Manuel refresh için de aylık kota dolmuşsa engelle.
   const usage = await getMonthlyUsage(detected.platform);
-  const safeLimit = Math.floor(SOCIAL_PLANS[detected.platform].monthlyLimit * SOCIAL_PLANS[detected.platform].safeFraction);
+  const safeLimit = Math.floor(
+    SOCIAL_PLANS[detected.platform].monthlyLimit * SOCIAL_PLANS[detected.platform].safeFraction
+  );
   if (usage.requestsUsed >= safeLimit) {
     return {
-      linkId,
+      linkId: row.id,
       ok: false,
       platform: detected.platform,
-      error: `Bu ayki güvenli kota (${safeLimit}/${SOCIAL_PLANS[detected.platform].monthlyLimit}) doldu`,
+      error: `Bu ayki güvenli kota (${safeLimit}) doldu`,
     };
   }
-  const runId = await startRun(detected.platform, "manual", opts.userId).catch(() => null);
+
+  const runId =
+    opts.recordRun !== false
+      ? await startRun(detected.platform, "manual", opts.userId).catch(() => null)
+      : null;
   try {
     const metrics = await fetchMetricsForLink(detected);
     await incrementUsage(detected.platform, 1);
@@ -329,24 +392,23 @@ export async function refreshSingleLink(linkId: string, opts: { userId?: string 
       externalRef: detected.externalRef,
       previousViews: row.last_views,
       checkCount: row.check_count,
+      refreshCountTotal: row.refresh_count_total,
+      targetDate: opts.targetDate,
     });
     if (runId) {
-      await finishRun(runId, {
-        attempted: 1,
-        succeeded: 1,
-        failed: 0,
-        results: [],
-      });
+      await finishRun(runId, { attempted: 1, succeeded: 1, failed: 0, results: [] });
     }
     return {
-      linkId,
+      linkId: row.id,
       ok: true,
       platform: detected.platform,
       metrics,
       delta: persisted.delta,
+      linkUpdate: toLinkUpdate(row.id, persisted),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Bilinmeyen hata";
+    const now = new Date().toISOString();
     await persistLinkError(row, msg).catch(() => undefined);
     if (runId) {
       await finishRun(runId, {
@@ -357,8 +419,142 @@ export async function refreshSingleLink(linkId: string, opts: { userId?: string 
         errorSummary: msg,
       });
     }
-    return { linkId, ok: false, platform: detected.platform, error: msg };
+    return {
+      linkId: row.id,
+      ok: false,
+      platform: detected.platform,
+      error: msg,
+      linkUpdate: { lastCheckedAt: now, lastCheckError: msg.slice(0, 240) },
+    };
   }
+}
+
+/**
+ * Yüklü tüm aktif linkleri tek seferde kontrol eder (YouTube, Instagram, TikTok).
+ * auto_track bayrağına bakmaz; kota dolunca kalan linkleri atlar.
+ */
+export async function refreshAllLinksBulk(opts: {
+  userId?: string;
+  brandId?: string;
+  /** Sadece hatalı / yenilenmemiş linkleri yeniden dene. */
+  failedOnly?: boolean;
+  /** Sadece belirli link ID'lerini yenile. */
+  linkIds?: string[];
+  /** Snapshot'ın hangi tarihe yazılacağı (geçmiş ay için YYYY-MM-DD). */
+  targetDate?: string;
+  /** UI poll için job id (in-memory state'i günceller). */
+  jobId?: string;
+} = {}): Promise<BulkRefreshSummary> {
+  if (!isRapidApiEnabled()) {
+    throw new Error("RAPIDAPI_KEY eksik — otomatik yenileme devre dışı.");
+  }
+  const summary: BulkRefreshSummary = {
+    attempted: 0,
+    succeeded: 0,
+    failed: 0,
+    skippedQuota: 0,
+    results: [],
+  };
+
+  const platformRunIds: Partial<Record<SocialPlatform, string>> = {};
+
+  for (const platform of PLATFORMS) {
+    let links = await pickAllActiveLinksForPlatform(platform);
+    if (opts.brandId) {
+      links = links.filter((l) => l.brand_id === opts.brandId);
+    }
+    if (opts.linkIds && opts.linkIds.length > 0) {
+      const ids = new Set(opts.linkIds);
+      links = links.filter((l) => ids.has(l.id));
+    }
+    if (opts.failedOnly) {
+      // Hata kayıtlı VEYA son 24 saat içinde kontrol edilmemiş linkler
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      links = links.filter((l) => {
+        const hadError = (l.error_count ?? 0) > 0 && (l.last_views == null || l.last_views === 0);
+        const stale = !l.last_checked_at || new Date(l.last_checked_at).getTime() < cutoff;
+        return hadError || stale;
+      });
+    }
+    if (links.length === 0) continue;
+
+    const usage = await getMonthlyUsage(platform);
+    const safeLimit = Math.floor(
+      SOCIAL_PLANS[platform].monthlyLimit * SOCIAL_PLANS[platform].safeFraction
+    );
+    let remaining = Math.max(0, safeLimit - usage.requestsUsed);
+
+    const runId = await startRun(platform, "manual", opts.userId).catch(() => null);
+    if (runId) platformRunIds[platform] = runId;
+
+    let platformSucceeded = 0;
+    let platformFailed = 0;
+
+    for (const row of links) {
+      if (remaining <= 0) {
+        summary.skippedQuota += 1;
+        summary.results.push({
+          linkId: row.id,
+          ok: false,
+          platform,
+          error: "Kota doldu — atlandı",
+        });
+        continue;
+      }
+      summary.attempted += 1;
+      if (opts.jobId) {
+        setBulkRefreshJobCurrent(opts.jobId, {
+          linkId: row.id,
+          platform,
+          handle: row.handle ?? row.url ?? row.id,
+          index: summary.attempted,
+          total: links.length,
+        });
+      }
+      const result = await refreshLinkRow(row, { userId: opts.userId, recordRun: false, targetDate: opts.targetDate });
+      summary.results.push(result);
+      if (result.ok) {
+        summary.succeeded += 1;
+        platformSucceeded += 1;
+        remaining -= 1;
+      } else if (result.error?.includes("kota")) {
+        summary.skippedQuota += 1;
+        platformFailed += 1;
+        remaining = 0;
+      } else {
+        summary.failed += 1;
+        platformFailed += 1;
+      }
+    }
+
+    if (runId) {
+      await finishRun(runId, {
+        attempted: platformSucceeded + platformFailed,
+        succeeded: platformSucceeded,
+        failed: platformFailed,
+        results: [],
+        errorSummary: platformFailed > 0 ? `${platformFailed} link hata (toplu)` : "",
+      }).catch(() => undefined);
+    }
+  }
+
+  return summary;
+}
+
+/** Tek link manuel refresh — admin UI'da "Şimdi yenile" butonu için. */
+export async function refreshSingleLink(linkId: string, opts: { userId?: string; targetDate?: string } = {}): Promise<LinkRefreshResult> {
+  if (!isRapidApiEnabled()) {
+    return { linkId, ok: false, platform: null, error: "RAPIDAPI_KEY eksik" };
+  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_links")
+    .select(
+      "id, brand_id, platform, url, handle, status, auto_track, last_views, last_checked_at, check_count, error_count, external_ref, refresh_count_total"
+    )
+    .eq("id", linkId)
+    .single();
+  if (error || !data) return { linkId, ok: false, platform: null, error: error?.message ?? "Link bulunamadı" };
+  return refreshLinkRow(data as BrandLinkRow, opts);
 }
 
 export async function getCurrentMonth(): Promise<string> {

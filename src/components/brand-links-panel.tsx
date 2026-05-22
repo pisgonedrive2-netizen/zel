@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3,
+  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3, Loader2, PlayCircle,
 } from "lucide-react";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
+import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
+import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
+import { useAuth } from "@/store/auth";
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,9 +78,56 @@ export function BrandLinksPanel({
   onAddSnapshot,
   onViewHistory,
 }: BrandLinksPanelProps) {
-  const { brandLinks, linkSnapshots } = useStore();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "auditor";
+  const { brandLinks, linkSnapshots, updateBrandLink, upsertLinkSnapshot } = useStore();
   const [search, setSearch] = useState("");
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+
+  const refreshBrandLinks = useCallback(async () => {
+    if (!brand || !isAdmin) return;
+    setBulkRunning(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch("/api/admin/refresh-all-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: brand.id }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        summary?: {
+          succeeded: number;
+          failed: number;
+          skippedQuota: number;
+          results: LinkRefreshResult[];
+        };
+      };
+      if (!res.ok || !json.ok || !json.summary) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      for (const r of json.summary.results) {
+        if (r.linkUpdate) {
+          applyLinkMetricsToStore(r.linkId, r.linkUpdate, {
+            updateBrandLink,
+            upsertLinkSnapshot,
+          });
+        }
+      }
+      setBulkMsg(
+        `${json.summary.succeeded} link güncellendi` +
+          (json.summary.failed > 0 ? ` · ${json.summary.failed} hata` : "")
+      );
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "Kontrol hatası");
+    } finally {
+      setBulkRunning(false);
+    }
+  }, [brand, isAdmin, updateBrandLink, upsertLinkSnapshot]);
 
   const links = useMemo(() => {
     if (!brand) return [];
@@ -137,12 +187,34 @@ export function BrandLinksPanel({
               Tüm yayıncıların eklediği linkler · {monthTitleYm(viewMonth)}
             </p>
           </div>
-          {!readOnly && (
-            <Button size="sm" className="gap-1.5 shrink-0" onClick={() => onAddLink(brand.id)}>
-              <Plus size={14} /> Link ekle
-            </Button>
-          )}
+          <div className="flex flex-wrap gap-1.5 shrink-0">
+            {isAdmin && links.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={bulkRunning}
+                onClick={() => void refreshBrandLinks()}
+                title="Bu markanın tüm desteklenen linklerini API ile kontrol et"
+              >
+                {bulkRunning ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <PlayCircle size={14} />
+                )}
+                Tümünü kontrol et
+              </Button>
+            )}
+            {!readOnly && (
+              <Button size="sm" className="gap-1.5" onClick={() => onAddLink(brand.id)}>
+                <Plus size={14} /> Link ekle
+              </Button>
+            )}
+          </div>
         </div>
+        {bulkMsg && (
+          <p className="text-xs text-muted-foreground -mt-2">{bulkMsg}</p>
+        )}
 
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3">
           <Search size={14} className="text-muted-foreground shrink-0" />
@@ -193,6 +265,9 @@ export function BrandLinksPanel({
                       link.handle,
                       link.externalRef
                     );
+                    const apiSynced = Boolean(link.lastCheckedAt && !link.lastCheckError);
+                    const showAutoBadge = link.autoTrack && (apiSupported || apiSynced);
+                    const showManualBadge = link.autoTrack && !apiSupported && !apiSynced;
                     return (
                       <div key={link.id} className="flex items-center gap-3 rounded-lg border border-border bg-card/80 px-3 py-2.5 hover:bg-accent/20 transition-colors">
                         <div className="flex-1 min-w-0">
@@ -201,13 +276,13 @@ export function BrandLinksPanel({
                             {link.handle && (
                               <span className="text-xs text-muted-foreground">{link.handle}</span>
                             )}
-                            {link.autoTrack && apiSupported && (
+                            {showAutoBadge && (
                               <Badge
                                 variant="outline"
                                 className="text-[9px] gap-0.5 border-emerald-300 text-emerald-700 dark:border-emerald-500/45 dark:text-emerald-300"
                                 title={
                                   link.lastCheckedAt
-                                    ? `Son otomatik kontrol: ${hoursAgo(link.lastCheckedAt)}`
+                                    ? `Son API kontrolü: ${hoursAgo(link.lastCheckedAt)}`
                                     : "Otomatik takip açık, henüz kontrol edilmedi"
                                 }
                               >
@@ -217,9 +292,18 @@ export function BrandLinksPanel({
                                 )}
                               </Badge>
                             )}
-                            {link.autoTrack && !apiSupported && (
-                              <Badge variant="outline" className="text-[9px]" title="URL tipi otomatik API'lerle desteklenmiyor; manuel snapshot gerekir">
+                            {showManualBadge && (
+                              <Badge variant="outline" className="text-[9px]" title="URL tipi otomatik API'lerle desteklenmiyor; manuel snapshot veya düzenleme gerekir">
                                 otomatik (manuel)
+                              </Badge>
+                            )}
+                            {!link.autoTrack && apiSynced && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] gap-0.5 border-sky-300 text-sky-700 dark:border-sky-500/45 dark:text-sky-300"
+                                title={`Son API kontrolü: ${hoursAgo(link.lastCheckedAt)}`}
+                              >
+                                API · {hoursAgo(link.lastCheckedAt)}
                               </Badge>
                             )}
                             {link.status === "inactive" && (
@@ -289,7 +373,7 @@ export function BrandLinksPanel({
                           </p>
                         </div>
                         <div className="flex shrink-0 gap-0.5">
-                          {apiSupported && (
+                          {(apiSupported || apiSynced) && (
                             <button
                               type="button"
                               title="Detaylı veri (API'den canlı çek)"

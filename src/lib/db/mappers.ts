@@ -83,6 +83,7 @@ export function salaryExtraFromRow(r: Record<string, unknown>): SalaryExtra {
     amount: num(r.amount),
     description: str(r.description),
     type: r.type as SalaryExtra["type"],
+    contentExpenseId: r.content_expense_id ? str(r.content_expense_id) : undefined,
   };
 }
 
@@ -94,6 +95,7 @@ export function salaryExtraToRow(e: SalaryExtra) {
     amount: e.amount,
     description: e.description,
     type: e.type,
+    content_expense_id: e.contentExpenseId ?? null,
   };
 }
 
@@ -252,6 +254,7 @@ export function expenseEntryFromRow(r: Record<string, unknown>): ExpenseEntry {
     description: str(r.description),
     kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
     brandId: r.brand_id ? str(r.brand_id) : undefined,
+    plannedItemId: r.planned_item_id ? str(r.planned_item_id) : undefined,
   };
 }
 
@@ -264,6 +267,7 @@ export function expenseEntryToRow(e: ExpenseEntry) {
     description: e.description,
     kasa_tx_id: e.kasaTxId ?? null,
     brand_id: e.brandId ?? null,
+    planned_item_id: e.plannedItemId ?? null,
   };
 }
 
@@ -291,6 +295,7 @@ export function plannedFromRow(r: Record<string, unknown>): PlannedItem {
       ? rec
       : "none") as PlannedItem["recurrence"],
     expenseEntryId: r.expense_entry_id ? str(r.expense_entry_id) : undefined,
+    kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
   };
 }
 
@@ -312,6 +317,7 @@ export function plannedToRow(p: PlannedItem) {
     is_recurring: p.isRecurring ?? false,
     recurrence: p.recurrence ?? "none",
     expense_entry_id: p.expenseEntryId ?? null,
+    kasa_tx_id: p.kasaTxId ?? null,
   };
 }
 
@@ -434,11 +440,14 @@ export function brandLinkFromRow(r: Record<string, unknown>): BrandLink {
     lastCheckError: r.last_check_error ? str(r.last_check_error) : undefined,
     checkCount: r.check_count != null ? Number(r.check_count) : undefined,
     errorCount: r.error_count != null ? Number(r.error_count) : undefined,
+    refreshCountTotal: r.refresh_count_total != null ? Number(r.refresh_count_total) : undefined,
+    lastRefreshStatus: r.last_refresh_status ? str(r.last_refresh_status) as BrandLink["lastRefreshStatus"] : undefined,
+    createdAt: r.created_at ? str(r.created_at) : undefined,
   };
 }
 
 export function brandLinkToRow(l: BrandLink) {
-  return {
+  const row: Record<string, unknown> = {
     id: l.id,
     brand_id: l.brandId,
     platform: l.platform,
@@ -455,6 +464,10 @@ export function brandLinkToRow(l: BrandLink) {
     // (refresh runner) tarafından yönetilir. Eğer bir admin elle düzenlediyse
     // mevcut değerleri korumak için update payload'a eklemiyoruz.
   };
+  // Sadece client tarafından üretildiyse `created_at`'i yaz; DB default kolon
+  // yine de devreye girer (mevcut kayıtlarda mevcut değer korunur).
+  if (l.createdAt) row.created_at = l.createdAt;
+  return row;
 }
 
 export function linkSnapshotFromRow(r: Record<string, unknown>): LinkSnapshot {
@@ -464,11 +477,25 @@ export function linkSnapshotFromRow(r: Record<string, unknown>): LinkSnapshot {
     date: str(r.date).slice(0, 10),
     views: Number(r.views ?? 0),
     notes: str(r.notes),
+    likes: r.likes != null ? Number(r.likes) : undefined,
+    comments: r.comments != null ? Number(r.comments) : undefined,
+    shares: r.shares != null ? Number(r.shares) : undefined,
+    refreshedAt: r.refreshed_at ? str(r.refreshed_at) : undefined,
   };
 }
 
 export function linkSnapshotToRow(s: LinkSnapshot) {
-  return { id: s.id, link_id: s.linkId, date: s.date, views: s.views, notes: s.notes };
+  return {
+    id: s.id,
+    link_id: s.linkId,
+    date: s.date,
+    views: s.views,
+    notes: s.notes,
+    likes: s.likes ?? null,
+    comments: s.comments ?? null,
+    shares: s.shares ?? null,
+    refreshed_at: s.refreshedAt ?? null,
+  };
 }
 
 export function viewershipFromRow(r: Record<string, unknown>): BrandViewership {
@@ -581,6 +608,7 @@ export function kasaFromRow(r: Record<string, unknown>): KasaTransaction {
     counterparty: str(r.counterparty),
     proof: str(r.proof),
     notes: str(r.notes),
+    plannedItemId: r.planned_item_id ? str(r.planned_item_id) : undefined,
   };
 }
 
@@ -596,6 +624,7 @@ export function kasaToRow(t: KasaTransaction) {
     counterparty: t.counterparty,
     proof: t.proof,
     notes: t.notes,
+    planned_item_id: t.plannedItemId ?? null,
   };
 }
 
@@ -623,6 +652,8 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     reviewerNote: r.reviewer_note ? str(r.reviewer_note) : undefined,
     audited: bool(r.audited),
     kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
+    settlementMode: r.settlement_mode as ContentExpense["settlementMode"],
+    salaryExtraId: r.salary_extra_id ? str(r.salary_extra_id) : undefined,
   };
 }
 
@@ -650,6 +681,8 @@ export function contentExpenseToRow(e: ContentExpense) {
     reviewer_note: e.reviewerNote ?? null,
     audited: e.audited ?? false,
     kasa_tx_id: e.kasaTxId ?? null,
+    settlement_mode: e.settlementMode ?? null,
+    salary_extra_id: e.salaryExtraId ?? null,
   };
 }
 

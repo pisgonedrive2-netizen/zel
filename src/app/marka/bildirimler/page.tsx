@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { fmtDateTime } from "@/lib/fmt-date";
 import { Bell, CheckCheck, Filter, Inbox, Trash2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
-import { useStore, unreadNotificationCount, type AppNotification } from "@/store/store";
+import { useStore, unreadNotificationCount, visibleNotificationsForRole, type AppNotification } from "@/store/store";
 import {
   markAllNotificationsReadPersisted,
   markNotificationReadPersisted,
@@ -61,11 +62,7 @@ export default function MarkaBildirimlerPage() {
 
   const myNotifications = useMemo(() => {
     if (!targetUserId) return [];
-    return notifications.filter((n) => {
-      if (n.forRole !== "brand") return false;
-      if (n.forUserId && n.forUserId !== targetUserId) return false;
-      return true;
-    });
+    return visibleNotificationsForRole(notifications, "brand", targetUserId);
   }, [notifications, targetUserId]);
 
   const filtered = useMemo(() => {
@@ -138,8 +135,9 @@ export default function MarkaBildirimlerPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
-        <span className="text-muted-foreground">Tür:</span>
+        <label htmlFor="notif-type-filter" className="text-muted-foreground">Tür:</label>
         <select
+          id="notif-type-filter"
           className="rounded-md border border-input bg-background px-2 py-1 text-xs"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
@@ -203,13 +201,7 @@ export default function MarkaBildirimlerPage() {
                       <p className="text-sm font-medium text-foreground">{n.title}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">{n.message}</p>
                       <p className="text-[10px] text-muted-foreground/80 mt-1">
-                        {new Date(n.createdAt).toLocaleString("tr-TR", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {fmtDateTime(n.createdAt)}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">

@@ -320,8 +320,8 @@ export default function KasaPage() {
   }, [kasas]);
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
-      <div className="flex items-start justify-between mb-8 gap-3 flex-wrap">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+      <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Kasa Hareketleri</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -475,7 +475,7 @@ export default function KasaPage() {
         </div>
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <UInput placeholder="İşlem ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
+          <UInput aria-label="Kasa işlemi ara" placeholder="İşlem ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
         </div>
         <p className="text-xs text-muted-foreground ml-auto">
           {filteredRows.length} / {txnsForSelected.length} işlem

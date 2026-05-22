@@ -467,9 +467,9 @@ export default function LoginPage() {
         </button>
       </header>
 
-      {/* Marka marquee — DotCard tarzı, Padisah 1. sırada */}
-      <div className="relative z-10 mt-auto w-full shrink-0 px-2 sm:px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-6 bg-gradient-to-t from-black via-black/95 to-transparent pointer-events-none">
-        <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" />
+      {/* Marka marquee — Padisah 1. sırada, edge-to-edge */}
+      <div className="relative z-10 mt-auto w-full shrink-0 pb-[max(env(safe-area-inset-bottom),16px)] pt-10 bg-gradient-to-t from-black via-black/90 to-transparent">
+        <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" dualRow={false} />
       </div>
 
       {/* Giriş popup */}

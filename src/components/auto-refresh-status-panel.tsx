@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -8,18 +8,27 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
+  ExternalLink,
   Loader2,
   PlayCircle,
+  RefreshCw,
   Save,
   Settings2,
+  Timer,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SocialPlatformIcon } from "@/components/social-platform-icon";
 import { useAuth } from "@/store/auth";
+import { useStore } from "@/store/store";
+import { applyLinkMetricsToStore, type LinkMetricsStoreUpdate } from "@/lib/social-api/link-store-sync";
+import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
 
 interface PlatformStatus {
   platform: "youtube" | "tiktok" | "instagram";
@@ -78,14 +87,10 @@ interface StatusResponse {
   error?: string;
 }
 
+import { fmtDateShort } from "@/lib/fmt-date";
+
 function fmtDate(iso?: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("tr-TR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return fmtDateShort(iso);
 }
 
 interface PingResult {
@@ -96,12 +101,31 @@ interface PingResult {
   platform: string;
 }
 
+const SUPPORTED_PLATFORMS = ["youtube", "instagram", "tiktok"];
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "şimdi";
+  const totalSecs = Math.floor(ms / 1000);
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  if (h > 0) return `${h}sa ${String(m).padStart(2, "0")}dk ${String(s).padStart(2, "0")}sn`;
+  if (m > 0) return `${m}dk ${String(s).padStart(2, "0")}sn`;
+  return `${s}sn`;
+}
+
+function staleHours(iso?: string | null): number | null {
+  if (!iso) return null;
+  return (Date.now() - new Date(iso).getTime()) / 3_600_000;
+}
+
 export function AutoRefreshStatusPanel() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [staleOpen, setStaleOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pingingPlatform, setPingingPlatform] = useState<string | null>(null);
@@ -109,6 +133,39 @@ export function AutoRefreshStatusPanel() {
   const [draftSettings, setDraftSettings] = useState<RefreshSettings | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [refreshingLink, setRefreshingLink] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<string | null>(null);
+  // Toplu yenileme canlı ilerleme — polling ile güncellenir
+  const [bulkProgress, setBulkProgress] = useState<{
+    current?: { linkId: string; platform: string; handle: string; index: number; total: number };
+    status: "running" | "completed" | "error";
+  } | null>(null);
+  const [showStaleOnly, setShowStaleOnly] = useState(false);
+  const [targetMonth, setTargetMonth] = useState<string>(""); // YYYY-MM, boş = bugün
+  const { updateBrandLink, upsertLinkSnapshot, brandLinks, brands, pushNotification } = useStore();
+
+  // ── Stale links (API destekli, aktif, en son kontrol edilmeyen önce) ──────
+  const staleLinks = useMemo(() => {
+    return brandLinks
+      .filter((l) => {
+        if (l.status !== "active") return false;
+        const plat = l.platform.toLowerCase();
+        return SUPPORTED_PLATFORMS.some((p) => plat.includes(p));
+      })
+      .map((l) => ({
+        link: l,
+        brand: brands.find((b) => b.id === l.brandId),
+        hours: staleHours(l.lastCheckedAt),
+      }))
+      .sort((a, b) => {
+        if (a.hours === null && b.hours === null) return 0;
+        if (a.hours === null) return -1;
+        if (b.hours === null) return 1;
+        return b.hours - a.hours;
+      });
+  }, [brandLinks, brands]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -203,6 +260,163 @@ export function AutoRefreshStatusPanel() {
     }
   }, [draftSettings, isAdmin, load]);
 
+  /**
+   * Toplu yenileme — `mode`'a göre tüm aktif / sadece yenilenmemiş / seçili linkleri yeniler.
+   * Sunucu yanıtı tek HTTP'de döner ama UI parallel olarak `jobId` üzerinden
+   * `refresh-progress` endpoint'ini poll ederek hangi linkin işlendiğini gösterir.
+   */
+  const refreshAllLinks = useCallback(async (opts?: {
+    mode?: "all" | "failed-only" | "selected";
+    linkIds?: string[];
+    targetMonth?: string;
+  }) => {
+    if (!isAdmin) return;
+    const mode = opts?.mode ?? "all";
+    setBulkRunning(true);
+    setBulkMsg(null);
+    setBulkProgress({ status: "running" });
+
+    const jobId = `bulk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Hedef tarih hesabı: ay seçildiyse o ayın son günü, yoksa "bugün" (server hesaplar)
+    let targetDate: string | undefined = undefined;
+    const useMonth = opts?.targetMonth ?? targetMonth;
+    if (useMonth) {
+      const [y, mo] = useMonth.split("-").map(Number);
+      const lastDay = new Date(y, mo, 0).getDate();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const candidate = `${useMonth}-${String(lastDay).padStart(2, "0")}`;
+      // Eğer geçmiş ay ise candidate, bu ay ise bugün
+      targetDate = candidate < todayStr ? candidate : undefined;
+    }
+
+    // Polling: jobId ile sunucu durumunu çek
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/refresh-progress?jobId=${jobId}`, {
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          ok: boolean;
+          found?: boolean;
+          job?: {
+            status: "running" | "completed" | "error";
+            current?: { linkId: string; platform: string; handle: string; index: number; total: number };
+          };
+        };
+        if (json.ok && json.found && json.job) {
+          setBulkProgress({ current: json.job.current, status: json.job.status });
+          if (json.job.status !== "running") {
+            clearInterval(pollInterval);
+          }
+        }
+      } catch {
+        // Sessiz — sonraki tick'te yeniden dener
+      }
+    }, 1500);
+
+    try {
+      const res = await fetch("/api/admin/refresh-all-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId,
+          failedOnly: mode === "failed-only" ? true : undefined,
+          linkIds: mode === "selected" ? opts?.linkIds : undefined,
+          targetDate,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        summary?: {
+          attempted: number;
+          succeeded: number;
+          failed: number;
+          skippedQuota: number;
+          results: LinkRefreshResult[];
+        };
+      };
+      if (!res.ok || !json.ok || !json.summary) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      const { summary } = json;
+      for (const r of summary.results) {
+        if (r.linkUpdate) {
+          applyLinkMetricsToStore(r.linkId, r.linkUpdate, {
+            updateBrandLink,
+            upsertLinkSnapshot,
+          });
+        }
+      }
+      const modeLabel =
+        mode === "failed-only"
+          ? "Yenilenmemiş"
+          : mode === "selected"
+            ? "Seçili"
+            : "Tüm";
+      const finalMsg =
+        `${modeLabel} linkler: ${summary.succeeded} güncellendi` +
+        (summary.failed > 0 ? ` · ${summary.failed} hata` : "") +
+        (summary.skippedQuota > 0 ? ` · ${summary.skippedQuota} kota` : "") +
+        (targetDate ? ` · snapshot tarihi ${targetDate}` : "");
+      setBulkMsg(finalMsg);
+      // Yöneticiye bildirim — başarı veya kısmi başarı
+      pushNotification({
+        type: summary.failed > 0 ? "api_refresh_alert" : "general",
+        title:
+          summary.failed > 0
+            ? "Toplu link yenileme · kısmi başarı"
+            : "Toplu link yenileme tamamlandı",
+        message: finalMsg,
+        forRole: "admin",
+        href: "/izlenme",
+      });
+      setBulkProgress({ status: "completed" });
+      await load();
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "Toplu yenileme hatası");
+      setBulkProgress({ status: "error" });
+    } finally {
+      clearInterval(pollInterval);
+      setBulkRunning(false);
+    }
+  }, [isAdmin, load, updateBrandLink, upsertLinkSnapshot, pushNotification, targetMonth]);
+
+  // ── Geri sayım: son cron çalışması + ayarlı aralık ────────────────────────
+  useEffect(() => {
+    if (!data) return;
+    const lastRun = data.recentRuns
+      .filter((r) => r.triggered_by === "cron")
+      .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
+    if (!lastRun) { setCountdown(null); return; }
+    const nextAt = new Date(lastRun.started_at).getTime() + data.cronIntervalHours * 3_600_000;
+    const tick = () => setCountdown(formatCountdown(nextAt - Date.now()));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [data]);
+
+  // ── Tek link yenile ───────────────────────────────────────────────────────
+  const refreshSingleLinkById = useCallback(async (linkId: string) => {
+    if (!isAdmin) return;
+    setRefreshingLink(linkId);
+    try {
+      const res = await fetch(`/api/admin/refresh-link/${linkId}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = (await res.json()) as { ok?: boolean; result?: { ok?: boolean; linkUpdate?: LinkMetricsStoreUpdate; error?: string } };
+      const result = json.result;
+      if (result?.linkUpdate) {
+        applyLinkMetricsToStore(linkId, result.linkUpdate, { updateBrandLink, upsertLinkSnapshot });
+      }
+    } catch { /* silent */ } finally {
+      setRefreshingLink(null);
+    }
+  }, [isAdmin, updateBrandLink, upsertLinkSnapshot]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -260,17 +474,61 @@ export function AutoRefreshStatusPanel() {
               <span className="font-medium text-foreground">her {data.cronIntervalHours} saatte bir</span>.
             </CardDescription>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 items-center">
             {isAdmin && (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setSettingsOpen((v) => !v)}
-                className="h-7 gap-1.5 text-xs"
-              >
-                <Settings2 size={12} /> Ayarlar
-              </Button>
+              <>
+                {/* Hedef ay seçici — geçmiş ayı yenilemek için */}
+                <input
+                  type="month"
+                  value={targetMonth}
+                  onChange={(e) => setTargetMonth(e.target.value)}
+                  className="h-7 px-2 rounded-md border border-border bg-card text-[11px]"
+                  title="Snapshot tarihi — boşsa bugün, seçilirse o ayın son günü"
+                  max={new Date().toISOString().slice(0, 7)}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={bulkRunning || loading}
+                  onClick={() => void refreshAllLinks({ mode: "all" })}
+                  title="Tüm aktif YouTube, Instagram ve TikTok linklerini API ile kontrol eder"
+                >
+                  {bulkRunning ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <PlayCircle size={12} />
+                  )}
+                  Tüm linkleri kontrol et
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={bulkRunning || loading}
+                  onClick={() => void refreshAllLinks({ mode: "failed-only" })}
+                  title="Sadece son denemede hatalı veya 24 saatten uzun süredir kontrol edilmemiş linkleri yeniden dener"
+                >
+                  <RefreshCw size={12} />
+                  Sadece başarısızları
+                </Button>
+                {countdown && !bulkRunning && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground tabular-nums">
+                    <Timer size={10} />
+                    {countdown}
+                  </span>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  className="h-7 gap-1.5 text-xs"
+                >
+                  <Settings2 size={12} /> Ayarlar
+                </Button>
+              </>
             )}
             <Button
               type="button"
@@ -286,6 +544,47 @@ export function AutoRefreshStatusPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Canlı toplu yenileme paneli */}
+        {bulkRunning && (
+          <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/40 dark:border-emerald-500/45 dark:bg-emerald-950/25 px-3 py-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+              <Loader2 size={13} className="animate-spin" />
+              {bulkProgress?.current ? (
+                <>
+                  <span>
+                    {bulkProgress.current.index} / {bulkProgress.current.total}
+                  </span>
+                  <span className="opacity-70">·</span>
+                  <span className="capitalize">{bulkProgress.current.platform}</span>
+                  <span className="opacity-70">·</span>
+                  <span className="font-normal opacity-90 truncate max-w-[280px]">
+                    {bulkProgress.current.handle}
+                  </span>
+                </>
+              ) : (
+                <span>Linkler yenileniyor — bağlantı kuruluyor…</span>
+              )}
+            </div>
+            {bulkProgress?.current && (
+              <div className="mt-1.5 h-1 w-full rounded-full bg-emerald-200/60 dark:bg-emerald-900/40 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 dark:bg-emerald-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      (bulkProgress.current.index / Math.max(1, bulkProgress.current.total)) * 100
+                    )}%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {bulkMsg && !bulkRunning && (
+          <p className="text-xs rounded-md border border-border bg-muted/40 px-3 py-2 text-foreground">
+            {bulkMsg}
+          </p>
+        )}
         {settingsOpen && draftSettings && isAdmin && (
           <div className="rounded-lg border border-violet-200/60 bg-violet-50/30 dark:border-violet-500/40 dark:bg-violet-950/25 p-3 space-y-3">
             <p className="text-xs font-medium flex items-center gap-1.5">
@@ -293,8 +592,9 @@ export function AutoRefreshStatusPanel() {
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-[11px] text-muted-foreground">Kontrol aralığı (saat)</label>
+                <label htmlFor="cron-interval-select" className="text-[11px] text-muted-foreground">Kontrol aralığı (saat)</label>
                 <select
+                  id="cron-interval-select"
                   className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                   value={draftSettings.cronIntervalHours}
                   onChange={(e) =>
@@ -309,8 +609,9 @@ export function AutoRefreshStatusPanel() {
                 </select>
               </div>
               <div>
-                <label className="text-[11px] text-muted-foreground">Bildirim bekleme (saat)</label>
+                <label htmlFor="notify-cooldown-select" className="text-[11px] text-muted-foreground">Bildirim bekleme (saat)</label>
                 <select
+                  id="notify-cooldown-select"
                   className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                   value={draftSettings.notifyCooldownHours}
                   onChange={(e) =>
@@ -512,12 +813,179 @@ export function AutoRefreshStatusPanel() {
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-2 leading-relaxed">
-          <PlayCircle size={10} className="inline mr-0.5" />
-          Cron her gün 03:00 UTC'de çalışır. Her platform için kalan kota, kalan güne bölünerek adaptif batch
-          hesaplanır; aylık güvenli sınıra (%85) ulaşılırsa otomatik yenileme ay sonuna kadar durur, manuel
-          tek-link refresh hâlâ izinli kalır.
-        </p>
+        {/* ── Güncellenmeyen linkler paneli ──────────────────────────────── */}
+        {staleLinks.length > 0 && (
+          <div className="rounded-lg border border-border bg-card overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setStaleOpen((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-accent/20 transition-colors text-left"
+            >
+              <div className="flex items-center gap-2">
+                <WifiOff size={13} className="text-amber-500 shrink-0" />
+                <span className="text-xs font-medium">Güncellenmeyen linkler</span>
+                <Badge variant="outline" className="text-[9px] tabular-nums">
+                  {staleLinks.filter((s) => s.hours === null || s.hours > 24).length} bekliyor
+                </Badge>
+                {countdown && (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted-foreground tabular-nums">
+                    <Timer size={10} /> sonraki: {countdown}
+                  </span>
+                )}
+              </div>
+              {staleOpen ? <ChevronUp size={13} /> : <ChevronRight size={13} />}
+            </button>
+
+            {staleOpen && isAdmin && (
+              <div className="border-t border-border/40 px-3 py-2 flex flex-wrap items-center gap-2 bg-muted/20">
+                <span className="text-[11px] text-muted-foreground">Toplu işlem:</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px] gap-1"
+                  disabled={bulkRunning}
+                  onClick={() => {
+                    const ids = staleLinks
+                      .filter((s) => s.hours === null || s.hours > 24)
+                      .map((s) => s.link.id);
+                    if (ids.length === 0) return;
+                    void refreshAllLinks({ mode: "selected", linkIds: ids });
+                  }}
+                >
+                  {bulkRunning ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                  Bekleyenlerin hepsini yenile
+                  <span className="opacity-70">({staleLinks.filter((s) => s.hours === null || s.hours > 24).length})</span>
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setShowStaleOnly((v) => !v)}
+                  className={
+                    "h-6 px-2 text-[10px] rounded-md border transition-colors " +
+                    (showStaleOnly
+                      ? "bg-amber-500/20 border-amber-400/50 text-amber-700 dark:text-amber-300"
+                      : "bg-card border-border/60 text-muted-foreground hover:bg-accent/30")
+                  }
+                  title="24 saatten uzun süredir kontrol edilmemiş linkleri göster"
+                >
+                  Sadece bekleyenler
+                </button>
+              </div>
+            )}
+
+            {staleOpen && (
+              <div className="border-t border-border divide-y divide-border/50 max-h-[360px] overflow-y-auto">
+                {staleLinks
+                  .filter(({ hours }) => !showStaleOnly || hours === null || hours > 24)
+                  .map(({ link, brand, hours }) => {
+                  const isRefreshing = refreshingLink === link.id;
+                  const neverChecked = hours === null;
+                  const veryStale = hours !== null && hours > 48;
+                  const slightlyStale = hours !== null && hours > 24;
+                  return (
+                    <div
+                      key={link.id}
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-accent/10 transition-colors"
+                    >
+                      <SocialPlatformIcon platform={link.platform.toLowerCase() as "youtube" | "instagram" | "tiktok"} size={18} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-medium truncate max-w-[120px]">
+                            {link.handle || link.url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]}
+                          </span>
+                          {brand && (
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[80px]">
+                              · {brand.name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {neverChecked ? (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                              <WifiOff size={9} /> Hiç kontrol edilmedi
+                            </span>
+                          ) : veryStale ? (
+                            <span className="text-[10px] text-red-600 dark:text-red-400 flex items-center gap-0.5">
+                              <Clock size={9} /> {Math.floor(hours!)}sa önce
+                            </span>
+                          ) : slightlyStale ? (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                              <Clock size={9} /> {Math.floor(hours!)}sa önce
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                              <Wifi size={9} /> {Math.floor(hours!)}sa önce
+                            </span>
+                          )}
+                          {link.lastCheckError && (
+                            <span className="text-[10px] text-red-600 dark:text-red-400 truncate max-w-[160px]" title={link.lastCheckError}>
+                              · hata: {link.lastCheckError.slice(0, 40)}…
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {link.url && (
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-foreground"
+                            title="Linki aç"
+                          >
+                            <ExternalLink size={11} />
+                          </a>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[10px] gap-1"
+                            disabled={isRefreshing || bulkRunning}
+                            onClick={() => void refreshSingleLinkById(link.id)}
+                            title="Bu linki şimdi kontrol et"
+                          >
+                            {isRefreshing ? (
+                              <Loader2 size={10} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={10} />
+                            )}
+                            Yenile
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-[10px] text-muted-foreground border-t border-border/40 pt-2 leading-relaxed space-y-1">
+          <p>
+            <PlayCircle size={10} className="inline mr-0.5" />
+            <strong>Tüm linkleri kontrol et</strong> · yüklü tüm aktif YouTube / Instagram / TikTok linklerini tek
+            seferde API&apos;den çeker; izlenme, beğeni, yorum ve paylaşım Supabase&apos;deki{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-[9px]">link_snapshots</code> tablosuna yazılır.
+          </p>
+          <p>
+            <RefreshCw size={10} className="inline mr-0.5" />
+            <strong>Sadece başarısızları</strong> · son denemede hatalı veya 24 saatten uzun süredir kontrol
+            edilmemiş linkleri yeniden dener. Hata olmadan biten linklere dokunmaz.
+          </p>
+          <p>
+            <Clock size={10} className="inline mr-0.5" />
+            <strong>Hedef ay</strong> · geçmiş bir ay seçildiğinde snapshot o ayın son gününe yazılır — geçmiş
+            verileri geriye dönük doldurmak için kullanılır. Boşsa bugünün tarihiyle yazılır.
+          </p>
+          <p>
+            <Bot size={10} className="inline mr-0.5" />
+            Cron her gün <strong>03:00 UTC</strong>&apos;de otomatik batch çalıştırır (yalnızca{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-[9px]">auto_track</code> aktif olan linkler).
+          </p>
+        </div>
       </CardContent>
     </Card>
   );

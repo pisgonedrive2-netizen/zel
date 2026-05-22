@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { resolveLinkDetection } from "@/lib/social-api/platform-detect";
 import { fetchRichDetailsForLink } from "@/lib/social-api/clients";
 import { persistLinkMetricsUpdate } from "@/lib/social-api/link-persist";
+import { linkUpdateFromPersisted } from "@/lib/social-api/link-store-sync";
 import { getMonthlyUsage, incrementUsage } from "@/lib/social-api/quota";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
 
@@ -65,8 +66,18 @@ export async function GET(
     externalRef: link.external_ref ? String(link.external_ref) : undefined,
   });
   if (!detected) {
+    const plat = (link.platform ?? "").toLowerCase();
+    const hint =
+      plat.includes("instagram")
+        ? " Instagram için tam reel/gönderi linki (…/reel/… veya …/p/…) veya profil kullanıcı adı (@handle) girin. /stories/ ve /highlights/ linkleri desteklenmez."
+        : plat.includes("tiktok")
+          ? " TikTok için tam video linki (…/video/…) veya @kullanıcı adı girin."
+          : "";
     return NextResponse.json(
-      { ok: false, error: "Bu URL'den otomatik veri çekilemiyor (platform desteklenmiyor)." },
+      {
+        ok: false,
+        error: `Bu URL'den otomatik veri çekilemiyor (platform tespiti başarısız).${hint}`,
+      },
       { status: 422 },
     );
   }
@@ -101,25 +112,7 @@ export async function GET(
     return NextResponse.json({
       ok: true,
       details,
-      linkUpdate: {
-        lastViews: persisted.lastViews,
-        lastLikes: persisted.lastLikes,
-        lastComments: persisted.lastComments,
-        lastShares: persisted.lastShares,
-        lastSnapshotDate: persisted.snapshotDate,
-        lastCheckedAt: persisted.lastCheckedAt,
-        externalRef: persisted.externalRef,
-        snapshot:
-          persisted.snapshotId && persisted.snapshotDate && persisted.lastViews != null
-            ? {
-                id: persisted.snapshotId,
-                linkId: id,
-                date: persisted.snapshotDate,
-                views: persisted.lastViews,
-                notes: "auto",
-              }
-            : undefined,
-      },
+      linkUpdate: linkUpdateFromPersisted(id, persisted),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "API hatası";

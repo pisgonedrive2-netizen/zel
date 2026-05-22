@@ -179,7 +179,7 @@ export default function RaporPage() {
   return (
     <div className="p-3 sm:p-6 md:p-8 max-w-6xl">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8">
+      <div className="flex items-start justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Ödeme Raporu</h1>
           <p className="text-muted-foreground text-sm mt-1">

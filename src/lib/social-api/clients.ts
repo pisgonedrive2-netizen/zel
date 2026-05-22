@@ -57,23 +57,73 @@ function toNumber(value: unknown): number | null {
   return null;
 }
 
+/** Obje veya { count: N } / { value: N } gibi sarmalayıcılardan sayı çıkarır. */
+function unwrapMetricValue(v: unknown): number | null {
+  const direct = toNumber(v);
+  if (direct != null) return direct;
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  for (const k of ["count", "value", "total", "play_count", "view_count"]) {
+    const n = toNumber(o[k]);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 /** Verilen obje içinde önceliği yüksek anahtarlardan ilk bulunan sayıyı döner. */
 function pickFirstNumber(obj: unknown, keys: string[]): number | null {
   if (!obj || typeof obj !== "object") return null;
   const o = obj as Record<string, unknown>;
   for (const k of keys) {
-    const v = o[k];
-    const n = toNumber(v);
+    const n = unwrapMetricValue(o[k]);
     if (n != null) return n;
-    // Tek seviye nested (örn. statistics.viewCount)
-    if (v && typeof v === "object") {
-      for (const sub of Object.values(v as Record<string, unknown>)) {
-        const sn = toNumber(sub);
-        if (sn != null) return sn;
-      }
+  }
+  return null;
+}
+
+/** İç içe objelerde (metrics, stats, statistics) anahtar arar — IG/TikTok yanıtları için. */
+function pickMetricDeep(root: unknown, keys: string[], maxDepth = 5): number | null {
+  const seen = new Set<unknown>();
+  const queue: { node: unknown; depth: number }[] = [{ node: root, depth: 0 }];
+  while (queue.length > 0) {
+    const { node, depth } = queue.shift()!;
+    if (!node || typeof node !== "object" || seen.has(node) || depth > maxDepth) continue;
+    seen.add(node);
+    const direct = pickFirstNumber(node, keys);
+    if (direct != null) return direct;
+    if (depth >= maxDepth) continue;
+    for (const v of Object.values(node as Record<string, unknown>)) {
+      if (v && typeof v === "object") queue.push({ node: v, depth: depth + 1 });
     }
   }
   return null;
+}
+
+function metricBundle(data: unknown): unknown[] {
+  if (!data || typeof data !== "object") return [data];
+  const o = data as Record<string, unknown>;
+  const itemStruct = (o.itemInfo as { itemStruct?: unknown } | undefined)?.itemStruct;
+  return [o, o.metrics, o.stats, o.statistics, o.video, o.media, itemStruct].filter(Boolean);
+}
+
+function extractMetricsFromBundles(
+  bundles: unknown[],
+  viewsKeys: string[],
+  likesKeys: string[],
+  commentsKeys: string[],
+  sharesKeys: string[]
+): FetchedMetrics {
+  let views: number | null = null;
+  let likes: number | null = null;
+  let comments: number | null = null;
+  let shares: number | null = null;
+  for (const b of bundles) {
+    views ??= pickMetricDeep(b, viewsKeys);
+    likes ??= pickMetricDeep(b, likesKeys);
+    comments ??= pickMetricDeep(b, commentsKeys);
+    shares ??= pickMetricDeep(b, sharesKeys);
+  }
+  return { views, likes, comments, shares };
 }
 
 // ───────────────────────── YouTube ──────────────────────────────────────────
@@ -95,13 +145,16 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
     (raw as { stats?: unknown })?.stats ??
     (raw as { statistics?: unknown })?.statistics ??
     raw;
-  return {
-    views: pickFirstNumber(stats, ["views", "viewCount", "viewCountText"]),
-    likes: pickFirstNumber(stats, ["likes", "likeCount"]),
-    comments: pickFirstNumber(stats, ["comments", "commentCount"]),
-    shares: null,
-    raw,
-  };
+  const bundles = metricBundle(stats);
+  bundles.unshift(raw);
+  const metrics = extractMetricsFromBundles(
+    bundles,
+    ["views", "viewCount", "viewCountText"],
+    ["likes", "likeCount"],
+    ["comments", "commentCount"],
+    []
+  );
+  return { ...metrics, shares: null, raw };
 }
 
 // ───────────────────────── Instagram ────────────────────────────────────────
@@ -113,6 +166,21 @@ async function fetchInstagramProfile(username: string): Promise<unknown> {
   }
 }
 
+/** Gönderi / reel — önce shortcode; olmazsa tam URL (paylaşım linkleri). */
+async function fetchInstagramPost(shortcode: string, sourceUrl?: string): Promise<unknown> {
+  try {
+    return await rapidGet("instagram", "/post", { shortcode });
+  } catch (err) {
+    const url = sourceUrl?.trim();
+    if (!url) throw err;
+    try {
+      return await rapidGet("instagram", "/post", { url });
+    } catch {
+      throw err;
+    }
+  }
+}
+
 async function fetchInstagram(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind === "user") {
     const raw = await fetchInstagramProfile(detected.externalRef);
@@ -120,37 +188,44 @@ async function fetchInstagram(detected: DetectedPlatform): Promise<FetchedMetric
       (raw as { data?: unknown })?.data ??
       (raw as { user?: unknown })?.user ??
       raw;
+    // Profil için "views" yerine takipçi sayısını izlenme metriği olarak yaz —
+    // böylece IG profil linkleri "ölçüldü" olarak kaydedilir ve stale listesinden
+    // çıkar. Takipçi sayısı dashboardda profile büyümesi olarak görünür.
+    const followers = pickFirstNumber(data, [
+      "follower_count",
+      "edge_followed_by",
+      "followers",
+      "followers_count",
+    ]);
     return {
-      views: null,
+      views: followers,
       likes: null,
       comments: null,
-      shares: pickFirstNumber(data, [
-        "follower_count",
-        "edge_followed_by",
-        "followers",
-      ]),
+      shares: followers,
       raw,
     };
   }
-  const raw = await rapidGet("instagram", "/post", {
-    shortcode: detected.externalRef,
-  });
+  const raw = await fetchInstagramPost(detected.externalRef, detected.sourceUrl);
   const data =
     (raw as { data?: unknown })?.data ??
     (raw as { media?: unknown })?.media ??
+    (raw as { post?: unknown })?.post ??
     raw;
-  return {
-    views: pickFirstNumber(data, [
-      "play_count",
-      "video_view_count",
-      "view_count",
-      "videoViewCount",
-    ]),
-    likes: pickFirstNumber(data, ["like_count", "edge_liked_by", "likes"]),
-    comments: pickFirstNumber(data, ["comment_count", "edge_media_to_comment"]),
-    shares: pickFirstNumber(data, ["share_count", "shares"]),
-    raw,
-  };
+  const metrics = extractMetricsFromBundles(metricBundle(data), [
+    "play_count",
+    "video_view_count",
+    "view_count",
+    "videoViewCount",
+    "ig_play_count",
+    "playCount",
+  ], ["like_count", "edge_liked_by", "likes", "digg_count", "diggCount"], [
+    "comment_count",
+    "edge_media_to_comment",
+    "edge_media_to_parent_comment",
+    "comments",
+    "commentCount",
+  ], ["share_count", "shares", "shareCount", "repost_count"]);
+  return { ...metrics, raw };
 }
 
 // ───────────────────────── TikTok ───────────────────────────────────────────
@@ -178,13 +253,21 @@ async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> 
   }
   const raw = await rapidGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const data = (raw as { data?: unknown })?.data ?? raw;
-  return {
-    views: pickFirstNumber(data, ["play_count", "playCount", "views"]),
-    likes: pickFirstNumber(data, ["digg_count", "diggCount", "likes"]),
-    comments: pickFirstNumber(data, ["comment_count", "commentCount"]),
-    shares: pickFirstNumber(data, ["share_count", "shareCount"]),
-    raw,
-  };
+  const item = (data as { itemInfo?: { itemStruct?: unknown } })?.itemInfo?.itemStruct;
+  const bundles = metricBundle(item ?? data);
+  const stats = (data as { stats?: unknown })?.stats;
+  if (stats) bundles.unshift(stats);
+  const metrics = extractMetricsFromBundles(bundles, [
+    "play_count",
+    "playCount",
+    "views",
+    "view_count",
+  ], ["digg_count", "diggCount", "likes", "heartCount"], [
+    "comment_count",
+    "commentCount",
+    "comments",
+  ], ["share_count", "shareCount", "shares", "repost_count"]);
+  return { ...metrics, raw };
 }
 
 /** Tek giriş noktası — platforma göre uygun fetcher'a dispatch eder. */
@@ -373,9 +456,22 @@ async function richInstagram(detected: DetectedPlatform): Promise<RichLinkDetail
       raw,
     };
   }
-  const raw = await rapidGet("instagram", "/post", { shortcode: detected.externalRef });
+  const raw = await fetchInstagramPost(detected.externalRef, detected.sourceUrl);
   const r = raw as Record<string, unknown>;
   const data = ((r.data ?? r.media ?? r.post ?? r) as Record<string, unknown>);
+  const igMetrics = extractMetricsFromBundles(metricBundle(data), [
+    "play_count",
+    "video_view_count",
+    "view_count",
+    "videoViewCount",
+    "ig_play_count",
+    "playCount",
+  ], ["like_count", "edge_liked_by", "likes"], [
+    "comment_count",
+    "edge_media_to_comment",
+    "edge_media_to_parent_comment",
+    "comments",
+  ], ["share_count", "shares"]);
   const caption =
     pickFirstString(data, ["caption_text", "captionText"]) ??
     pickFirstString((data.caption as Record<string, unknown>) ?? {}, ["text"]);
@@ -385,12 +481,7 @@ async function richInstagram(detected: DetectedPlatform): Promise<RichLinkDetail
     kind: detected.kind,
     externalRef: detected.externalRef,
     fetchedAt: new Date().toISOString(),
-    metrics: {
-      views: pickFirstNumber(data, ["play_count", "video_view_count", "view_count", "videoViewCount"]),
-      likes: pickFirstNumber(data, ["like_count", "edge_liked_by", "likes"]),
-      comments: pickFirstNumber(data, ["comment_count", "edge_media_to_comment"]),
-      shares: pickFirstNumber(data, ["share_count", "shares"]),
-    },
+    metrics: igMetrics,
     title: caption?.slice(0, 80),
     description: caption,
     thumbnailUrl: pickThumbnail(data),
@@ -457,6 +548,20 @@ async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> 
   const raw = await rapidGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const r = raw as Record<string, unknown>;
   const data = ((r.data ?? r) as Record<string, unknown>);
+  const item = (data.itemInfo as { itemStruct?: unknown } | undefined)?.itemStruct;
+  const ttBundles = metricBundle(item ?? data);
+  const stats = data.stats;
+  if (stats) ttBundles.unshift(stats);
+  const ttMetrics = extractMetricsFromBundles(ttBundles, [
+    "play_count",
+    "playCount",
+    "views",
+    "view_count",
+  ], ["digg_count", "diggCount", "likes"], ["comment_count", "commentCount", "comments"], [
+    "share_count",
+    "shareCount",
+    "shares",
+  ]);
   const author = ((data.author ?? data.user ?? {}) as Record<string, unknown>);
   const desc = pickFirstString(data, ["title", "desc", "description"]);
   return {
@@ -464,12 +569,7 @@ async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> 
     kind: "video",
     externalRef: detected.externalRef,
     fetchedAt: new Date().toISOString(),
-    metrics: {
-      views: pickFirstNumber(data, ["play_count", "playCount", "views"]),
-      likes: pickFirstNumber(data, ["digg_count", "diggCount", "likes"]),
-      comments: pickFirstNumber(data, ["comment_count", "commentCount"]),
-      shares: pickFirstNumber(data, ["share_count", "shareCount"]),
-    },
+    metrics: ttMetrics,
     title: desc?.slice(0, 80),
     description: desc,
     thumbnailUrl: pickThumbnail(data) ?? pickFirstString(data, ["cover", "origin_cover"]),

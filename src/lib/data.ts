@@ -87,7 +87,7 @@ export const CHART_COLORS = {
 export const PIE_COLORS = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#ec4899"];
 
 /** Yerel YYYY-MM — `Date#toISOString()` UTC kayması ay ileri/geri düğmelerini bozabilir. */
-export function toYearMonthLocal(d: Date): string {
+export function toYearMonthLocal(d: Date = new Date()): string {
   const y = d.getFullYear();
   const m = d.getMonth() + 1;
   return `${y}-${String(m).padStart(2, "0")}`;

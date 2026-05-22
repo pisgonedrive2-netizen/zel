@@ -209,10 +209,16 @@ export function DateTimePicker({
         </span>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Positioner side="bottom" align="start" sideOffset={6}>
+        <PopoverPrimitive.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="z-[100]"
+        >
           <PopoverPrimitive.Popup
             className={cn(
-              "z-50 w-[19rem] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg",
+              // Modal'ın z-50'sinin üzerinde kalmalı — yoksa modal içinde tarih takvimi gizli kalır.
+              "z-[100] w-[19rem] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-lg",
               "data-[open]:animate-in data-[open]:fade-in-0",
               "data-[closed]:animate-out data-[closed]:fade-out-0",
             )}

@@ -18,6 +18,7 @@ Or paste each `.sql` file into **Supabase Dashboard → SQL Editor** in order (o
 | `20260518170000_auth_support_notifications.sql` | Login: şifre sıfırlama / kayıt talebi bildirim enum + `ref_id` index |
 | `20260519120000_brand_monthly_stats.sql` | Marka aylık operasyon metrikleri tablosu |
 | `20260519130000_auth_pin_and_schema_hardening.sql` | `pin_updated_at`, kullanıcı FK/index, enum tamamlama, stats kısıt yamaları |
+| `20260520160000_link_snapshot_engagement.sql` | `link_snapshots` engagement (likes/comments/shares/refreshed_at) + `brand_links` refresh sayacı / `created_at` index |
 
 ## PIN (şifre) değişimi
 

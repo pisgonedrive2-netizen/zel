@@ -47,34 +47,38 @@ export function CollapsibleSection({
       id={id}
       className={cn("rounded-xl border border-border bg-card overflow-hidden", className)}
     >
-      <button
-        type="button"
-        onClick={() => setOpen(!isOpen)}
+      <div
         className={cn(
-          "w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-accent/30 transition-colors",
+          "flex items-start gap-3 px-4 py-3 hover:bg-accent/30 transition-colors",
           headerClassName
         )}
-        aria-expanded={isOpen}
       >
-        <ChevronDown
-          size={18}
-          className={cn(
-            "shrink-0 text-muted-foreground mt-0.5 transition-transform duration-200",
-            isOpen && "rotate-180"
-          )}
-        />
-        <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm text-foreground">{title}</div>
-          {description && (
-            <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(!isOpen)}
+          className="flex flex-1 min-w-0 items-start gap-3 text-left"
+          aria-expanded={isOpen}
+        >
+          <ChevronDown
+            size={18}
+            className={cn(
+              "shrink-0 text-muted-foreground mt-0.5 transition-transform duration-200",
+              isOpen && "rotate-180"
+            )}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-sm text-foreground">{title}</div>
+            {description && (
+              <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
+            )}
+          </div>
+        </button>
         {trailing && (
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <div className="shrink-0">
             {trailing}
           </div>
         )}
-      </button>
+      </div>
       {isOpen && <div className="border-t border-border/60 px-4 py-4">{children}</div>}
     </section>
   );

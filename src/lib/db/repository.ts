@@ -4,6 +4,7 @@ import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
 import type { AppHydratePayload } from "@/store/store";
+import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import type { AppUser } from "@/store/auth";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
@@ -339,6 +340,27 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
     column: "employee_id",
     value: employeeId,
   });
+
+  const empName =
+    payload.employees?.find((e) => e.id === employeeId)?.name ?? "Yayıncı";
+  for (const exp of expenses) {
+    if (exp.reviewStatus === "pending" && exp.submittedAt) {
+      try {
+        await ensureExpenseSubmittedNotifications({
+          expenseId: exp.id,
+          employeeName: empName,
+          brandName: exp.brandName,
+          category: exp.category,
+          amountUsd: exp.amountUsd,
+          description: exp.description,
+          month: exp.month,
+          triggeredBy: exp.submittedBy,
+        });
+      } catch {
+        /* sync akışını kesme */
+      }
+    }
+  }
 
   const plans = (payload.weeklyPlans ?? []).filter((p) => p.employeeId === employeeId);
   await upsertRows("weekly_plans", plans.map(weeklyPlanToRow));

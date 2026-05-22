@@ -6,6 +6,7 @@
  * yazılır, Excel doğru şekilde açar.
  */
 import { jsPDF } from "jspdf";
+import { fmtDateTime } from "@/lib/fmt-date";
 import autoTableImport from "jspdf-autotable";
 
 import type { KasaTransaction, ContentExpense } from "@/store/store";
@@ -66,7 +67,7 @@ function reportMeta(rapor: string, ym: string, extra?: Record<string, string>): 
     Uygulama: "Foxstream",
     "Rapor turu": rapor,
     Donem: `${monthLabelTr(ym)} (${ym})`,
-    "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+    "Olusturulma (TR)": fmtDateTime(new Date()),
     "Para birimi": "USDT",
     ...extra,
   };
@@ -123,7 +124,7 @@ function drawPdfChrome(
   const right = ascii(`${opts.subtitle} - ${monthLabelTr(opts.month)}`);
   const rightWidth = doc.getTextWidth(right);
   doc.text(right, pageWidth - 14 - rightWidth, 11);
-  const stamp = ascii(`Olusturulma: ${new Date().toLocaleString("tr-TR")}${opts.generatedBy ? " - " + opts.generatedBy : ""}`);
+  const stamp = ascii(`Olusturulma: ${fmtDateTime(new Date())}${opts.generatedBy ? " - " + opts.generatedBy : ""}`);
   const stampW = doc.getTextWidth(stamp);
   doc.text(stamp, pageWidth - 14 - stampW, 16);
   doc.setTextColor(0, 0, 0);

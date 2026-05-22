@@ -22,6 +22,121 @@ function slugFromManual(manualPlatform?: string): SocialPlatform | null {
   return null;
 }
 
+/** Instagram path segment'leri — bunlar kullanıcı adı değildir. */
+const IG_RESERVED_SEGMENTS = new Set([
+  "explore",
+  "accounts",
+  "direct",
+  "stories",
+  "about",
+  "legal",
+  "privacy",
+  "terms",
+  "directory",
+  "developer",
+  "oauth",
+  "session",
+  "p",
+  "reel",
+  "reels",
+  "tv",
+  "share",
+  "channel",
+  "tags",
+  "locations",
+  "nametag",
+]);
+
+function isInstagramHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return h.endsWith("instagram.com") || h === "instagr.am";
+}
+
+function isValidIgUsername(segment: string): boolean {
+  return /^[A-Za-z0-9._]{1,30}$/.test(segment);
+}
+
+/**
+ * instagram.com path → platform tespiti.
+ * Profil alt yolları (/user/reels/, /user/tagged/) ve gömülü reel (/user/reel/CODE) desteklenir.
+ */
+function detectInstagramFromPath(
+  path: string,
+  effectiveUrl: string,
+  manualPlatform?: string,
+  handle?: string,
+  externalRef?: string
+): DetectedPlatform | null {
+  const clean = path.replace(/\/+$/, "") || "/";
+
+  // Gönderi / reel — kök veya profil altında
+  const rootMedia = clean.match(/^\/(p|reel|reels|tv)\/([^/?#]+)/i);
+  if (rootMedia) {
+    return {
+      platform: "instagram",
+      externalRef: rootMedia[2],
+      kind: "video",
+      sourceUrl: effectiveUrl,
+    };
+  }
+  const nestedMedia = clean.match(/^\/[A-Za-z0-9._]+\/(p|reel|reels|tv)\/([^/?#]+)/i);
+  if (nestedMedia) {
+    return {
+      platform: "instagram",
+      externalRef: nestedMedia[2],
+      kind: "video",
+      sourceUrl: effectiveUrl,
+    };
+  }
+
+  // Paylaşım linki — shortcode olarak dene (/post API)
+  const shareMatch = clean.match(/^\/share\/([^/?#]+)/i);
+  if (shareMatch) {
+    return {
+      platform: "instagram",
+      externalRef: shareMatch[1],
+      kind: "video",
+      sourceUrl: effectiveUrl,
+    };
+  }
+
+  const segments = clean.split("/").filter(Boolean);
+  if (segments.length >= 1) {
+    const first = segments[0];
+    const lower = first.toLowerCase();
+    // Profil: tek segment veya /username/reels|tagged|channel|...
+    if (!IG_RESERVED_SEGMENTS.has(lower) && isValidIgUsername(first)) {
+      const profileSubpaths = new Set(["reels", "tagged", "channel", "guides", "feed"]);
+      if (
+        segments.length === 1 ||
+        (segments.length === 2 && profileSubpaths.has(segments[1].toLowerCase()))
+      ) {
+        return {
+          platform: "instagram",
+          externalRef: first,
+          kind: "user",
+          sourceUrl: effectiveUrl,
+        };
+      }
+    }
+  }
+
+  const stored = detectFromStoredRef(manualPlatform, externalRef, effectiveUrl);
+  if (stored?.platform === "instagram") return stored;
+
+  const h = normalizeHandle(handle);
+  if (h && slugFromManual(manualPlatform) === "instagram") {
+    return {
+      platform: "instagram",
+      externalRef: h,
+      kind: "user",
+      sourceUrl: buildUrlFromHandle(manualPlatform, handle) || effectiveUrl,
+    };
+  }
+
+  return null;
+}
+
 /** Boş veya placeholder URL (örn. https://tiktok.com/@). */
 export function isPlaceholderUrl(url: string, manualPlatform?: string): boolean {
   const raw = url.trim();
@@ -184,28 +299,8 @@ export function detectPlatform(
   }
 
   // ---- Instagram --------------------------------------------------------
-  if (host.endsWith("instagram.com") || manual.includes("instagram")) {
-    const mediaMatch = path.match(/^\/(p|reel|reels|tv)\/([^/?#]+)/);
-    if (mediaMatch) {
-      return {
-        platform: "instagram",
-        externalRef: mediaMatch[2],
-        kind: "video",
-        sourceUrl: effectiveUrl,
-      };
-    }
-    const userMatch = path.match(/^\/([A-Za-z0-9._]+)\/?$/);
-    if (userMatch && !["explore", "accounts", "direct", "stories"].includes(userMatch[1].toLowerCase())) {
-      return {
-        platform: "instagram",
-        externalRef: userMatch[1],
-        kind: "user",
-        sourceUrl: effectiveUrl,
-      };
-    }
-    const stored = detectFromStoredRef(manualPlatform, externalRef, effectiveUrl);
-    if (stored?.platform === "instagram") return stored;
-    return null;
+  if (isInstagramHost(host) || manual.includes("instagram")) {
+    return detectInstagramFromPath(path, effectiveUrl, manualPlatform, handle, externalRef);
   }
 
   // ---- TikTok -----------------------------------------------------------

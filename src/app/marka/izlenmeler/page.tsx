@@ -114,14 +114,61 @@ export default function MarkaIzlenmelerPage() {
 
   const buildExportPayload = (): BrandMonthPdfInput | null => {
     if (!brand) return null;
-    const linkRows = linksWithMonthViews.map(({ link, lastViews, refDate }) => ({
-      platform: link.platform,
-      handle: link.handle || "-",
-      url: link.url || "-",
-      owner: link.ownerId ? empName(link.ownerId) : "Genel / atanmamış",
-      lastViews: lastViews > 0 ? fmtViews(lastViews) : "-",
-      lastSnapshot: refDate ?? "-",
-    }));
+    const linkRows = linksWithMonthViews.map(({ link, lastViews, refDate }) => {
+      const likes = link.lastLikes ?? 0;
+      const comments = link.lastComments ?? 0;
+      const shares = link.lastShares ?? 0;
+      const totalEngage = likes + comments + shares;
+      const engagementRate = lastViews > 0
+        ? `${((totalEngage / lastViews) * 100).toFixed(2)}%`
+        : "-";
+      return {
+        platform: link.platform,
+        handle: link.handle || "-",
+        url: link.url || "-",
+        owner: link.ownerId ? empName(link.ownerId) : "Genel / atanmamış",
+        lastViews: lastViews > 0 ? fmtViews(lastViews) : "-",
+        lastSnapshot: refDate ?? "-",
+        lastLikes: link.lastLikes != null ? fmtViews(link.lastLikes) : undefined,
+        lastComments: link.lastComments != null ? fmtViews(link.lastComments) : undefined,
+        lastShares: link.lastShares != null ? fmtViews(link.lastShares) : undefined,
+        engagementRate,
+      };
+    });
+
+    // Platform breakdown — toplam izlenme/etkileşim
+    const platformMap = new Map<string, {
+      linkCount: number;
+      totalViews: number;
+      totalLikes: number;
+      totalComments: number;
+      totalShares: number;
+    }>();
+    for (const { link, lastViews } of linksWithMonthViews) {
+      const cur = platformMap.get(link.platform) ?? {
+        linkCount: 0,
+        totalViews: 0,
+        totalLikes: 0,
+        totalComments: 0,
+        totalShares: 0,
+      };
+      cur.linkCount += 1;
+      cur.totalViews += lastViews ?? 0;
+      cur.totalLikes += link.lastLikes ?? 0;
+      cur.totalComments += link.lastComments ?? 0;
+      cur.totalShares += link.lastShares ?? 0;
+      platformMap.set(link.platform, cur);
+    }
+    const platformBreakdown = Array.from(platformMap.entries())
+      .sort((a, b) => b[1].totalViews - a[1].totalViews)
+      .map(([platform, v]) => ({
+        platform,
+        linkCount: String(v.linkCount),
+        totalViews: fmtViews(v.totalViews),
+        totalLikes: fmtViews(v.totalLikes),
+        totalComments: fmtViews(v.totalComments),
+        totalShares: fmtViews(v.totalShares),
+      }));
     const monthlyRows = viewRows.map((v) => ({
       kaynak: v.employeeId ? `Yayinci: ${empName(v.employeeId)}` : "Genel / admin",
       izlenme: fmtViews(v.views),
@@ -150,6 +197,7 @@ export default function MarkaIzlenmelerPage() {
       links: linkRows,
       monthlyRows,
       reels,
+      platformBreakdown,
     };
   };
 

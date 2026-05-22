@@ -21,6 +21,7 @@ import { payrollMonthLongTitle } from "@/lib/payroll-dates";
  * (ve özette yöneticiye) günde bir hatırlatma bildirimi.
  */
 export function BrandPaymentReminderEffect() {
+  const bootstrapReady = useStore((s) => s.brands.length > 0 || s.projects.length > 0);
   const projects = useStore((s) => s.projects);
   const projectPayments = useStore((s) => s.projectPayments);
   const brands = useStore((s) => s.brands);
@@ -30,6 +31,7 @@ export function BrandPaymentReminderEffect() {
   const settingsLoaded = useRef(false);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (settingsLoaded.current) return;
     if (!user || user.role !== "admin") return;
     if (!isSupabaseClientMode()) {
@@ -50,9 +52,10 @@ export function BrandPaymentReminderEffect() {
         /* sessiz */
       }
     })();
-  }, [user]);
+  }, [bootstrapReady, user]);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (user?.role !== "admin") return;
     if (silenced.current.has("brand_payment_reminder")) return;
 
@@ -128,7 +131,7 @@ export function BrandPaymentReminderEffect() {
         });
       }
     }
-  }, [projects, projectPayments, brands, users, user?.role]);
+  }, [bootstrapReady, projects, projectPayments, brands, users, user?.role]);
 
   return null;
 }

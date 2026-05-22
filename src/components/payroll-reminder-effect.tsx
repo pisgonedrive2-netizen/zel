@@ -13,6 +13,7 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
  * Yeni admin eklendiğinde ek kod gerekmez — hedef `forRole` ile belirlenir.
  */
 export function PayrollReminderEffect() {
+  const bootstrapReady    = useStore((s) => s.employees.length > 0);
   const employees        = useStore((s) => s.employees);
   const advances         = useStore((s) => s.advances);
   const salaryExtras     = useStore((s) => s.salaryExtras);
@@ -24,6 +25,7 @@ export function PayrollReminderEffect() {
   const settingsLoaded   = useRef(false);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (settingsLoaded.current) return;
     if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
     if (!isSupabaseClientMode()) {
@@ -55,9 +57,10 @@ export function PayrollReminderEffect() {
         /* sessiz */
       }
     })();
-  }, [user]);
+  }, [bootstrapReady, user]);
 
   useEffect(() => {
+    if (!bootstrapReady) return;
     if (!enabled.current) return;
     if (silenced.current.has("payroll_reminder")) return;
     const today = new Date();
@@ -145,7 +148,7 @@ export function PayrollReminderEffect() {
     } catch {
       /* tarayıcı bildirimi opsiyonel */
     }
-  }, [employees, advances, salaryExtras, paymentStatuses]);
+  }, [bootstrapReady, employees, advances, salaryExtras, paymentStatuses]);
 
   return null;
 }

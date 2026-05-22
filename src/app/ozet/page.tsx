@@ -2,6 +2,7 @@
 
 import { useStore, calcNetPayable, calcOpenAdvanceBalance, isPayrollActive, calcKasaBalance, unreadNotificationCount, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth } from "@/store/store";
 import { isActiveContentExpense } from "@/lib/content-expense";
+import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
 import { fmt, MONTHS, toYearMonthLocal } from "@/lib/data";
@@ -9,7 +10,7 @@ import { payrollDueCaption, payrollMonthLongTitle, paymentWindowCalendarPhrase }
 import { motion } from "framer-motion";
 import {
   DollarSign, TrendingUp, TrendingDown, Users,
-  ArrowUpRight, ArrowDownRight, CheckCircle2, AlertCircle, FileText,
+  ArrowUpRight, CheckCircle2, AlertCircle, FileText,
   Wallet, Clapperboard, Eye, Receipt,
 } from "lucide-react";
 import {
@@ -23,75 +24,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-
-// ── Animated KPI Card ─────────────────────────────────────────────────────
-type KpiDeltaMode = "percent" | "count" | "none";
-
-function KpiCard({
-  title,
-  value,
-  change = 0,
-  icon: Icon,
-  trend,
-  delay = 0,
-  deltaMode = "percent",
-  countHint,
-  footerNote,
-}: {
-  title: string;
-  value: string;
-  change?: number;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
-  trend: "up" | "down";
-  delay?: number;
-  deltaMode?: KpiDeltaMode;
-  /** deltaMode === "count" iken alt açıklama (örn. kaç kişi). */
-  countHint?: string;
-  /** deltaMode === "none" iken varsayılan metnin yerine. */
-  footerNote?: string;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay, ease: "easeOut" }}
-    >
-      <Card className="gap-3 py-5">
-        <CardHeader className="flex-row items-center justify-between gap-0 pb-0">
-          <CardTitle className="text-xs font-medium text-foreground/85">{title}</CardTitle>
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 border border-primary/15">
-            <Icon size={13} className="text-primary" />
-          </div>
-        </CardHeader>
-        <CardContent className="pb-0">
-          <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
-          {deltaMode === "none" && (
-            <p className="text-xs text-muted-foreground mt-1.5 leading-snug">
-              {footerNote ?? "Anlık durum · geçmiş ay kıyası yok"}
-            </p>
-          )}
-          {deltaMode === "count" && (
-            <p className="text-xs text-muted-foreground mt-1.5 tabular-nums">
-              {countHint ?? `${change} kayıt`}
-            </p>
-          )}
-          {deltaMode === "percent" && (
-            <div className="flex items-center gap-1 mt-1.5">
-              {trend === "up"
-                ? <ArrowUpRight size={12} className="text-green-400" />
-                : <ArrowDownRight size={12} className="text-red-400" />
-              }
-              <span className={`text-xs font-medium ${trend === "up" ? "text-green-400" : "text-red-400"}`}>
-                {Math.abs(change)}%
-              </span>
-              <span className="text-xs text-muted-foreground">geçen aya göre (tahmini)</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
-}
+import { StatisticsCard2 } from "@/components/ui/statistics-card-2";
 
 // ── Custom tooltip ─────────────────────────────────────────────────────────
 function CustomTooltip({ active, payload, label }: any) {
@@ -217,25 +150,116 @@ export default function OzetPage() {
     { name: "Giderler",     value: yillikGider, color: "#f59e0b" },
   ];
 
-  const kpis = [
-    { title: "Kasa Bakiyesi",        value: fmt(kasaBakiye),    change: 0,                  trend: kasaBakiye > 500 ? "up" as const : "down" as const, icon: Wallet,        deltaMode: "none" as const },
-    { title: "Bu Ay Bekleyen Ödeme", value: fmt(bekleyenTutar), change: bekleyenler.length, trend: bekleyenler.length > 0 ? "down" as const : "up" as const, icon: AlertCircle, deltaMode: "count" as const, countHint: bekleyenler.length > 0 ? `${bekleyenler.length} çalışan · bu ay ödeme bekleniyor` : "Bu ay bekleyen yok" },
-    { title: "Açık Avans",           value: fmt(acikAvansToplam),change: 0,                 trend: acikAvansToplam > 0 ? "down" as const : "up" as const, icon: TrendingDown, deltaMode: "none" as const },
-    { title: "İçerik Harcaması (Bu Ay)", value: fmt(icerikHarcAylik), change: 0,             trend: "down" as const, icon: Clapperboard, deltaMode: "none" as const },
-    { title: "Net Kar (yıllık tahmin)", value: fmt(netKar),     change: 0,                  trend: netKar >= 0 ? "up" as const : "down" as const, icon: TrendingUp, deltaMode: "none" as const, footerNote: `Yıllık tahmin · %${marj} marj (12× aylık ortalama)` },
+  // Sparkline verileri (12 aylık eğri)
+  const gelirSparkline = areaData.map((d) => d.gelir);
+  const giderSparkline = areaData.map((d) => d.gider);
+  const netSparkline   = areaData.map((d) => Math.max(0, d.net));
+  const maasSparkline  = aylikMaasByIdx;
+
+  const kpis: Array<import("@/components/ui/statistics-card-2").StatisticsCard2Props & { key: string }> = [
+    {
+      key: "kasa",
+      title: "Kasa Bakiyesi",
+      value: fmt(kasaBakiye),
+      trend: kasaBakiye > 500 ? "up" : "down",
+      trendLabel: kasaBakiye > 500 ? "Normal" : "Düşük",
+      description: "Anlık bakiye · son işlemler baz alınmıştır",
+      icon: Wallet,
+    },
+    {
+      key: "bekleyen",
+      title: "Bu Ay Bekleyen Ödeme",
+      value: fmt(bekleyenTutar),
+      trend: bekleyenler.length > 0 ? "down" : "up",
+      trendLabel: bekleyenler.length > 0 ? `${bekleyenler.length} kişi` : "Tamamlandı",
+      description: bekleyenler.length > 0
+        ? `${bekleyenler.length} çalışan · bu ay ödeme bekleniyor`
+        : "Bu ay bekleyen yok",
+      icon: AlertCircle,
+      sparkline: maasSparkline,
+    },
+    {
+      key: "avans",
+      title: "Açık Avans",
+      value: fmt(acikAvansToplam),
+      trend: acikAvansToplam > 0 ? "down" : "up",
+      trendLabel: acikAvansToplam > 0 ? "Açık" : "Temiz",
+      description: "Geri ödenmemiş avans bakiyesi",
+      icon: TrendingDown,
+    },
+    {
+      key: "icerik",
+      title: "İçerik Harcaması (Bu Ay)",
+      value: fmt(icerikHarcAylik),
+      trend: "neutral",
+      trendLabel: `${currentMonth}`,
+      description: icerikHarcBekleyen > 0
+        ? `${fmt(icerikHarcBekleyen)} ödenmemiş harcama`
+        : "Tüm harcamalar kapalı",
+      icon: Clapperboard,
+      sparkline: giderSparkline,
+    },
+    {
+      key: "netkar",
+      title: "Net Kar (yıllık tahmin)",
+      value: fmt(netKar),
+      trend: netKar >= 0 ? "up" : "down",
+      trendLabel: `%${marj} marj`,
+      description: `Yıllık tahmin · 12× aylık ortalama`,
+      icon: TrendingUp,
+      sparkline: netSparkline,
+    },
   ];
 
-  const kpisSecond = [
-    { title: "Toplam Gelir (yıllık)",value: fmt(toplamGelir),   change: 0,                  trend: "up" as const,   icon: DollarSign,   deltaMode: "none" as const },
-    { title: "Bordrolu Yayıncı",     value: String(bordrolu.length), change: 0,             trend: "up" as const,   icon: Users,        deltaMode: "none" as const,
-      footerNote:
-        bordroDisiYayincilar.length > 0
-          ? `Kayıtlı ${yayinEkibi.length} yayıncı · ${bordroDisiYayincilar.length} kişi bu ay henüz bordoda değil (bordro başlangıç ayı gelmedi).`
-          : `Kayıtlı yayın ekibi ${yayinEkibi.length} — hepsi bu ay bordoda.`,
+  const kpisSecond: Array<import("@/components/ui/statistics-card-2").StatisticsCard2Props & { key: string }> = [
+    {
+      key: "gelir",
+      title: "Toplam Gelir (yıllık)",
+      value: fmt(toplamGelir),
+      trend: "up",
+      trendLabel: "2026",
+      description: `Dış ${fmt(yillikDis)} + İç ${fmt(yillikIc)}`,
+      icon: DollarSign,
+      sparkline: gelirSparkline,
     },
-    { title: "Aktif Marka",          value: `${aktifMarka} marka`, change: 0,               trend: "up" as const,   icon: Eye,          deltaMode: "none" as const },
-    { title: "Toplam İzlenme",       value: toplamIzlenme >= 1000 ? `${(toplamIzlenme/1000).toFixed(1)}k` : String(toplamIzlenme), change: 0, trend: "up" as const, icon: TrendingUp, deltaMode: "none" as const },
-    { title: "Takip Edilen Link",    value: String(takipliLink),change: 0,                  trend: "up" as const,   icon: ArrowUpRight, deltaMode: "none" as const },
+    {
+      key: "bordrolu",
+      title: "Bordrolu Yayıncı",
+      value: String(bordrolu.length),
+      trend: bordroDisiYayincilar.length > 0 ? "neutral" : "up",
+      trendLabel: bordroDisiYayincilar.length > 0 ? `${bordroDisiYayincilar.length} eksik` : "Tam kadro",
+      description: bordroDisiYayincilar.length > 0
+        ? `Kayıtlı ${yayinEkibi.length} · ${bordroDisiYayincilar.length} kişi bordro dışı`
+        : `Kayıtlı yayın ekibi ${yayinEkibi.length} — hepsi bu ay bordoda.`,
+      icon: Users,
+    },
+    {
+      key: "marka",
+      title: "Aktif Marka",
+      value: `${aktifMarka}`,
+      trend: "up",
+      trendLabel: `${aktifMarka} aktif`,
+      description: `${takipliLink} takip edilen link`,
+      icon: Eye,
+    },
+    {
+      key: "izlenme",
+      title: "Toplam İzlenme",
+      value: toplamIzlenme >= 1000 ? `${(toplamIzlenme / 1000).toFixed(1)}k` : String(toplamIzlenme),
+      trend: "up",
+      trendLabel: `${takipliLink} link`,
+      description: "Tüm aktif linklerin toplamı",
+      icon: TrendingUp,
+    },
+    {
+      key: "link",
+      title: "Takip Edilen Link",
+      value: String(takipliLink),
+      trend: "up",
+      trendLabel: "Aktif",
+      description: "Otomatik izlenen sosyal medya linkleri",
+      icon: ArrowUpRight,
+    },
   ];
 
   const activities = [
@@ -277,7 +301,7 @@ export default function OzetPage() {
   ];
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1280px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1280px]">
       {/* Title */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
@@ -347,12 +371,12 @@ export default function OzetPage() {
 
       {/* KPI row 1 — finansal */}
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-3">
-        {kpis.map((k, i) => <KpiCard key={k.title} {...k} delay={i * 0.05} />)}
+        {kpis.map(({ key, ...k }, i) => <StatisticsCard2 key={key} {...k} delay={i * 0.05} />)}
       </div>
 
       {/* KPI row 2 — operasyonel */}
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-6">
-        {kpisSecond.map((k, i) => <KpiCard key={k.title} {...k} delay={(kpis.length + i) * 0.05} />)}
+        {kpisSecond.map(({ key, ...k }, i) => <StatisticsCard2 key={key} {...k} delay={(kpis.length + i) * 0.05} />)}
       </div>
 
       {/* Bekleyen Ödemeler — bu ay */}
@@ -576,7 +600,7 @@ export default function OzetPage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-[10px] text-muted-foreground">
-                          {new Date(n.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {fmtDateShort(n.createdAt)}
                         </p>
                         {n.href && (
                           <Link href={n.href} className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">

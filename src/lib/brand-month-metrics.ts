@@ -76,6 +76,63 @@ export function linkViewsForMonth(
   return { lastViews: 0, refDate: null, stale: true, snapsInMonth: [] };
 }
 
+/** Seçili ay için engagement — snapshot varsa ondan, yalnızca bu ay canlıysa link üzerindeki API alanları. */
+export function linkEngagementForMonth(
+  link: BrandLink,
+  monthYm: string,
+  allSnaps: LinkSnapshot[],
+  todayYm: string
+): { likes?: number; comments?: number; shares?: number } {
+  const { snapsInMonth } = linkViewsForMonth(link, monthYm, allSnaps, todayYm);
+  const snap = snapsInMonth[0];
+  if (snap) {
+    return {
+      likes: snap.likes,
+      comments: snap.comments,
+      shares: snap.shares,
+    };
+  }
+  if (monthYm === todayYm) {
+    return {
+      likes: link.lastLikes,
+      comments: link.lastComments,
+      shares: link.lastShares,
+    };
+  }
+  return {};
+}
+
+/** Liste görünümü: geçmiş aylarda yalnızca o aya ait snapshot'ı olan linkler; bu ayda aktif linkler. */
+export function linkVisibleInMonth(
+  link: BrandLink,
+  monthYm: string,
+  allSnaps: LinkSnapshot[],
+  todayYm: string
+): boolean {
+  const { snapsInMonth, lastViews, stale } = linkViewsForMonth(
+    link,
+    monthYm,
+    allSnaps,
+    todayYm
+  );
+  if (snapsInMonth.length > 0) return true;
+  if (monthYm !== todayYm) return false;
+  if (link.status === "active") return true;
+  if (!stale && (lastViews > 0 || link.lastCheckedAt)) return true;
+  return false;
+}
+
+export function filterLinksForViewMonth(
+  links: BrandLink[],
+  monthYm: string,
+  allSnaps: LinkSnapshot[],
+  todayYm: string,
+  showAll: boolean
+): BrandLink[] {
+  if (showAll) return links;
+  return links.filter((l) => linkVisibleInMonth(l, monthYm, allSnaps, todayYm));
+}
+
 export function totalLinkViewsForMonth(
   links: BrandLink[],
   monthYm: string,

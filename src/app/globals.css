@@ -169,40 +169,33 @@
 .dark .recharts-cartesian-axis-tick text { fill: oklch(0.74 0.02 256) !important; }
 .dark .recharts-cartesian-grid line { stroke: oklch(0.32 0.02 260) !important; }
 
-/* ─── Login brand marquee ───────────────────────────────────────────────── */
-@keyframes brand-marquee-left {
+/* ─── Login brand marquee (iki eş grup, -50% = bir grup) ─────────── */
+@keyframes brand-marquee-scroll {
   0% {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
   100% {
-    transform: translateX(-50%);
+    transform: translate3d(-50%, 0, 0);
   }
 }
 
-@keyframes brand-marquee-right {
-  0% {
-    transform: translateX(-50%);
-  }
-  100% {
-    transform: translateX(0);
-  }
+.brand-marquee-window {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
 }
 
-.animate-brand-marquee-left {
-  animation: brand-marquee-left 42s linear infinite;
+.brand-marquee-track {
+  animation: brand-marquee-scroll 34s linear infinite;
+  will-change: transform;
 }
 
-.animate-brand-marquee-right {
-  animation: brand-marquee-right 38s linear infinite;
+.brand-marquee-track--reverse {
+  animation-direction: reverse;
+  animation-duration: 30s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-brand-marquee-left,
-  .animate-brand-marquee-right {
-    animation: none;
-    transform: translateX(0);
-    flex-wrap: wrap;
-    justify-content: center;
-    max-width: 100%;
+  .brand-marquee-track {
+    animation-duration: 80s;
   }
 }

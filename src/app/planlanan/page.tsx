@@ -3,20 +3,23 @@
 import { useMemo, useState } from "react";
 import {
   Plus, Pencil, CalendarClock, ChevronDown, ChevronUp,
-  ArrowRightLeft, Wallet, AlertTriangle, LayoutList, Columns3, GanttChart,
+  ArrowRightLeft, Wallet, AlertTriangle, LayoutList, Columns3, GanttChart, Link2,
 } from "lucide-react";
 import {
   useStore,
   DEFAULT_KASA_ID,
+  calcKasaBalance,
   type PlannedItem,
   type PlannedItemPayment,
   type PlannedCategory,
   type PlannedRecurrence,
   type PlannedStatus,
+  type Kasa,
+  type KasaTransaction,
 } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
-import { fmt, CHART_COLORS, MONTHS, netAylik, toYearMonthLocal } from "@/lib/data";
+import { fmt, CHART_COLORS, MONTHS, netAylik, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { payrollMonthLongTitle } from "@/lib/payroll-dates";
 import { PLANNED_CATEGORIES, plannedCategoryLabel } from "@/lib/planned-categories";
 import {
@@ -302,12 +305,137 @@ function PaymentForm({
   );
 }
 
+function TransferForm({
+  item,
+  mode,
+  kasas,
+  kasaTransactions,
+  defaultKasaId,
+  monthYm,
+  onSave,
+  onClose,
+}: {
+  item: PlannedItem;
+  mode: "expense" | "kasa";
+  kasas: Kasa[];
+  kasaTransactions: KasaTransaction[];
+  defaultKasaId: string;
+  monthYm: string;
+  onSave: (data: {
+    amount: number;
+    date: string;
+    description: string;
+    category: string;
+    kasaId: string;
+    feeUsd: number;
+    notes: string;
+    proof: string;
+    markCompleted: boolean;
+  }) => void;
+  onClose: () => void;
+}) {
+  const remain = Math.max(0, remainingBudget(item));
+  const activeKasas = kasas.filter((k) => !k.archived);
+  const [amount, setAmount] = useState(remain);
+  const [date, setDate] = useState(defaultSnapshotDateInMonth(monthYm));
+  const [description, setDescription] = useState(`[Planlanan] ${item.name}`);
+  const [category, setCategory] = useState(expenseCategoryFor(item.category));
+  const [kasaId, setKasaId] = useState(defaultKasaId);
+  const [feeUsd, setFeeUsd] = useState(0);
+  const [notes, setNotes] = useState(item.notes);
+  const [proof, setProof] = useState("");
+  const [markCompleted, setMarkCompleted] = useState(amount >= remain);
+  const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
+  const balanceForSelected = selectedKasa
+    ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id)
+    : 0;
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (amount <= 0) return;
+        onSave({ amount, date, description, category, kasaId, feeUsd, notes, proof, markCompleted });
+        onClose();
+      }}
+      className="grid gap-4"
+    >
+      <p className="text-sm text-muted-foreground">
+        {item.name} · kalan bütçe <span className="font-medium tabular-nums">{fmt(remain)}</span>
+      </p>
+      <FormGrid>
+        <Field label="Tutar ($)" required>
+          <NumberInput value={amount} onChange={(v) => { setAmount(v); setMarkCompleted(v >= remain); }} min={0} max={remain || undefined} step={100} />
+        </Field>
+        <Field label="Tarih" required>
+          <DateTimePicker mode="date" value={date} onChange={setDate} />
+        </Field>
+      </FormGrid>
+      {mode === "expense" && (
+        <>
+          <Field label="Gider kategorisi">
+            <Select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              options={[
+                "Yazılım & Araçlar",
+                "Sunucu & Altyapı",
+                "Ofis & Kira",
+                "Pazarlama Gideri",
+                "Hukuki & Mali",
+                "Ulaşım",
+                "Donanım",
+                "Diğer",
+              ].map((c) => ({ value: c, label: c }))}
+            />
+          </Field>
+          <Field label="Açıklama">
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </Field>
+        </>
+      )}
+      {mode === "kasa" && (
+        <>
+          <FormGrid>
+            <Field label="Kasa">
+              <Select
+                value={kasaId}
+                onChange={(e) => setKasaId(e.target.value)}
+                options={activeKasas.map((k) => ({ value: k.id, label: k.name }))}
+              />
+            </Field>
+            <Field label="Fee ($)">
+              <NumberInput value={feeUsd} onChange={setFeeUsd} min={0} step={1} />
+            </Field>
+          </FormGrid>
+          <Field label="Kanıt / TXID">
+            <Input value={proof} onChange={(e) => setProof(e.target.value)} placeholder="TXID, link veya dekont notu" />
+          </Field>
+          <Field label="Not">
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          </Field>
+          <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Seçili kasa bakiyesi: <span className="font-medium tabular-nums">{fmt(balanceForSelected)}</span>
+            {" → "}
+            ödeme sonrası <span className="font-medium tabular-nums">{fmt(balanceForSelected - amount - feeUsd)}</span>
+          </p>
+        </>
+      )}
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={markCompleted} onChange={(e) => setMarkCompleted(e.target.checked)} />
+        Bu aktarımdan sonra kalemi tamamlandı işaretle
+      </label>
+      <FormActions onCancel={onClose} submitLabel={mode === "expense" ? "Giderlere Aktar" : "Kasadan Çıkış Yaz"} />
+    </form>
+  );
+}
+
 export default function PlanlananPage() {
   const {
-    plannedItems, plannedItemPayments, employees, brands, projects, kasas,
+    plannedItems, plannedItemPayments, employees, brands, projects, kasas, kasaTransactions,
     addPlannedItem, updatePlannedItem, deletePlannedItem,
     addPlannedItemPayment, updatePlannedItemPayment, deletePlannedItemPayment,
-    addExpense, addKasaTransaction,
+    transferPlannedToExpense, transferPlannedToKasa,
   } = useStore();
   const readOnly = useIsReadOnly();
   const defaultKasaId =
@@ -319,12 +447,22 @@ export default function PlanlananPage() {
   const [filterCategory, setFilterCategory] = useState<"" | PlannedCategory>("");
   const [filterStatus, setFilterStatus] = useState<"" | PlannedStatus>("");
   const [filterQuarter, setFilterQuarter] = useState("");
+  const [filterBrand, setFilterBrand] = useState("");
+  const [filterEmployee, setFilterEmployee] = useState("");
+  const [filterProject, setFilterProject] = useState("");
+  const [filterPriority, setFilterPriority] = useState<"" | PlannedItem["priority"]>("");
+  const [filterTiming, setFilterTiming] = useState<"" | "soon" | "overdue" | "recurring">("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [itemModal, setItemModal] = useState<"new" | PlannedItem | null>(null);
   const [paymentModal, setPaymentModal] = useState<
     | { mode: "new"; item: PlannedItem }
     | { mode: "edit"; payment: PlannedItemPayment; item: PlannedItem }
+    | null
+  >(null);
+  const [transferModal, setTransferModal] = useState<
+    | { mode: "expense"; item: PlannedItem }
+    | { mode: "kasa"; item: PlannedItem }
     | null
   >(null);
   const [transferMsg, setTransferMsg] = useState<string | null>(null);
@@ -338,6 +476,17 @@ export default function PlanlananPage() {
     let list = [...plannedItems];
     if (filterCategory) list = list.filter((i) => i.category === filterCategory);
     if (filterStatus) list = list.filter((i) => i.status === filterStatus);
+    if (filterBrand) list = list.filter((i) => i.brandId === filterBrand);
+    if (filterEmployee) list = list.filter((i) => i.employeeId === filterEmployee);
+    if (filterProject) list = list.filter((i) => i.internalProjectId === filterProject);
+    if (filterPriority) list = list.filter((i) => i.priority === filterPriority);
+    if (filterTiming === "recurring") list = list.filter((i) => i.isRecurring);
+    if (filterTiming === "soon") {
+      list = list.filter((i) => plannedDateUrgency(i.targetDate, i.status) === "soon");
+    }
+    if (filterTiming === "overdue") {
+      list = list.filter((i) => plannedDateUrgency(i.targetDate, i.status) === "overdue");
+    }
     if (filterQuarter) {
       list = list.filter((i) => {
         const q = quarterKey(i.targetDate) ?? quarterKey(i.startDate);
@@ -354,7 +503,18 @@ export default function PlanlananPage() {
       return da.localeCompare(db);
     });
     return list;
-  }, [plannedItems, filterCategory, filterStatus, filterQuarter, search]);
+  }, [
+    plannedItems,
+    filterCategory,
+    filterStatus,
+    filterQuarter,
+    filterBrand,
+    filterEmployee,
+    filterProject,
+    filterPriority,
+    filterTiming,
+    search,
+  ]);
 
   const today = new Date();
   const active = filtered.filter((i) => i.status !== "cancelled" && i.status !== "completed");
@@ -426,48 +586,6 @@ export default function PlanlananPage() {
     return opts;
   }, []);
 
-  function transferToExpense(item: PlannedItem) {
-    if (readOnly) return;
-    const amount = remainingBudget(item);
-    if (amount <= 0) {
-      setTransferMsg("Kalan bütçe yok — harcama zaten tamamlanmış görünüyor.");
-      return;
-    }
-    addExpense({
-      category: expenseCategoryFor(item.category),
-      amount,
-      date: new Date().toISOString().slice(0, 10),
-      description: `[Planlanan] ${item.name}`,
-    });
-    updatePlannedItem(item.id, {
-      spent: item.budget,
-      status: item.status === "planned" || item.status === "in-progress" ? "completed" : item.status,
-    });
-    setTransferMsg(`Giderlere ${fmt(amount)} aktarıldı (/giderler).`);
-  }
-
-  function transferToKasa(item: PlannedItem) {
-    if (readOnly) return;
-    const amount = remainingBudget(item);
-    if (amount <= 0) {
-      setTransferMsg("Kalan bütçe yok.");
-      return;
-    }
-    addKasaTransaction({
-      kasaId: defaultKasaId,
-      date: new Date().toISOString().slice(0, 16),
-      direction: "out",
-      amountUsd: amount,
-      feeUsd: 0,
-      purpose: `[Planlanan] ${item.name}`,
-      counterparty: "Planlanan yatırım",
-      proof: "",
-      notes: item.notes,
-    });
-    updatePlannedItem(item.id, { spent: item.budget });
-    setTransferMsg(`Kasaya ${fmt(amount)} çıkış yazıldı (/kasa).`);
-  }
-
   const KANBAN: { status: PlannedStatus; title: string }[] = [
     { status: "planned", title: "Planlanan" },
     { status: "in-progress", title: "Devam" },
@@ -477,7 +595,7 @@ export default function PlanlananPage() {
   ];
 
   return (
-    <div className="p-3 sm:p-6 md:p-8">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <PageHeader
         title="Planlanan"
         subtitle={
@@ -514,9 +632,72 @@ export default function PlanlananPage() {
             options={[{ value: "", label: "Tümü" }, ...quarterOptions.map((q) => ({ value: q, label: q }))]}
           />
         </Field>
+        <Field label="Marka">
+          <Select
+            value={filterBrand}
+            onChange={(e) => setFilterBrand(e.target.value)}
+            options={[{ value: "", label: "Tümü" }, ...brands.map((b) => ({ value: b.id, label: b.shortName || b.name }))]}
+          />
+        </Field>
+        <Field label="Sorumlu">
+          <Select
+            value={filterEmployee}
+            onChange={(e) => setFilterEmployee(e.target.value)}
+            options={[{ value: "", label: "Tümü" }, ...staff.map((e) => ({ value: e.id, label: e.name }))]}
+          />
+        </Field>
+        <Field label="İç proje">
+          <Select
+            value={filterProject}
+            onChange={(e) => setFilterProject(e.target.value)}
+            options={[{ value: "", label: "Tümü" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]}
+          />
+        </Field>
+        <Field label="Öncelik">
+          <Select
+            value={filterPriority}
+            onChange={(e) => setFilterPriority(e.target.value as "" | PlannedItem["priority"])}
+            options={[
+              { value: "", label: "Tümü" },
+              { value: "high", label: "Yüksek" },
+              { value: "medium", label: "Orta" },
+              { value: "low", label: "Düşük" },
+            ]}
+          />
+        </Field>
+        <Field label="Takip">
+          <Select
+            value={filterTiming}
+            onChange={(e) => setFilterTiming(e.target.value as typeof filterTiming)}
+            options={[
+              { value: "", label: "Tümü" },
+              { value: "soon", label: "Yaklaşan" },
+              { value: "overdue", label: "Gecikmiş" },
+              { value: "recurring", label: "Tekrarlı" },
+            ]}
+          />
+        </Field>
         <Field label="Ara">
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Hedef adı..." className="min-w-[160px]" />
         </Field>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mb-0.5 h-9"
+          onClick={() => {
+            setFilterCategory("");
+            setFilterStatus("");
+            setFilterQuarter("");
+            setFilterBrand("");
+            setFilterEmployee("");
+            setFilterProject("");
+            setFilterPriority("");
+            setFilterTiming("");
+            setSearch("");
+          }}
+        >
+          Filtreleri temizle
+        </Button>
         {transferMsg && <p className="text-sm text-muted-foreground pb-2">{transferMsg}</p>}
       </div>
 
@@ -577,8 +758,8 @@ export default function PlanlananPage() {
                       onEdit={() => setItemModal(item)}
                       onPaymentNew={() => setPaymentModal({ mode: "new", item })}
                       onPaymentEdit={(pay) => setPaymentModal({ mode: "edit", payment: pay, item })}
-                      onTransferExpense={() => transferToExpense(item)}
-                      onTransferKasa={() => transferToKasa(item)}
+                      onTransferExpense={() => setTransferModal({ mode: "expense", item })}
+                      onTransferKasa={() => setTransferModal({ mode: "kasa", item })}
                     />
                   ))}
                 </tbody>
@@ -699,10 +880,6 @@ export default function PlanlananPage() {
             onSave={(data) => {
               if (paymentModal.mode === "new") {
                 addPlannedItemPayment(data);
-                if (data.status === "paid") {
-                  const item = paymentModal.item;
-                  updatePlannedItem(item.id, { spent: (item.spent ?? 0) + data.amount });
-                }
               } else {
                 updatePlannedItemPayment(paymentModal.payment.id, data);
               }
@@ -713,6 +890,50 @@ export default function PlanlananPage() {
                 : undefined
             }
             onClose={() => setPaymentModal(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={transferModal !== null}
+        onClose={() => setTransferModal(null)}
+        title={transferModal?.mode === "expense" ? "Planı Giderlere Aktar" : "Planı Kasadan Düş"}
+        size="md"
+      >
+        {transferModal && (
+          <TransferForm
+            item={transferModal.item}
+            mode={transferModal.mode}
+            kasas={kasas}
+            kasaTransactions={kasaTransactions}
+            defaultKasaId={defaultKasaId}
+            monthYm={viewMonth}
+            onClose={() => setTransferModal(null)}
+            onSave={(data) => {
+              if (transferModal.mode === "expense") {
+                transferPlannedToExpense({
+                  plannedItemId: transferModal.item.id,
+                  amount: data.amount,
+                  date: data.date,
+                  description: data.description,
+                  category: data.category,
+                  markCompleted: data.markCompleted,
+                });
+                setTransferMsg(`Giderlere ${fmt(data.amount)} aktarıldı (/giderler).`);
+              } else {
+                transferPlannedToKasa({
+                  plannedItemId: transferModal.item.id,
+                  kasaId: data.kasaId,
+                  amount: data.amount,
+                  date: data.date,
+                  feeUsd: data.feeUsd,
+                  notes: data.notes,
+                  proof: data.proof,
+                  markCompleted: data.markCompleted,
+                });
+                setTransferMsg(`Kasaya ${fmt(data.amount)} çıkış yazıldı (/kasa).`);
+              }
+            }}
           />
         )}
       </Modal>
@@ -869,6 +1090,12 @@ function PlannedRow({
                   <li>Marka: {brand ?? "—"}</li>
                   <li>İç gelir: {proj ?? "—"}</li>
                   <li>Harcanan: {fmt(item.spent)} / {fmt(item.budget)}</li>
+                  <li className="flex items-center gap-1">
+                    <Link2 size={10} />
+                    Gider bağlantısı: {item.expenseEntryId ? item.expenseEntryId.slice(0, 8) : "—"}
+                    {" · "}
+                    Kasa bağlantısı: {item.kasaTxId ? item.kasaTxId.slice(0, 8) : "—"}
+                  </li>
                   <li>Tekrar: {item.isRecurring ? RECURRENCE_OPTIONS.find((r) => r.value === item.recurrence)?.label : "Hayır"}</li>
                 </ul>
                 <ProgressBar value={budgetProgressPct(item)} color="#22c55e" />

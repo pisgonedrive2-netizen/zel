@@ -157,6 +157,10 @@ export interface BrandRankRow {
   monthlyTarget?: number;
   targetPct: number | null;
   sharePct: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  engagement: number;
 }
 
 /** Seçili ayda tüm markaları izlenmeye göre sıralar (1 = en yüksek). */
@@ -186,6 +190,9 @@ export function rankBrandsForMonth(opts: {
         brand.monthlyTarget && brand.monthlyTarget > 0
           ? Math.min(100, (views / brand.monthlyTarget) * 100)
           : null;
+      const likes    = links.reduce((s, l) => s + (l.lastLikes    ?? 0), 0);
+      const comments = links.reduce((s, l) => s + (l.lastComments ?? 0), 0);
+      const shares   = links.reduce((s, l) => s + (l.lastShares   ?? 0), 0);
       return {
         brandId: brand.id,
         name: brand.name,
@@ -196,6 +203,10 @@ export function rankBrandsForMonth(opts: {
         monthlyTarget: brand.monthlyTarget,
         targetPct,
         sharePct: 0,
+        likes,
+        comments,
+        shares,
+        engagement: likes + comments + shares,
       };
     })
     .sort((a, b) => b.views - a.views);
@@ -225,6 +236,68 @@ export interface MultiBrandTrendPoint {
   [brandKey: string]: number | string;
 }
 
+/**
+ * Günlük çoklu çizgi grafik verisi — son N günlük link_snapshots toplamı + brand_viewership
+ *
+ * "Son 1 ay" için günlük resolution gerekli; aksi halde tek noktayla çizgi çizilemez.
+ * Her marka için her gün: o güne (veya öncesine en yakın) snapshot toplamı yazılır.
+ *
+ * Snapshot'lar seyrek olduğunda "forward fill" yapılır — yani o güne ait kayıt yoksa
+ * en son bilinen değer kullanılır. Bu, eski snapshot'ı 0'a düşürmemek için kritik.
+ */
+export function buildMultiBrandTrendDaily(opts: {
+  brands: Brand[];
+  brandLinks: BrandLink[];
+  linkSnapshots: LinkSnapshot[];
+  brandViewership: BrandViewership[];
+  endDate: Date;
+  /** Kaç gün geriye (varsayılan 30). */
+  days?: number;
+}): MultiBrandTrendPoint[] {
+  const active = opts.brands.filter((b) => b.status === "active");
+  const days = opts.days ?? 30;
+
+  const dayLabels: Array<{ iso: string; label: string; ym: string }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(opts.endDate);
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+    const ym = iso.slice(0, 7);
+    dayLabels.push({ iso, label, ym });
+  }
+
+  return dayLabels.map(({ iso, label, ym }) => {
+    const point: MultiBrandTrendPoint = { month: iso, monthLabel: label };
+    for (const brand of active) {
+      const links = opts.brandLinks.filter((l) => l.brandId === brand.id);
+      let total = 0;
+      // Her linkin o tarih veya öncesi en yakın snapshot'ını topla (forward fill)
+      for (const link of links) {
+        const candidates = opts.linkSnapshots
+          .filter((s) => s.linkId === link.id && s.date <= iso)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        if (candidates.length > 0) {
+          total += candidates[0].views ?? 0;
+        }
+      }
+      // brand_viewership o aya ait, sadece son güne ekle ki çizgi sıçramasın —
+      // alternatif: aya yayma. Şimdilik aya yay (her güne pay).
+      const monthlyViewership = opts.brandViewership
+        .filter((v) => v.brandId === brand.id && v.month === ym)
+        .reduce((s, v) => s + v.views, 0);
+      // Aylık değeri 30'a böl + biriktirici toplam değil; çoğu kullanım için
+      // sadece link snapshot'lar yeterli. Aylık veriyi sadece günlük link verisi
+      // hiç yoksa fallback olarak ay ortalaması ekle.
+      if (total === 0 && monthlyViewership > 0) {
+        total = Math.round(monthlyViewership / 30);
+      }
+      point[brand.id] = total;
+    }
+    return point;
+  });
+}
+
 /** Tüm markalar için çoklu çizgi grafik verisi. */
 export function buildMultiBrandTrend(opts: {
   brands: Brand[];
@@ -236,6 +309,9 @@ export function buildMultiBrandTrend(opts: {
   maxMonths?: number;
 }): MultiBrandTrendPoint[] {
   const active = opts.brands.filter((b) => b.status === "active");
+  const maxMonths = opts.maxMonths ?? 8;
+
+  // Collect months from actual data
   const allMonths = new Set<string>();
   for (const b of active) {
     for (const m of collectBrandDataMonths({
@@ -247,14 +323,19 @@ export function buildMultiBrandTrend(opts: {
       allMonths.add(m);
     }
   }
+
+  // Always fill backwards from endMonthYm to guarantee maxMonths range
+  let cursor = opts.endMonthYm;
+  for (let i = 0; i < maxMonths; i++) {
+    allMonths.add(cursor);
+    cursor = shiftCalendarMonthYm(cursor, -1);
+  }
+
   const sorted = [...allMonths].sort((a, b) => a.localeCompare(b));
-  const maxMonths = opts.maxMonths ?? 8;
-  const slice =
-    sorted.length > maxMonths ? sorted.slice(sorted.length - maxMonths) : sorted;
-  const months =
-    slice.length > 0
-      ? slice.filter((m) => m <= opts.endMonthYm)
-      : [opts.endMonthYm];
+  const filtered = sorted.filter((m) => m <= opts.endMonthYm);
+  const months = filtered.length > maxMonths
+    ? filtered.slice(filtered.length - maxMonths)
+    : filtered;
 
   if (months.length === 0) months.push(opts.endMonthYm);
 

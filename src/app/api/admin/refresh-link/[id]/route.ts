@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/admin/refresh-link/[id]
- * Tek link için manuel refresh — admin (veya brand kendi linki için).
+ * Tek link için manuel refresh — yalnızca admin ve auditor rolü tetikleyebilir.
  * Bu istek RapidAPI kotasından 1 düşürür.
  */
 export async function POST(

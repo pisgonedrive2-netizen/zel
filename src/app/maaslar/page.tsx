@@ -1,11 +1,16 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, ChevronLeft, ChevronRight, CheckCircle2, Clock, AlertTriangle, CalendarClock, ExternalLink, Home } from "lucide-react";
+import {
+  Plus, Pencil, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Clock,
+  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
-  sumApprovedContentExpenses, sumPaidContentExpenses, plannedPayrollPlusApprovedContent,
+  sumApprovedContentExpenses, sumPaidContentExpenses, sumPayrollSettledContentExpenses,
+  plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
   DEFAULT_KASA_ID,
   type Employee, type Advance, type SalaryExtra,
@@ -13,7 +18,8 @@ import {
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
-import { fmt, shiftCalendarMonthYm, toYearMonthLocal } from "@/lib/data";
+import { fmt, shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
+import { expenseReviewStatus, settlementLabel, isPayrollSettled } from "@/lib/content-expense";
 import { payrollDueShort, payrollMonthLongTitle } from "@/lib/payroll-dates";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +72,7 @@ function InlineEdit({ value, onSave, className = "", mono = false, readOnly = fa
     return (
       <input
         ref={inputRef}
+        aria-label="Satır içi düzenle"
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onBlur={save}
@@ -177,7 +184,7 @@ function AdvanceForm({ employeeId, month, initial, onSave, onDelete, onClose }: 
   employeeId: string; month: string; initial?: Advance;
   onSave: (d: Omit<Advance, "id">) => void; onDelete?: () => void; onClose: () => void;
 }) {
-  const [form, setForm] = useState({ employeeId, month, amount: initial?.amount ?? 0, date: initial?.date ?? new Date().toISOString().slice(0, 10), description: initial?.description ?? "" });
+  const [form, setForm] = useState({ employeeId, month, amount: initial?.amount ?? 0, date: initial?.date ?? defaultSnapshotDateInMonth(month), description: initial?.description ?? "" });
   const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
   return (
     <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
@@ -221,6 +228,64 @@ function ExtraForm({ employeeId, month, initial, onSave, onDelete, onClose }: {
   );
 }
 
+/** Kart içi açılır/kapanır bölüm (uzun listeler için). */
+function PayrollCardSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+  trailing,
+  tone = "default",
+}: {
+  title: ReactNode;
+  summary?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  trailing?: ReactNode;
+  tone?: "default" | "violet" | "emerald";
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toneCls =
+    tone === "violet"
+      ? "bg-violet-50/40 dark:bg-violet-950/15"
+      : tone === "emerald"
+        ? "bg-emerald-50/40 dark:bg-emerald-950/20"
+        : "";
+
+  return (
+    <div className={cn("border-t border-border/60", toneCls)}>
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-accent/25 transition-colors"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <ChevronDown
+          size={14}
+          className={cn(
+            "shrink-0 text-muted-foreground transition-transform duration-200",
+            open && "rotate-180",
+          )}
+        />
+        <span className="flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          {title}
+        </span>
+        {!open && summary ? (
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0 max-w-[55%] truncate text-right">
+            {summary}
+          </span>
+        ) : null}
+        {trailing ? (
+          <div className="shrink-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            {trailing}
+          </div>
+        ) : null}
+      </button>
+      {open ? <div className="px-4 pb-3 pt-0">{children}</div> : null}
+    </div>
+  );
+}
+
 // ── Employee detail card (monthly view) ───────────────────────────────────
 function EmployeeDetailRow({
   employee,
@@ -238,7 +303,9 @@ function EmployeeDetailRow({
   const { advances, salaryExtras, paymentStatuses, contentExpenses, kasas, kasaTransactions,
     updateEmployee, addAdvance, updateAdvance, deleteAdvance,
     addSalaryExtra, updateSalaryExtra, deleteSalaryExtra,
-    payEmployeeSalary, unpayEmployeeSalary } = useStore();
+    payEmployeeSalary, unpayEmployeeSalary,
+    payContentExpense, settleContentExpenseToPayroll, unsettleContentExpenseFromPayroll,
+  } = useStore();
   const { user } = useAuth();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
   const router = useRouter();
@@ -264,8 +331,16 @@ function EmployeeDetailRow({
   const totalBonus = empExtras.filter(e => e.type === "bonus" || e.type === "expense" || e.type === "other").reduce((s, e) => s + e.amount, 0);
   const totalDeduc = empExtras.filter(e => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
   const contentAprv = sumApprovedContentExpenses(contentExpenses, employee.id, month);
+  const contentPayroll = sumPayrollSettledContentExpenses(contentExpenses, employee.id, month);
   const plannedOut  = plannedPayrollPlusApprovedContent(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidOut     = totalCashOutPaidForMonth(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
+  const monthContentExpenses = useMemo(
+    () =>
+      contentExpenses
+        .filter((e) => e.employeeId === employee.id && e.month === month)
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [contentExpenses, employee.id, month]
+  );
   const paidContentItems = contentExpenses.filter(
     (e) =>
       e.employeeId === employee.id &&
@@ -293,6 +368,13 @@ function EmployeeDetailRow({
     deduction: "Kesinti",
   };
 
+  const monthContentTotal = monthContentExpenses.reduce((s, e) => s + e.amountUsd, 0);
+  const pendingContentCount = monthContentExpenses.filter(
+    (e) => expenseReviewStatus(e) === "pending" || expenseReviewStatus(e) === "needs_info",
+  ).length;
+  const hasManyContent = monthContentExpenses.length >= 5;
+  const [cardOpen, setCardOpen] = useState(!hasManyContent);
+
   return (
     <>
       <div className={`rounded-xl border transition-colors ${
@@ -300,8 +382,20 @@ function EmployeeDetailRow({
         isPaid                 ? "border-green-500/30 bg-green-50/40 dark:border-green-500/40 dark:bg-green-950/25" :
         "border-border bg-card"
       }`}>
-        {/* Employee header row */}
+        {/* Employee header row — tıklanınca kart gövdesi açılır/kapanır */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60">
+          <button
+            type="button"
+            onClick={() => setCardOpen((o) => !o)}
+            className="shrink-0 p-0.5 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
+            aria-expanded={cardOpen}
+            aria-label={cardOpen ? "Kartı daralt" : "Kartı genişlet"}
+          >
+            <ChevronDown
+              size={18}
+              className={cn("transition-transform duration-200", cardOpen && "rotate-180")}
+            />
+          </button>
           <Avatar className="h-9 w-9 shrink-0">
             <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">
               {employee.avatar || initials(employee.name)}
@@ -355,6 +449,36 @@ function EmployeeDetailRow({
           </div>
         </div>
 
+        {/* Kapalı kart özeti */}
+        {active && !cardOpen && (
+          <button
+            type="button"
+            onClick={() => setCardOpen(true)}
+            className="w-full px-4 py-2 text-left text-xs border-b border-border/40 bg-muted/20 hover:bg-muted/40 transition-colors"
+          >
+            <span className="text-muted-foreground">
+              {monthContentExpenses.length > 0 && (
+                <>
+                  <span className="text-violet-700 dark:text-violet-300 font-medium">
+                    {monthContentExpenses.length} içerik harcaması
+                  </span>
+                  {" · "}
+                  <span className="tabular-nums">{fmt(monthContentTotal)}</span>
+                  {pendingContentCount > 0 && (
+                    <span className="text-amber-600"> · {pendingContentCount} incelemede</span>
+                  )}
+                  {" · "}
+                </>
+              )}
+              {empAdv.length > 0 && <span>{empAdv.length} avans · </span>}
+              {empExtras.length > 0 && <span>{empExtras.length} bordro kalemi · </span>}
+              <span className="text-blue-600">Detayları göster</span>
+            </span>
+          </button>
+        )}
+
+        {cardOpen && (
+        <>
         {/* Calculation strip */}
         {active && (
           <div className="flex items-center gap-2 px-4 py-2.5 text-xs flex-wrap border-b border-border/40 bg-muted/30">
@@ -376,9 +500,11 @@ function EmployeeDetailRow({
             {totalDeduc > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-red-600 font-medium">{fmt(totalDeduc)} kesinti</span></>}
             <span className="text-muted-foreground/40">=</span>
             <span className="font-semibold text-foreground">{fmt(net)}</span>
-            {active && employee.kind !== "coordinator" && (contentAprv > 0 || paidOut > net) && (
+            {active && employee.kind !== "coordinator" && (contentAprv > 0 || contentPayroll > 0 || paidOut > net) && (
               <span className="text-muted-foreground/80 text-[10px] ml-2 hidden sm:inline">
-                · plan {fmt(plannedOut)} · ödenen {fmt(paidOut)}
+                · plan {fmt(plannedOut)}
+                {contentAprv > 0 ? ` · bekleyen içerik ${fmt(contentAprv)}` : ""}
+                · ödenen {fmt(paidOut)}
               </span>
             )}
           </div>
@@ -397,8 +523,16 @@ function EmployeeDetailRow({
           </div>
         )}
 
-        <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Advances */}
+        <PayrollCardSection
+          title="Avanslar & bordro kalemleri"
+          summary={
+            empAdv.length + empExtras.length > 0
+              ? `${empAdv.length + empExtras.length} kalem`
+              : "Boş"
+          }
+          defaultOpen={!hasManyContent && (empAdv.length > 0 || empExtras.length > 0)}
+        >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Avanslar</p>
@@ -420,8 +554,6 @@ function EmployeeDetailRow({
               </div>
             )}
           </div>
-
-          {/* Extras */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Kira / Prim / Kesinti</p>
@@ -470,18 +602,147 @@ function EmployeeDetailRow({
             )}
           </div>
         </div>
+        </PayrollCardSection>
 
-        {/* Bu ay ödenen ekstralar */}
-        {active && buAyEkstraToplam > 0 && (
-          <div className="px-4 py-3 border-t border-border/60 bg-emerald-50/40 dark:bg-emerald-950/20">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300 uppercase tracking-widest">
-                Bu Ay Ödenen Ekstralar
-              </p>
-              <span className="text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-                {fmt(buAyEkstraToplam)}
+        {active && monthContentExpenses.length > 0 && (
+          <PayrollCardSection
+            tone="violet"
+            title={
+              <span className="inline-flex items-center gap-1.5 text-violet-800 dark:text-violet-300">
+                <Receipt size={11} />
+                İçerik harcamaları ({monthContentExpenses.length})
               </span>
+            }
+            summary={`${fmt(monthContentTotal)}${pendingContentCount > 0 ? ` · ${pendingContentCount} bekliyor` : ""}`}
+            defaultOpen={monthContentExpenses.length <= 3}
+            trailing={
+              <button
+                type="button"
+                className="text-[10px] text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                onClick={() =>
+                  router.push(`/icerik-harcamalari?employee=${employee.id}&month=${month}`)
+                }
+              >
+                <ExternalLink size={10} />
+                Tümü
+              </button>
+            }
+          >
+            <div className="overflow-x-auto -mx-1 max-h-[min(320px,50vh)] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/50">
+                    <th className="text-left py-1 pr-2 font-medium">Tarih</th>
+                    <th className="text-left py-1 pr-2 font-medium">Marka</th>
+                    <th className="text-left py-1 pr-2 font-medium">Kategori</th>
+                    <th className="text-left py-1 pr-2 font-medium max-w-[120px]">Açıklama</th>
+                    <th className="text-right py-1 pr-2 font-medium">USD</th>
+                    <th className="text-left py-1 pr-2 font-medium">Durum</th>
+                    <th className="text-left py-1 font-medium">Ödeme</th>
+                    {!readOnly && user?.role === "admin" && (
+                      <th className="text-right py-1 font-medium">İşlem</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthContentExpenses.map((e) => {
+                    const st = expenseReviewStatus(e);
+                    return (
+                      <tr key={e.id} className="border-b border-border/30 last:border-0">
+                        <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">{e.date}</td>
+                        <td className="py-1.5 pr-2 whitespace-nowrap">{e.brandName}</td>
+                        <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">{e.category}</td>
+                        <td className="py-1.5 pr-2 truncate max-w-[140px]" title={e.description}>
+                          {e.description}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right tabular-nums font-medium">{fmt(e.amountUsd)}</td>
+                        <td className="py-1.5 pr-2 whitespace-nowrap">
+                          {st === "pending" && <span className="text-amber-600">İncelemede</span>}
+                          {st === "needs_info" && <span className="text-orange-600">Bilgi</span>}
+                          {st === "approved" && <span className="text-blue-600">Onaylı</span>}
+                          {st === "rejected" && <span className="text-red-600">Red</span>}
+                          {st === "cancelled" && <span className="text-muted-foreground">İptal</span>}
+                        </td>
+                        <td className="py-1.5 pr-2 text-[10px] text-muted-foreground whitespace-nowrap">
+                          {settlementLabel(e)}
+                        </td>
+                        {!readOnly && user?.role === "admin" && (
+                          <td className="py-1.5 text-right whitespace-nowrap">
+                            {st === "pending" && (
+                              <button
+                                type="button"
+                                className="text-[10px] text-amber-700 hover:underline"
+                                onClick={() =>
+                                  router.push(`/icerik-harcamalari?review=${e.id}`)
+                                }
+                              >
+                                İncele
+                              </button>
+                            )}
+                            {st === "approved" && !isPayrollSettled(e) && !e.paid && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-green-700 hover:underline mr-2"
+                                  onClick={() => {
+                                    const kasa =
+                                      kasas.find((k) => k.isDefault && !k.archived) ??
+                                      kasas.find((k) => !k.archived);
+                                    if (!kasa) return;
+                                    payContentExpense({
+                                      contentExpenseId: e.id,
+                                      kasaId: kasa.id,
+                                      paidDate: new Date().toISOString().slice(0, 10),
+                                    });
+                                  }}
+                                >
+                                  Kasa
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-[10px] text-violet-700 hover:underline"
+                                  onClick={() => settleContentExpenseToPayroll(e.id)}
+                                >
+                                  Maaş
+                                </button>
+                              </>
+                            )}
+                            {isPayrollSettled(e) && (
+                              <button
+                                type="button"
+                                className="text-[10px] text-muted-foreground hover:underline"
+                                onClick={() => {
+                                  if (window.confirm("Bordro bağlantısı kaldırılsın mı?")) {
+                                    unsettleContentExpenseFromPayroll(e.id);
+                                  }
+                                }}
+                              >
+                                Geri al
+                              </button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+            <p className="text-[10px] text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
+              <span>Bekleyen onaylı: <strong className="tabular-nums">{fmt(contentAprv)}</strong></span>
+              <span>Bordroya işli: <strong className="tabular-nums text-violet-700">{fmt(contentPayroll)}</strong></span>
+              <span>Kasadan ödenen: <strong className="tabular-nums text-green-700">{fmt(paidContentTotal)}</strong></span>
+            </p>
+          </PayrollCardSection>
+        )}
+
+        {active && buAyEkstraToplam > 0 && (
+          <PayrollCardSection
+            tone="emerald"
+            title="Bu ay ödenen ekstralar"
+            summary={fmt(buAyEkstraToplam)}
+            defaultOpen={!hasManyContent}
+          >
             <div className="space-y-1 text-xs">
               {empAdv.map((a) => (
                 <div key={a.id} className="flex justify-between gap-2">
@@ -519,7 +780,7 @@ function EmployeeDetailRow({
                 Toplam nakit çıkışı (maaş + içerik): <span className="font-medium tabular-nums">{fmt(paidOut)}</span>
               </p>
             )}
-          </div>
+          </PayrollCardSection>
         )}
 
         {/* Payment toggle */}
@@ -573,6 +834,8 @@ function EmployeeDetailRow({
               )
             )}
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -644,7 +907,7 @@ function PaySalaryForm({
   const [kasaId, setKasaId]       = useState(defaultKasaId);
   const [amountUsd, setAmountUsd] = useState(netAmount);
   const [feeUsd, setFeeUsd]       = useState(0);
-  const [paidDate, setPaidDate]   = useState(() => new Date().toISOString().slice(0, 10));
+  const [paidDate, setPaidDate]   = useState(() => defaultSnapshotDateInMonth(month));
   const [notes, setNotes]         = useState("");
   const [proof, setProof]         = useState("");
 
@@ -831,9 +1094,9 @@ export default function MaaslarPage() {
   };
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       {/* Header */}
-      <div className="flex items-start justify-between mb-8 gap-3 flex-wrap">
+      <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Maaşlar</h1>
           <p className="text-muted-foreground text-sm mt-1">
@@ -904,7 +1167,7 @@ export default function MaaslarPage() {
       </div>
 
       {/* Monthly cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
         {bordrolu
           .filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
           .map(emp => (

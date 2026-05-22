@@ -2,6 +2,7 @@
  * Marka / yayıncı izlenme raporu — jsPDF + autoTable (Turkish-safe ASCII fallback).
  */
 import { jsPDF } from "jspdf";
+import { fmtDateTime } from "@/lib/fmt-date";
 import autoTableImport from "jspdf-autotable";
 import {
   downloadProfessionalCsv,
@@ -65,12 +66,25 @@ export type BrandMonthPdfInput = {
     owner?: string;
     lastViews: string;
     lastSnapshot: string;
+    lastLikes?: string;
+    lastComments?: string;
+    lastShares?: string;
+    engagementRate?: string;
   }>;
   monthlyRows: Array<{
     kaynak: string;
     izlenme: string;
     url: string;
     not: string;
+  }>;
+  /** Platform bazlı toplam metrikler (opsiyonel). */
+  platformBreakdown?: Array<{
+    platform: string;
+    linkCount: string;
+    totalViews: string;
+    totalLikes: string;
+    totalComments: string;
+    totalShares: string;
   }>;
   reels: Array<{
     hafta: string;
@@ -119,21 +133,65 @@ export function downloadBrandMonthPdf(input: BrandMonthPdfInput, filenamePrefix?
 
   if (input.links.length > 0) {
     doc.setFontSize(10);
-    doc.text(latin1ish("Marka linkleri"), 14, y);
+    doc.text(latin1ish("Marka linkleri (etkilesim metrikleri dahil)"), 14, y);
     y += 4;
     autoTable(doc, {
       startY: y,
-      head: [[latin1ish("Platform"), latin1ish("Yayinci"), "Handle", "URL", latin1ish("Son izlenme"), latin1ish("Snapshot tarihi")]],
+      head: [[
+        latin1ish("Platform"),
+        latin1ish("Yayinci"),
+        "Handle",
+        latin1ish("Izlenme"),
+        latin1ish("Begeni"),
+        latin1ish("Yorum"),
+        latin1ish("Paylasim"),
+        latin1ish("Etk. %"),
+        latin1ish("Tarih"),
+      ]],
       body: input.links.map((r) => [
         latin1ish(r.platform),
         latin1ish(r.owner ?? "-"),
-        latin1ish(r.handle),
-        r.url.length > 55 ? r.url.slice(0, 52) + "..." : r.url,
+        latin1ish(r.handle.length > 18 ? r.handle.slice(0, 15) + "..." : r.handle),
         r.lastViews,
+        r.lastLikes ?? "-",
+        r.lastComments ?? "-",
+        r.lastShares ?? "-",
+        r.engagementRate ?? "-",
         latin1ish(r.lastSnapshot),
       ]),
       styles: { fontSize: 8, cellPadding: 1.5 },
       headStyles: { fillColor: [79, 70, 229] },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
+      ? (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10
+      : y + 40;
+  }
+
+  if (input.platformBreakdown && input.platformBreakdown.length > 0) {
+    doc.setFontSize(10);
+    doc.text(latin1ish("Platform bazli toplam"), 14, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [[
+        latin1ish("Platform"),
+        latin1ish("Link"),
+        latin1ish("Toplam Izlenme"),
+        latin1ish("Toplam Begeni"),
+        latin1ish("Toplam Yorum"),
+        latin1ish("Toplam Paylasim"),
+      ]],
+      body: input.platformBreakdown.map((r) => [
+        latin1ish(r.platform),
+        r.linkCount,
+        r.totalViews,
+        r.totalLikes,
+        r.totalComments,
+        r.totalShares,
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [56, 189, 248] },
       margin: { left: 14, right: 14 },
     });
     y = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
@@ -269,7 +327,7 @@ export function downloadBrandOperationCsv(
       "Rapor turu": "Marka operasyon ozeti",
       Marka: input.brandFullName,
       Donem: `${input.monthTitle} (${input.monthYm})`,
-      "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+      "Olusturulma (TR)": fmtDateTime(new Date()),
     },
     sections,
   });
@@ -302,16 +360,38 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
     sections.push(
       numberedDetailSection(
         "Marka linkleri",
-        ["Platform", "Yayinci", "Handle", "URL", "Son_Izlenme", "Snapshot_Tarihi"],
+        ["Platform", "Yayinci", "Handle", "URL", "Son_Izlenme", "Begeni", "Yorum", "Paylasim", "Etkilesim_Yuzde", "Snapshot_Tarihi"],
         input.links.map((r) => [
           r.platform,
           r.owner ?? "-",
           r.handle,
           r.url,
           r.lastViews,
+          r.lastLikes ?? "-",
+          r.lastComments ?? "-",
+          r.lastShares ?? "-",
+          r.engagementRate ?? "-",
           r.lastSnapshot,
         ]),
-        "Aktif marka hesap linkleri",
+        "Aktif marka hesap linkleri + engagement",
+      ),
+    );
+  }
+
+  if (input.platformBreakdown && input.platformBreakdown.length > 0) {
+    sections.push(
+      numberedDetailSection(
+        "Platform bazli toplam",
+        ["Platform", "Link_Sayisi", "Toplam_Izlenme", "Toplam_Begeni", "Toplam_Yorum", "Toplam_Paylasim"],
+        input.platformBreakdown.map((r) => [
+          r.platform,
+          r.linkCount,
+          r.totalViews,
+          r.totalLikes,
+          r.totalComments,
+          r.totalShares,
+        ]),
+        `Platform breakdown · ${input.monthYm}`,
       ),
     );
   }
@@ -345,7 +425,7 @@ export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?
       "Rapor turu": "Marka izlenme",
       Marka: input.brandFullName,
       Donem: `${input.monthTitle} (${input.monthYm})`,
-      "Olusturulma (TR)": new Date().toLocaleString("tr-TR"),
+      "Olusturulma (TR)": fmtDateTime(new Date()),
     },
     sections,
   });

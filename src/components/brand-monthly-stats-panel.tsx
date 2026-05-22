@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { fmtDateTime } from "@/lib/fmt-date";
 import {
   Users,
   UserPlus,
@@ -509,13 +510,7 @@ export function BrandMonthlyStatsPanel({
         )}
         {saved?.updatedAt && (
           <p className="text-[10px] text-muted-foreground/80 border-t border-border/40 pt-2 leading-snug">
-            Son güncelleme: {new Date(saved.updatedAt).toLocaleString("tr-TR", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
+            Son güncelleme: {fmtDateTime(saved.updatedAt)}
             {updatedByLabel ? ` · ${updatedByLabel}` : ""}
           </p>
         )}

@@ -19,19 +19,53 @@ export async function refreshNotificationsFromServer(): Promise<boolean> {
   }
 }
 
-/** Tek bildirimi okundu işaretle (Supabase + store). */
-export async function markNotificationReadPersisted(id: string): Promise<void> {
-  useStore.getState().markNotificationRead(id);
-  if (!isSupabaseClientMode()) return;
+/**
+ * Tek bildirimi okundu işaretle.
+ * Önce Supabase'e yazar, başarılıysa store'u günceller — böylece
+ * yenileme sonrası "geri gelme" bug'ı oluşmaz.
+ */
+export async function markNotificationReadPersisted(id: string): Promise<boolean> {
+  if (!isSupabaseClientMode()) {
+    useStore.getState().markNotificationRead(id);
+    return true;
+  }
   try {
-    await fetch("/api/notifications", {
+    const res = await fetch("/api/notifications", {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, read: true }),
     });
+    if (!res.ok) return false;
+    useStore.getState().markNotificationRead(id);
+    return true;
   } catch {
-    /* store güncellendi */
+    return false;
+  }
+}
+
+/** Bildirim merkezi: listedeki tüm bildirimleri okundu işaretle (admin/denetçi paneli). */
+export async function markAllPanelNotificationsReadPersisted(): Promise<boolean> {
+  if (!isSupabaseClientMode()) {
+    useStore.setState((s) => ({
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+    }));
+    return true;
+  }
+  try {
+    const res = await fetch("/api/notifications", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markAll: true, markAllPanel: true }),
+    });
+    if (!res.ok) return false;
+    useStore.setState((s) => ({
+      notifications: s.notifications.map((n) => ({ ...n, read: true })),
+    }));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -39,31 +73,83 @@ export async function markNotificationReadPersisted(id: string): Promise<void> {
 export async function markAllNotificationsReadPersisted(
   forRole: AppNotification["forRole"],
   forUserId?: string
-): Promise<void> {
-  useStore.getState().markAllNotificationsRead(forRole, forUserId);
-  if (!isSupabaseClientMode()) return;
+): Promise<boolean> {
+  if (!isSupabaseClientMode()) {
+    useStore.getState().markAllNotificationsRead(forRole, forUserId);
+    return true;
+  }
   try {
-    await fetch("/api/notifications", {
+    const res = await fetch("/api/notifications", {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ markAll: true, forRole, forUserId }),
     });
+    if (!res.ok) return false;
+    useStore.getState().markAllNotificationsRead(forRole, forUserId);
+    return true;
   } catch {
-    /* store güncellendi */
+    return false;
   }
 }
 
-/** Bildirimi sil (yalnızca yönetici). */
-export async function deleteNotificationPersisted(id: string): Promise<void> {
-  useStore.getState().deleteNotification(id);
-  if (!isSupabaseClientMode()) return;
+/**
+ * Bildirimi kalıcı sil.
+ * Önce Supabase'e DELETE atar; sadece sunucu onayladıktan sonra
+ * yerel store'dan kaldırır. Aksi halde "anlık silindi, sonra geri geldi"
+ * sorunları yaşanıyordu.
+ */
+export async function deleteNotificationPersisted(id: string): Promise<boolean> {
+  if (!isSupabaseClientMode()) {
+    useStore.getState().deleteNotification(id);
+    return true;
+  }
   try {
-    await fetch(`/api/notifications?id=${encodeURIComponent(id)}`, {
+    const res = await fetch(`/api/notifications?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
       credentials: "include",
     });
+    if (!res.ok && res.status !== 404) return false;
+    useStore.getState().deleteNotification(id);
+    return true;
   } catch {
-    /* store güncellendi */
+    return false;
+  }
+}
+
+/**
+ * Birden çok bildirimi tek seferde sil.
+ * Her birini sırayla siler, başarısız olanları geri döner.
+ */
+export async function deleteNotificationsPersisted(ids: string[]): Promise<{ deleted: number; failed: number }> {
+  if (ids.length === 0) return { deleted: 0, failed: 0 };
+  if (!isSupabaseClientMode()) {
+    useStore.setState((s) => ({
+      notifications: s.notifications.filter((n) => !ids.includes(n.id)),
+    }));
+    return { deleted: ids.length, failed: 0 };
+  }
+  try {
+    const res = await fetch("/api/notifications", {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) {
+      const results = await Promise.all(ids.map((id) => deleteNotificationPersisted(id)));
+      const deleted = results.filter(Boolean).length;
+      return { deleted, failed: ids.length - deleted };
+    }
+    const data = (await res.json()) as { deleted?: number };
+    const deleted = data.deleted ?? ids.length;
+    useStore.setState((s) => ({
+      notifications: s.notifications.filter((n) => !ids.includes(n.id)),
+    }));
+    return { deleted, failed: Math.max(0, ids.length - deleted) };
+  } catch {
+    const results = await Promise.all(ids.map((id) => deleteNotificationPersisted(id)));
+    const deleted = results.filter(Boolean).length;
+    return { deleted, failed: ids.length - deleted };
   }
 }

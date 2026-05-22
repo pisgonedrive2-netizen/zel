@@ -11,7 +11,8 @@ import {
   type InternalProject,
   type InternalProjectPayment,
 } from "@/store/store";
-import { fmt, CHART_COLORS, MONTHS, toYearMonthLocal } from "@/lib/data";
+import { fmt, CHART_COLORS, MONTHS, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
+import { fmtDateTime } from "@/lib/fmt-date";
 import {
   derivePaymentStatus,
   daysUntilPaymentWindow,
@@ -61,11 +62,14 @@ function ProjectForm({
   initial,
   brands,
   employees,
+  defaultDate,
   onSave,
   onDelete,
   onClose,
 }: {
   initial?: InternalProject;
+  /** Yeni kayıt için varsayılan başlangıç tarihi (seçili viewMonth'dan). */
+  defaultDate?: string;
   brands: { id: string; name: string; shortName: string }[];
   employees: { id: string; name: string }[];
   onSave: (data: Omit<InternalProject, "id">) => void;
@@ -78,7 +82,7 @@ function ProjectForm({
     monthlyRevenue: initial?.monthlyRevenue ?? 0,
     progress: initial?.progress ?? 0,
     status: initial?.status ?? "active",
-    startDate: initial?.startDate ?? new Date().toISOString().slice(0, 10),
+    startDate: initial?.startDate ?? defaultDate ?? new Date().toISOString().slice(0, 10),
     notes: initial?.notes ?? "",
     brandId: initial?.brandId,
     employeeIds: initial?.employeeIds ?? [],
@@ -405,7 +409,7 @@ export default function IcGelirPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 md:p-8">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <PageHeader
         title="İç Gelir"
         subtitle="Marka anlaşmaları, yayıncı paylaşımı, ödeme günleri ve tahsilat takibi"
@@ -539,7 +543,9 @@ export default function IcGelirPage() {
 
       <Modal open={projectModal !== null} onClose={() => setProjectModal(null)} title={projectModal === "new" ? "Yeni iç gelir kaydı" : "Kaydı düzenle"}>
         <ProjectForm
+          key={projectModal === "new" ? `new-${viewMonth}` : (projectModal?.id ?? "edit")}
           initial={projectModal !== "new" && projectModal !== null ? projectModal : undefined}
+          defaultDate={projectModal === "new" ? defaultSnapshotDateInMonth(viewMonth) : undefined}
           brands={brands}
           employees={streamers}
           onSave={(data) => {
@@ -690,7 +696,7 @@ function ProjectRow({
                   <li>
                     Son hatırlatma:{" "}
                     {p.lastReminderSentAt
-                      ? new Date(p.lastReminderSentAt).toLocaleString("tr-TR")
+                      ? fmtDateTime(p.lastReminderSentAt)
                       : "Henüz gönderilmedi"}
                   </li>
                   <li>Hatırlatma: {p.reminderEnabled ? `${p.reminderDaysBefore} gün önce` : "Kapalı"}</li>

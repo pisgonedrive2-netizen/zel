@@ -210,7 +210,7 @@ export default function DisGelirPage() {
   );
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <PageHeader
         title="Dış Gelir (Geçmiş Tahsilat)"
         subtitle="Bu firmalar artık çalışılan firmalar değildir · gösterilen tutarlar toplam tahsilat tutarıdır"
@@ -255,7 +255,7 @@ export default function DisGelirPage() {
             </button>
           ))}
         </div>
-        <UInput placeholder="Firma / kategori ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-52 h-8 text-sm" />
+        <UInput aria-label="Dış gelir ara" placeholder="Firma / kategori ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-52 h-8 text-sm" />
         {!readOnly && (
           <Button size="sm" onClick={() => setModal("new")} className="gap-1.5 ml-auto">
             <Plus size={13} /> Firma Ekle

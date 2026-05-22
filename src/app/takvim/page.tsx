@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, ExternalLink, Copy, Check, Link as LinkIcon,
   Twitch, Youtube, Instagram, Send, Globe, MessageCircle,
+  ChevronDown, ChevronUp, Filter, CalendarDays,
 } from "lucide-react";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
@@ -236,17 +238,54 @@ export default function TakvimPage() {
     [employees]
   );
 
+  const [platformFilter, setPlatformFilter] = useState<string>("Tümü");
+  const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
   const [accountModal, setAccountModal] = useState<{ mode: "new" | StreamerAccount; employeeId?: string } | null>(null);
   const [slotModal, setSlotModal]       = useState<{ mode: "new" | ScheduleSlot; employeeId?: string; day?: number } | null>(null);
   const [planWeek, setPlanWeek] = useState(() => weekStartOf());
   const [planEmpId, setPlanEmpId] = useState("");
   const [planModal, setPlanModal] = useState<{ mode: "new" | WeeklyPlan; weekStart: string; employeeId: string } | null>(null);
+  // Üst grid haftalık planları da göstersin
+  const [overlayPlans, setOverlayPlans] = useState(true);
+
+  // Bildirimden gelen yönlendirme: /takvim?employee=ID&week=YYYY-MM-DD
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const emp = searchParams.get("employee");
+    const week = searchParams.get("week");
+    if (emp) setPlanEmpId(emp);
+    if (week) setPlanWeek(week);
+  }, [searchParams]);
 
   const planEmployeeId = planEmpId || yayincilar[0]?.id || "";
   const plansForWeek = useMemo(
     () => weeklyPlans.filter((p) => p.employeeId === planEmployeeId && p.weekStart === planWeek),
     [weeklyPlans, planEmployeeId, planWeek]
   );
+
+  // Üst grid'de gösterim için bu haftanın günleri (Pazartesi - Pazar)
+  const currentWeekDays = useMemo(() => {
+    const arr: string[] = [];
+    const base = new Date(planWeek + "T00:00:00");
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      arr.push(d.toISOString().slice(0, 10));
+    }
+    return arr;
+  }, [planWeek]);
+
+  const plansThisWeekByEmpDay = useMemo(() => {
+    const map = new Map<string, WeeklyPlan[]>();
+    for (const p of weeklyPlans) {
+      if (p.weekStart !== planWeek) continue;
+      const key = `${p.employeeId}::${p.date}`;
+      const arr = map.get(key) ?? [];
+      arr.push(p);
+      map.set(key, arr);
+    }
+    return map;
+  }, [weeklyPlans, planWeek]);
 
   // Renk paleti — yayıncı bazlı sabit renk
   const EMP_COLORS = ["bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-100 dark:border-blue-500/40",
@@ -257,11 +296,11 @@ export default function TakvimPage() {
   const empColor = (id: string) => EMP_COLORS[yayincilar.findIndex(e => e.id === id) % EMP_COLORS.length];
 
   return (
-    <div className="p-3 sm:p-6 md:p-8 max-w-[1400px]">
-      <div className="flex items-start justify-between mb-8">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+      <div className="flex items-start justify-between mb-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Haftalık Takvim & Yayıncı Hesapları</h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <h1 className="text-lg sm:text-xl font-bold text-foreground">Haftalık Takvim & Yayıncı Hesapları</h1>
+          <p className="text-muted-foreground text-xs mt-0.5">
             Yayıncıların güncel hesaplarını ve haftalık yayın planını tek ekrandan yönetin. Boş slotlara hesap atayarak haftalık dağılımı görselleştirin.
           </p>
         </div>
@@ -276,19 +315,39 @@ export default function TakvimPage() {
       </div>
 
       {/* ── HAFTALIK TAKVİM ───────────────────────────────────────────── */}
-      <Card className="mb-8 gap-2 py-5">
+      <Card className="mb-4 gap-2 py-5">
         <CardHeader>
-          <CardTitle>Haftalık Yayın Planı</CardTitle>
-          <CardDescription>Yayıncı bazlı haftalık takvim · slot eklemek için hücreye tıklayın</CardDescription>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle>Haftalık Yayın Planı</CardTitle>
+              <CardDescription>
+                Rutin yayın slotları + yayıncıların eklediği haftalık planlar. Slot eklemek için boş hücreye tıklayın.
+              </CardDescription>
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={overlayPlans}
+                onChange={(e) => setOverlayPlans(e.target.checked)}
+                className="rounded"
+              />
+              <CalendarDays size={11} /> Yayıncı planlarını göster ({weekRangeLabel(planWeek)})
+            </label>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <div className="min-w-[900px] grid grid-cols-[100px_repeat(7,_minmax(110px,_1fr))] gap-1.5">
               {/* Header */}
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold px-2 py-2">Yayıncı</div>
-              {WEEKDAYS_LONG.map((d) => (
+              {WEEKDAYS_LONG.map((d, i) => (
                 <div key={d} className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold text-center px-2 py-2 bg-muted/60 rounded-md">
-                  {d}
+                  <p>{d}</p>
+                  {overlayPlans && currentWeekDays[i] && (
+                    <p className="font-normal text-[9px] text-muted-foreground/70 mt-0.5 tabular-nums">
+                      {currentWeekDays[i].slice(5)}
+                    </p>
+                  )}
                 </div>
               ))}
 
@@ -298,11 +357,15 @@ export default function TakvimPage() {
                   {WEEKDAYS_LONG.map((_, dayIdx) => {
                     const day = dayIdx + 1;
                     const slots = scheduleSlots.filter(s => s.employeeId === emp.id && s.dayOfWeek === day);
+                    const isoDate = currentWeekDays[dayIdx];
+                    const dayPlans = overlayPlans
+                      ? (plansThisWeekByEmpDay.get(`${emp.id}::${isoDate}`) ?? [])
+                      : [];
                     return (
                       <div key={day}
                         className="min-h-[72px] p-1.5 border border-dashed border-border rounded-md hover:border-primary/50 hover:bg-accent/50 dark:hover:bg-accent/30 transition-all cursor-pointer relative group"
                         onClick={(e) => {
-                          if ((e.target as HTMLElement).closest("[data-schedule-slot]")) return;
+                          if ((e.target as HTMLElement).closest("[data-schedule-slot], [data-weekly-plan]")) return;
                           setSlotModal({ mode: "new", employeeId: emp.id, day });
                         }}
                       >
@@ -316,7 +379,29 @@ export default function TakvimPage() {
                               <p className="opacity-70 truncate">{s.platform}{s.notes ? ` · ${s.notes}` : ""}</p>
                             </button>
                           ))}
-                          {slots.length === 0 && (
+                          {dayPlans.map((p) => (
+                            <button
+                              type="button"
+                              data-weekly-plan
+                              key={`p-${p.id}`}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setPlanEmpId(emp.id);
+                                setPlanModal({ mode: p, weekStart: p.weekStart, employeeId: emp.id });
+                              }}
+                              className="block w-full text-left text-[10.5px] px-1.5 py-1 rounded border bg-violet-50 border-violet-200 text-violet-900 dark:bg-violet-950/40 dark:border-violet-500/40 dark:text-violet-100 hover:opacity-80 transition-opacity"
+                              title="Yayıncı planı"
+                            >
+                              <p className="font-semibold">
+                                {p.startTime ? `${p.startTime}${p.endTime ? "–" + p.endTime : ""} · ` : ""}
+                                {p.activity}
+                              </p>
+                              {p.brandName && (
+                                <p className="opacity-80 truncate">{p.brandName}</p>
+                              )}
+                            </button>
+                          ))}
+                          {slots.length === 0 && dayPlans.length === 0 && (
                             <span className="text-[10px] text-muted-foreground/70 inline-flex items-center gap-0.5 pointer-events-none select-none">
                               <Plus size={10} /> ekle
                             </span>
@@ -338,65 +423,169 @@ export default function TakvimPage() {
       </Card>
 
       {/* ── YAYINCI HESAPLARI ─────────────────────────────────────────── */}
-      <div className="mb-3">
-        <h2 className="text-lg font-semibold text-foreground">Güncel Hesaplar</h2>
-        <p className="text-muted-foreground text-sm">Yayıncıların aktif kullandığı tüm hesap, kanal ve linkler</p>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Güncel Hesaplar</h2>
+          <p className="text-muted-foreground text-sm">Yayıncıların aktif kullandığı tüm hesap, kanal ve linkler</p>
+        </div>
+        {/* Platform filter chips */}
+        {(() => {
+          const allPlatforms = [...new Set(streamerAccounts.map(a => a.platform))].sort();
+          return allPlatforms.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Filter size={12} className="text-muted-foreground shrink-0" />
+              {["Tümü", ...allPlatforms].map((p) => {
+                const Icon = p !== "Tümü" ? platformIcon(p) : null;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPlatformFilter(p)}
+                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium border transition-all ${
+                      platformFilter === p
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-card text-muted-foreground border-border hover:border-foreground/40 hover:text-foreground"
+                    }`}
+                  >
+                    {Icon && <Icon size={11} />}
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null;
+        })()}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {yayincilar.map((emp) => {
-          const accounts = streamerAccounts.filter(a => a.employeeId === emp.id);
+          const allAccounts  = streamerAccounts.filter(a => a.employeeId === emp.id);
+          const accounts     = platformFilter === "Tümü" ? allAccounts : allAccounts.filter(a => a.platform === platformFilter);
+          const PREVIEW_LIMIT = 3;
+          const isExpanded   = expandedAccounts[emp.id] ?? false;
+          const visible      = isExpanded ? accounts : accounts.slice(0, PREVIEW_LIMIT);
+          const hasMore      = accounts.length > PREVIEW_LIMIT;
+
+          // Platform badge summary for collapsed state
+          const platformCounts = allAccounts.reduce<Record<string, number>>((acc, a) => {
+            acc[a.platform] = (acc[a.platform] ?? 0) + 1;
+            return acc;
+          }, {});
+
           return (
-            <Card key={emp.id} className="gap-2 py-5">
-              <CardHeader className="flex-row items-center justify-between gap-2">
+            <Card key={emp.id} className="gap-0 overflow-hidden">
+              <CardHeader className="flex-row items-center justify-between gap-2 py-3 px-4">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9">
                     <AvatarFallback className={`text-xs font-bold ${empColor(emp.id)}`}>
                       {emp.avatar || emp.name[0]}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <CardTitle className="text-base">{emp.name}</CardTitle>
-                    <CardDescription>{emp.role} · {accounts.length} hesap</CardDescription>
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm font-semibold">{emp.name}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                      {Object.entries(platformCounts).map(([plat, cnt]) => {
+                        const PIcon = platformIcon(plat);
+                        return (
+                          <span
+                            key={plat}
+                            className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted/60 rounded px-1.5 py-0.5"
+                            title={`${plat}: ${cnt} hesap`}
+                          >
+                            <PIcon size={10} />
+                            {plat}
+                            {cnt > 1 && <span className="text-[9px] opacity-60 ml-0.5">×{cnt}</span>}
+                          </span>
+                        );
+                      })}
+                      {allAccounts.length === 0 && (
+                        <span className="text-[11px] text-muted-foreground italic">Hesap yok</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setAccountModal({ mode: "new", employeeId: emp.id })}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs gap-1 shrink-0"
+                  onClick={() => setAccountModal({ mode: "new", employeeId: emp.id })}
+                >
                   <Plus size={12} /> Hesap
                 </Button>
               </CardHeader>
-              <CardContent className="space-y-1.5">
-                {accounts.length === 0 && (
-                  <p className="text-xs text-muted-foreground italic px-2 py-3">Henüz hesap eklenmemiş.</p>
-                )}
-                {accounts.map(acc => {
-                  const Icon = platformIcon(acc.platform);
-                  return (
-                    <div key={acc.id} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border bg-card hover:bg-accent/30 transition-colors group">
-                      <Icon size={14} className="text-muted-foreground shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-foreground">{acc.platform}</span>
-                          <Badge variant="outline" className={`text-[10px] ${acc.status === "active" ? "border-green-200 text-green-700 dark:border-green-500/40 dark:text-green-400" : "text-muted-foreground"}`}>
-                            {acc.status === "active" ? "Aktif" : "Pasif"}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-xs">
-                          <CopyableText value={acc.handle} className="text-muted-foreground" />
-                          {acc.url && (
-                            <a href={acc.url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-0.5 text-blue-600 hover:text-blue-700">
-                              <LinkIcon size={10} /> Aç <ExternalLink size={10} />
-                            </a>
+
+              {accounts.length > 0 && (
+                <CardContent className="px-4 pb-3 pt-0 space-y-1.5">
+                  {visible.map(acc => {
+                    const Icon = platformIcon(acc.platform);
+                    return (
+                      <div
+                        key={acc.id}
+                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/60 bg-muted/20 hover:bg-accent/30 transition-colors"
+                      >
+                        <Icon size={14} className="text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-foreground">{acc.platform}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
+                              acc.status === "active"
+                                ? "border-emerald-300/70 text-emerald-700 bg-emerald-50/50 dark:border-emerald-500/40 dark:text-emerald-400 dark:bg-emerald-950/30"
+                                : "border-border text-muted-foreground"
+                            }`}>
+                              {acc.status === "active" ? "aktif" : "pasif"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <CopyableText value={acc.handle} className="text-[11px] text-muted-foreground" />
+                            {acc.url && (
+                              <a
+                                href={acc.url}
+                                target="_blank"
+                                rel="noopener"
+                                onClick={e => e.stopPropagation()}
+                                className="inline-flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-700"
+                              >
+                                <ExternalLink size={10} /> aç
+                              </a>
+                            )}
+                          </div>
+                          {acc.notes && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5 truncate opacity-70">{acc.notes}</p>
                           )}
                         </div>
-                        {acc.notes && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{acc.notes}</p>}
+                        <button
+                          type="button"
+                          onClick={() => setAccountModal({ mode: acc })}
+                          className="text-muted-foreground/40 hover:text-muted-foreground transition-colors p-1 shrink-0"
+                          title="Düzenle"
+                        >
+                          <Pencil size={12} />
+                        </button>
                       </div>
-                      <button onClick={() => setAccountModal({ mode: acc })} className="text-muted-foreground/40 hover:text-muted-foreground transition-colors p-1">
-                        <Pencil size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </CardContent>
+                    );
+                  })}
+                  {hasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedAccounts(p => ({ ...p, [emp.id]: !isExpanded }))}
+                      className="w-full flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground py-1.5 rounded-md hover:bg-muted/40 transition-colors border border-dashed border-border/60"
+                    >
+                      {isExpanded ? (
+                        <><ChevronUp size={11} /> Daha az göster</>
+                      ) : (
+                        <><ChevronDown size={11} /> Tümünü gör ({accounts.length - PREVIEW_LIMIT} daha)</>
+                      )}
+                    </button>
+                  )}
+                </CardContent>
+              )}
+              {accounts.length === 0 && (
+                <CardContent className="px-4 pb-3 pt-0">
+                  <p className="text-xs text-muted-foreground italic py-2">
+                    {platformFilter !== "Tümü" ? `${platformFilter} için hesap yok.` : "Henüz hesap eklenmemiş."}
+                  </p>
+                </CardContent>
+              )}
             </Card>
           );
         })}
