@@ -6,6 +6,7 @@ import type { SessionPayload } from "@/lib/session";
 import type { AppHydratePayload, BrandLink } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { syncContentExpensesAndSalaryExtras } from "@/lib/content-expense-sync";
 import type { AppUser } from "@/store/auth";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
@@ -35,38 +36,6 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
   if (rows.length === 0) return;
   const { error } = await getSupabaseAdmin().from(table).upsert(rows, { onConflict: "id" });
   if (error) throw new Error(`${table} upsert: ${error.message}`);
-}
-
-/** content_expense_id unique — upsert öncesi eski satırları temizler. */
-async function upsertSalaryExtras(rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
-  const db = getSupabaseAdmin();
-
-  const byContent = new Map<string, Record<string, unknown>>();
-  const rest: Record<string, unknown>[] = [];
-  for (const row of rows) {
-    const cid = row.content_expense_id ? String(row.content_expense_id) : "";
-    if (cid) byContent.set(cid, row);
-    else rest.push(row);
-  }
-  const deduped = [...rest, ...byContent.values()];
-
-  for (const row of deduped) {
-    const cid = row.content_expense_id ? String(row.content_expense_id) : "";
-    const id = String(row.id);
-    if (!cid) continue;
-    const { error: delErr } = await db
-      .from("salary_extras")
-      .delete()
-      .eq("content_expense_id", cid)
-      .neq("id", id);
-    if (delErr) throw new Error(`salary_extras cleanup: ${delErr.message}`);
-  }
-
-  const { error } = await db
-    .from("salary_extras")
-    .upsert(deduped, { onConflict: "id" });
-  if (error) throw new Error(`salary_extras upsert: ${error.message}`);
 }
 
 /** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
@@ -362,7 +331,7 @@ async function syncAuditorScoped(payload: AppHydratePayload) {
   // Denetçi yalnızca inceleme/audit sonucunu kalıcılaştırabilir; kayıt silme yok.
   const expenses = payload.contentExpenses ?? [];
   if (expenses.length > 0) {
-    await upsertRows("content_expenses", expenses.map(contentExpenseToRow));
+    await syncContentExpensesAndSalaryExtras(expenses, []);
   }
   const notifications = (payload.notifications ?? []).filter((n) =>
     n.forRole === "streamer" || n.forRole === "admin" || n.forRole === "auditor"
@@ -433,18 +402,10 @@ async function syncAdminFull(payload: AppHydratePayload) {
     }
   }
 
-  const contentExpenseRows = (payloadDeduped.contentExpenses ?? []).map(contentExpenseToRow);
-  if (contentExpenseRows.length > 0) {
-    await upsertRows("content_expenses", contentExpenseRows);
-  }
-
-  await upsertSalaryExtras(
-    (payloadDeduped.salaryExtras ?? []).map(salaryExtraToRow)
+  await syncContentExpensesAndSalaryExtras(
+    payloadDeduped.contentExpenses ?? [],
+    payloadDeduped.salaryExtras ?? []
   );
-
-  if (contentExpenseRows.length > 0) {
-    await upsertRows("content_expenses", contentExpenseRows);
-  }
 
   const ps = (payload.paymentStatuses ?? []).map(paymentStatusToRow);
   if (ps.length > 0) {
@@ -458,7 +419,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
 async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload) {
   const expenses = (payload.contentExpenses ?? []).filter((e) => e.employeeId === employeeId);
   if (expenses.length > 0) {
-    await upsertRows("content_expenses", expenses.map(contentExpenseToRow));
+    await syncContentExpensesAndSalaryExtras(expenses, []);
   }
 
   const empName =

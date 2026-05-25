@@ -9,6 +9,7 @@ import {
   type PersistEntity,
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -2265,18 +2266,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
               ? ("approved" as const)
               : expense.reviewStatus;
+          const updatedExpense: ContentExpense = {
+            ...expense,
+            settlementMode: "payroll" as const,
+            salaryExtraId: extraId,
+            reviewStatus,
+            reviewedAt: expense.reviewedAt ?? new Date().toISOString(),
+          };
+          queueMicrotask(() => {
+            void persistContentExpenseSettlement(newExtra, updatedExpense);
+          });
           return {
             salaryExtras: [...cleanedExtras, newExtra],
             contentExpenses: s.contentExpenses.map((x) =>
-              x.id === contentExpenseId
-                ? {
-                    ...x,
-                    settlementMode: "payroll" as const,
-                    salaryExtraId: extraId,
-                    reviewStatus,
-                    reviewedAt: x.reviewedAt ?? new Date().toISOString(),
-                  }
-                : x
+              x.id === contentExpenseId ? updatedExpense : x
             ),
           };
         }),

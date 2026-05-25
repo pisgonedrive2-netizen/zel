@@ -4,6 +4,10 @@ import { getSession, type SessionPayload } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { upsertBrandLinksMerged } from "@/lib/db/repository";
 import {
+  persistContentExpenseRow,
+  persistSalaryExtraRow,
+} from "@/lib/content-expense-sync";
+import {
   scheduleSlotFromRow,
   scheduleSlotToRow,
   brandLinkFromRow,
@@ -18,8 +22,8 @@ import {
   weekBrandReelToRow,
   streamerAccountFromRow,
   streamerAccountToRow,
+  salaryExtraFromRow,
   contentExpenseFromRow,
-  contentExpenseToRow,
 } from "@/lib/db/mappers";
 import type {
   ScheduleSlot,
@@ -30,7 +34,18 @@ import type {
   WeekBrandReel,
   StreamerAccount,
   ContentExpense,
+  SalaryExtra,
 } from "@/store/store";
+
+function contentExpenseFromPayload(row: Record<string, unknown>): ContentExpense {
+  if (row.employeeId != null) return row as unknown as ContentExpense;
+  return contentExpenseFromRow(row);
+}
+
+function salaryExtraFromPayload(row: Record<string, unknown>): SalaryExtra {
+  if (row.employeeId != null) return row as unknown as SalaryExtra;
+  return salaryExtraFromRow(row);
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +58,8 @@ type EntityKey =
   | "weekly_plan"
   | "week_brand_reel"
   | "streamer_account"
-  | "content_expense";
+  | "content_expense"
+  | "salary_extra";
 
 function canWriteAdmin(session: SessionPayload) {
   return session.role === "admin";
@@ -97,6 +113,8 @@ async function authorizeWrite(
         const e = contentExpenseFromRow(row);
         return e.employeeId === session.employeeId ? null : "Yetki yok";
       }
+      case "salary_extra":
+        return "Yetki yok";
       default:
         return "Yetki yok";
     }
@@ -196,11 +214,14 @@ export async function POST(req: Request) {
         break;
       }
       case "content_expense": {
-        const e = contentExpenseFromRow(row) as ContentExpense;
-        const { error } = await db
-          .from("content_expenses")
-          .upsert(contentExpenseToRow(e), { onConflict: "id" });
-        if (error) throw new Error(error.message);
+        await persistContentExpenseRow(contentExpenseFromPayload(row));
+        break;
+      }
+      case "salary_extra": {
+        if (!canWriteAdmin(session)) {
+          return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
+        }
+        await persistSalaryExtraRow(salaryExtraFromPayload(row));
         break;
       }
       default:
@@ -298,6 +319,7 @@ export async function DELETE(req: Request) {
       week_brand_reel: "week_brand_reels",
       streamer_account: "streamer_accounts",
       content_expense: "content_expenses",
+      salary_extra: "salary_extras",
     };
     const table = tableMap[entity];
     if (!table) {
