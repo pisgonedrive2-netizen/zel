@@ -128,4 +128,22 @@ Bu deploy’da marka rotalarında değişiklik yok. Kontrol edildi:
 
 Kasa → Genel Kasa seç → **Son 30 gün** veya **TRON hareketlerini çek** → filtre **Tümü**.
 
+---
+
+## Ek — API kota, yayıncı bildirimleri, özet izlenme
+
+### API limitleri (100 hatası)
+- Veritabanındaki eski `monthly_limit: 100` artık **config’ten** okunuyor (YT/IG **1000**, TikTok **5000**).
+- `refresh-status` çağrısında limitler otomatik senkronize edilir.
+- Panelde **Aylık kota** satırı: `kullanılan/limit` + güvenli bütçe ayrı gösterilir.
+
+### Yayıncı harcama bildirimleri
+- Onay / red / ödeme / **bilgi iste** → Supabase’e kalıcı bildirim (`/api/content-expenses/notify-streamer`).
+- Harcama gönderince yayıncıya **“Harcamanız alındı”** bildirimi.
+- Nav’da **Harcamalar** rozeti: `needs_info` + okunmamış harcama bildirimleri.
+- Harcamalar sayfasında amber **“Bilgi gerekli”** şeridi.
+
+### Özet sayfası
+- Toplam izlenme = link snapshot + **manuel yayıncı raporları** (bu ay).
+
 *Son güncelleme: 22 Mayıs 2026*

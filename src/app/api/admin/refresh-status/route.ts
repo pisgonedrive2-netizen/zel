@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled, isRapidApiEnabled } from "@/lib/env";
-import { getAllUsage } from "@/lib/social-api/quota";
+import { getAllUsage, syncQuotaLimitsFromConfig } from "@/lib/social-api/quota";
 import { getPlatformHealth } from "@/lib/social-api/health";
 import {
   SOCIAL_PLANS,
@@ -68,6 +68,7 @@ export async function GET(_req: NextRequest) {
     getAllUsage(),
     getPlatformHealth(),
     getApiRefreshSettings(),
+    syncQuotaLimitsFromConfig().catch(() => undefined),
   ]);
   const cronIntervalHours = refreshSettings.cronIntervalHours;
 

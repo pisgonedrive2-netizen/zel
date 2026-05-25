@@ -6,6 +6,7 @@ import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
 import { fmt, MONTHS, toYearMonthLocal } from "@/lib/data";
+import { totalViewsForMonth } from "@/lib/brand-month-metrics";
 import { payrollDueCaption, payrollMonthLongTitle, paymentWindowCalendarPhrase } from "@/lib/payroll-dates";
 import { motion } from "framer-motion";
 import {
@@ -47,6 +48,7 @@ export default function OzetPage() {
     companies, projects, expenses, employees,
     salaryExtras, advances, paymentStatuses,
     kasaTransactions, contentExpenses, brandLinks, brands, notifications,
+    brandViewership, linkSnapshots,
   } = useStore();
   const { user } = useAuth();
 
@@ -123,7 +125,13 @@ export default function OzetPage() {
   // Marka ve link sayıları
   const aktifMarka = brands.filter(b => b.status === "active").length;
   const takipliLink = brandLinks.filter(l => l.url && l.status === "active").length;
-  const toplamIzlenme = brandLinks.reduce((s, l) => s + (l.lastViews ?? 0), 0);
+  const toplamIzlenme = totalViewsForMonth(
+    brandLinks,
+    brandViewership,
+    currentMonth,
+    linkSnapshots,
+    currentMonth
+  );
 
   const yillikDis   = aylikDis * 12;
   const yillikIc    = aylikIc * 12;

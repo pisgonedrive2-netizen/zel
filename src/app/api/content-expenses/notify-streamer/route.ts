@@ -1,53 +1,42 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isSupabaseEnabled } from "@/lib/env";
-import {
-  ensureExpenseSubmittedNotifications,
-  notifyStreamerExpenseSubmitted,
-} from "@/lib/expense-notify";
+import { notifyStreamerExpenseUpdate } from "@/lib/expense-notify";
+import type { AppNotification } from "@/store/store";
 
 export const runtime = "nodejs";
 
 type Body = {
   expenseId: string;
-  employeeName: string;
-  brandName: string;
-  category: string;
-  amountUsd: number;
-  description: string;
-  month: string;
+  submittedBy: string;
+  type: AppNotification["type"];
+  title: string;
+  message: string;
 };
 
+/** Admin/denetçi harcama kararı sonrası yayıncıya kalıcı bildirim. */
 export async function POST(req: Request) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ ok: true, skipped: true });
   }
   const session = await getSession();
-  if (!session || session.role !== "streamer") {
+  if (!session || (session.role !== "admin" && session.role !== "auditor")) {
     return NextResponse.json({ error: "Yetkisiz" }, { status: 403 });
   }
 
   const body = (await req.json().catch(() => null)) as Body | null;
-  if (!body?.expenseId || !body.employeeName) {
+  if (!body?.expenseId || !body.submittedBy || !body.title) {
     return NextResponse.json({ error: "Eksik alanlar" }, { status: 400 });
   }
 
   try {
-    await ensureExpenseSubmittedNotifications({
+    await notifyStreamerExpenseUpdate({
       expenseId: body.expenseId,
-      employeeName: body.employeeName,
-      brandName: body.brandName ?? "",
-      category: body.category ?? "",
-      amountUsd: Number(body.amountUsd) || 0,
-      description: body.description ?? "",
-      month: body.month ?? "",
+      forUserId: body.submittedBy,
+      type: body.type,
+      title: body.title,
+      message: body.message,
       triggeredBy: session.userId,
-    });
-    await notifyStreamerExpenseSubmitted({
-      expenseId: body.expenseId,
-      forUserId: session.userId,
-      brandName: body.brandName ?? "",
-      amountUsd: Number(body.amountUsd) || 0,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

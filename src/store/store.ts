@@ -2424,7 +2424,7 @@ export const STREAMER_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> =
 ]);
 
 export const STREAMER_NOTIFICATION_TYPE_LABELS: Partial<Record<AppNotification["type"], string>> = {
-  general: "Yönetici mesajı",
+  general: "Yönetici mesajı / harcama",
   schedule_updated: "Yayın planı",
   expense_approved: "Harcama onayı",
   expense_rejected: "Harcama reddi",

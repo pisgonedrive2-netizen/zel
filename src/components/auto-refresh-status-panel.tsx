@@ -764,8 +764,11 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
                       {p.estimatedIntervalLabel}
                     </span>
                   </Row>
-                  <Row label="Bu ay kullanılan">
-                    {p.requestsUsed}/{p.monthlyBudget} güvenli
+                  <Row label="Aylık kota">
+                    <span className="tabular-nums">{p.requestsUsed}/{p.monthlyLimit}</span>
+                    <span className="text-muted-foreground text-[10px] ml-1">
+                      (güvenli {p.monthlyBudget})
+                    </span>
                   </Row>
                   <Row label="Rate limit">{p.rateLimit}</Row>
                   {p.minSuggestedHours != null && (

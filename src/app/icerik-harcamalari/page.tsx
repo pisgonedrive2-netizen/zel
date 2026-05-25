@@ -28,6 +28,7 @@ import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormG
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
+import type { AppNotification } from "@/store/store";
 import {
   exportContentExpensesCsv,
   exportContentExpensesPdf,
@@ -320,6 +321,22 @@ function ContentExpensesPageInner() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
   const [paidFilter,  setPaidFilter]  = useState<"all" | "paid" | "unpaid">("all");
+
+  const notifyStreamer = (body: {
+    expenseId: string;
+    submittedBy: string;
+    type: AppNotification["type"];
+    title: string;
+    message: string;
+  }) => {
+    if (!body.submittedBy) return;
+    void fetch("/api/content-expenses/notify-streamer", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  };
 
   useEffect(() => {
     const m = searchParams.get("month");
@@ -713,15 +730,12 @@ function ContentExpensesPageInner() {
                             type="button"
                             onClick={() => {
                               settleContentExpenseToPayroll(e.id);
-                              pushNotification({
+                              notifyStreamer({
+                                expenseId: e.id,
+                                submittedBy: e.submittedBy ?? "",
                                 type: "expense_approved",
                                 title: "Harcaman bordroya eklendi",
                                 message: `${e.brandName} · ${fmt(e.amountUsd)} bu ay maaş masrafına işlendi.`,
-                                forRole: "streamer",
-                                forUserId: e.submittedBy,
-                                triggeredBy: user?.id,
-                                refId: e.id,
-                                href: "/yayinci/harcamalar",
                               });
                             }}
                             className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-800 dark:bg-violet-950/45 dark:text-violet-200 hover:bg-violet-200 transition-colors"
@@ -812,7 +826,9 @@ function ContentExpensesPageInner() {
               }
               const paidNow = settlement === "kasa";
               const payrollNow = settlement === "payroll";
-              pushNotification({
+              notifyStreamer({
+                expenseId: reviewModal.id,
+                submittedBy: reviewModal.submittedBy ?? "",
                 type: paidNow ? "expense_paid" : "expense_approved",
                 title: paidNow
                   ? "Harcaman onaylandı ve ödendi"
@@ -820,11 +836,6 @@ function ContentExpensesPageInner() {
                     ? "Harcaman onaylandı — maaşa masraf eklendi"
                     : "Harcaman onaylandı",
                 message: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} — ${note || (paidNow ? "Kasadan ödendi" : payrollNow ? "Bordro masrafı" : "Onaylandı")}`,
-                forRole: "streamer",
-                forUserId: reviewModal.submittedBy,
-                triggeredBy: user?.id,
-                refId: reviewModal.id,
-                href: "/yayinci/harcamalar",
               });
               logAudit({
                 actorId: user?.id ?? "unknown",
@@ -841,14 +852,12 @@ function ContentExpensesPageInner() {
                 reviewedBy: user?.id,
                 reviewerNote: note,
               });
-              pushNotification({
+              notifyStreamer({
+                expenseId: reviewModal.id,
+                submittedBy: reviewModal.submittedBy ?? "",
                 type: "expense_rejected",
-                title: `Harcaman reddedildi`,
+                title: "Harcaman reddedildi",
                 message: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} — ${note}`,
-                forRole: "streamer",
-                forUserId: reviewModal.submittedBy,
-                triggeredBy: user?.id,
-                refId: reviewModal.id,
               });
               logAudit({
                 actorId: user?.id ?? "unknown",
@@ -875,15 +884,12 @@ function ContentExpensesPageInner() {
                 reviewerNote: note,
                 reviewThread: thread,
               });
-              pushNotification({
+              notifyStreamer({
+                expenseId: reviewModal.id,
+                submittedBy: reviewModal.submittedBy ?? "",
                 type: "general",
-                title: `Harcaman için ek bilgi gerekiyor`,
+                title: "Harcaman için ek bilgi gerekiyor",
                 message: `${reviewModal.brandName} · ${note}`,
-                forRole: "streamer",
-                forUserId: reviewModal.submittedBy,
-                triggeredBy: user?.id,
-                refId: reviewModal.id,
-                href: "/yayinci/harcamalar",
               });
               logAudit({
                 actorId: user?.id ?? "unknown",

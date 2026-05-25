@@ -27,12 +27,25 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
   const employees      = useStore((s) => s.employees);
   const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
   const me             = employees.find((e) => e.id === targetEmployeeId);
-  const pendingCount   = me
-    ? contentExpenses.filter((e) => e.employeeId === me.id && e.reviewStatus === "pending").length
-    : 0;
-  const unreadMessages = user
-    ? visibleNotificationsForRole(notifications, "streamer", user.id).filter((n) => !n.read).length
-    : 0;
+  const myExpenses = me
+    ? contentExpenses.filter((e) => e.employeeId === me.id)
+    : [];
+  const pendingCount = myExpenses.filter((e) => e.reviewStatus === "pending").length;
+  const needsInfoCount = myExpenses.filter((e) => e.reviewStatus === "needs_info").length;
+  const streamerNotifs = user
+    ? visibleNotificationsForRole(notifications, "streamer", user.id)
+    : [];
+  const unreadMessages = streamerNotifs.filter((n) => !n.read).length;
+  const unreadExpenseNotifs = streamerNotifs.filter(
+    (n) =>
+      !n.read &&
+      (n.href?.includes("/yayinci/harcamalar") ||
+        n.type === "expense_approved" ||
+        n.type === "expense_rejected" ||
+        n.type === "expense_paid" ||
+        (n.type === "general" && n.title.toLowerCase().includes("harcama")))
+  ).length;
+  const harcamalarBadge = Math.max(needsInfoCount, unreadExpenseNotifs, pendingCount);
 
   return (
     <div className="w-full min-w-0">
@@ -44,9 +57,14 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
           {NAV.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const showDot =
-              (item.match === "harcamalar" && pendingCount > 0) ||
+              (item.match === "harcamalar" && harcamalarBadge > 0) ||
               (item.match === "bildirimler" && unreadMessages > 0);
-            const dotCount = item.match === "bildirimler" ? unreadMessages : pendingCount;
+            const dotCount =
+              item.match === "bildirimler"
+                ? unreadMessages
+                : item.match === "harcamalar"
+                  ? harcamalarBadge
+                  : 0;
             return (
               <Link
                 key={item.href}

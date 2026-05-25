@@ -1743,9 +1743,28 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
       {section === "harcamalar" && (
         <div className="w-full min-w-0 space-y-4">
+          {myExpenses.some((e) => e.reviewStatus === "needs_info") && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-500/45 dark:bg-amber-950/35 px-4 py-3 text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
+              <AlertCircle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Yönetici ek bilgi istedi</p>
+                <p className="text-xs mt-0.5 opacity-90">
+                  Aşağıdaki kayıtları güncelleyip tekrar gönderin. Bildirimler{" "}
+                  <strong>Mesajlar</strong> sekmesinde de görünür.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Harcama Raporlarım</h2>
+              <h2 className="text-lg font-semibold text-foreground flex items-center gap-2 flex-wrap">
+                Harcama Raporlarım
+                {myExpenses.some((e) => e.reviewStatus === "needs_info") && (
+                  <Badge variant="outline" className="text-[10px] border-amber-400 text-amber-800 dark:text-amber-200">
+                    Bilgi gerekli
+                  </Badge>
+                )}
+              </h2>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {monthLabelTr(month)} · haftalık liste ve detaylı PDF özeti
               </p>

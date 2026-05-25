@@ -27,6 +27,7 @@ export async function getMonthlyUsage(
     .eq("month", month)
     .maybeSingle();
   if (error) throw new Error(`api_quota_usage: ${error.message}`);
+  const db = getSupabaseAdmin();
   if (!data) {
     return {
       platform,
@@ -37,13 +38,37 @@ export async function getMonthlyUsage(
     };
   }
   const row = data as Record<string, unknown>;
+  const planLimit = SOCIAL_PLANS[platform].monthlyLimit;
+  const storedLimit = (row.monthly_limit as number) ?? 0;
+  if (storedLimit !== planLimit) {
+    void db
+      .from("api_quota_usage")
+      .update({ monthly_limit: planLimit })
+      .eq("platform", platform)
+      .eq("month", month)
+      .then(() => undefined);
+  }
   return {
     platform,
     month,
     requestsUsed: (row.requests_used as number) ?? 0,
-    monthlyLimit: (row.monthly_limit as number) ?? SOCIAL_PLANS[platform].monthlyLimit,
+    monthlyLimit: planLimit,
     lastRequestAt: (row.last_request_at as string | null) ?? null,
   };
+}
+
+/** Eski 100'lük kayıtları güncel plan limitlerine çeker (YT/IG 1000, TikTok 5000). */
+export async function syncQuotaLimitsFromConfig(month: string = currentMonthKey()): Promise<void> {
+  const db = getSupabaseAdmin();
+  for (const platform of PLATFORMS) {
+    const limit = SOCIAL_PLANS[platform].monthlyLimit;
+    await db
+      .from("api_quota_usage")
+      .update({ monthly_limit: limit })
+      .eq("platform", platform)
+      .eq("month", month)
+      .lt("monthly_limit", limit);
+  }
 }
 
 export async function getAllUsage(month: string = currentMonthKey()): Promise<QuotaRow[]> {
