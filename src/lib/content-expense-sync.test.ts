@@ -7,13 +7,18 @@ const deleteMock = vi.fn().mockReturnValue({
   }),
 });
 
+const selectMock = vi.fn().mockResolvedValue({
+  data: [{ id: "ce-1" }, { id: "se-1" }],
+  error: null,
+});
+
 vi.mock("@/lib/supabase/admin", () => ({
   getSupabaseAdmin: () => ({
     from: (table: string) => {
       if (table === "salary_extras") {
-        return { delete: deleteMock, upsert: upsertMock };
+        return { delete: deleteMock, upsert: upsertMock, select: selectMock };
       }
-      return { upsert: upsertMock };
+      return { upsert: upsertMock, select: selectMock };
     },
   }),
 }));
