@@ -12,7 +12,9 @@ import {
   type AppHydratePayload,
   type Employee,
   type SalaryExtra,
+  type ContentExpense,
 } from "@/store/store";
+import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
 import { SYNC_ERROR_EVENT } from "@/lib/sync-notify";
@@ -25,6 +27,10 @@ function pickStoreSnapshot(): AppHydratePayload {
   for (const k of APP_SNAPSHOT_KEYS) {
     (out as Record<string, unknown>)[k] = s[k];
   }
+  out.salaryExtras = dedupeSalaryExtrasByContentExpense(
+    s.salaryExtras,
+    s.contentExpenses
+  );
   return out;
 }
 
@@ -149,8 +155,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (data[k] !== undefined) patch[k] = data[k];
         }
         const employees = (patch.employees ?? useStore.getState().employees) as Employee[];
-        const salaryExtras = (patch.salaryExtras ?? useStore.getState().salaryExtras) as SalaryExtra[];
-        patch.salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
+        const contentExpenses = (patch.contentExpenses ??
+          useStore.getState().contentExpenses) as ContentExpense[];
+        let salaryExtras = dedupeSalaryExtrasByContentExpense(
+          (patch.salaryExtras ?? useStore.getState().salaryExtras) as SalaryExtra[],
+          contentExpenses
+        );
+        salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
+        patch.salaryExtras = salaryExtras;
         useStore.setState(patch);
         if (data.users && user.role === "admin") {
           useAuth.setState({ users: data.users as ReturnType<typeof useAuth.getState>["users"] });

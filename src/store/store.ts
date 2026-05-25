@@ -8,6 +8,7 @@ import {
   removeRowImmediate,
   type PersistEntity,
 } from "@/lib/row-persist";
+import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -2246,6 +2247,9 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
           if (!expense || expense.salaryExtraId) return {};
+          const cleanedExtras = s.salaryExtras.filter(
+            (x) => x.contentExpenseId !== expense.id
+          );
           const extraId = uid();
           const desc = `İçerik: ${expense.brandName} · ${expense.category}${expense.description ? ` — ${expense.description.slice(0, 80)}` : ""}`;
           const newExtra: SalaryExtra = {
@@ -2262,7 +2266,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
               ? ("approved" as const)
               : expense.reviewStatus;
           return {
-            salaryExtras: [...s.salaryExtras, newExtra],
+            salaryExtras: [...cleanedExtras, newExtra],
             contentExpenses: s.contentExpenses.map((x) =>
               x.id === contentExpenseId
                 ? {
@@ -2460,7 +2464,13 @@ const storePersistConfig = {
         const salaryExtrasRaw = Array.isArray(p.salaryExtras)
           ? p.salaryExtras
           : currentState.salaryExtras;
-        const salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtrasRaw);
+        const contentExpenses = Array.isArray(p.contentExpenses)
+          ? p.contentExpenses
+          : currentState.contentExpenses;
+        const salaryExtras = reconcileRentExtrasForAllEmployees(
+          employees,
+          dedupeSalaryExtrasByContentExpense(salaryExtrasRaw, contentExpenses)
+        );
         return {
           ...currentState,
           ...p,

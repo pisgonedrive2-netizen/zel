@@ -5,6 +5,7 @@ export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
 import type { AppHydratePayload, BrandLink } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
+import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import type { AppUser } from "@/store/auth";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
@@ -340,6 +341,15 @@ async function syncAuditorScoped(payload: AppHydratePayload) {
 }
 
 async function syncAdminFull(payload: AppHydratePayload) {
+  const salaryExtrasDeduped = dedupeSalaryExtrasByContentExpense(
+    payload.salaryExtras ?? [],
+    payload.contentExpenses ?? []
+  );
+  const payloadDeduped: AppHydratePayload = {
+    ...payload,
+    salaryExtras: salaryExtrasDeduped,
+  };
+
   const tables: Array<{
     table: string;
     rows: Record<string, unknown>[];
@@ -350,7 +360,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "brands", rows: (payload.brands ?? []).map(brandToRow), skipDelete: true },
     { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow) },
     { table: "advances", rows: (payload.advances ?? []).map(advanceToRow) },
-    { table: "salary_extras", rows: (payload.salaryExtras ?? []).map(salaryExtraToRow) },
+    { table: "salary_extras", rows: (payloadDeduped.salaryExtras ?? []).map(salaryExtraToRow) },
     { table: "sponsor_transactions", rows: (payload.sponsorTransactions ?? []).map(sponsorTxToRow) },
     { table: "internal_projects", rows: (payload.projects ?? []).map(projectToRow) },
     { table: "internal_project_payments", rows: (payload.projectPayments ?? []).map(projectPaymentToRow) },
@@ -376,7 +386,11 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
     // Kasa hareketleri tek tek API ile de yazılır; toplu silme yapılmaz (veri kaybı önlenir).
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
-    { table: "content_expenses", rows: (payload.contentExpenses ?? []).map(contentExpenseToRow), skipDelete: true },
+    {
+      table: "content_expenses",
+      rows: (payloadDeduped.contentExpenses ?? []).map(contentExpenseToRow),
+      skipDelete: true,
+    },
     { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow), skipDelete: true },
     { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow), skipDelete: true },
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
