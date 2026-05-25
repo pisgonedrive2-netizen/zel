@@ -692,7 +692,7 @@ interface AppStore {
   unpayContentExpense: (id: string) => void;
 
   // Weekly plan
-  addWeeklyPlan: (p: Omit<WeeklyPlan, "id">) => void;
+  addWeeklyPlan: (p: Omit<WeeklyPlan, "id">) => string;
   updateWeeklyPlan: (id: string, p: Partial<WeeklyPlan>) => void;
   deleteWeeklyPlan: (id: string) => void;
 
@@ -2280,7 +2280,11 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         }),
 
       // Weekly plan
-      addWeeklyPlan:    (p)     => set((s) => ({ weeklyPlans: [...s.weeklyPlans, { ...p, id: uid() }] })),
+      addWeeklyPlan: (p) => {
+        const id = uid();
+        set((s) => ({ weeklyPlans: [...s.weeklyPlans, { ...p, id }] }));
+        return id;
+      },
       updateWeeklyPlan: (id, p) => set((s) => ({ weeklyPlans: s.weeklyPlans.map((x) => (x.id === id ? { ...x, ...p } : x)) })),
       deleteWeeklyPlan: (id)    => set((s) => ({ weeklyPlans: s.weeklyPlans.filter((x) => x.id !== id) })),
 
@@ -2410,13 +2414,22 @@ export const OPS_ONLY_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> =
   "advance_request",
 ]);
 
-/** Yayıncı panelinde gösterilecek bildirim tipleri (yönetici mesajı + harcama sonucu). */
+/** Yayıncı panelinde gösterilecek bildirim tipleri (Mesajlar sekmesi). */
 export const STREAMER_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
   "general",
+  "schedule_updated",
   "expense_approved",
   "expense_rejected",
   "expense_paid",
 ]);
+
+export const STREAMER_NOTIFICATION_TYPE_LABELS: Partial<Record<AppNotification["type"], string>> = {
+  general: "Yönetici mesajı",
+  schedule_updated: "Yayın planı",
+  expense_approved: "Harcama onayı",
+  expense_rejected: "Harcama reddi",
+  expense_paid: "Harcama ödemesi",
+};
 
 /** Rol için (operasyonel bildirimler filtrelenmiş) görüntülenebilir bildirimler. */
 export function visibleNotificationsForRole(

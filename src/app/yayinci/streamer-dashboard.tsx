@@ -24,6 +24,7 @@ import {
   deleteNotificationPersisted,
   refreshMyNotificationsFromServer,
 } from "@/lib/notification-actions";
+import { STREAMER_NOTIFICATION_TYPE_LABELS } from "@/store/store";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -1173,6 +1174,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const myMonthContentAprv = sumApprovedContentExpenses(contentExpenses, me.id, month);
   const myMonthPlanOut     = plannedPayrollPlusApprovedContent(me, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const myMonthPaidOut     = totalCashOutPaidForMonth(me, month, advances, salaryExtras, paymentStatuses, contentExpenses);
+  const myExpensesForMonth = useMemo(
+    () => myExpenses.filter((e) => e.month === month),
+    [myExpenses, month]
+  );
 
   // ── Plans ──
   const myPlansThisWeek = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === thisWeek);
@@ -1184,6 +1189,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         .sort((a, b) => b.date.localeCompare(a.date) || (a.startTime ?? "").localeCompare(b.startTime ?? "")),
     [weeklyPlans, me.id]
   );
+  const myAccounts = streamerAccounts.filter((a) => a.employeeId === me.id);
+
   const planAccountLabel = (id?: string) => {
     if (!id) return "";
     const a = myAccounts.find((x) => x.id === id);
@@ -1206,7 +1213,6 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   }, [user.id]);
 
   // ── Marka linkleri ──
-  const myAccounts   = streamerAccounts.filter(a => a.employeeId === me.id);
   // Tüm linkler — form / yardımcı işlemler için
   const myBrandLinks = brandLinks.filter(l => l.ownerId === me.id);
   // Seçili aya ait linkler — listede yalnızca o ay (veya öncesi) eklenmiş ve hâlâ aktif olanlar gösterilir.
@@ -1243,7 +1249,9 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   }, [me, salaryExtras, advances, paymentStatuses, contentExpenses]);
 
   const expensesByWeek = useMemo(() => {
-    const sorted = [...myExpenses].sort((a, b) => b.date.localeCompare(a.date));
+    const source =
+      section === "harcamalar" ? myExpensesForMonth : myExpenses;
+    const sorted = [...source].sort((a, b) => b.date.localeCompare(a.date));
     const map = new Map<string, ContentExpense[]>();
     for (const e of sorted) {
       const wk = weekStartOf(e.date);
@@ -1251,7 +1259,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       map.get(wk)!.push(e);
     }
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 16);
-  }, [myExpenses]);
+  }, [myExpenses, myExpensesForMonth, section]);
 
   const accountsByPlatform = useMemo(() => {
     const m = new Map<string, StreamerAccount[]>();
@@ -1516,7 +1524,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               {unreadMessages} yeni mesajınız var
             </p>
             <p className="text-xs text-muted-foreground">
-              Yönetici bildirimleri ve harcama inceleme mesajları — tıklayıp okuyun
+              Yayın planı güncellemeleri, yönetici mesajları ve harcama bildirimleri — tıklayıp okuyun
             </p>
           </div>
           <MessageSquare size={16} className="text-primary shrink-0" />
@@ -1748,7 +1756,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
-                disabled={myExpenses.filter((e) => e.month === month).length === 0}
+                disabled={myExpensesForMonth.length === 0}
                 onClick={() => {
                   try {
                     downloadStreamerExpensesPdf({
@@ -1814,11 +1822,13 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
             {/* Sağ: haftalık listeler */}
             <div className="xl:col-span-8 w-full min-w-0 space-y-8">
-              {myExpenses.length === 0 ? (
+              {myExpensesForMonth.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center">
                     <Receipt className="mx-auto text-muted-foreground/30 mb-2" size={28} />
-                    <p className="text-sm text-muted-foreground">Henüz harcama göndermedin.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {month === todayYm ? "Henüz harcama göndermedin." : `${monthLabel(month)} için harcama yok.`}
+                    </p>
                     <Button size="sm" className="mt-4 gap-1.5" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} type="button">
                       <Plus size={14} /> İlk harcamayı ekle
                     </Button>
@@ -2822,7 +2832,9 @@ function StreamerNotificationsSection({ userId }: { userId: string }) {
             Bildirimlerim
             {unread > 0 && <Badge className="text-[10px]">{unread} yeni</Badge>}
           </CardTitle>
-          <CardDescription>Yalnızca size özel yönetici mesajları ve harcama inceleme bildirimleri</CardDescription>
+          <CardDescription>
+            Yönetici mesajları, haftalık yayın planı güncellemeleri ve harcama inceleme bildirimleri
+          </CardDescription>
         </div>
         {unread > 0 && (
           <Button
@@ -2850,7 +2862,7 @@ function StreamerNotificationsSection({ userId }: { userId: string }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <Badge variant="outline" className="text-[10px] py-0">
-                        {n.type.replace(/_/g, " ")}
+                        {STREAMER_NOTIFICATION_TYPE_LABELS[n.type] ?? n.type.replace(/_/g, " ")}
                       </Badge>
                       {!n.read && (
                         <span className="text-[10px] text-primary font-semibold">YENİ</span>

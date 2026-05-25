@@ -7,6 +7,62 @@ import {
   type AppNotification,
 } from "@/store/store";
 
+function newNotificationId(): string {
+  return `n-${crypto.randomUUID().slice(0, 12)}`;
+}
+
+/**
+ * Bildirimi anında Supabase'e yazar ve store'a ekler.
+ * Yayıncıya giden plan / mesaj bildirimleri sync beklenmeden ulaşır.
+ */
+export async function createNotificationPersisted(
+  n: Omit<AppNotification, "id" | "createdAt" | "read">
+): Promise<AppNotification> {
+  const local: AppNotification = {
+    ...n,
+    id: newNotificationId(),
+    createdAt: new Date().toISOString(),
+    read: false,
+  };
+
+  if (!isSupabaseClientMode()) {
+    useStore.setState((s) => ({
+      notifications: [local, ...s.notifications].slice(0, 500),
+    }));
+    return local;
+  }
+
+  try {
+    const res = await fetch("/api/notifications", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: n.title,
+        message: n.message,
+        forRole: n.forRole,
+        forUserId: n.forUserId,
+        type: n.type,
+        href: n.href,
+        refId: n.refId,
+      }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as { notification: AppNotification };
+    const saved = data.notification ?? local;
+    useStore.setState((s) => ({
+      notifications: [saved, ...s.notifications.filter((x) => x.id !== saved.id)].slice(0, 500),
+    }));
+    return saved;
+  } catch {
+    useStore.getState().pushNotification(n);
+    return local;
+  }
+}
+
 /** Sunucudan bildirim listesini çeker ve store'u günceller. */
 export async function refreshNotificationsFromServer(): Promise<boolean> {
   if (!isSupabaseClientMode()) return false;

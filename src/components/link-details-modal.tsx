@@ -290,7 +290,16 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
               <MetricTile icon={Eye} label="İzlenme" value={fmtNum(details.metrics.views)} accent="blue" />
               <MetricTile icon={Heart} label="Beğeni" value={fmtNum(details.metrics.likes)} accent="rose" />
               <MetricTile icon={MessageCircle} label="Yorum" value={fmtNum(details.metrics.comments)} accent="amber" />
-              <MetricTile icon={Share2} label={details.platform === "tiktok" ? "Paylaşım" : "Paylaşım"} value={fmtNum(details.metrics.shares)} accent="violet" />
+              <MetricTile
+                icon={Share2}
+                label={
+                  details.kind === "user" || details.kind === "channel"
+                    ? "Takipçi / abone"
+                    : "Paylaşım"
+                }
+                value={fmtNum(details.metrics.shares)}
+                accent="violet"
+              />
             </div>
 
             {details.description && (

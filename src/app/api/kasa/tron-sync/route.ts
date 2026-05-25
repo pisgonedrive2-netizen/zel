@@ -3,12 +3,19 @@ import { getSession } from "@/lib/session";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { kasaAccountFromRow } from "@/lib/db/mappers";
-import { syncTronTransfersForKasa } from "@/lib/tron-sync";
+import {
+  syncTronTransfersForKasa,
+  updateKasaTronSyncFrom,
+} from "@/lib/tron-sync";
+import { notifyTronSyncResult } from "@/lib/tron-notify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST { kasaId } — TRON TRC20 USDT hareketlerini kasaya aktar. */
+/**
+ * POST { kasaId, syncFrom?, persistSyncFrom? }
+ * TRON TRC20 USDT → kasa hareketleri; bakiye hareketlerden güncellenir.
+ */
 export async function POST(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ ok: false, error: "Supabase yapılandırılmamış" }, { status: 503 });
@@ -18,7 +25,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { kasaId?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    kasaId?: string;
+    syncFrom?: string;
+    persistSyncFrom?: boolean;
+  };
   const kasaId = body.kasaId?.trim();
   if (!kasaId) {
     return NextResponse.json({ ok: false, error: "kasaId gerekli" }, { status: 400 });
@@ -34,8 +45,32 @@ export async function POST(req: NextRequest) {
   }
 
   const kasa = kasaAccountFromRow(data as Record<string, unknown>);
+  const syncFrom = body.syncFrom?.trim();
+
   try {
-    const summary = await syncTronTransfersForKasa(kasa);
+    if (syncFrom && body.persistSyncFrom) {
+      await updateKasaTronSyncFrom(kasaId, syncFrom);
+      kasa.tronSyncFrom = syncFrom;
+    }
+
+    const summary = await syncTronTransfersForKasa(kasa, {
+      syncFrom: syncFrom || kasa.tronSyncFrom,
+    });
+
+    if (summary.imported > 0) {
+      await notifyTronSyncResult({
+        kasaId: kasa.id,
+        kasaName: kasa.name,
+        imported: summary.imported,
+        skipped: summary.skipped,
+        totalIn: summary.totalIn,
+        totalOut: summary.totalOut,
+        balanceUsd: summary.balanceUsd,
+        syncFrom: syncFrom || kasa.tronSyncFrom || "",
+        triggeredBy: session.userId,
+      }).catch(() => undefined);
+    }
+
     return NextResponse.json({ ok: true, ...summary });
   } catch (e) {
     return NextResponse.json({

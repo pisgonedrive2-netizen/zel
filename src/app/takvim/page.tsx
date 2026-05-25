@@ -17,6 +17,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { createNotificationPersisted } from "@/lib/notification-actions";
+import { logAudit } from "@/store/audit-log";
 
 // ── Platform icon helper ──────────────────────────────────────────────────
 function platformIcon(platform: string) {
@@ -173,7 +175,6 @@ export default function TakvimPage() {
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
-    pushNotification,
   } = useStore();
 
   const DAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
@@ -182,54 +183,71 @@ export default function TakvimPage() {
    * Yayıncı plan değişikliklerini ilgili yayıncıya bildirir.
    * Sadece yöneticinin başkasının slotunu değiştirdiği durumlarda atış yapar.
    */
-  const notifySlotChange = (
+  const notifySlotChange = async (
     action: "added" | "updated" | "deleted",
     slot: ScheduleSlot,
   ) => {
     if (!user) return;
-    if (user.role !== "admin") return;
+    if (user.role !== "admin" && user.role !== "auditor") return;
     if (user.employeeId && slot.employeeId === user.employeeId) return;
+    const emp = employees.find((e) => e.id === slot.employeeId);
     const targetUser = users.find((u) => u.employeeId === slot.employeeId && u.role === "streamer");
     if (!targetUser) return;
     const day = DAY_LABELS[slot.dayOfWeek] ?? `Gün ${slot.dayOfWeek}`;
     const slotDesc = `${day} ${slot.startTime}–${slot.endTime} · ${slot.platform || "—"}`;
     const verb =
-      action === "added" ? "yeni slot eklendi"
-      : action === "deleted" ? "slot silindi"
-      : "slot güncellendi";
-    pushNotification({
+      action === "added" ? "yeni yayın slotu eklendi"
+      : action === "deleted" ? "yayın slotu kaldırıldı"
+      : "yayın slotu güncellendi";
+    await createNotificationPersisted({
       type: "schedule_updated",
-      title: `Yayın planınız güncellendi · ${verb}`,
-      message: slotDesc,
+      title: `Yayın planınız güncellendi`,
+      message: `${verb}.\n${slotDesc}${emp ? `\nYayıncı: ${emp.name}` : ""}`,
       forRole: "streamer",
       forUserId: targetUser.id,
       triggeredBy: user.id,
       refId: slot.id,
       href: "/yayinci/takvim",
     });
+    logAudit({
+      actorId: user.id,
+      actorName: user.name,
+      action: "user_updated",
+      detail: `Yayın slotu ${action}: ${emp?.name ?? slot.employeeId} · ${slotDesc}`,
+    });
   };
 
-  const notifyPlanChange = (
+  const notifyPlanChange = async (
     action: "added" | "updated" | "deleted",
     plan: WeeklyPlan,
   ) => {
     if (!user) return;
-    if (user.role !== "admin") return;
+    if (user.role !== "admin" && user.role !== "auditor") return;
     if (user.employeeId && plan.employeeId === user.employeeId) return;
+    const emp = employees.find((e) => e.id === plan.employeeId);
     const targetUser = users.find((u) => u.employeeId === plan.employeeId && u.role === "streamer");
     if (!targetUser) return;
     const verb =
-      action === "added" ? "yeni etkinlik" : action === "deleted" ? "silindi" : "güncellendi";
+      action === "added" ? "yeni plan satırı eklendi"
+      : action === "deleted" ? "plan satırı silindi"
+      : "plan satırı güncellendi";
     const time = plan.startTime ? ` · ${plan.startTime}${plan.endTime ? "–" + plan.endTime : ""}` : "";
-    pushNotification({
+    const detail = `${plan.date}${time}\n${plan.activity}${plan.brandName ? ` · ${plan.brandName}` : ""}${plan.notes ? `\nNot: ${plan.notes}` : ""}`;
+    await createNotificationPersisted({
       type: "schedule_updated",
-      title: `Haftalık planınız ${verb}`,
-      message: `${plan.date}${time} · ${plan.activity}${plan.brandName ? " · " + plan.brandName : ""}`,
+      title: `Haftalık yayın planınız güncellendi`,
+      message: `Yönetici planınızda değişiklik yaptı: ${verb}.\n${detail}`,
       forRole: "streamer",
       forUserId: targetUser.id,
       triggeredBy: user.id,
       refId: plan.id,
-      href: "/yayinci/takvim",
+      href: `/yayinci/takvim?week=${plan.weekStart}`,
+    });
+    logAudit({
+      actorId: user.id,
+      actorName: user.name,
+      action: "user_updated",
+      detail: `Haftalık plan ${action}: ${emp?.name ?? plan.employeeId} · ${plan.date} ${plan.activity}`,
     });
   };
 
@@ -667,17 +685,17 @@ export default function TakvimPage() {
                 addScheduleSlot(d);
                 // Yeni eklenen slotun id'sini Zustand zorunlu kıldığı için bilmiyoruz;
                 // bildirim için geçici bir id kullan (sadece refId; UI'da kullanılmıyor).
-                notifySlotChange("added", { ...d, id: "new" });
+                void notifySlotChange("added", { ...d, id: "new" });
               } else {
                 const next = { ...(slotModal.mode as ScheduleSlot), ...d };
                 updateScheduleSlot(slotModal.mode.id, d);
-                notifySlotChange("updated", next);
+                void notifySlotChange("updated", next);
               }
             }}
             onDelete={slotModal.mode !== "new" ? () => {
               const current = slotModal.mode as ScheduleSlot;
               deleteScheduleSlot(current.id);
-              notifySlotChange("deleted", current);
+              void notifySlotChange("deleted", current);
               setSlotModal(null);
             } : undefined}
             onClose={() => setSlotModal(null)}
@@ -697,19 +715,19 @@ export default function TakvimPage() {
             initial={planModal.mode === "new" ? undefined : planModal.mode}
             onSave={(d) => {
               if (planModal.mode === "new") {
-                addWeeklyPlan(d);
-                notifyPlanChange("added", { ...d, id: "new" });
+                const newId = addWeeklyPlan(d);
+                void notifyPlanChange("added", { ...d, id: newId });
               } else {
                 const next = { ...(planModal.mode as WeeklyPlan), ...d };
                 updateWeeklyPlan(planModal.mode.id, d);
-                notifyPlanChange("updated", next);
+                void notifyPlanChange("updated", next);
               }
             }}
             onDelete={planModal.mode !== "new"
               ? () => {
                   const cur = planModal.mode as WeeklyPlan;
                   deleteWeeklyPlan(cur.id);
-                  notifyPlanChange("deleted", cur);
+                  void notifyPlanChange("deleted", cur);
                   setPlanModal(null);
                 }
               : undefined}

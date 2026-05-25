@@ -88,6 +88,8 @@ interface StatusResponse {
 }
 
 import { fmtDateShort } from "@/lib/fmt-date";
+import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilities-card";
+import { PLATFORM_FEATURES } from "@/lib/social-api/platform-capabilities";
 
 function fmtDate(iso?: string | null): string {
   return fmtDateShort(iso);
@@ -469,8 +471,9 @@ export function AutoRefreshStatusPanel() {
               Otomatik link yenileme
             </CardTitle>
             <CardDescription className="text-xs">
-              YouTube · Instagram · TikTok — RapidAPI Basic (YT/IG 100, TikTok 300/ay, %85 güvenli kota).
-              Kontrol:{" "}
+              YouTube · Instagram · TikTok — yükseltilmiş plan (YT/IG ~1000, TikTok ~5000/ay, %85 güvenli kota).
+              {PLATFORM_FEATURES.youtube.length + PLATFORM_FEATURES.instagram.length + PLATFORM_FEATURES.tiktok.length}{" "}
+              API özelliği · kontrol{" "}
               <span className="font-medium text-foreground">her {data.cronIntervalHours} saatte bir</span>.
             </CardDescription>
           </div>
@@ -768,6 +771,25 @@ export function AutoRefreshStatusPanel() {
             );
           })}
         </div>
+
+        {isAdmin && (
+          <div className="pt-2 border-t border-border/60">
+            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Activity size={12} /> Platform API özellikleri — canlı test
+            </p>
+            <PlatformApiCapabilitiesGrid
+              platforms={data.platforms.map((p) => ({
+                platform: p.platform,
+                label: p.label,
+                apiHost: p.apiHost,
+                monthlyLimit: p.monthlyLimit,
+                requestsUsed: p.requestsUsed,
+                rateLimit: p.rateLimit,
+              }))}
+              onQuotaUsed={() => void load()}
+            />
+          </div>
+        )}
 
         <button
           type="button"

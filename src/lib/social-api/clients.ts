@@ -21,7 +21,8 @@ class RapidApiError extends Error {
   }
 }
 
-async function rapidGet(platform: SocialPlatform, path: string, search: Record<string, string>) {
+/** RapidAPI GET — feature probe ve diğer modüller için dışa açık. */
+export async function rapidApiGet(platform: SocialPlatform, path: string, search: Record<string, string>) {
   const plan = SOCIAL_PLANS[platform];
   const url = new URL(`https://${plan.apiHost}${path}`);
   for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
@@ -130,7 +131,7 @@ function extractMetricsFromBundles(
 async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind !== "video") {
     // Kanal istatistiği — youtube138 channel/details endpoint
-    const raw = await rapidGet("youtube", "/channel/details/", { id: detected.externalRef });
+    const raw = await rapidApiGet("youtube", "/channel/details/", { id: detected.externalRef });
     const stats = (raw as { stats?: unknown })?.stats ?? raw;
     return {
       views: pickFirstNumber(stats, ["viewCount", "views"]),
@@ -140,7 +141,7 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
       raw,
     };
   }
-  const raw = await rapidGet("youtube", "/video/details/", { id: detected.externalRef });
+  const raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
   const stats =
     (raw as { stats?: unknown })?.stats ??
     (raw as { statistics?: unknown })?.statistics ??
@@ -160,21 +161,21 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
 // ───────────────────────── Instagram ────────────────────────────────────────
 async function fetchInstagramProfile(username: string): Promise<unknown> {
   try {
-    return await rapidGet("instagram", "/profile", { username });
+    return await rapidApiGet("instagram", "/profile", { username });
   } catch {
-    return rapidGet("instagram", "/user_info_by_username", { username });
+    return rapidApiGet("instagram", "/user_info_by_username", { username });
   }
 }
 
 /** Gönderi / reel — önce shortcode; olmazsa tam URL (paylaşım linkleri). */
 async function fetchInstagramPost(shortcode: string, sourceUrl?: string): Promise<unknown> {
   try {
-    return await rapidGet("instagram", "/post", { shortcode });
+    return await rapidApiGet("instagram", "/post", { shortcode });
   } catch (err) {
     const url = sourceUrl?.trim();
     if (!url) throw err;
     try {
-      return await rapidGet("instagram", "/post", { url });
+      return await rapidApiGet("instagram", "/post", { url });
     } catch {
       throw err;
     }
@@ -231,7 +232,7 @@ async function fetchInstagram(detected: DetectedPlatform): Promise<FetchedMetric
 // ───────────────────────── TikTok ───────────────────────────────────────────
 async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind === "user") {
-    const raw = await rapidGet("tiktok", "/user/info", {
+    const raw = await rapidApiGet("tiktok", "/user/info", {
       unique_id: `@${detected.externalRef.replace(/^@/, "")}`,
     });
     const data = (raw as { data?: unknown })?.data ?? raw;
@@ -251,7 +252,7 @@ async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> 
   if (!videoUrl) {
     throw new RapidApiError("tiktok", 0, "TikTok video URL gerekli");
   }
-  const raw = await rapidGet("tiktok", "/", { url: videoUrl, hd: "1" });
+  const raw = await rapidApiGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const data = (raw as { data?: unknown })?.data ?? raw;
   const item = (data as { itemInfo?: { itemStruct?: unknown } })?.itemInfo?.itemStruct;
   const bundles = metricBundle(item ?? data);
@@ -361,7 +362,7 @@ function extractHashtags(text?: string): string[] {
 
 async function richYouTube(detected: DetectedPlatform): Promise<RichLinkDetails> {
   if (detected.kind !== "video") {
-    const raw = await rapidGet("youtube", "/channel/details/", { id: detected.externalRef });
+    const raw = await rapidApiGet("youtube", "/channel/details/", { id: detected.externalRef });
     const r = raw as Record<string, unknown>;
     const stats = (r.stats ?? r) as Record<string, unknown>;
     return {
@@ -391,7 +392,7 @@ async function richYouTube(detected: DetectedPlatform): Promise<RichLinkDetails>
       raw,
     };
   }
-  const raw = await rapidGet("youtube", "/video/details/", { id: detected.externalRef });
+  const raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
   const r = raw as Record<string, unknown>;
   const stats = ((r.stats ?? r.statistics ?? r) as Record<string, unknown>);
   const desc = strOrUndef(r.description);
@@ -501,7 +502,7 @@ async function richInstagram(detected: DetectedPlatform): Promise<RichLinkDetail
 
 async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> {
   if (detected.kind === "user") {
-    const raw = await rapidGet("tiktok", "/user/info", {
+    const raw = await rapidApiGet("tiktok", "/user/info", {
       unique_id: `@${detected.externalRef.replace(/^@/, "")}`,
     });
     const r = raw as Record<string, unknown>;
@@ -545,7 +546,7 @@ async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> 
   if (!videoUrl) {
     throw new RapidApiError("tiktok", 0, "TikTok video URL gerekli");
   }
-  const raw = await rapidGet("tiktok", "/", { url: videoUrl, hd: "1" });
+  const raw = await rapidApiGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const r = raw as Record<string, unknown>;
   const data = ((r.data ?? r) as Record<string, unknown>);
   const item = (data.itemInfo as { itemStruct?: unknown } | undefined)?.itemStruct;

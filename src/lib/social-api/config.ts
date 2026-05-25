@@ -1,10 +1,12 @@
 /**
  * RapidAPI Basic plan limitleri ve otomatik yenileme bütçesi.
  *
- * KAYNAK (kullanıcı tarafından doğrulanan abonelikler — Mayıs 2026):
- *   • YouTube   (youtube138)                            : 100 req/ay
- *   • Instagram (instagram-api-fast-reliable-data-scraper): 100 req/ay
- *   • TikTok    (tiktok-scraper7) — Scraping API        : 300 req/ay
+ * KAYNAK (yükseltilmiş planlar — Mayıs 2026):
+ *   • YouTube   (youtube138)                            : 1000 req/ay (varsayılan)
+ *   • Instagram (instagram-api-fast-reliable-data-scraper): 1000 req/ay
+ *   • TikTok    (tiktok-scraper7)                       : 5000 req/ay
+ *
+ * Ortam değişkeni ile override: RAPIDAPI_YOUTUBE_MONTHLY_LIMIT vb.
  *
  * Budget stratejisi:
  *   - Aylık kotanın %85'ini güvenli sınır olarak kullan (manuel refresh +
@@ -31,30 +33,37 @@ export interface PlanConfig {
   maxBatchPerRun: number;
 }
 
+function envMonthlyLimit(key: string, fallback: number): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 export const SOCIAL_PLANS: Record<SocialPlatform, PlanConfig> = {
   youtube: {
     apiHost: "youtube138.p.rapidapi.com",
     label: "YouTube",
-    monthlyLimit: 100,
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_YOUTUBE_MONTHLY_LIMIT", 1000),
     rateLimit: "5 req/sn",
     safeFraction: 0.85,
-    maxBatchPerRun: 4,
+    maxBatchPerRun: 8,
   },
   instagram: {
     apiHost: "instagram-api-fast-reliable-data-scraper.p.rapidapi.com",
     label: "Instagram",
-    monthlyLimit: 100,
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_INSTAGRAM_MONTHLY_LIMIT", 1000),
     rateLimit: "1000 req/saat",
     safeFraction: 0.85,
-    maxBatchPerRun: 4,
+    maxBatchPerRun: 8,
   },
   tiktok: {
     apiHost: "tiktok-scraper7.p.rapidapi.com",
     label: "TikTok",
-    monthlyLimit: 300,
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_TIKTOK_MONTHLY_LIMIT", 5000),
     rateLimit: "120 req/dk",
     safeFraction: 0.85,
-    maxBatchPerRun: 12,
+    maxBatchPerRun: 24,
   },
 };
 

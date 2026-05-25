@@ -248,15 +248,23 @@ export default function KasaPage() {
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
+  const [tronResyncFrom, setTronResyncFrom] = useState("");
 
   const selectedKasa = useMemo(
     () => (selectedKasaId === "all" ? null : kasas.find((k) => k.id === selectedKasaId)),
     [kasas, selectedKasaId]
   );
 
-  const syncTronForKasa = async () => {
-    if (!selectedKasa?.tronAddress || !selectedKasa.tronSyncFrom) {
-      window.alert("Önce kasa ayarlarından TRON adresi ve başlangıç tarihi kaydedin.");
+  const syncTronForKasa = async (opts?: { useResyncFrom?: boolean }) => {
+    if (!selectedKasa?.tronAddress) {
+      window.alert("Önce kasa ayarlarından TRON adresi kaydedin.");
+      return;
+    }
+    const fromDate = opts?.useResyncFrom && tronResyncFrom
+      ? tronResyncFrom
+      : selectedKasa.tronSyncFrom;
+    if (!fromDate) {
+      window.alert("Takip başlangıç tarihi gerekli (kasa ayarları veya geçmiş çekim alanı).");
       return;
     }
     setTronSyncing(true);
@@ -265,18 +273,47 @@ export default function KasaPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kasaId: selectedKasa.id }),
+        body: JSON.stringify({
+          kasaId: selectedKasa.id,
+          syncFrom: fromDate,
+          persistSyncFrom: Boolean(opts?.useResyncFrom && tronResyncFrom),
+        }),
       });
-      const json = (await res.json()) as { ok?: boolean; imported?: number; error?: string };
+      const json = (await res.json()) as {
+        ok?: boolean;
+        imported?: number;
+        skipped?: number;
+        totalIn?: number;
+        totalOut?: number;
+        balanceUsd?: number;
+        error?: string;
+      };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Senkron başarısız");
       const boot = await fetch("/api/bootstrap", { credentials: "include" });
       if (boot.ok) {
-        const data = (await boot.json()) as { kasaTransactions?: typeof kasaTransactions };
+        const data = (await boot.json()) as {
+          kasaTransactions?: typeof kasaTransactions;
+          kasas?: typeof kasas;
+        };
         if (data.kasaTransactions) {
           useStore.setState({ kasaTransactions: data.kasaTransactions });
         }
+        if (data.kasas) {
+          useStore.setState({ kasas: data.kasas });
+        }
       }
-      window.alert(`${json.imported ?? 0} yeni TRON hareketi eklendi. Açıklama ve detayları düzenleyebilirsiniz.`);
+      const bal = json.balanceUsd != null ? fmtUsdt(json.balanceUsd) : "—";
+      window.alert(
+        [
+          `${json.imported ?? 0} yeni TRON hareketi eklendi (${json.skipped ?? 0} atlandı).`,
+          json.totalIn != null ? `Bu çekimde gelen: +${fmtUsdt(json.totalIn)}` : "",
+          json.totalOut != null ? `Bu çekimde giden: −${fmtUsdt(json.totalOut)}` : "",
+          `Güncel kasa bakiyesi: ${bal}`,
+          "Satırları listeden düzenleyebilir; bildirim merkezinde özet görünür.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      );
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "TRON senkron hatası");
     } finally {
@@ -452,16 +489,36 @@ export default function KasaPage() {
           </span>
         )}
         {selectedKasa?.tronAddress && !readOnly && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs gap-1.5"
-            disabled={tronSyncing}
-            onClick={() => void syncTronForKasa()}
-          >
-            {tronSyncing ? "Çekiliyor…" : "TRON hareketlerini çek"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs gap-1.5"
+              disabled={tronSyncing}
+              onClick={() => void syncTronForKasa()}
+            >
+              {tronSyncing ? "Çekiliyor…" : "TRON hareketlerini çek"}
+            </Button>
+            <input
+              type="date"
+              value={tronResyncFrom || selectedKasa.tronSyncFrom || ""}
+              onChange={(e) => setTronResyncFrom(e.target.value)}
+              className="h-8 rounded-md border border-border bg-card px-2 text-xs"
+              title="Geçmişe dönük çekim başlangıcı"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              disabled={tronSyncing}
+              title="Seçilen tarihten itibaren çek ve kasa ayarına kaydet"
+              onClick={() => void syncTronForKasa({ useResyncFrom: true })}
+            >
+              Geçmişten doldur
+            </Button>
+          </div>
         )}
       </div>
 
@@ -590,7 +647,14 @@ export default function KasaPage() {
                     {t.feeUsd > 0 ? <span className="text-amber-600 dark:text-amber-400">−{fmt(t.feeUsd)}</span> : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
-                    <p className="text-sm text-foreground font-medium">{t.purpose}</p>
+                    <p className="text-sm text-foreground font-medium flex items-center gap-1 flex-wrap">
+                      {t.purpose}
+                      {t.autoImported && (
+                        <Badge variant="outline" className="text-[9px] py-0 border-violet-300 text-violet-700 dark:border-violet-500/45 dark:text-violet-300">
+                          TRON
+                        </Badge>
+                      )}
+                    </p>
                     {t.notes && <p className="text-[11px] text-muted-foreground truncate max-w-[300px]">{t.notes}</p>}
                   </td>
                   <td className="px-3 py-2.5 text-muted-foreground text-xs whitespace-nowrap">{t.counterparty || "—"}</td>

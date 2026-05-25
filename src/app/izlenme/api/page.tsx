@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity, AlertTriangle, CheckCircle2, Clock, ExternalLink, Instagram,
-  Link2, Loader2, Music2, Radar, RefreshCw, Wifi, WifiOff, Youtube, Zap,
+  Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Share2, Sparkles, Youtube,
 } from "lucide-react";
+import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilities-card";
+import { SOCIAL_PLANS } from "@/lib/social-api/config";
 import { useStore } from "@/store/store";
 import { useIsReadOnly, useAuth } from "@/store/auth";
 import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
@@ -23,7 +25,17 @@ const fmtViews = (n: number) => {
   return n.toLocaleString("tr-TR");
 };
 
-type PingState = { status: "idle" | "running" | "ok" | "error"; latencyMs?: number; message?: string };
+interface RefreshStatusPayload {
+  ok: boolean;
+  platforms?: Array<{
+    platform: "youtube" | "instagram" | "tiktok";
+    label: string;
+    requestsUsed: number;
+    monthlyLimit: number;
+    rateLimit: string;
+    apiHost: string;
+  }>;
+}
 
 export default function IzlenmeApiPage() {
   const readOnly = useIsReadOnly();
@@ -31,12 +43,20 @@ export default function IzlenmeApiPage() {
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const { brands, brandLinks, linkSnapshots, pushNotification, updateBrandLink, upsertLinkSnapshot } = useStore();
   const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
-  const [pings, setPings] = useState<Record<string, PingState>>({
-    instagram: { status: "idle" },
-    youtube: { status: "idle" },
-    tiktok: { status: "idle" },
-  });
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
+  const [apiStatus, setApiStatus] = useState<RefreshStatusPayload | null>(null);
+
+  const loadApiStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/refresh-status", { credentials: "include" });
+      const json = (await res.json()) as RefreshStatusPayload;
+      if (json.ok) setApiStatus(json);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin && !readOnly) void loadApiStatus();
+  }, [isAdmin, readOnly, loadApiStatus]);
 
   const totalBrands = brands.filter((b) => b.status === "active").length;
   const totalStreamers = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
@@ -45,38 +65,6 @@ export default function IzlenmeApiPage() {
     () => totalLinkViewsForMonth(brandLinks, viewMonth, linkSnapshots, todayYm),
     [brandLinks, linkSnapshots, viewMonth, todayYm]
   );
-
-  async function runPing(platform: "instagram" | "youtube" | "tiktok") {
-    setPings((p) => ({ ...p, [platform]: { status: "running" } }));
-    try {
-      const res = await fetch(`/api/admin/api-ping?platform=${platform}`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const json = await res.json();
-      setPings((p) => ({
-        ...p,
-        [platform]: {
-          status: json.ok ? "ok" : "error",
-          latencyMs: json.latencyMs,
-          message: json.message ?? (json.ok ? "Probe başarılı" : "Probe başarısız"),
-        },
-      }));
-      if (!json.ok) {
-        pushNotification({
-          type: "api_refresh_alert",
-          title: `${platform} API ping başarısız`,
-          message: json.message ?? `${platform} probe başarısız (HTTP ${json.status ?? "?"})`,
-          forRole: "admin",
-        });
-      }
-    } catch (e: unknown) {
-      setPings((p) => ({
-        ...p,
-        [platform]: { status: "error", message: e instanceof Error ? e.message : "Ağ hatası" },
-      }));
-    }
-  }
 
   async function refreshSingle(linkId: string) {
     setRefreshing((s) => ({ ...s, [linkId]: true }));
@@ -116,6 +104,8 @@ export default function IzlenmeApiPage() {
         if (!l.lastCheckedAt) return true;
         return now - new Date(l.lastCheckedAt).getTime() > 24 * 3_600_000;
       }).length;
+      const sum = (field: "lastLikes" | "lastComments" | "lastShares") =>
+        links.reduce((s, l) => s + (l[field] ?? 0), 0);
       return {
         label,
         links: links.length,
@@ -123,6 +113,9 @@ export default function IzlenmeApiPage() {
         errors: platformErrors,
         stale: platformStale,
         views: links.reduce((s, l) => s + (l.lastViews ?? 0), 0),
+        likes: sum("lastLikes"),
+        comments: sum("lastComments"),
+        shares: sum("lastShares"),
       };
     });
     const lastChecked = apiLinks
@@ -264,72 +257,58 @@ export default function IzlenmeApiPage() {
                   <span className="text-muted-foreground">Canlı izlenme</span>
                   <span className="font-medium tabular-nums">{fmtViews(p.views)}</span>
                 </div>
+                <div className="flex justify-between gap-2 pt-1 border-t border-border/50">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <Heart size={10} /> Beğeni
+                  </span>
+                  <span className="font-medium tabular-nums text-[11px]">{fmtViews(p.likes)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <MessageCircle size={10} /> Yorum
+                  </span>
+                  <span className="font-medium tabular-nums text-[11px]">{fmtViews(p.comments)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <Share2 size={10} /> Paylaşım
+                  </span>
+                  <span className="font-medium tabular-nums text-[11px]">{fmtViews(p.shares)}</span>
+                </div>
               </div>
             </div>
           ))}
         </CardContent>
       </Card>
 
-      {/* Platform ping testleri — ikonlu */}
       {isAdmin && !readOnly && (
         <Card className="mb-5">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
-              <Radar size={15} /> Canlı API ping
+              <Sparkles size={15} className="text-violet-600 dark:text-violet-300" />
+              API özellik kataloğu
             </CardTitle>
             <CardDescription className="text-xs">
-              Her platforma probe (canlı HTTP isteği) gönderir, gecikme ve durum bilgisini gösterir. Her test kotadan 1 düşer.
+              Yükseltilmiş planlarla kullanılabilir tüm endpoint&apos;ler. Her özelliği canlı test edebilirsiniz (1 kota / test).
+              Otomatik yenileme yalnızca <strong>cron</strong> etiketli temel özellikleri kullanır.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
-            {([
-              { key: "instagram", label: "Instagram", Icon: Instagram, color: "text-pink-600 dark:text-pink-300", bg: "bg-pink-50 dark:bg-pink-950/30" },
-              { key: "youtube", label: "YouTube", Icon: Youtube, color: "text-red-600 dark:text-red-300", bg: "bg-red-50 dark:bg-red-950/30" },
-              { key: "tiktok", label: "TikTok", Icon: Music2, color: "text-foreground", bg: "bg-muted/40" },
-            ] as const).map(({ key, label, Icon, color, bg }) => {
-              const st = pings[key];
-              return (
-                <div key={key} className={`rounded-lg border border-border ${bg} px-3 py-3 flex flex-col gap-2`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Icon size={16} className={color} />
-                      <span className="text-sm font-semibold">{label}</span>
-                    </div>
-                    {st.status === "ok" && (
-                      <Badge variant="outline" className="text-[10px] gap-1 border-emerald-300 text-emerald-700 dark:border-emerald-500/45 dark:text-emerald-300">
-                        <Wifi size={10} /> {st.latencyMs ? `${st.latencyMs}ms` : "ok"}
-                      </Badge>
-                    )}
-                    {st.status === "error" && (
-                      <Badge variant="outline" className="text-[10px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
-                        <WifiOff size={10} /> hata
-                      </Badge>
-                    )}
-                    {st.status === "running" && (
-                      <Badge variant="outline" className="text-[10px] gap-1">
-                        <Loader2 size={10} className="animate-spin" /> probe...
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground min-h-[28px]">
-                    {st.status === "idle"
-                      ? "Henüz test edilmedi."
-                      : st.status === "running"
-                      ? "Canlı probe gönderiliyor..."
-                      : st.message ?? (st.status === "ok" ? "Probe başarılı" : "Probe başarısız")}
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 self-start"
-                    disabled={st.status === "running"}
-                    onClick={() => runPing(key)}
-                  >
-                    <Zap size={12} /> Ping gönder
-                  </Button>
-                </div>
-              );
-            })}
+          <CardContent>
+            <PlatformApiCapabilitiesGrid
+              platforms={(["youtube", "instagram", "tiktok"] as const).map((platform) => {
+                const plan = SOCIAL_PLANS[platform];
+                const fromApi = apiStatus?.platforms?.find((p) => p.platform === platform);
+                return {
+                  platform,
+                  label: plan.label,
+                  apiHost: plan.apiHost,
+                  monthlyLimit: fromApi?.monthlyLimit ?? plan.monthlyLimit,
+                  requestsUsed: fromApi?.requestsUsed ?? 0,
+                  rateLimit: plan.rateLimit,
+                };
+              })}
+              onQuotaUsed={() => void loadApiStatus()}
+            />
           </CardContent>
         </Card>
       )}

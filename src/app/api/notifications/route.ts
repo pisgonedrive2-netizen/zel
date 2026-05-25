@@ -3,7 +3,7 @@ import { getSession } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled } from "@/lib/env";
 import { notificationFromRow, notificationToRow } from "@/lib/db/mappers";
-import type { AppNotification } from "@/store/store";
+import { STREAMER_NOTIFICATION_TYPES, type AppNotification } from "@/store/store";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,9 @@ export async function GET(req: NextRequest) {
       .eq("for_role", session.role)
       .order("created_at", { ascending: false })
       .limit(limit);
+    if (session.role === "streamer") {
+      q = q.in("type", [...STREAMER_NOTIFICATION_TYPES]);
+    }
     q = q.or(`for_user_id.is.null,for_user_id.eq.${session.userId}`);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
