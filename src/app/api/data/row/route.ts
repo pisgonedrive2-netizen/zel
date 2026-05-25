@@ -303,6 +303,9 @@ export async function DELETE(req: Request) {
     if (!table) {
       return NextResponse.json({ error: "Bilinmeyen entity" }, { status: 400 });
     }
+    if (entity === "brand_link" && canWriteAdmin(session)) {
+      await db.from("link_snapshots").delete().eq("link_id", id);
+    }
     const { error } = await db.from(table).delete().eq("id", id);
     if (error) throw new Error(error.message);
     return NextResponse.json({ ok: true });

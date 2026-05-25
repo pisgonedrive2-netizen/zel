@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity, AlertTriangle, CheckCircle2, Clock, ExternalLink, Instagram,
-  Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Share2, Sparkles, Youtube,
+  Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Share2, Sparkles, Trash2, Youtube,
 } from "lucide-react";
 import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilities-card";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
+import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
+import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
 
 const fmtViews = (n: number) => {
@@ -48,6 +50,7 @@ export default function IzlenmeApiPage() {
   const readOnly = useIsReadOnly();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
+  const canDeleteLinks = user?.role === "admin";
   const { brands, brandLinks, linkSnapshots, pushNotification, updateBrandLink, upsertLinkSnapshot } = useStore();
   const {
     viewMonth,
@@ -68,6 +71,7 @@ export default function IzlenmeApiPage() {
     [brandLinks]
   );
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
+  const [deleting, setDeleting] = useState<Record<string, boolean>>({});
   const [apiStatus, setApiStatus] = useState<RefreshStatusPayload | null>(null);
 
   const loadApiStatus = useCallback(async () => {
@@ -161,6 +165,7 @@ export default function IzlenmeApiPage() {
       seen.add(l.id);
       return true;
     });
+    const goneLinks = staleAndErrorLinks.filter((l) => isPostOrLinkGoneError(l.lastCheckError));
     return {
       apiLinks,
       autoTrack,
@@ -169,6 +174,7 @@ export default function IzlenmeApiPage() {
       platforms,
       lastChecked,
       staleAndErrorLinks,
+      goneLinks,
     };
   }, [scopedLinks]);
 
@@ -393,9 +399,43 @@ export default function IzlenmeApiPage() {
               </Badge>
             </CardTitle>
             <CardDescription className="text-xs">
-              24 saatten eski snapshot veya hata almış linkler — tek tıkla yenileyebilirsiniz.
+              24 saatten eski snapshot veya hata almış linkler — yenileyebilir veya gönderi yoksa silebilirsiniz
+              (yayıncı panelinden de kaldırılır).
             </CardDescription>
           </div>
+          {canDeleteLinks && !readOnly && apiSummary.goneLinks.length > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1 text-xs border-red-300/60 text-red-700 dark:text-red-300"
+              onClick={() => {
+                void (async () => {
+                  if (
+                    !confirm(
+                      `${apiSummary.goneLinks.length} linkin gönderisi mevcut değil. Hepsi silinsin mi?`
+                    )
+                  ) {
+                    return;
+                  }
+                  for (const l of apiSummary.goneLinks) {
+                    if (!brandLinks.some((x) => x.id === l.id)) continue;
+                    const brand = brands.find((b) => b.id === l.brandId);
+                    setDeleting((s) => ({ ...s, [l.id]: true }));
+                    await deleteBrandLinkAsAdmin(l, {
+                      brandName: brand?.name,
+                      deletedByUserId: user?.id,
+                      skipConfirm: true,
+                    });
+                    setDeleting((s) => ({ ...s, [l.id]: false }));
+                  }
+                })();
+              }}
+            >
+              <Trash2 size={12} />
+              Gönderisi olmayanları sil ({apiSummary.goneLinks.length})
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {apiSummary.staleAndErrorLinks.length === 0 ? (
@@ -426,6 +466,7 @@ export default function IzlenmeApiPage() {
                     const ageDays = l.lastCheckedAt
                       ? Math.floor((Date.now() - new Date(l.lastCheckedAt).getTime()) / 86_400_000)
                       : null;
+                    const postGone = isPostOrLinkGoneError(l.lastCheckError);
                     return (
                       <tr key={l.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-1.5 pr-2 font-medium truncate max-w-[140px]">
@@ -455,7 +496,11 @@ export default function IzlenmeApiPage() {
                         </td>
                         <td className="py-1.5 pr-2 tabular-nums">{fmtViews(l.lastViews ?? 0)}</td>
                         <td className="py-1.5 pr-2">
-                          {l.lastCheckError ? (
+                          {postGone ? (
+                            <Badge variant="outline" className="text-[9px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
+                              <AlertTriangle size={9} /> Gönderi yok
+                            </Badge>
+                          ) : l.lastCheckError ? (
                             <Badge variant="outline" className="text-[9px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
                               <AlertTriangle size={9} /> Hata
                             </Badge>
@@ -466,21 +511,54 @@ export default function IzlenmeApiPage() {
                           )}
                         </td>
                         <td className="py-1.5 pr-2">
-                          {isAdmin && !readOnly && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              title="Bu linki şimdi yenile"
-                              disabled={refreshing[l.id]}
-                              onClick={() => refreshSingle(l.id)}
-                            >
-                              {refreshing[l.id] ? (
-                                <Loader2 size={12} className="animate-spin" />
-                              ) : (
-                                <RefreshCw size={12} />
+                          {(isAdmin || canDeleteLinks) && !readOnly && (
+                            <div className="flex items-center gap-0.5">
+                              {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                title="Bu linki şimdi yenile"
+                                disabled={refreshing[l.id] || deleting[l.id]}
+                                onClick={() => refreshSingle(l.id)}
+                              >
+                                {refreshing[l.id] ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <RefreshCw size={12} />
+                                )}
+                              </Button>
                               )}
-                            </Button>
+                              {canDeleteLinks && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-red-600 hover:text-red-700 dark:text-red-400"
+                                title={
+                                  postGone
+                                    ? "Gönderi yok — linki sil (yayıncıdan da kaldırılır)"
+                                    : "Linki sil (yayıncıdan da kaldırılır)"
+                                }
+                                disabled={refreshing[l.id] || deleting[l.id]}
+                                onClick={() => {
+                                  void (async () => {
+                                    setDeleting((s) => ({ ...s, [l.id]: true }));
+                                    await deleteBrandLinkAsAdmin(l, {
+                                      brandName: brand?.name,
+                                      deletedByUserId: user?.id,
+                                    });
+                                    setDeleting((s) => ({ ...s, [l.id]: false }));
+                                  })();
+                                }}
+                              >
+                                {deleting[l.id] ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={12} />
+                                )}
+                              </Button>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>

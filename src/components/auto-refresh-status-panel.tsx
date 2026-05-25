@@ -18,6 +18,7 @@ import {
   Save,
   Settings2,
   Timer,
+  Trash2,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -34,6 +35,8 @@ import {
   type IzlenmeApiDateMode,
   type IzlenmeLinkScope,
 } from "@/lib/izlenme-refresh";
+import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
+import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
 
 interface PlatformStatus {
   platform: "youtube" | "tiktok" | "instagram";
@@ -147,6 +150,7 @@ export function AutoRefreshStatusPanel({
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const canEditSettings = user?.role === "admin";
+  const canDeleteLinks = user?.role === "admin";
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -161,6 +165,7 @@ export function AutoRefreshStatusPanel({
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [refreshingLink, setRefreshingLink] = useState<string | null>(null);
+  const [deletingLink, setDeletingLink] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<string | null>(null);
   // Toplu yenileme canlı ilerleme — polling ile güncellenir
   const [bulkProgress, setBulkProgress] = useState<{
@@ -191,6 +196,28 @@ export function AutoRefreshStatusPanel({
         return b.hours - a.hours;
       });
   }, [brandLinks, brands]);
+
+  const goneStaleLinks = useMemo(
+    () => staleLinks.filter(({ link }) => isPostOrLinkGoneError(link.lastCheckError)),
+    [staleLinks]
+  );
+
+  const handleDeleteLink = useCallback(
+    async (linkId: string, brandName?: string) => {
+      const link = brandLinks.find((l) => l.id === linkId);
+      if (!link) return;
+      setDeletingLink(linkId);
+      try {
+        await deleteBrandLinkAsAdmin(link, {
+          brandName,
+          deletedByUserId: user?.id,
+        });
+      } finally {
+        setDeletingLink(null);
+      }
+    },
+    [brandLinks, user?.id]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -929,7 +956,7 @@ export function AutoRefreshStatusPanel({
               {staleOpen ? <ChevronUp size={13} /> : <ChevronRight size={13} />}
             </button>
 
-            {staleOpen && isAdmin && (
+            {staleOpen && (isAdmin || canDeleteLinks) && (
               <div className="border-t border-border/40 px-3 py-2 flex flex-wrap items-center gap-2 bg-muted/20">
                 <span className="text-[11px] text-muted-foreground">Toplu işlem:</span>
                 <Button
@@ -963,6 +990,39 @@ export function AutoRefreshStatusPanel({
                 >
                   Sadece bekleyenler
                 </button>
+                {canDeleteLinks && goneStaleLinks.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px] gap-1 border-red-300/60 text-red-700 dark:text-red-300"
+                    disabled={bulkRunning || deletingLink != null}
+                    onClick={() => {
+                      void (async () => {
+                        if (
+                          !confirm(
+                            `${goneStaleLinks.length} link gönderisi mevcut değil görünüyor. Hepsi silinsin mi? Yayıncı panellerinden de kaldırılır.`
+                          )
+                        ) {
+                          return;
+                        }
+                        for (const { link, brand } of goneStaleLinks) {
+                          if (!brandLinks.some((l) => l.id === link.id)) continue;
+                          setDeletingLink(link.id);
+                          await deleteBrandLinkAsAdmin(link, {
+                            brandName: brand?.name,
+                            deletedByUserId: user?.id,
+                            skipConfirm: true,
+                          });
+                          setDeletingLink(null);
+                        }
+                      })();
+                    }}
+                  >
+                    <Trash2 size={10} />
+                    Gönderisi olmayanları sil ({goneStaleLinks.length})
+                  </Button>
+                )}
               </div>
             )}
 
@@ -972,6 +1032,8 @@ export function AutoRefreshStatusPanel({
                   .filter(({ hours }) => !showStaleOnly || hours === null || hours > 24)
                   .map(({ link, brand, hours }) => {
                   const isRefreshing = refreshingLink === link.id;
+                  const isDeleting = deletingLink === link.id;
+                  const postGone = isPostOrLinkGoneError(link.lastCheckError);
                   const neverChecked = hours === null;
                   const veryStale = hours !== null && hours > 48;
                   const slightlyStale = hours !== null && hours > 24;
@@ -1010,7 +1072,12 @@ export function AutoRefreshStatusPanel({
                               <Wifi size={9} /> {Math.floor(hours!)}sa önce
                             </span>
                           )}
-                          {link.lastCheckError && (
+                          {postGone && (
+                            <Badge variant="outline" className="text-[9px] h-4 px-1 border-red-300 text-red-700 dark:text-red-300">
+                              Gönderi yok
+                            </Badge>
+                          )}
+                          {link.lastCheckError && !postGone && (
                             <span className="text-[10px] text-red-600 dark:text-red-400 truncate max-w-[160px]" title={link.lastCheckError}>
                               · hata: {link.lastCheckError.slice(0, 40)}…
                             </span>
@@ -1029,23 +1096,49 @@ export function AutoRefreshStatusPanel({
                             <ExternalLink size={11} />
                           </a>
                         )}
-                        {isAdmin && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-[10px] gap-1"
-                            disabled={isRefreshing || bulkRunning}
-                            onClick={() => void refreshSingleLinkById(link.id)}
-                            title="Bu linki şimdi kontrol et"
-                          >
-                            {isRefreshing ? (
-                              <Loader2 size={10} className="animate-spin" />
-                            ) : (
-                              <RefreshCw size={10} />
+                        {(isAdmin || canDeleteLinks) && (
+                          <>
+                            {isAdmin && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] gap-1"
+                              disabled={isRefreshing || isDeleting || bulkRunning}
+                              onClick={() => void refreshSingleLinkById(link.id)}
+                              title="Bu linki şimdi kontrol et"
+                            >
+                              {isRefreshing ? (
+                                <Loader2 size={10} className="animate-spin" />
+                              ) : (
+                                <RefreshCw size={10} />
+                              )}
+                              Yenile
+                            </Button>
                             )}
-                            Yenile
-                          </Button>
+                            {canDeleteLinks && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] gap-1 border-red-300/50 text-red-700 dark:text-red-300"
+                              disabled={isRefreshing || isDeleting || bulkRunning}
+                              onClick={() => void handleDeleteLink(link.id, brand?.name)}
+                              title={
+                                postGone
+                                  ? "Gönderi mevcut değil — linki sil (yayıncı panelinden de kaldırılır)"
+                                  : "Linki sil (yayıncı panelinden de kaldırılır)"
+                              }
+                            >
+                              {isDeleting ? (
+                                <Loader2 size={10} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={10} />
+                              )}
+                              Sil
+                            </Button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
