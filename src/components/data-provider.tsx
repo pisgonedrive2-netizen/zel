@@ -15,7 +15,7 @@ import {
 } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
-import { SYNC_ERROR_EVENT } from "@/lib/kasa-persist";
+import { SYNC_ERROR_EVENT } from "@/lib/sync-notify";
 
 const SYNC_MS = 900;
 

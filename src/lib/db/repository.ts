@@ -37,7 +37,7 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
 }
 
 /** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
-async function upsertBrandLinksMerged(links: BrandLink[]) {
+export async function upsertBrandLinksMerged(links: BrandLink[]) {
   if (links.length === 0) return;
   const existing = await selectAll("brand_links", brandLinkFromRow);
   const byId = new Map(existing.map((l) => [l.id, l]));
@@ -357,8 +357,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "expense_entries", rows: (payload.expenses ?? []).map(expenseEntryToRow) },
     { table: "planned_items", rows: (payload.plannedItems ?? []).map(plannedToRow) },
     { table: "planned_item_payments", rows: (payload.plannedItemPayments ?? []).map(plannedPaymentToRow) },
-    { table: "streamer_accounts", rows: (payload.streamerAccounts ?? []).map(streamerAccountToRow) },
-    { table: "schedule_slots", rows: (payload.scheduleSlots ?? []).map(scheduleSlotToRow) },
+    { table: "streamer_accounts", rows: (payload.streamerAccounts ?? []).map(streamerAccountToRow), skipDelete: true },
+    { table: "schedule_slots", rows: (payload.scheduleSlots ?? []).map(scheduleSlotToRow), skipDelete: true },
     // Marka linkleri / snapshot / viewership asla toplu silinmez (sync eksik payload ile kayıp önlenir).
     {
       table: "brand_links",
@@ -376,9 +376,9 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
     // Kasa hareketleri tek tek API ile de yazılır; toplu silme yapılmaz (veri kaybı önlenir).
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
-    { table: "content_expenses", rows: (payload.contentExpenses ?? []).map(contentExpenseToRow) },
-    { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow) },
-    { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow) },
+    { table: "content_expenses", rows: (payload.contentExpenses ?? []).map(contentExpenseToRow), skipDelete: true },
+    { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow), skipDelete: true },
+    { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow), skipDelete: true },
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
   ];
 
@@ -404,11 +404,9 @@ async function syncAdminFull(payload: AppHydratePayload) {
 
 async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload) {
   const expenses = (payload.contentExpenses ?? []).filter((e) => e.employeeId === employeeId);
-  await upsertRows("content_expenses", expenses.map(contentExpenseToRow));
-  await deleteNotIn("content_expenses", expenses.map((e) => e.id), {
-    column: "employee_id",
-    value: employeeId,
-  });
+  if (expenses.length > 0) {
+    await upsertRows("content_expenses", expenses.map(contentExpenseToRow));
+  }
 
   const empName =
     payload.employees?.find((e) => e.id === employeeId)?.name ?? "Yayıncı";
@@ -432,25 +430,19 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
   }
 
   const plans = (payload.weeklyPlans ?? []).filter((p) => p.employeeId === employeeId);
-  await upsertRows("weekly_plans", plans.map(weeklyPlanToRow));
-  await deleteNotIn("weekly_plans", plans.map((p) => p.id), {
-    column: "employee_id",
-    value: employeeId,
-  });
+  if (plans.length > 0) {
+    await upsertRows("weekly_plans", plans.map(weeklyPlanToRow));
+  }
 
   const reels = (payload.weekBrandReels ?? []).filter((r) => r.employeeId === employeeId);
-  await upsertRows("week_brand_reels", reels.map(weekBrandReelToRow));
-  await deleteNotIn("week_brand_reels", reels.map((r) => r.id), {
-    column: "employee_id",
-    value: employeeId,
-  });
+  if (reels.length > 0) {
+    await upsertRows("week_brand_reels", reels.map(weekBrandReelToRow));
+  }
 
   const accounts = (payload.streamerAccounts ?? []).filter((a) => a.employeeId === employeeId);
-  await upsertRows("streamer_accounts", accounts.map(streamerAccountToRow));
-  await deleteNotIn("streamer_accounts", accounts.map((a) => a.id), {
-    column: "employee_id",
-    value: employeeId,
-  });
+  if (accounts.length > 0) {
+    await upsertRows("streamer_accounts", accounts.map(streamerAccountToRow));
+  }
 
   // Bildirimler yalnızca sunucu/API ile yazılır — yayıncı sync ile üzerine yazmaz.
 
@@ -460,26 +452,10 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
   }
   // Yayıncı linkleri silinmez — boş sync veya eksik liste veri kaybına yol açmasın.
 
-  const linkIds = links.map((l) => l.id);
-  const snaps = (payload.linkSnapshots ?? []).filter((s) => linkIds.includes(s.linkId));
-  await upsertRows("link_snapshots", snaps.map(linkSnapshotToRow));
-  if (linkIds.length > 0) {
-    const { data: existingSnaps, error: snapSelErr } = await getSupabaseAdmin()
-      .from("link_snapshots")
-      .select("id")
-      .in("link_id", linkIds);
-    if (snapSelErr) throw new Error(`link_snapshots select: ${snapSelErr.message}`);
-    const keepIds = new Set(snaps.map((s) => s.id));
-    const snapToDelete = (existingSnaps ?? [])
-      .map((r) => String((r as { id: string }).id))
-      .filter((id) => !keepIds.has(id));
-    if (snapToDelete.length > 0) {
-      const { error: snapDelErr } = await getSupabaseAdmin()
-        .from("link_snapshots")
-        .delete()
-        .in("id", snapToDelete);
-      if (snapDelErr) throw new Error(`link_snapshots delete: ${snapDelErr.message}`);
-    }
+  const linkIds = new Set(links.map((l) => l.id));
+  const snaps = (payload.linkSnapshots ?? []).filter((s) => linkIds.has(s.linkId));
+  if (snaps.length > 0) {
+    await upsertRows("link_snapshots", snaps.map(linkSnapshotToRow));
   }
 
   const viewership = (payload.brandViewership ?? []).filter((v) => v.employeeId === employeeId);

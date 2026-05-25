@@ -3,10 +3,28 @@ import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { requestSyncFlush } from "@/lib/sync-client";
 import { persistKasaTransaction, removeKasaTransaction } from "@/lib/kasa-persist";
+import {
+  persistRowImmediate,
+  removeRowImmediate,
+  type PersistEntity,
+} from "@/lib/row-persist";
 
-/** Marka link / snapshot / izlenme — Supabase'e hemen yaz. */
-const flushLinkData = () => queueMicrotask(() => requestSyncFlush());
+/** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
+const flushAppData = () => queueMicrotask(() => requestSyncFlush());
 const flushKasaData = () => queueMicrotask(() => requestSyncFlush());
+
+const asRow = <T extends { id: string }>(r: T): Record<string, unknown> =>
+  r as unknown as Record<string, unknown>;
+
+function persistEntity(entity: PersistEntity, row: { id: string }) {
+  if (!isSupabaseClientMode()) return;
+  persistRowImmediate(entity, asRow(row));
+}
+
+function removeEntity(entity: PersistEntity, id: string) {
+  if (!isSupabaseClientMode()) return;
+  removeRowImmediate(entity, id);
+}
 
 function persistKasaTxImmediate(tx: KasaTransaction) {
   if (!isSupabaseClientMode()) return;
@@ -1954,27 +1972,56 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         }),
 
       // Streamer accounts
-      addStreamerAccount:    (a)     => set((s) => ({ streamerAccounts: [...s.streamerAccounts, { ...a, id: uid() }] })),
-      updateStreamerAccount: (id, a) => set((s) => ({ streamerAccounts: s.streamerAccounts.map((x) => (x.id === id ? { ...x, ...a } : x)) })),
-      deleteStreamerAccount: (id)    => set((s) => ({ streamerAccounts: s.streamerAccounts.filter((x) => x.id !== id) })),
+      addStreamerAccount:    (a)     => set((s) => {
+        const row = { ...a, id: uid() };
+        persistEntity("streamer_account", row);
+        return { streamerAccounts: [...s.streamerAccounts, row] };
+      }),
+      updateStreamerAccount: (id, a) => set((s) => {
+        const streamerAccounts = s.streamerAccounts.map((x) => (x.id === id ? { ...x, ...a } : x));
+        const row = streamerAccounts.find((x) => x.id === id);
+        if (row) persistEntity("streamer_account", row);
+        return { streamerAccounts };
+      }),
+      deleteStreamerAccount: (id)    => {
+        removeEntity("streamer_account", id);
+        set((s) => ({ streamerAccounts: s.streamerAccounts.filter((x) => x.id !== id) }));
+      },
 
       // Schedule
-      addScheduleSlot:    (sl)    => set((s) => ({ scheduleSlots: [...s.scheduleSlots, { ...sl, id: uid() }] })),
-      updateScheduleSlot: (id, sl)=> set((s) => ({ scheduleSlots: s.scheduleSlots.map((x) => (x.id === id ? { ...x, ...sl } : x)) })),
-      deleteScheduleSlot: (id)    => set((s) => ({ scheduleSlots: s.scheduleSlots.filter((x) => x.id !== id) })),
+      addScheduleSlot:    (sl)    => set((s) => {
+        const row = { ...sl, id: uid() };
+        persistEntity("schedule_slot", row);
+        return { scheduleSlots: [...s.scheduleSlots, row] };
+      }),
+      updateScheduleSlot: (id, sl)=> set((s) => {
+        const scheduleSlots = s.scheduleSlots.map((x) => (x.id === id ? { ...x, ...sl } : x));
+        const row = scheduleSlots.find((x) => x.id === id);
+        if (row) persistEntity("schedule_slot", row);
+        return { scheduleSlots };
+      }),
+      deleteScheduleSlot: (id)    => {
+        removeEntity("schedule_slot", id);
+        set((s) => ({ scheduleSlots: s.scheduleSlots.filter((x) => x.id !== id) }));
+      },
 
       // Viewership
       addBrandViewership: (v) => {
-        set((s) => ({ brandViewership: [...s.brandViewership, { ...v, id: uid() }] }));
-        flushLinkData();
+        const row = { ...v, id: uid() };
+        set((s) => ({ brandViewership: [...s.brandViewership, row] }));
+        persistEntity("brand_viewership", row);
       },
       updateBrandViewership: (id, v) => {
-        set((s) => ({ brandViewership: s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x)) }));
-        flushLinkData();
+        set((s) => {
+          const brandViewership = s.brandViewership.map((x) => (x.id === id ? { ...x, ...v } : x));
+          const row = brandViewership.find((x) => x.id === id);
+          if (row) persistEntity("brand_viewership", row);
+          return { brandViewership };
+        });
       },
       deleteBrandViewership: (id) => {
+        removeEntity("brand_viewership", id);
         set((s) => ({ brandViewership: s.brandViewership.filter((x) => x.id !== id) }));
-        flushLinkData();
       },
 
       upsertBrandMonthlyStats: (stats) => {
@@ -2007,7 +2054,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
           }
           return { brandMonthlyStats: [...s.brandMonthlyStats, row] };
         });
-        flushLinkData();
+        flushAppData();
       },
 
       // Brand
@@ -2023,35 +2070,36 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             brandViewership: s.brandViewership.filter((v) => v.brandId !== id),
           };
         });
-        flushLinkData();
+        flushAppData();
       },
 
       // Brand link
       addBrandLink: (l) => {
-        set((s) => ({
-          brandLinks: [
-            ...s.brandLinks,
-            { ...l, id: uid(), createdAt: l.createdAt ?? new Date().toISOString() },
-          ],
-        }));
-        flushLinkData();
+        const row = { ...l, id: uid(), createdAt: l.createdAt ?? new Date().toISOString() };
+        set((s) => ({ brandLinks: [...s.brandLinks, row] }));
+        persistEntity("brand_link", row);
       },
       updateBrandLink: (id, l) => {
-        set((s) => ({ brandLinks: s.brandLinks.map((x) => (x.id === id ? { ...x, ...l } : x)) }));
-        flushLinkData();
+        set((s) => {
+          const brandLinks = s.brandLinks.map((x) => (x.id === id ? { ...x, ...l } : x));
+          const row = brandLinks.find((x) => x.id === id);
+          if (row) persistEntity("brand_link", row);
+          return { brandLinks };
+        });
       },
       deleteBrandLink: (id) => {
+        removeEntity("brand_link", id);
         set((s) => ({
           brandLinks: s.brandLinks.filter((x) => x.id !== id),
           linkSnapshots: s.linkSnapshots.filter((sn) => sn.linkId !== id),
         }));
-        flushLinkData();
       },
 
       // Link snapshot
       addLinkSnapshot: (sn) => {
-        set((s) => ({ linkSnapshots: [...s.linkSnapshots, { ...sn, id: uid() }] }));
-        flushLinkData();
+        const row = { ...sn, id: uid() };
+        set((s) => ({ linkSnapshots: [...s.linkSnapshots, row] }));
+        persistEntity("link_snapshot", row);
       },
       upsertLinkSnapshot: (sn) => {
         set((s) => {
@@ -2059,19 +2107,25 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
           if (idx >= 0) {
             const next = [...s.linkSnapshots];
             next[idx] = { ...next[idx], ...sn };
+            persistEntity("link_snapshot", next[idx]);
             return { linkSnapshots: next };
           }
-          return { linkSnapshots: [...s.linkSnapshots, sn] };
+          const row = sn;
+          persistEntity("link_snapshot", row);
+          return { linkSnapshots: [...s.linkSnapshots, row] };
         });
-        flushLinkData();
       },
       updateLinkSnapshot: (id, sn) => {
-        set((s) => ({ linkSnapshots: s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x)) }));
-        flushLinkData();
+        set((s) => {
+          const linkSnapshots = s.linkSnapshots.map((x) => (x.id === id ? { ...x, ...sn } : x));
+          const row = linkSnapshots.find((x) => x.id === id);
+          if (row) persistEntity("link_snapshot", row);
+          return { linkSnapshots };
+        });
       },
       deleteLinkSnapshot: (id) => {
+        removeEntity("link_snapshot", id);
         set((s) => ({ linkSnapshots: s.linkSnapshots.filter((x) => x.id !== id) }));
-        flushLinkData();
       },
 
       // Kasa hesapları
@@ -2159,11 +2213,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Content expense
       addContentExpense: (e) => {
         const id = uid();
-        set((s) => ({ contentExpenses: [...s.contentExpenses, { ...e, id }] }));
+        const row = { ...e, id };
+        set((s) => ({ contentExpenses: [...s.contentExpenses, row] }));
+        persistEntity("content_expense", row);
         return id;
       },
-      updateContentExpense: (id, e) => set((s) => ({ contentExpenses: s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
-      deleteContentExpense: (id)    => set((s) => {
+      updateContentExpense: (id, e) => set((s) => {
+        const contentExpenses = s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x));
+        const row = contentExpenses.find((x) => x.id === id);
+        if (row) persistEntity("content_expense", row);
+        return { contentExpenses };
+      }),
+      deleteContentExpense: (id)    => {
+        removeEntity("content_expense", id);
+        set((s) => {
         const target = s.contentExpenses.find((x) => x.id === id);
         const kasaTransactions = target?.kasaTxId
           ? s.kasaTransactions.filter((t) => t.id !== target.kasaTxId)
@@ -2176,7 +2239,8 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
           kasaTransactions,
           salaryExtras,
         };
-      }),
+      });
+      },
 
       settleContentExpenseToPayroll: (contentExpenseId) =>
         set((s) => {
@@ -2304,24 +2368,39 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Weekly plan
       addWeeklyPlan: (p) => {
         const id = uid();
-        set((s) => ({ weeklyPlans: [...s.weeklyPlans, { ...p, id }] }));
+        const row = { ...p, id };
+        set((s) => ({ weeklyPlans: [...s.weeklyPlans, row] }));
+        persistEntity("weekly_plan", row);
         return id;
       },
-      updateWeeklyPlan: (id, p) => set((s) => ({ weeklyPlans: s.weeklyPlans.map((x) => (x.id === id ? { ...x, ...p } : x)) })),
-      deleteWeeklyPlan: (id)    => set((s) => ({ weeklyPlans: s.weeklyPlans.filter((x) => x.id !== id) })),
+      updateWeeklyPlan: (id, p) => set((s) => {
+        const weeklyPlans = s.weeklyPlans.map((x) => (x.id === id ? { ...x, ...p } : x));
+        const row = weeklyPlans.find((x) => x.id === id);
+        if (row) persistEntity("weekly_plan", row);
+        return { weeklyPlans };
+      }),
+      deleteWeeklyPlan: (id)    => {
+        removeEntity("weekly_plan", id);
+        set((s) => ({ weeklyPlans: s.weeklyPlans.filter((x) => x.id !== id) }));
+      },
 
-      addWeekBrandReel: (r) => set((s) => ({
-        weekBrandReels: [
-          ...s.weekBrandReels,
-          { ...r, id: uid(), createdAt: new Date().toISOString() },
-        ],
-      })),
-      updateWeekBrandReel: (id, r) => set((s) => ({
-        weekBrandReels: s.weekBrandReels.map((x) => (x.id === id ? { ...x, ...r } : x)),
-      })),
-      deleteWeekBrandReel: (id) => set((s) => ({
+      addWeekBrandReel: (r) => {
+        const row = { ...r, id: uid(), createdAt: new Date().toISOString() };
+        set((s) => ({ weekBrandReels: [...s.weekBrandReels, row] }));
+        persistEntity("week_brand_reel", row);
+      },
+      updateWeekBrandReel: (id, r) => set((s) => {
+        const weekBrandReels = s.weekBrandReels.map((x) => (x.id === id ? { ...x, ...r } : x));
+        const row = weekBrandReels.find((x) => x.id === id);
+        if (row) persistEntity("week_brand_reel", row);
+        return { weekBrandReels };
+      }),
+      deleteWeekBrandReel: (id) => {
+        removeEntity("week_brand_reel", id);
+        set((s) => ({
         weekBrandReels: s.weekBrandReels.filter((x) => x.id !== id),
-      })),
+      }));
+      },
 
       // Notifications
       pushNotification: (n) => set((s) => ({
