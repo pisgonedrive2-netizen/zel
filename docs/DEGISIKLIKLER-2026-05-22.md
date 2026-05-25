@@ -71,14 +71,13 @@ Bu deploy’da marka rotalarında değişiklik yok. Kontrol edildi:
 
 ---
 
-## Deploy
+## Deploy (tamamlandı)
 
-```bash
-git add -A
-git commit -m "API sağlık: bağlantı ve link hatalarını ayır, izlenme/api UI"
-git push origin main
-npm run deploy   # vercel --prod → foxstreaming.vercel.app
-```
+| | |
+|---|---|
+| Commit | `f015a5d` |
+| Canlı | [https://foxstreaming.vercel.app](https://foxstreaming.vercel.app) |
+| Inspect | [Vercel deployment](https://vercel.com/pisgonedrive2-netizens-projects/foxstream/FqdBqoXH22E7JKzSK9zZm8wysZit) |
 
 ### Ortam (hatırlatma)
 
