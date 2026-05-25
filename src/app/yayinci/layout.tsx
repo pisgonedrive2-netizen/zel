@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
-import { useStore } from "@/store/store";
+import { useStore, visibleNotificationsForRole } from "@/store/store";
 
 const NAV: { href: string; label: string; match: string }[] = [
   { href: "/yayinci/maas",           label: "Maaş",            match: "maas" },
@@ -15,6 +15,7 @@ const NAV: { href: string; label: string; match: string }[] = [
   { href: "/yayinci/hesaplar",       label: "Hesaplar",        match: "hesaplar" },
   { href: "/yayinci/marka-linkleri", label: "Marka linkleri",  match: "marka-linkleri" },
   { href: "/yayinci/gecmis",         label: "Geçmiş aylar",    match: "gecmis" },
+  { href: "/yayinci/bildirimler",    label: "Mesajlar",        match: "bildirimler" },
 ];
 
 export default function YayinciLayout({ children }: { children: React.ReactNode }) {
@@ -22,11 +23,15 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
   const { user } = useAuth();
   const panelViewAs = usePanelView((s) => s.panelViewAs);
   const contentExpenses = useStore((s) => s.contentExpenses);
+  const notifications = useStore((s) => s.notifications);
   const employees      = useStore((s) => s.employees);
   const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
   const me             = employees.find((e) => e.id === targetEmployeeId);
   const pendingCount   = me
     ? contentExpenses.filter((e) => e.employeeId === me.id && e.reviewStatus === "pending").length
+    : 0;
+  const unreadMessages = user
+    ? visibleNotificationsForRole(notifications, "streamer", user.id).filter((n) => !n.read).length
     : 0;
 
   return (
@@ -38,7 +43,10 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
         <div className="mx-auto flex max-w-[1400px] gap-2 overflow-x-auto px-3 py-2.5 sm:px-6 md:px-8 lg:px-10">
           {NAV.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const showDot = item.match === "harcamalar" && pendingCount > 0;
+            const showDot =
+              (item.match === "harcamalar" && pendingCount > 0) ||
+              (item.match === "bildirimler" && unreadMessages > 0);
+            const dotCount = item.match === "bildirimler" ? unreadMessages : pendingCount;
             return (
               <Link
                 key={item.href}
@@ -53,7 +61,7 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
                 {item.label}
                 {showDot && (
                   <span className="rounded-full bg-amber-400 px-1.5 py-0 text-[10px] font-bold text-amber-950 tabular-nums">
-                    {pendingCount > 9 ? "9+" : pendingCount}
+                    {dotCount > 9 ? "9+" : dotCount}
                   </span>
                 )}
               </Link>

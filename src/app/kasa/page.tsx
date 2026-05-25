@@ -77,6 +77,8 @@ function KasaAccountForm({
     archived: initial?.archived ?? false,
     orderIndex: initial?.orderIndex ?? 0,
     notes: initial?.notes ?? "",
+    tronAddress: initial?.tronAddress ?? "",
+    tronSyncFrom: initial?.tronSyncFrom ?? "",
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -106,6 +108,23 @@ function KasaAccountForm({
         <Field label="Notlar">
           <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Bu kasanın amacı, sahibi vb." />
         </Field>
+        <FormGrid>
+          <Field label="TRON adresi (TRC20)" hint="USDT cüzdan adresi — otomatik hareket çekimi">
+            <Input
+              value={form.tronAddress ?? ""}
+              onChange={(e) => set("tronAddress", e.target.value)}
+              placeholder="T..."
+              className="font-mono text-xs"
+            />
+          </Field>
+          <Field label="Takip başlangıç tarihi">
+            <Input
+              type="date"
+              value={form.tronSyncFrom ?? ""}
+              onChange={(e) => set("tronSyncFrom", e.target.value)}
+            />
+          </Field>
+        </FormGrid>
         <div className="flex flex-wrap items-center gap-4 text-sm">
           <label className="inline-flex items-center gap-2 cursor-pointer">
             <input
@@ -228,6 +247,42 @@ export default function KasaPage() {
   const [search, setSearch]             = useState("");
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
+  const [tronSyncing, setTronSyncing] = useState(false);
+
+  const selectedKasa = useMemo(
+    () => (selectedKasaId === "all" ? null : kasas.find((k) => k.id === selectedKasaId)),
+    [kasas, selectedKasaId]
+  );
+
+  const syncTronForKasa = async () => {
+    if (!selectedKasa?.tronAddress || !selectedKasa.tronSyncFrom) {
+      window.alert("Önce kasa ayarlarından TRON adresi ve başlangıç tarihi kaydedin.");
+      return;
+    }
+    setTronSyncing(true);
+    try {
+      const res = await fetch("/api/kasa/tron-sync", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kasaId: selectedKasa.id }),
+      });
+      const json = (await res.json()) as { ok?: boolean; imported?: number; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? "Senkron başarısız");
+      const boot = await fetch("/api/bootstrap", { credentials: "include" });
+      if (boot.ok) {
+        const data = (await boot.json()) as { kasaTransactions?: typeof kasaTransactions };
+        if (data.kasaTransactions) {
+          useStore.setState({ kasaTransactions: data.kasaTransactions });
+        }
+      }
+      window.alert(`${json.imported ?? 0} yeni TRON hareketi eklendi. Açıklama ve detayları düzenleyebilirsiniz.`);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "TRON senkron hatası");
+    } finally {
+      setTronSyncing(false);
+    }
+  };
 
   const visibleKasas = useMemo(
     () => [...kasas].sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
@@ -395,6 +450,18 @@ export default function KasaPage() {
           <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1 ml-2">
             <Archive size={11} /> {visibleKasas.filter((k) => k.archived).length} arşivli
           </span>
+        )}
+        {selectedKasa?.tronAddress && !readOnly && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1.5"
+            disabled={tronSyncing}
+            onClick={() => void syncTronForKasa()}
+          >
+            {tronSyncing ? "Çekiliyor…" : "TRON hareketlerini çek"}
+          </Button>
         )}
       </div>
 

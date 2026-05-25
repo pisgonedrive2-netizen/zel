@@ -1,7 +1,11 @@
 "use client";
 
 import { isSupabaseClientMode } from "@/lib/supabase-client";
-import { useStore, type AppNotification } from "@/store/store";
+import {
+  useStore,
+  visibleNotificationsForRole,
+  type AppNotification,
+} from "@/store/store";
 
 /** Sunucudan bildirim listesini çeker ve store'u günceller. */
 export async function refreshNotificationsFromServer(): Promise<boolean> {
@@ -17,6 +21,38 @@ export async function refreshNotificationsFromServer(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Yayıncı / marka: kendi bildirimlerini çekip store'a yazar (diğer rollerin kayıtlarını korur). */
+export async function refreshMyNotificationsFromServer(
+  role: "streamer" | "brand",
+  userId: string
+): Promise<boolean> {
+  if (!isSupabaseClientMode()) return false;
+  try {
+    const res = await fetch("/api/notifications?limit=200", { credentials: "include" });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { notifications?: AppNotification[] };
+    const mine = (data.notifications ?? []).filter(
+      (n) => n.forRole === role && (!n.forUserId || n.forUserId === userId)
+    );
+    useStore.setState((s) => {
+      const rest = s.notifications.filter((n) => n.forRole !== role);
+      return { notifications: [...mine, ...rest].slice(0, 500) };
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Görünür okunmamış sayısı (rol filtresi uygulanmış). */
+export function myUnreadNotificationCount(
+  role: "streamer" | "brand",
+  userId: string
+): number {
+  const { notifications } = useStore.getState();
+  return visibleNotificationsForRole(notifications, role, userId).filter((n) => !n.read).length;
 }
 
 /**

@@ -580,6 +580,8 @@ export function kasaAccountFromRow(r: Record<string, unknown>): Kasa {
     archived: bool(r.archived),
     orderIndex: Number(r.order_index ?? 0),
     notes: str(r.notes),
+    tronAddress: r.tron_address ? str(r.tron_address) : undefined,
+    tronSyncFrom: r.tron_sync_from ? str(r.tron_sync_from).slice(0, 10) : undefined,
   };
 }
 
@@ -593,6 +595,8 @@ export function kasaAccountToRow(k: Kasa) {
     archived: k.archived,
     order_index: k.orderIndex,
     notes: k.notes,
+    tron_address: k.tronAddress ?? null,
+    tron_sync_from: k.tronSyncFrom ?? null,
   };
 }
 
@@ -609,6 +613,8 @@ export function kasaFromRow(r: Record<string, unknown>): KasaTransaction {
     proof: str(r.proof),
     notes: str(r.notes),
     plannedItemId: r.planned_item_id ? str(r.planned_item_id) : undefined,
+    tronTxId: r.tron_tx_id ? str(r.tron_tx_id) : undefined,
+    autoImported: bool(r.auto_imported),
   };
 }
 
@@ -625,6 +631,8 @@ export function kasaToRow(t: KasaTransaction) {
     proof: t.proof,
     notes: t.notes,
     planned_item_id: t.plannedItemId ?? null,
+    tron_tx_id: t.tronTxId ?? null,
+    auto_imported: t.autoImported ?? false,
   };
 }
 
@@ -654,6 +662,9 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
     settlementMode: r.settlement_mode as ContentExpense["settlementMode"],
     salaryExtraId: r.salary_extra_id ? str(r.salary_extra_id) : undefined,
+    reviewThread: Array.isArray(r.review_thread)
+      ? (r.review_thread as ContentExpense["reviewThread"])
+      : undefined,
   };
 }
 
@@ -683,6 +694,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     kasa_tx_id: e.kasaTxId ?? null,
     settlement_mode: e.settlementMode ?? null,
     salary_extra_id: e.salaryExtraId ?? null,
+    review_thread: e.reviewThread ?? [],
   };
 }
 
@@ -698,6 +710,7 @@ export function weeklyPlanFromRow(r: Record<string, unknown>): WeeklyPlan {
     brandName: r.brand_name ? str(r.brand_name) : undefined,
     notes: str(r.notes),
     status: r.status as WeeklyPlan["status"],
+    streamerAccountId: r.streamer_account_id ? str(r.streamer_account_id) : undefined,
     createdBy: r.created_by ? str(r.created_by) : undefined,
     createdAt: r.created_at ? str(r.created_at) : undefined,
   };
@@ -715,6 +728,7 @@ export function weeklyPlanToRow(p: WeeklyPlan) {
     brand_name: p.brandName ?? null,
     notes: p.notes,
     status: p.status,
+    streamer_account_id: p.streamerAccountId ?? null,
     created_by: p.createdBy ?? null,
   };
   // Mevcut bir created_at varsa koru; yoksa sunucu DEFAULT now() kullansın.
@@ -731,6 +745,7 @@ export function weekBrandReelFromRow(r: Record<string, unknown>): WeekBrandReel 
     contentUrl: str(r.content_url),
     platform: str(r.platform),
     brandLinkId: r.brand_link_id ? str(r.brand_link_id) : undefined,
+    publishedAt: r.published_at ? str(r.published_at) : undefined,
     notes: str(r.notes),
     createdAt: str(r.created_at),
   };
@@ -745,6 +760,7 @@ export function weekBrandReelToRow(r: WeekBrandReel) {
     content_url: r.contentUrl,
     platform: r.platform,
     brand_link_id: r.brandLinkId ?? null,
+    published_at: r.publishedAt ?? null,
     notes: r.notes,
     created_at: r.createdAt,
   };

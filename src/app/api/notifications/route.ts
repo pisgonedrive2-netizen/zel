@@ -7,13 +7,13 @@ import type { AppNotification } from "@/store/store";
 
 export const runtime = "nodejs";
 
-/** GET /api/notifications — yöneticiler için tüm bildirim akışı (filtre destekli). */
+/** GET /api/notifications — admin/denetçi tüm akış; yayıncı/marka kendi bildirimleri. */
 export async function GET(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ notifications: [] });
   }
   const session = await getSession();
-  if (!session || (session.role !== "admin" && session.role !== "auditor")) {
+  if (!session) {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
 
@@ -22,7 +22,29 @@ export async function GET(req: NextRequest) {
   const type = url.searchParams.get("type");
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "200", 10) || 200, 500);
 
-  let q = getSupabaseAdmin().from("app_notifications").select("*")
+  const db = getSupabaseAdmin();
+
+  if (session.role === "streamer" || session.role === "brand") {
+    let q = db
+      .from("app_notifications")
+      .select("*")
+      .eq("for_role", session.role)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    q = q.or(`for_user_id.is.null,for_user_id.eq.${session.userId}`);
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const notifications = (data ?? []).map((r) =>
+      notificationFromRow(r as Record<string, unknown>)
+    );
+    return NextResponse.json({ notifications });
+  }
+
+  if (session.role !== "admin" && session.role !== "auditor") {
+    return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
+  }
+
+  let q = db.from("app_notifications").select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
   if (role) q = q.eq("for_role", role);

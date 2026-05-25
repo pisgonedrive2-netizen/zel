@@ -329,6 +329,10 @@ export interface Kasa {
   archived: boolean;
   orderIndex: number;
   notes: string;
+  /** TRC20 USDT cüzdan adresi (otomatik hareket çekimi). */
+  tronAddress?: string;
+  /** Bu tarihten itibaren zincir hareketleri içe aktarılır (YYYY-MM-DD). */
+  tronSyncFrom?: string;
 }
 
 /** Kasa hareketi — Denetim grubuna iletilen tüm para giriş/çıkışları. */
@@ -344,6 +348,10 @@ export interface KasaTransaction {
   purpose: string;
   /** Alıcı (out için) veya gönderici (in için). */
   counterparty: string;
+  /** TRON işlem kimliği (otomatik import). */
+  tronTxId?: string;
+  /** Zincirden otomatik oluşturuldu. */
+  autoImported?: boolean;
   /** TXID / dekont / kanıt link. */
   proof: string;
   notes: string;
@@ -389,7 +397,18 @@ export interface ContentExpense {
   settlementMode?: "kasa" | "payroll";
   /** Bordroya eklendiyse bağlı salary_extra id. */
   salaryExtraId?: string;
+  /** Yönetici ↔ yayıncı inceleme mesajları. */
+  reviewThread?: ExpenseReviewMessage[];
 }
+
+export interface ExpenseReviewMessage {
+  authorId: string;
+  authorRole: "admin" | "auditor" | "streamer";
+  message: string;
+  at: string;
+}
+
+export type ExpenseReviewAuthorRole = ExpenseReviewMessage["authorRole"];
 
 /** Yayıncı haftalık plan kaydı — `ScheduleSlot`'tan ayrı, tarihli ve özel. */
 export interface WeeklyPlan {
@@ -405,6 +424,8 @@ export interface WeeklyPlan {
   brandName?: string;
   notes: string;
   status: "planned" | "in_progress" | "completed" | "cancelled";
+  /** Planın hangi yayıncı hesabıyla ilişkili olduğu. */
+  streamerAccountId?: string;
   /** Hangi user oluşturdu (auth.users.id). */
   createdBy?: string;
   createdAt?: string;
@@ -422,6 +443,8 @@ export interface WeekBrandReel {
   platform: string;
   /** Varsa kayıtlı marka linki (şablondan seçim). */
   brandLinkId?: string;
+  /** Instagram vb. içeriğin yayınlandığı tarih (API). */
+  publishedAt?: string;
   notes: string;
   createdAt: string;
 }
@@ -2382,6 +2405,17 @@ export const OPS_ONLY_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> =
   "brand_payment_reminder",
   "password_reset_request",
   "account_registration_request",
+  "schedule_updated",
+  "expense_submitted",
+  "advance_request",
+]);
+
+/** Yayıncı panelinde gösterilecek bildirim tipleri (yönetici mesajı + harcama sonucu). */
+export const STREAMER_NOTIFICATION_TYPES: ReadonlySet<AppNotification["type"]> = new Set([
+  "general",
+  "expense_approved",
+  "expense_rejected",
+  "expense_paid",
 ]);
 
 /** Rol için (operasyonel bildirimler filtrelenmiş) görüntülenebilir bildirimler. */
@@ -2393,7 +2427,14 @@ export function visibleNotificationsForRole(
   const isOpsRole = role === "admin" || role === "auditor";
   return notifications.filter((n) => {
     if (n.forRole !== role) return false;
-    if (n.forUserId && userId && n.forUserId !== userId) return false;
+    if (userId) {
+      if (n.forUserId && n.forUserId !== userId) return false;
+    } else if (n.forUserId) {
+      return false;
+    }
+    if (role === "streamer") {
+      return STREAMER_NOTIFICATION_TYPES.has(n.type);
+    }
     if (!isOpsRole && OPS_ONLY_NOTIFICATION_TYPES.has(n.type)) return false;
     return true;
   });

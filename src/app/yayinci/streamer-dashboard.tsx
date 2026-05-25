@@ -6,7 +6,7 @@ import {
   Wallet, TrendingDown, CalendarDays, Clapperboard, Eye, ExternalLink,
   CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Receipt, Hash, History,
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2, Lock,
-  Plus, Pencil, Image as ImageIcon, Trash2, Clock,
+  Plus, Pencil, Image as ImageIcon, Trash2, Clock, Bell, MessageSquare,
   Check, X as CloseIcon, Link2, Activity, TrendingUp, Video,
   Download, FileSpreadsheet, Target, BarChart3,
 } from "lucide-react";
@@ -22,7 +22,9 @@ import {
   markNotificationReadPersisted,
   markAllNotificationsReadPersisted,
   deleteNotificationPersisted,
+  refreshMyNotificationsFromServer,
 } from "@/lib/notification-actions";
+import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
@@ -37,6 +39,8 @@ import {
   weekOverlapsMonth,
   type BrandMonthPdfInput,
 } from "@/lib/marka-izlenme-pdf";
+import { downloadStreamerExpensesPdf } from "@/lib/streamer-expense-pdf";
+import { monthLabelTr } from "@/lib/month-label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -183,16 +187,47 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   };
 
   const readOnly = initial ? !canStreamerEditExpense(initial) : false;
+  const [replyText, setReplyText] = useState("");
+  const thread = initial?.reviewThread ?? [];
 
   return (
     <form onSubmit={e => {
       e.preventDefault();
-      if (readOnly) { onClose(); return; }
-      if (form.amountUsd <= 0) return;
-      onSave({ ...form, reviewStatus: "pending", submittedAt: new Date().toISOString() });
+      if (readOnly && initial?.reviewStatus !== "needs_info") { onClose(); return; }
+      if (form.amountUsd <= 0 && initial?.reviewStatus !== "needs_info") return;
+      const nextThread =
+        initial?.reviewStatus === "needs_info" && replyText.trim()
+          ? [
+              ...thread,
+              { authorId: userId, authorRole: "streamer" as const, message: replyText.trim(), at: new Date().toISOString() },
+            ]
+          : thread;
+      onSave({
+        ...form,
+        reviewThread: nextThread,
+        reviewStatus: initial?.reviewStatus === "needs_info" ? "pending" : "pending",
+        submittedAt: new Date().toISOString(),
+      });
       onClose();
     }}>
-      <fieldset disabled={readOnly} className="grid gap-4 disabled:opacity-90">
+      {thread.length > 0 && (
+        <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 space-y-2 max-h-40 overflow-y-auto">
+          <p className="text-xs font-semibold text-muted-foreground">İnceleme mesajları</p>
+          {thread.map((m, i) => (
+            <div key={i} className="text-xs">
+              <span className="font-medium">{m.authorRole === "streamer" ? "Siz" : "Yönetici"}</span>
+              <span className="text-muted-foreground"> · {fmtDateTime(m.at)}</span>
+              <p className="mt-0.5 whitespace-pre-wrap">{m.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {initial?.reviewStatus === "needs_info" && (
+        <Field label="Yöneticiye yanıt" required hint="Detay istendi — yanıtınızı yazıp tekrar gönderin">
+          <Textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} rows={3} required />
+        </Field>
+      )}
+      <fieldset disabled={readOnly && initial?.reviewStatus !== "needs_info"} className="grid gap-4 disabled:opacity-90">
         <FormGrid>
           <Field label="Tarih" hint="Geçmiş tarih seçebilirsiniz — sol ok ile geriye gidin" required>
             <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
@@ -260,10 +295,11 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
 }
 
 // ── Weekly Plan Form ────────────────────────────────────────────────────
-function WeeklyPlanForm({ employeeId, userId, weekStart, initial, onSave, onDelete, onClose }: {
+function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initial, onSave, onDelete, onClose }: {
   employeeId: string;
   userId: string;
   weekStart: string;
+  streamerAccounts: StreamerAccount[];
   initial?: WeeklyPlan;
   onSave: (d: Omit<WeeklyPlan, "id">) => void;
   onDelete?: () => void;
@@ -278,6 +314,7 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, initial, onSave, onDele
     endTime:    initial?.endTime   ?? "",
     activity:   initial?.activity  ?? "Yayın",
     brandName:  initial?.brandName ?? "",
+    streamerAccountId: initial?.streamerAccountId ?? streamerAccounts[0]?.id,
     notes:      initial?.notes     ?? "",
     status:     initial?.status    ?? "planned",
     createdBy:  initial?.createdBy ?? userId,
@@ -317,6 +354,21 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, initial, onSave, onDele
             <Input type="time" value={form.endTime ?? ""} onChange={e => set("endTime", e.target.value)} />
           </Field>
         </FormGrid>
+        <Field label="Hesap" required hint="Bu plan hangi platform hesabın için?">
+          <Select
+            value={form.streamerAccountId ?? ""}
+            onChange={(e) => set("streamerAccountId", e.target.value || undefined)}
+            required={streamerAccounts.length > 0}
+            options={
+              streamerAccounts.length === 0
+                ? [{ value: "", label: "Önce Hesaplar bölümünden hesap ekleyin" }]
+                : streamerAccounts.map((a) => ({
+                    value: a.id,
+                    label: `${a.platform}${a.handle ? ` · ${a.handle}` : ""}`,
+                  }))
+            }
+          />
+        </Field>
         <FormGrid>
           <Field label="Marka / Konu">
             <Input value={form.brandName ?? ""} onChange={e => set("brandName", e.target.value)} placeholder="Gala / Padi vs."
@@ -538,10 +590,11 @@ const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
   cancelled:   "bg-muted border-border text-muted-foreground line-through",
 };
 
-function PlanGrid({ weekStart, label, plans, onAdd, onEdit }: {
+function PlanGrid({ weekStart, label, plans, accountLabel, onAdd, onEdit }: {
   weekStart: string;
   label: string;
   plans: WeeklyPlan[];
+  accountLabel?: (id?: string) => string;
   onAdd: () => void;
   onEdit: (p: WeeklyPlan) => void;
 }) {
@@ -581,6 +634,9 @@ function PlanGrid({ weekStart, label, plans, onAdd, onEdit }: {
                   <p className="font-mono text-[9px]">{p.startTime}{p.endTime && `–${p.endTime}`}</p>
                 )}
                 <p className="font-medium leading-tight">{p.activity}</p>
+                {p.streamerAccountId && accountLabel && (
+                  <p className="text-[9px] opacity-60 truncate">{accountLabel(p.streamerAccountId)}</p>
+                )}
                 {p.brandName && <p className="text-[9px] opacity-70 truncate">{p.brandName}</p>}
               </button>
             ))}
@@ -814,6 +870,9 @@ function AddWeekReelForm({
   const [platform, setPlatform] = useState("Instagram");
   const [pickLinkId, setPickLinkId] = useState("");
   const [notes, setNotes] = useState("");
+  const [publishedAt, setPublishedAt] = useState<string | undefined>();
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaHint, setMetaHint] = useState<string | null>(null);
 
   const linksForBrand = useMemo(
     () => myBrandLinks.filter((l) => l.brandId === brandId && l.url),
@@ -829,6 +888,39 @@ function AddWeekReelForm({
     }
   }, [pickLinkId, myBrandLinks]);
 
+  const fetchPublishedMeta = async (url: string) => {
+    const u = url.trim();
+    if (!u || !/instagram|tiktok|youtube/i.test(u)) {
+      setPublishedAt(undefined);
+      setMetaHint(null);
+      return;
+    }
+    setMetaLoading(true);
+    setMetaHint(null);
+    try {
+      const res = await fetch("/api/social/url-metadata", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const json = (await res.json()) as { ok?: boolean; publishedAt?: string; platform?: string; error?: string };
+      if (json.ok && json.publishedAt) {
+        setPublishedAt(json.publishedAt);
+        if (json.platform) setPlatform(json.platform);
+        setMetaHint(
+          `Yayın: ${new Date(json.publishedAt).toLocaleString("tr-TR", { dateStyle: "medium", timeStyle: "short" })}`
+        );
+      } else if (!json.ok) {
+        setMetaHint(json.error ?? "Yayın tarihi alınamadı");
+      }
+    } catch {
+      setMetaHint("Yayın tarihi alınamadı");
+    } finally {
+      setMetaLoading(false);
+    }
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!brandId || !contentUrl.trim()) return;
@@ -839,11 +931,14 @@ function AddWeekReelForm({
       contentUrl: contentUrl.trim(),
       platform,
       brandLinkId: pickLinkId || undefined,
+      publishedAt,
       notes: notes.trim(),
     });
     setContentUrl("");
     setNotes("");
     setPickLinkId("");
+    setPublishedAt(undefined);
+    setMetaHint(null);
   };
 
   return (
@@ -897,11 +992,17 @@ function AddWeekReelForm({
             required
             value={contentUrl}
             onChange={(e) => setContentUrl(e.target.value)}
+            onBlur={() => void fetchPublishedMeta(contentUrl)}
             placeholder="https://instagram.com/reel/…"
             className="font-mono text-xs"
           />
         </Field>
       </FormGrid>
+      {(metaLoading || metaHint) && (
+        <p className="text-[11px] text-muted-foreground">
+          {metaLoading ? "Yayın tarihi sorgulanıyor…" : metaHint}
+        </p>
+      )}
       <Field label="Kısa not">
         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Örn. 2. reels, Stories serisi" />
       </Field>
@@ -999,7 +1100,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addBrandLink, updateBrandLink, deleteBrandLink, addLinkSnapshot,
     addBrandViewership, updateBrandViewership,
-    updateEmployee, pushNotification,
+    updateEmployee, pushNotification, notifications,
   } = useStore();
 
   const today    = new Date();
@@ -1076,6 +1177,33 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   // ── Plans ──
   const myPlansThisWeek = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === thisWeek);
   const myPlansNextWeek = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === nextWeek);
+  const myAllPlans = useMemo(
+    () =>
+      weeklyPlans
+        .filter((p) => p.employeeId === me.id)
+        .sort((a, b) => b.date.localeCompare(a.date) || (a.startTime ?? "").localeCompare(b.startTime ?? "")),
+    [weeklyPlans, me.id]
+  );
+  const planAccountLabel = (id?: string) => {
+    if (!id) return "";
+    const a = myAccounts.find((x) => x.id === id);
+    return a ? `${a.platform}${a.handle ? ` · ${a.handle}` : ""}` : "";
+  };
+
+  const myNotifications = useMemo(
+    () => visibleNotificationsForRole(notifications, "streamer", user.id),
+    [notifications, user.id]
+  );
+  const unreadMessages = myNotifications.filter((n) => !n.read).length;
+
+  useEffect(() => {
+    if (!isSupabaseClientMode()) return;
+    void refreshMyNotificationsFromServer("streamer", user.id);
+    const t = setInterval(() => {
+      void refreshMyNotificationsFromServer("streamer", user.id);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [user.id]);
 
   // ── Marka linkleri ──
   const myAccounts   = streamerAccounts.filter(a => a.employeeId === me.id);
@@ -1375,6 +1503,26 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         </div>
       </div>
 
+      {unreadMessages > 0 && (
+        <Link
+          href="/yayinci/bildirimler"
+          className="mb-4 flex items-center gap-3 rounded-xl border border-primary/35 bg-primary/10 px-4 py-3 text-sm hover:bg-primary/15 transition-colors"
+        >
+          <div className="w-9 h-9 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+            <Bell size={18} className="text-primary" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-foreground">
+              {unreadMessages} yeni mesajınız var
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Yönetici bildirimleri ve harcama inceleme mesajları — tıklayıp okuyun
+            </p>
+          </div>
+          <MessageSquare size={16} className="text-primary shrink-0" />
+        </Link>
+      )}
+
       {/* Top KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-blue-50/10 dark:border-blue-500/40 dark:from-blue-950/55 dark:to-blue-950/20 gap-2 py-5">
@@ -1587,16 +1735,46 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
       {section === "harcamalar" && (
         <div className="w-full min-w-0 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-foreground">Harcama Raporlarım</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Haftalık gruplar halinde · yönetici onayından sonra ödeme
+                {monthLabelTr(month)} · haftalık liste ve detaylı PDF özeti
               </p>
             </div>
-            <Button size="sm" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} className="gap-1.5 shrink-0 w-full sm:w-auto" type="button">
-              <Plus size={14} /> Harcama Gönder {month !== todayYm && <span className="text-[10px] opacity-70">({monthLabel(month)})</span>}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={myExpenses.filter((e) => e.month === month).length === 0}
+                onClick={() => {
+                  try {
+                    downloadStreamerExpensesPdf({
+                      employeeName: me.name,
+                      monthYm: month,
+                      expenses: myExpenses,
+                    });
+                  } catch (err) {
+                    window.alert(
+                      err instanceof Error ? err.message : "PDF olusturulamadi"
+                    );
+                  }
+                }}
+              >
+                <FileSpreadsheet size={14} />
+                Detaylı PDF indir
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)}
+                className="gap-1.5 w-full sm:w-auto"
+                type="button"
+              >
+                <Plus size={14} /> Harcama Gönder
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -1705,9 +1883,42 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               weekStart={weekView}
               label={weekViewLabel}
               plans={weekViewPlans}
+              accountLabel={planAccountLabel}
               onAdd={() => setPlanModal({ mode: "new", weekStart: weekView })}
               onEdit={(p) => setPlanModal({ mode: p, weekStart: weekView })}
             />
+
+            {myAllPlans.length > weekViewPlans.length && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Tüm plan geçmişi</CardTitle>
+                  <CardDescription className="text-xs">
+                    {myAllPlans.length} kayıt — geçmiş haftalar dahil, veriler sunucuda saklanır
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="max-h-64 overflow-y-auto space-y-1.5">
+                  {myAllPlans.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setWeekView(p.weekStart);
+                        setPlanModal({ mode: p, weekStart: p.weekStart });
+                      }}
+                      className="w-full text-left rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted/50"
+                    >
+                      <span className="font-medium">{formatDateLong(p.date)}</span>
+                      {" · "}
+                      <span>{p.activity}</span>
+                      {p.streamerAccountId && (
+                        <span className="text-muted-foreground"> · {planAccountLabel(p.streamerAccountId)}</span>
+                      )}
+                      {p.brandName && <span className="text-muted-foreground"> · {p.brandName}</span>}
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Recurring template — read-only */}
             <Card>
@@ -1872,7 +2083,14 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                             >
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium">{b?.shortName ?? "—"}</p>
-                                <p className="text-[11px] text-muted-foreground">{r.platform}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {r.platform}
+                                  {r.publishedAt && (
+                                    <span className="ml-1 text-violet-700 dark:text-violet-300">
+                                      · yayın {fmtDateTime(r.publishedAt)}
+                                    </span>
+                                  )}
+                                </p>
                                 <a
                                   href={r.contentUrl}
                                   target="_blank"
@@ -2417,6 +2635,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             employeeId={me.id}
             userId={user.id}
             weekStart={planModal.weekStart}
+            streamerAccounts={myAccounts}
             initial={planModal.mode === "new" ? undefined : planModal.mode}
             onSave={handlePlanSave}
             onDelete={planModal.mode !== "new"
@@ -2603,7 +2822,7 @@ function StreamerNotificationsSection({ userId }: { userId: string }) {
             Bildirimlerim
             {unread > 0 && <Badge className="text-[10px]">{unread} yeni</Badge>}
           </CardTitle>
-          <CardDescription>Yöneticiden gelen mesajlar, takvim ve harcama durumları</CardDescription>
+          <CardDescription>Yalnızca size özel yönetici mesajları ve harcama inceleme bildirimleri</CardDescription>
         </div>
         {unread > 0 && (
           <Button

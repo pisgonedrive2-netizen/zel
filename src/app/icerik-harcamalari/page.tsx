@@ -859,11 +859,21 @@ function ContentExpensesPageInner() {
               setReviewModal(null);
             }}
             onNeedsInfo={(note) => {
+              const thread = [
+                ...(reviewModal.reviewThread ?? []),
+                {
+                  authorId: user?.id ?? "admin",
+                  authorRole: (user?.role === "auditor" ? "auditor" : "admin") as "admin" | "auditor",
+                  message: note,
+                  at: new Date().toISOString(),
+                },
+              ];
               updateContentExpense(reviewModal.id, {
                 reviewStatus: "needs_info",
                 reviewedAt: new Date().toISOString(),
                 reviewedBy: user?.id,
                 reviewerNote: note,
+                reviewThread: thread,
               });
               pushNotification({
                 type: "general",
@@ -873,6 +883,7 @@ function ContentExpensesPageInner() {
                 forUserId: reviewModal.submittedBy,
                 triggeredBy: user?.id,
                 refId: reviewModal.id,
+                href: "/yayinci/harcamalar",
               });
               logAudit({
                 actorId: user?.id ?? "unknown",
@@ -973,8 +984,21 @@ function ReviewForm({
         )}
       </div>
 
+      {(expense.reviewThread?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-border bg-card p-3 max-h-48 overflow-y-auto space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground">İnceleme yazışması</p>
+          {expense.reviewThread!.map((m, i) => (
+            <div key={i} className="text-xs border-b border-border/50 pb-2 last:border-0">
+              <span className="font-medium">{m.authorRole === "streamer" ? "Yayıncı" : "Yönetici"}</span>
+              <span className="text-muted-foreground"> · {fmtDateTime(m.at)}</span>
+              <p className="mt-0.5 whitespace-pre-wrap">{m.message}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Yönetici notu */}
-      <Field label="Yönetici Notu" hint="Onay/Red sebebi (yayıncı görecek)">
+      <Field label="Yönetici mesajı" hint="Onay / red / detay iste — yayıncı bu metni görür ve yanıtlayabilir">
         <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Ek bilgi, neden vs..." rows={3} />
       </Field>
 

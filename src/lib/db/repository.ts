@@ -44,9 +44,8 @@ async function deleteNotIn(table: string, ids: string[], extraFilter?: { column:
   const existing = (data ?? []).map((r) => String((r as { id: string }).id));
   const toDelete = existing.filter((id) => !ids.includes(id));
   if (toDelete.length === 0) return;
-  // Güvenlik: kapsamlı tablolarda boş liste ile toplu silme bootstrap hatasına işaret eder.
-  // owner_id / employee_id ile kapsamlı silmelerde boş liste kasıtlı olabilir (tüm linkleri sil).
-  if (ids.length === 0 && existing.length > 0 && !extraFilter) {
+  // Güvenlik: boş payload ile toplu silme (bootstrap hatası / eksik store) engellenir.
+  if (ids.length === 0 && existing.length > 0) {
     throw new Error(
       `${table}: senkronizasyon güvenliği — boş listeyle mevcut ${existing.length} satır silinemez.`
     );
@@ -319,7 +318,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
 
   for (const { table, rows, skipDelete } of tables) {
     await upsertRows(table, rows);
-    if (!skipDelete) {
+    if (!skipDelete && rows.length > 0) {
       await deleteNotIn(table, rows.map((r) => String(r.id)));
     }
   }
@@ -383,10 +382,7 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
     value: employeeId,
   });
 
-  const notifs = (payload.notifications ?? []).filter(
-    (n) => n.forRole === "streamer"
-  );
-  await upsertRows("app_notifications", notifs.map(notificationToRow));
+  // Bildirimler yalnızca sunucu/API ile yazılır — yayıncı sync ile üzerine yazmaz.
 
   const links = (payload.brandLinks ?? []).filter((l) => l.ownerId === employeeId);
   await upsertRows("brand_links", links.map(brandLinkToRow));
