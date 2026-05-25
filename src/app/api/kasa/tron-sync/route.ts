@@ -8,7 +8,7 @@ import {
   syncTronTransfersForKasa,
   updateKasaTronSyncFrom,
 } from "@/lib/tron-sync";
-import { notifyTronSyncResult } from "@/lib/tron-notify";
+import { notifyTronNewTransactions } from "@/lib/tron-notify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
     syncFrom?: string;
     persistSyncFrom?: boolean;
     recentDays?: number;
+    triggeredBy?: string;
   };
   const kasaId = body.kasaId?.trim();
   if (!kasaId) {
@@ -61,17 +62,15 @@ export async function POST(req: NextRequest) {
       recentDays: body.recentDays,
     });
 
-    if (summary.imported > 0) {
-      await notifyTronSyncResult({
+    if (summary.newTxs.length > 0) {
+      const triggeredBy =
+        body.triggeredBy === "kasa-page" ? "kasa-page" : session.userId;
+      await notifyTronNewTransactions({
         kasaId: kasa.id,
         kasaName: kasa.name,
-        imported: summary.imported,
-        skipped: summary.skipped,
-        totalIn: summary.totalIn,
-        totalOut: summary.totalOut,
+        txs: summary.newTxs,
         balanceUsd: summary.balanceUsd,
-        syncFrom: syncFrom || kasa.tronSyncFrom || "",
-        triggeredBy: session.userId,
+        triggeredBy,
       }).catch(() => undefined);
     }
 

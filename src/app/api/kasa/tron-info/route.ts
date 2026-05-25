@@ -37,6 +37,15 @@ export async function GET() {
   }
 
   const apiKeySet = Boolean(process.env.TRONGRID_API_KEY?.trim());
+  const watchAddress =
+    process.env.TRON_WATCH_ADDRESS?.trim() ||
+    process.env.TRON_KASA_ADDRESS?.trim() ||
+    "";
+  const watchSyncFrom =
+    process.env.TRON_WATCH_FROM?.trim() ||
+    process.env.TRON_SYNC_FROM?.trim() ||
+    "";
+  const watchLabel = process.env.TRON_WATCH_LABEL?.trim() || "TRON cüzdan";
   const envAddress = process.env.TRON_KASA_ADDRESS?.trim() ?? "";
   const envSyncFrom = process.env.TRON_SYNC_FROM?.trim() ?? "";
 
@@ -65,6 +74,10 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     apiKeySet,
+    watchOnly: Boolean(watchAddress),
+    watchAddress: watchAddress || null,
+    watchSyncFrom: watchSyncFrom || null,
+    watchLabel,
     envAddress,
     envSyncFrom,
     primaryKasaId: primary?.id ?? null,

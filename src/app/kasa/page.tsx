@@ -11,6 +11,7 @@ import {
   type Kasa, type KasaTransaction, DEFAULT_KASA_ID,
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import { refreshNotificationsFromServer } from "@/lib/notification-actions";
 import { fmt } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -251,6 +252,9 @@ export default function KasaPage() {
   const [tronResyncFrom, setTronResyncFrom] = useState("");
   const [tronInfo, setTronInfo] = useState<{
     apiKeySet: boolean;
+    watchAddress: string | null;
+    watchSyncFrom: string | null;
+    watchLabel: string;
     tronAddress: string | null;
     tronSyncFrom: string | null;
     envAddress: string;
@@ -325,6 +329,9 @@ export default function KasaPage() {
         if (data.kasas) {
           useStore.setState({ kasas: data.kasas });
         }
+      }
+      if ((json.imported ?? 0) > 0) {
+        await refreshNotificationsFromServer();
       }
       const bal = json.balanceUsd != null ? fmtUsdt(json.balanceUsd) : "—";
       window.alert(
@@ -568,7 +575,8 @@ export default function KasaPage() {
               TRON / TronGrid
             </CardTitle>
             <CardDescription className="text-xs">
-              Takip edilen cüzdan ve API durumu (Vercel ortam değişkenleri)
+              İş kasasından ayrı cüzdan — yalnızca giriş/çıkış bildirimi (TRON_WATCH_ADDRESS).
+              Manuel &quot;TRON hareketlerini çek&quot; ise seçili kasaya yazar.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
@@ -598,18 +606,27 @@ export default function KasaPage() {
                   </p>
                 )}
               </div>
-              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 sm:col-span-2">
-                <p className="text-muted-foreground mb-1">Takip edilen cüzdan (TRC20)</p>
-                {(tronInfo.tronAddress || tronInfo.envAddress) ? (
-                  <Copyable text={tronInfo.tronAddress || tronInfo.envAddress} />
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 sm:col-span-2">
+                <p className="text-muted-foreground mb-1">
+                  Bildirim izleme · {tronInfo.watchLabel || "TRON cüzdan"}
+                </p>
+                {tronInfo.watchAddress ? (
+                  <Copyable text={tronInfo.watchAddress} />
                 ) : (
-                  <p className="text-amber-700 dark:text-amber-400">Adres tanımlı değil</p>
+                  <p className="text-amber-700 dark:text-amber-400">
+                    TRON_WATCH_ADDRESS tanımlı değil (Vercel env)
+                  </p>
                 )}
               </div>
               <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                <p className="text-muted-foreground mb-1">Senkron başlangıcı</p>
+                <p className="text-muted-foreground mb-1">İzleme başlangıcı</p>
                 <p className="font-medium tabular-nums">
-                  {tronInfo.tronSyncFrom || "—"}
+                  {tronInfo.watchSyncFrom || "—"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 sm:col-span-2 lg:col-span-4">
+                <p className="text-muted-foreground mb-1 text-[10px]">
+                  Otomatik bildirim ~60 sn&apos;de bir kontrol eder; kasa bakiyesine yazmaz.
                 </p>
               </div>
             </div>

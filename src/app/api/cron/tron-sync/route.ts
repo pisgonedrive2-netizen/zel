@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { kasaAccountFromRow } from "@/lib/db/mappers";
-import { syncTronTransfersForKasa } from "@/lib/tron-sync";
-import { notifyTronSyncResult } from "@/lib/tron-notify";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Günlük TRON USDT senkronu — CRON_SECRET ile korunur. */
+/** TRON izleme — cron her 2 dk; asıl iş tron-watch'ta. */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET?.trim();
   const auth = req.headers.get("authorization");
@@ -15,41 +11,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Yetkisiz" }, { status: 401 });
   }
 
-  const db = getSupabaseAdmin();
-  const { data: kasas } = await db
-    .from("kasas")
-    .select("*")
-    .not("tron_address", "is", null);
-
-  const results: Array<{ kasaId: string; imported: number; error?: string }> = [];
-
-  for (const row of kasas ?? []) {
-    const kasa = kasaAccountFromRow(row as Record<string, unknown>);
-    if (!kasa.tronAddress) continue;
-    try {
-      const summary = await syncTronTransfersForKasa(kasa, { recentDays: 14 });
-      results.push({ kasaId: kasa.id, imported: summary.imported });
-      if (summary.imported > 0) {
-        await notifyTronSyncResult({
-          kasaId: kasa.id,
-          kasaName: kasa.name,
-          imported: summary.imported,
-          skipped: summary.skipped,
-          totalIn: summary.totalIn,
-          totalOut: summary.totalOut,
-          balanceUsd: summary.balanceUsd,
-          syncFrom: kasa.tronSyncFrom ?? "",
-          triggeredBy: "cron",
-        }).catch(() => undefined);
-      }
-    } catch (e) {
-      results.push({
-        kasaId: kasa.id,
-        imported: 0,
-        error: e instanceof Error ? e.message : "?",
-      });
-    }
-  }
-
-  return NextResponse.json({ ok: true, results });
+  const origin = req.nextUrl.origin;
+  const res = await fetch(`${origin}/api/kasa/tron-watch`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ recentDays: 3 }),
+  });
+  const json = await res.json().catch(() => ({ ok: false }));
+  return NextResponse.json(json, { status: res.status });
 }

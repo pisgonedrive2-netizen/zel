@@ -15,14 +15,25 @@ type TronTrc20Tx = {
   token_info?: { symbol?: string; decimals?: number };
 };
 
+export type TronNewTx = {
+  tronTxId: string;
+  direction: KasaTransaction["direction"];
+  amountUsd: number;
+  date: string;
+  counterparty?: string;
+};
+
 export interface TronSyncResult {
   imported: number;
+  importedIn: number;
+  importedOut: number;
   skipped: number;
   totalIn: number;
   totalOut: number;
   balanceUsd: number;
   pagesFetched: number;
   outgoingFound: number;
+  newTxs: TronNewTx[];
 }
 
 function stableTxId(tronTxId: string): string {
@@ -138,14 +149,20 @@ export async function syncTronTransfersForKasa(
   );
 
   const rows: Record<string, unknown>[] = [];
+  const newTxs: TronNewTx[] = [];
   let skipped = 0;
+  let importedIn = 0;
+  let importedOut = 0;
   let totalIn = 0;
   let totalOut = 0;
   let outgoingFound = 0;
   let pagesFetched = 0;
   const collected = new Map<string, TronTrc20Tx>();
 
-  const passes: FetchPass[] = ["all", "outgoing", "incoming"];
+  const passes: FetchPass[] =
+    recentDays > 0 && recentDays <= 14
+      ? ["outgoing", "incoming"]
+      : ["all", "outgoing", "incoming"];
 
   for (const pass of passes) {
     let fingerprint: string | undefined;
@@ -190,13 +207,26 @@ export async function syncTronTransfersForKasa(
     }
 
     const direction: KasaTransaction["direction"] = toMe ? "in" : "out";
-    if (direction === "out") outgoingFound++;
+    if (direction === "out") {
+      outgoingFound++;
+      importedOut++;
+    } else {
+      importedIn++;
+    }
     const rounded = Math.round(amount * 100) / 100;
     if (direction === "in") totalIn += rounded;
     else totalOut += rounded;
 
     const iso = new Date(tx.block_timestamp).toISOString().slice(0, 16);
 
+    const counterparty = direction === "in" ? tx.from : tx.to;
+    newTxs.push({
+      tronTxId: tx.transaction_id,
+      direction,
+      amountUsd: rounded,
+      date: iso,
+      counterparty,
+    });
     rows.push({
       id: stableTxId(tx.transaction_id),
       kasa_id: kasa.id,
@@ -208,7 +238,7 @@ export async function syncTronTransfersForKasa(
         direction === "in"
           ? "TRON USDT giriş (otomatik)"
           : "TRON USDT çıkış (otomatik)",
-      counterparty: direction === "in" ? tx.from : tx.to,
+      counterparty,
       proof: tx.transaction_id,
       notes: "TronGrid — açıklama ve kategori sonradan düzenlenebilir",
       tron_tx_id: tx.transaction_id,
@@ -242,12 +272,15 @@ export async function syncTronTransfersForKasa(
 
   return {
     imported: rows.length,
+    importedIn,
+    importedOut,
     skipped,
     totalIn: Math.round(totalIn * 100) / 100,
     totalOut: Math.round(totalOut * 100) / 100,
     balanceUsd,
     pagesFetched,
     outgoingFound,
+    newTxs,
   };
 }
 

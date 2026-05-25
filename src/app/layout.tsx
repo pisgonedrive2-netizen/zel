@@ -5,6 +5,7 @@ import { DataProvider } from "@/components/data-provider";
 import { PayrollReminderEffect } from "@/components/payroll-reminder-effect";
 import { BrandPaymentReminderEffect } from "@/components/brand-payment-reminder-effect";
 import { KasaLowAlertEffect } from "@/components/kasa-low-alert-effect";
+import { KasaTronSyncEffect } from "@/components/kasa-tron-sync-effect";
 import { SessionIdleGuard } from "@/components/session-idle-guard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeScript } from "@/components/theme-script";
@@ -58,6 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <PayrollReminderEffect />
             <BrandPaymentReminderEffect />
             <KasaLowAlertEffect />
+            <KasaTronSyncEffect />
             <SessionIdleGuard />
             <DataProvider>
               <AuthShell>{children}</AuthShell>
