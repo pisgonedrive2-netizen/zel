@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { registerSyncFlushHandler } from "@/lib/sync-client";
 import { Loader2 } from "lucide-react";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
@@ -32,6 +32,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const supabaseMode = isSupabaseClientMode();
   const user = useAuth((s) => s.user);
   const sessionReady = useAuth((s) => s.sessionReady);
+  const pathname = usePathname();
+  const isLoginRoute = pathname === "/login";
   const router = useRouter();
   const [ready, setReady] = useState(!supabaseMode);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -84,6 +86,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       syncInFlight.current = false;
     }
   }, [supabaseMode, user, ready, bootstrapOk]);
+
+  /** Oturum kontrolü — children'ı bloklamadan burada yapılır (AuthShell deadlock önlenir). */
+  useEffect(() => {
+    if (!supabaseMode || sessionReady) return;
+    let cancelled = false;
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { user: typeof user }) => {
+        if (cancelled) return;
+        useAuth.setState({ user: data.user ?? null, sessionReady: true });
+      })
+      .catch(() => {
+        if (!cancelled) useAuth.setState({ user: null, sessionReady: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabaseMode, sessionReady]);
 
   useEffect(() => {
     if (!supabaseMode) {
@@ -208,16 +228,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [supabaseMode, user?.id, ready, bootstrapOk, runSyncNow]);
 
-  if (supabaseMode && (!sessionReady || !ready)) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  const showSessionOverlay = supabaseMode && !sessionReady && !isLoginRoute;
+  const showBootstrapOverlay = supabaseMode && Boolean(user) && !ready;
 
   return (
     <>
+      {(showSessionOverlay || showBootstrapOverlay) && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-background"
+          aria-busy="true"
+          aria-label="Yükleniyor"
+        >
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
       {syncError && (
         <div
           role="alert"

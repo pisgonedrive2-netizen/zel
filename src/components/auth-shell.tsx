@@ -27,26 +27,16 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLogin = pathname === "/login";
 
-  const [hydrated, setHydrated] = useState(false);
+  const sessionReady = useAuth((s) => s.sessionReady);
+  const [hydrated, setHydrated] = useState(!isSupabaseClientMode() || isLogin);
 
   useEffect(() => {
-    if (!isSupabaseClientMode()) {
+    if (!isSupabaseClientMode() || isLogin) {
       setHydrated(true);
       return;
     }
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { user: typeof user }) => {
-        useAuth.setState({
-          user: data.user ?? null,
-          sessionReady: true,
-        });
-      })
-      .catch(() => {
-        useAuth.setState({ user: null, sessionReady: true });
-      })
-      .finally(() => setHydrated(true));
-  }, []);
+    if (sessionReady) setHydrated(true);
+  }, [sessionReady, isLogin]);
 
   // Yönlendirme mantığı
   useEffect(() => {
@@ -109,8 +99,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       {!isLogin && <ImpersonationChip />}
 
       {!hydrated && (
-        <div className="flex h-screen items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="flex h-screen items-center justify-center bg-black">
+          <Loader2 className="h-6 w-6 animate-spin text-white/70" />
         </div>
       )}
 
@@ -120,9 +110,17 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
         </main>
       )}
 
-      {hydrated && !isLogin && !user && null}
+      {hydrated && !isLogin && !user && (
+        <div className="flex h-screen items-center justify-center bg-black">
+          <Loader2 className="h-6 w-6 animate-spin text-white/70" />
+        </div>
+      )}
 
-      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs, brandViewAs) && null}
+      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs, brandViewAs) && (
+        <div className="flex h-screen items-center justify-center bg-background">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
 
       {canView && (
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
