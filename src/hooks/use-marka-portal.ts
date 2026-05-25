@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useAuth } from "@/store/auth";
 import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore } from "@/store/store";
-import { toYearMonthLocal } from "@/lib/data";
+import { useMarkaViewMonth } from "@/lib/use-marka-view-month";
 
 export const monthLabelTr = (ym: string) =>
   new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
@@ -13,8 +13,8 @@ export function useMarkaPortal() {
   const { user } = useAuth();
   const brandViewAs = usePanelView((s) => s.brandViewAs);
   const { brands } = useStore();
-  const todayYm = toYearMonthLocal(new Date());
-  const [month, setMonth] = useState(todayYm);
+  const { viewMonth: month, setViewMonth: setMonth, shiftMonth, todayYm } =
+    useMarkaViewMonth();
 
   const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
   const brand = brands.find((b) => b.id === brandId);
@@ -22,11 +22,7 @@ export function useMarkaPortal() {
   const isBrandUser = user?.role === "brand";
   const canViewBrand = isBrandUser || isAdminView;
 
-  const navMonth = (dir: 1 | -1) => {
-    const [y, m] = month.split("-").map(Number);
-    const d = new Date(y, m - 1 + dir, 1);
-    setMonth(toYearMonthLocal(d));
-  };
+  const navMonth = (dir: 1 | -1) => shiftMonth(dir);
 
   return useMemo(
     () => ({
@@ -39,8 +35,9 @@ export function useMarkaPortal() {
       canViewBrand,
       isAdminView,
       isBrandUser,
+      todayYm,
       monthTitle: monthLabelTr(month),
     }),
-    [user, brandId, brand, month, canViewBrand, isAdminView, isBrandUser]
+    [user, brandId, brand, month, setMonth, canViewBrand, isAdminView, isBrandUser, todayYm]
   );
 }

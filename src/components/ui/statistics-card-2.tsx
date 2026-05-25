@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { motion } from "framer-motion";
@@ -67,6 +68,8 @@ export interface StatisticsCard2Props {
   className?: string;
   /** Büyük sayılar için daha küçük punto (ör. 62M izlenme). */
   valueClassName?: string;
+  /** Tıklanınca yönlendirme */
+  href?: string;
 }
 
 export function StatisticsCard2({
@@ -80,8 +83,9 @@ export function StatisticsCard2({
   delay = 0,
   className,
   valueClassName,
+  href,
 }: StatisticsCard2Props) {
-  return (
+  const inner = (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
@@ -132,4 +136,16 @@ export function StatisticsCard2({
       ) : null}
     </motion.div>
   );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {inner}
+      </Link>
+    );
+  }
+  return inner;
 }

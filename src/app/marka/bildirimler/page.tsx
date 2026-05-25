@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { Bell, CheckCheck, Filter, Inbox, Trash2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
-import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore, unreadNotificationCount, visibleNotificationsForRole, type AppNotification } from "@/store/store";
+import { BrandLogo } from "@/components/brand-logo";
+import { MarkaPageGuard } from "@/components/marka-page-guard";
+import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import {
   markAllNotificationsReadPersisted,
   markNotificationReadPersisted,
@@ -14,7 +16,6 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Lock } from "lucide-react";
 
 const TYPE_LABEL: Record<AppNotification["type"], string> = {
   expense_submitted:  "Harcama gönderildi",
@@ -39,26 +40,24 @@ const TYPE_ACCENT: Partial<Record<AppNotification["type"], string>> = {
 };
 
 export default function MarkaBildirimlerPage() {
-  const { user, users } = useAuth();
-  const brandViewAs = usePanelView((s) => s.brandViewAs);
+  const { users } = useAuth();
+  const portal = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = portal;
   const { notifications } = useStore();
   const [showRead, setShowRead] = useState(true);
   const [typeFilter, setTypeFilter] = useState<"" | AppNotification["type"]>("");
-
-  const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
-  const isAllowed = user?.role === "brand" || (user?.role === "admin" && !!brandViewAs);
 
   // Admin impersonation modunda asıl marka kullanıcısının bildirimlerini filtreliyoruz;
   // gerçek brand rolünde ise oturumdaki kullanıcının kendi bildirimleri.
   const targetUserId = useMemo(() => {
     if (!user) return null;
     if (user.role === "brand") return user.id;
-    if (user.role === "admin" && brandViewAs) {
-      const linked = users.find((u) => u.role === "brand" && u.brandId === brandViewAs.brandId);
+    if (user.role === "admin" && brandId) {
+      const linked = users.find((u) => u.role === "brand" && u.brandId === brandId);
       return linked?.id ?? null;
     }
     return null;
-  }, [user, users, brandViewAs]);
+  }, [user, users, brandId]);
 
   const myNotifications = useMemo(() => {
     if (!targetUserId) return [];
@@ -78,27 +77,23 @@ export default function MarkaBildirimlerPage() {
     : 0;
   const totalForRole = myNotifications.length;
 
-  if (!user || !isAllowed) {
-    return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
-        <Lock className="text-muted-foreground" size={28} />
-        <p className="text-sm text-muted-foreground">Bu sayfa yalnızca marka hesapları içindir.</p>
-      </div>
-    );
-  }
-
   return (
+    <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
+      {brand && brandId && (
     <div className="mx-auto max-w-[1100px] space-y-5 pb-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <Bell size={18} /> Bildirimler
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {brandViewAs
-              ? `${brandViewAs.brandName} markası adına bekleyen bildirimler — yönetici görünümü.`
-              : "Ödeme hatırlatmaları, takvim ve içerik bildirimleri."}
-          </p>
+        <div className="flex items-start gap-3">
+          <BrandLogo brandId={brand.id} title={brand.name} size={40} className="rounded-lg shrink-0" />
+          <div>
+            <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
+              <Bell size={18} /> {brand.name} · Bildirimler
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAdminView
+                ? "Marka hesabı adına bildirimler — yönetici görünümü."
+                : "Ödeme hatırlatmaları, takvim ve içerik bildirimleri."}
+            </p>
+          </div>
         </div>
         {unread > 0 && targetUserId && (
           <Button
@@ -127,8 +122,8 @@ export default function MarkaBildirimlerPage() {
           accent={unread > 0 ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}
         />
         <KpiCard
-          label="Bağlı marka"
-          value={brandId ? brandId.slice(0, 12) + "…" : "—"}
+          label="Marka"
+          value={brand.shortName || brand.name}
           icon={Filter}
           accent="text-violet-700 dark:text-violet-300"
         />
@@ -232,6 +227,8 @@ export default function MarkaBildirimlerPage() {
         </CardContent>
       </Card>
     </div>
+      )}
+    </MarkaPageGuard>
   );
 }
 

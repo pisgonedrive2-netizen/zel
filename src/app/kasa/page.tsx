@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
-  Banknote, Archive,
+  Banknote, Archive, Link2, Activity,
 } from "lucide-react";
 import {
   useStore, calcKasaBalance,
@@ -249,6 +249,28 @@ export default function KasaPage() {
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
   const [tronResyncFrom, setTronResyncFrom] = useState("");
+  const [tronInfo, setTronInfo] = useState<{
+    apiKeySet: boolean;
+    tronAddress: string | null;
+    tronSyncFrom: string | null;
+    envAddress: string;
+    probeOk: boolean;
+    probeMessage: string;
+    probeLatencyMs: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/kasa/tron-info", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!cancelled && j?.ok) setTronInfo(j);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectedKasa = useMemo(
     () => (selectedKasaId === "all" ? null : kasas.find((k) => k.id === selectedKasaId)),
@@ -537,6 +559,63 @@ export default function KasaPage() {
           </div>
         )}
       </div>
+
+      {tronInfo && (
+        <Card className="mb-5 border-border/80">
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Link2 size={14} className="text-blue-600 dark:text-blue-400" />
+              TRON / TronGrid
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Takip edilen cüzdan ve API durumu (Vercel ortam değişkenleri)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 pt-0">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <p className="text-muted-foreground mb-1">TronGrid API</p>
+                <p className="font-medium flex items-center gap-1.5">
+                  <Activity
+                    size={12}
+                    className={
+                      tronInfo.apiKeySet && tronInfo.probeOk
+                        ? "text-emerald-600"
+                        : tronInfo.apiKeySet
+                          ? "text-amber-600"
+                          : "text-red-600"
+                    }
+                  />
+                  {!tronInfo.apiKeySet
+                    ? "Anahtar yok"
+                    : tronInfo.probeOk
+                      ? `Aktif · ${tronInfo.probeLatencyMs}ms`
+                      : "Anahtar var · bağlantı hatası"}
+                </p>
+                {tronInfo.apiKeySet && !tronInfo.probeOk && (
+                  <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2">
+                    {tronInfo.probeMessage}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 sm:col-span-2">
+                <p className="text-muted-foreground mb-1">Takip edilen cüzdan (TRC20)</p>
+                {(tronInfo.tronAddress || tronInfo.envAddress) ? (
+                  <Copyable text={tronInfo.tronAddress || tronInfo.envAddress} />
+                ) : (
+                  <p className="text-amber-700 dark:text-amber-400">Adres tanımlı değil</p>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <p className="text-muted-foreground mb-1">Senkron başlangıcı</p>
+                <p className="font-medium tabular-nums">
+                  {tronInfo.tronSyncFrom || "—"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

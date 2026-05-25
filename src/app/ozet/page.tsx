@@ -5,8 +5,9 @@ import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
-import { fmt, MONTHS, toYearMonthLocal } from "@/lib/data";
+import { fmt, toYearMonthLocal } from "@/lib/data";
 import { monthLabelTr } from "@/lib/month-label";
+import { last12MonthsYm, shortMonthLabel, currentCalendarYear } from "@/lib/calendar-months";
 import { totalViewsForMonth, fmtCompactViews } from "@/lib/brand-month-metrics";
 import { payrollDueCaption, payrollMonthLongTitle, paymentWindowCalendarPhrase } from "@/lib/payroll-dates";
 import { motion } from "framer-motion";
@@ -79,9 +80,10 @@ export default function OzetPage() {
     );
   };
 
-  const AYLAR_2026 = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}`);
-  const aylikMaasByIdx = AYLAR_2026.map((ym) => payrollNetForMonth(ym));
+  const chartMonths = last12MonthsYm(currentMonth);
+  const aylikMaasByIdx = chartMonths.map((ym) => payrollNetForMonth(ym));
   const yillikMaasToplam = aylikMaasByIdx.reduce((a, b) => a + b, 0);
+  const chartRangeLabel = `${monthLabelTr(chartMonths[0])} – ${monthLabelTr(chartMonths[11])}`;
 
   // Bordrolu çalışanlar (koordinatör hariç, bu ay aktif — payrollStartMonth dahil)
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && isPayrollActive(e, currentMonth));
@@ -144,12 +146,12 @@ export default function OzetPage() {
   const netKar      = toplamGelir - toplamGider;
   const marj        = toplamGelir > 0 ? ((netKar / toplamGelir) * 100).toFixed(1) : "0";
 
-  const areaData = MONTHS.map((ay, idx) => {
+  const areaData = chartMonths.map((ym, idx) => {
     const maasAy = aylikMaasByIdx[idx];
     const gelir = aylikDis + aylikIc;
     const gider = yillikGider / 12 + maasAy;
     const net = gelir - gider;
-    return { ay, gelir, gider, net };
+    return { ay: shortMonthLabel(ym), ym, gelir, gider, net };
   });
 
   const pieData = [
@@ -174,6 +176,7 @@ export default function OzetPage() {
       trendLabel: kasaBakiye > 500 ? "Normal" : "Düşük",
       description: "Anlık bakiye · son işlemler baz alınmıştır",
       icon: Wallet,
+      href: "/kasa",
     },
     {
       key: "bekleyen",
@@ -186,6 +189,7 @@ export default function OzetPage() {
         : "Bu ay bekleyen yok",
       icon: AlertCircle,
       sparkline: maasSparkline,
+      href: "/maaslar",
     },
     {
       key: "avans",
@@ -195,18 +199,20 @@ export default function OzetPage() {
       trendLabel: acikAvansToplam > 0 ? "Açık" : "Temiz",
       description: "Geri ödenmemiş avans bakiyesi",
       icon: TrendingDown,
+      href: "/maaslar",
     },
     {
       key: "icerik",
       title: "İçerik Harcaması (Bu Ay)",
       value: fmt(icerikHarcAylik),
       trend: "neutral",
-      trendLabel: `${currentMonth}`,
+      trendLabel: monthLabelTr(currentMonth),
       description: icerikHarcBekleyen > 0
         ? `${fmt(icerikHarcBekleyen)} ödenmemiş harcama`
         : "Tüm harcamalar kapalı",
       icon: Clapperboard,
       sparkline: giderSparkline,
+      href: "/icerik-harcamalari",
     },
     {
       key: "netkar",
@@ -217,8 +223,11 @@ export default function OzetPage() {
       description: `Yıllık tahmin · 12× aylık ortalama`,
       icon: TrendingUp,
       sparkline: netSparkline,
+      href: "/rapor",
     },
   ];
+
+  const izlenmeHref = `/izlenme?month=${encodeURIComponent(currentMonth)}`;
 
   const kpisSecond: Array<import("@/components/ui/statistics-card-2").StatisticsCard2Props & { key: string }> = [
     {
@@ -226,10 +235,11 @@ export default function OzetPage() {
       title: "Toplam Gelir (yıllık)",
       value: fmt(toplamGelir),
       trend: "up",
-      trendLabel: "2026",
+      trendLabel: String(currentCalendarYear()),
       description: `Dış ${fmt(yillikDis)} + İç ${fmt(yillikIc)}`,
       icon: DollarSign,
       sparkline: gelirSparkline,
+      href: "/ic-gelir",
     },
     {
       key: "bordrolu",
@@ -241,6 +251,7 @@ export default function OzetPage() {
         ? `Kayıtlı ${yayinEkibi.length} · ${bordroDisiYayincilar.length} kişi bordro dışı`
         : `Kayıtlı yayın ekibi ${yayinEkibi.length} — hepsi bu ay bordoda.`,
       icon: Users,
+      href: "/maaslar",
     },
     {
       key: "marka",
@@ -250,6 +261,7 @@ export default function OzetPage() {
       trendLabel: `${aktifMarka} aktif`,
       description: `${takipliLink} takip edilen link`,
       icon: Eye,
+      href: "/izlenme/markalar",
     },
     {
       key: "izlenme",
@@ -260,6 +272,7 @@ export default function OzetPage() {
       description: `${toplamIzlenme.toLocaleString("tr-TR")} · link + yayıncı raporu (${monthLabelTr(currentMonth)})`,
       icon: TrendingUp,
       valueClassName: toplamIzlenme >= 1_000_000 ? "text-xl sm:text-2xl" : "text-2xl",
+      href: izlenmeHref,
     },
     {
       key: "link",
@@ -269,6 +282,7 @@ export default function OzetPage() {
       trendLabel: "Aktif",
       description: "Otomatik izlenen sosyal medya linkleri",
       icon: ArrowUpRight,
+      href: izlenmeHref,
     },
   ];
 
@@ -327,7 +341,7 @@ export default function OzetPage() {
             <p className="text-[13px] mt-1.5 leading-relaxed text-muted-foreground">
               <span className="font-semibold text-blue-600 dark:text-blue-400">FOXSTREAM</span>
               <span className="text-muted-foreground/80"> · </span>
-              <span className="font-medium text-emerald-600 dark:text-emerald-400">2026</span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">{currentCalendarYear()}</span>
               <span className="text-muted-foreground/80"> mali özet · </span>
               <span className="text-foreground/90 font-medium">{payrollMonthLongTitle(currentMonth)}</span>
               <span className="text-muted-foreground/80"> bordosunda </span>
@@ -450,8 +464,8 @@ export default function OzetPage() {
             <CardHeader>
               <CardTitle className="text-foreground">Gelir / Gider Analizi</CardTitle>
               <CardDescription>
-                <span className="text-blue-600/90 dark:text-blue-400/90 font-medium">2026</span>
-                <span className="text-muted-foreground"> aylık tahmini — maaş satırı her ay bordrodaki kişilere göre hesaplanır</span>
+                <span className="text-blue-600/90 dark:text-blue-400/90 font-medium">{chartRangeLabel}</span>
+                <span className="text-muted-foreground"> · maaş satırı her ay bordrodaki kişilere göre hesaplanır</span>
               </CardDescription>
             </CardHeader>
             <CardContent>

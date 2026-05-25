@@ -1,25 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   AlertCircle,
   Calendar as CalendarIcon,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Clock,
-  Lock,
   Wallet,
 } from "lucide-react";
-import { useAuth } from "@/store/auth";
-import { usePanelView, resolveBrandViewId } from "@/store/panel-view";
 import { useStore, type PlannedItem, type PlannedItemPayment } from "@/store/store";
 import { brandLinkedExpenses, sumBrandLinkedExpenses } from "@/lib/brand-expenses";
 import { fmt } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { toYearMonthLocal } from "@/lib/data";
+import { BrandLogo } from "@/components/brand-logo";
+import { MarkaMonthNav } from "@/components/marka-month-nav";
+import { MarkaPageGuard } from "@/components/marka-page-guard";
+import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { fmtBrandMoney } from "@/lib/brand-monthly-stats";
 
 function monthLabel(ym: string) {
@@ -62,14 +59,9 @@ function statusInfo(status: PlannedItemPayment["status"]): {
 }
 
 export default function MarkaOdemelerPage() {
-  const { user } = useAuth();
-  const brandViewAs = usePanelView((s) => s.brandViewAs);
-  const { brands, plannedItems, plannedItemPayments, expenses } = useStore();
-  const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
-
-  const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
-  const brand = brands.find((b) => b.id === brandId);
-  const isAllowed = user?.role === "brand" || (user?.role === "admin" && !!brandViewAs);
+  const portal = useMarkaPortal();
+  const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
+  const { plannedItems, plannedItemPayments, expenses } = useStore();
 
   const myPlannedItems = useMemo(
     () => plannedItems.filter((p) => p.brandId === brandId),
@@ -86,12 +78,6 @@ export default function MarkaOdemelerPage() {
         return da.localeCompare(db);
       });
   }, [plannedItemPayments, myPlannedItems]);
-
-  const navMonth = (dir: 1 | -1) => {
-    const [y, m] = month.split("-").map(Number);
-    const d = new Date(y, m - 1 + dir, 1);
-    setMonth(toYearMonthLocal(d));
-  };
 
   const monthRows = useMemo(
     () => myInstallments.filter((r) => r.installment.month === month),
@@ -126,40 +112,25 @@ export default function MarkaOdemelerPage() {
     [expenses, brandId, month]
   );
 
-  if (!user || !isAllowed) {
-    return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
-        <Lock className="text-muted-foreground" size={28} />
-        <p className="text-sm text-muted-foreground">
-          Bu sayfa yalnızca marka hesapları içindir.
-        </p>
-      </div>
-    );
-  }
-
-  if (!brand) {
-    return (
-      <Card className="max-w-lg mx-auto">
-        <CardHeader>
-          <CardTitle>Marka atanmamış</CardTitle>
-          <CardDescription>
-            Hesabınıza marka bağlı değil. Yönetici ile iletişime geçin.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
   return (
+    <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
+      {brand && brandId && (
     <div className="mx-auto max-w-[1100px] space-y-5 pb-8">
       <div>
-        <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
-          <Wallet size={18} /> Ödeme planı
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {brand.name} markası için planlanan ödemeler — taksitler, geçmiş ve yaklaşanlar.
-        </p>
+        <div className="flex items-center gap-3">
+          <BrandLogo brandId={brand.id} title={brand.name} size={40} className="rounded-lg" />
+          <div>
+            <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
+              <Wallet size={18} /> {brand.name} · Ödeme planı
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Planlanan ödemeler — taksitler, geçmiş ve yaklaşanlar.
+            </p>
+          </div>
+        </div>
       </div>
+
+      <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiTile
@@ -189,7 +160,7 @@ export default function MarkaOdemelerPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Bu ayki giderler</CardTitle>
             <CardDescription>
-              Yönetici tarafından markanıza atanmış genel giderler — {monthLabel(month)}
+              Yönetici tarafından markanıza atanmış genel giderler — {monthTitle}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -261,36 +232,11 @@ export default function MarkaOdemelerPage() {
       )}
 
       <Card>
-        <CardHeader className="flex-row items-center justify-between pb-2">
-          <div>
-            <CardTitle className="text-base">{monthLabel(month)} ödeme detayı</CardTitle>
-            <CardDescription>
-              {monthRows.length} taksit · {brand.shortName}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 w-8 p-0"
-              onClick={() => navMonth(-1)}
-              title="Önceki ay"
-            >
-              <ChevronLeft size={14} />
-            </Button>
-            <div className="min-w-[140px] rounded-md border border-border bg-card px-3 py-1.5 text-center text-sm font-medium capitalize">
-              {monthLabel(month)}
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 w-8 p-0"
-              onClick={() => navMonth(1)}
-              title="Sonraki ay"
-            >
-              <ChevronRight size={14} />
-            </Button>
-          </div>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{monthTitle} ödeme detayı</CardTitle>
+          <CardDescription>
+            {monthRows.length} taksit · {brand.shortName}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {monthRows.length === 0 ? (
@@ -399,6 +345,8 @@ export default function MarkaOdemelerPage() {
         </CardContent>
       </Card>
     </div>
+      )}
+    </MarkaPageGuard>
   );
 }
 

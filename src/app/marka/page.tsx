@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { toYearMonthLocal } from "@/lib/data";
 
 export default function MarkaIndexPage() {
-  redirect("/marka/operasyon");
+  const month = toYearMonthLocal(new Date());
+  redirect(`/marka/operasyon?month=${month}`);
 }

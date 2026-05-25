@@ -10,6 +10,7 @@ import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { MarkaViewershipCharts } from "@/components/marka-viewership-charts";
 import { MarkaLinksPreviewModal } from "@/components/marka-links-preview-modal";
 import { useMarkaPortal, monthLabelTr } from "@/hooks/use-marka-portal";
+import { markaHref } from "@/lib/use-marka-view-month";
 import { toYearMonthLocal } from "@/lib/data";
 import { linkViewsForMonth } from "@/lib/brand-month-metrics";
 import {
@@ -49,6 +50,7 @@ const fmtViews = (n: number) => {
 export default function MarkaIzlenmelerPage() {
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
+  const operasyonHref = markaHref("/marka/operasyon", month);
   const { brandLinks, brandViewership, weekBrandReels, linkSnapshots, employees } = useStore();
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reelStreamerFilter, setReelStreamerFilter] = useState<string>("all");
@@ -225,7 +227,7 @@ export default function MarkaIzlenmelerPage() {
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Kayıt / yatırım metrikleri için{" "}
-                <Link href="/marka/operasyon" className="text-primary underline">
+                <Link href={operasyonHref} className="text-primary underline">
                   Operasyon özeti
                 </Link>{" "}
                 sayfasına gidin.

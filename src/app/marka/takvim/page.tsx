@@ -1,15 +1,17 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import {
   Twitch, Youtube, Instagram, Send, Globe, MessageCircle,
 } from "lucide-react";
 import { useStore, type Employee, WEEKDAYS_LONG } from "@/store/store";
-import { useAuth } from "@/store/auth";
-import { usePanelView } from "@/store/panel-view";
+import { BrandLogo } from "@/components/brand-logo";
+import { MarkaPageGuard } from "@/components/marka-page-guard";
+import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { markaHref } from "@/lib/use-marka-view-month";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Lock } from "lucide-react";
 
 function platformIcon(platform: string) {
   const p = platform.toLowerCase();
@@ -51,8 +53,8 @@ function RowFragment({ emp, children }: { emp: Employee; children: React.ReactNo
 }
 
 export default function MarkaTakvimPage() {
-  const { user } = useAuth();
-  const brandViewAs = usePanelView((s) => s.brandViewAs);
+  const portal = useMarkaPortal();
+  const { user, brandId, brand, month, canViewBrand } = portal;
   const { employees, scheduleSlots } = useStore();
 
   const yayincilar = useMemo(
@@ -60,96 +62,106 @@ export default function MarkaTakvimPage() {
     [employees]
   );
 
-  const isAllowed =
-    user?.role === "brand" || (user?.role === "admin" && !!brandViewAs);
-  if (!user || !isAllowed) {
-    return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
-        <Lock className="text-muted-foreground" size={28} />
-        <p className="text-sm text-muted-foreground">Bu sayfa yalnızca marka hesapları içindir.</p>
-      </div>
-    );
-  }
+  const operasyonHref = markaHref("/marka/operasyon", month);
+  const izlenmeHref = markaHref("/marka/izlenmeler", month);
 
   return (
+    <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
+      {brand && brandId && (
     <div className="mx-auto max-w-[1200px] space-y-6 pb-8">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Yayıncı yayın takvimi</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Haftalık şablon slotları — salt okunur (değişiklik için yönetici ile iletişim).
-        </p>
+        <div className="flex items-center gap-3">
+          <BrandLogo brandId={brand.id} title={brand.name} size={44} className="rounded-lg" />
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">{brand.name} · Yayıncı yayın takvimi</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Haftalık şablon slotları — salt okunur (değişiklik için yönetici ile iletişim).
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              <Link href={operasyonHref} className="text-primary underline">Operasyon özeti</Link>
+              {" · "}
+              <Link href={izlenmeHref} className="text-primary underline">İzlenmeler</Link>
+            </p>
+          </div>
+        </div>
       </div>
 
-      <Card className="gap-2 py-5">
+      <Card>
         <CardHeader>
-          <CardTitle>Haftalık plan (şablon)</CardTitle>
-          <CardDescription>Pazartesi–Pazar tekrarlayan yayın slotları</CardDescription>
+          <CardTitle className="text-base">Haftalık program</CardTitle>
+          <CardDescription>
+            {yayincilar.length} aktif yayıncı · {scheduleSlots.length} slot
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <div className="min-w-[900px] grid grid-cols-[100px_repeat(7,_minmax(110px,_1fr))] gap-1.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold px-2 py-2">
-                Yayıncı
-              </div>
-              {WEEKDAYS_LONG.map((d) => (
-                <div
-                  key={d}
-                  className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold text-center px-2 py-2 bg-muted/60 rounded-md"
-                >
-                  {d}
-                </div>
-              ))}
-              {yayincilar.map((emp) => (
-                <RowFragment key={emp.id} emp={emp}>
-                  {WEEKDAYS_LONG.map((_, dayIdx) => {
-                    const day = dayIdx + 1;
-                    const slots = scheduleSlots
-                      .filter((s) => s.employeeId === emp.id && s.dayOfWeek === day)
-                      .sort((a, b) => a.startTime.localeCompare(b.startTime));
-                    return (
-                      <div
-                        key={day}
-                        className="min-h-[72px] p-1.5 border border-dashed border-border rounded-md bg-muted/20"
-                      >
-                        <div className="space-y-1">
-                          {slots.map((s) => {
-                            const Icon = platformIcon(s.platform);
-                            return (
-                              <div
-                                key={s.id}
-                                className={`flex items-start gap-1 w-full text-left text-[10.5px] px-1.5 py-1 rounded border ${empColor(emp.id)}`}
-                              >
-                                <Icon size={12} className="shrink-0 mt-0.5 opacity-70" />
-                                <div className="min-w-0">
-                                  <p className="font-semibold tabular-nums">
+            <table className="w-full min-w-[640px] border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="w-24 border border-border bg-muted/40 p-2 text-left font-medium text-muted-foreground">
+                    Yayıncı
+                  </th>
+                  {WEEKDAYS_LONG.map((d) => (
+                    <th
+                      key={d}
+                      className="border border-border bg-muted/40 p-2 text-center font-medium text-muted-foreground"
+                    >
+                      {d}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {yayincilar.map((emp) => (
+                  <tr key={emp.id}>
+                    <td className="border border-border align-top">
+                      <RowFragment emp={emp}>
+                        <></>
+                      </RowFragment>
+                    </td>
+                    {WEEKDAYS_LONG.map((_, dayIdx) => {
+                      const dayOfWeek = dayIdx + 1;
+                      const slots = scheduleSlots.filter(
+                        (s) => s.employeeId === emp.id && s.dayOfWeek === dayOfWeek
+                      );
+                      return (
+                        <td key={dayOfWeek} className="border border-border align-top p-1 min-w-[88px]">
+                          {slots.length === 0 ? (
+                            <span className="text-[10px] text-muted-foreground/50 px-1">—</span>
+                          ) : (
+                            slots.map((s) => {
+                              const Icon = platformIcon(s.platform);
+                              return (
+                                <div
+                                  key={s.id}
+                                  className={`mb-1 rounded border px-1.5 py-1 ${empColor(emp.id)}`}
+                                >
+                                  <div className="flex items-center gap-1 font-medium">
+                                    <Icon size={10} className="shrink-0 opacity-70" />
+                                    <span className="truncate">{s.platform}</span>
+                                  </div>
+                                  <p className="text-[10px] opacity-80 truncate">
                                     {s.startTime}–{s.endTime}
                                   </p>
-                                  <p className="opacity-80 truncate">
-                                    {s.platform}
-                                    {s.notes ? ` · ${s.notes}` : ""}
-                                  </p>
+                                  {s.notes && (
+                                    <p className="text-[9px] opacity-60 line-clamp-2">{s.notes}</p>
+                                  )}
                                 </div>
-                              </div>
-                            );
-                          })}
-                          {slots.length === 0 && (
-                            <span className="text-[10px] text-muted-foreground/50">—</span>
+                              );
+                            })
                           )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </RowFragment>
-              ))}
-              {yayincilar.length === 0 && (
-                <div className="col-span-8 px-4 py-6 text-center text-sm text-muted-foreground">
-                  Yayıncı kaydı yok.
-                </div>
-              )}
-            </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
     </div>
+      )}
+    </MarkaPageGuard>
   );
 }

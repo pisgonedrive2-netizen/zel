@@ -1,17 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
-
-const NAV = [
-  { href: "/marka/operasyon", label: "Operasyon özeti" },
-  { href: "/marka/izlenmeler", label: "İzlenmeler" },
-  { href: "/marka/takvim", label: "Yayıncı takvimi" },
-  { href: "/marka/odemeler", label: "Ödeme planı" },
-  { href: "/marka/bildirimler", label: "Bildirimler" },
-] as const;
+import { MarkaSubnav } from "@/components/marka-subnav";
 
 export default function MarkaLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -25,30 +16,7 @@ export default function MarkaLayout({ children }: { children: React.ReactNode })
           <strong>Operasyon özeti</strong> formundan girip kaydedebilirsiniz. Veriler yöneticiyle senkron olur.
         </div>
       )}
-      <nav
-        aria-label="Marka paneli"
-        className="sticky top-0 z-40 mb-4 border-b border-border/70 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80"
-      >
-        <div className="mx-auto flex max-w-[1200px] gap-2 overflow-x-auto px-1 py-2.5 sm:py-3">
-          {NAV.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex shrink-0 items-center rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      <MarkaSubnav />
       {children}
     </div>
   );

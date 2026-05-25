@@ -9,6 +9,7 @@ import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { markaHref } from "@/lib/use-marka-view-month";
 import {
   findBrandMonthlyStats,
   brandStatsExportRows,
@@ -27,6 +28,7 @@ export default function MarkaOperasyonPage() {
   const { brandMonthlyStats } = useStore();
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
+  const izlenmeHref = markaHref("/marka/izlenmeler", month);
 
   const statsRow = brandId
     ? findBrandMonthlyStats(brandMonthlyStats, brandId, month)
@@ -69,7 +71,7 @@ export default function MarkaOperasyonPage() {
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 İzlenme ve link verileri için{" "}
-                <Link href="/marka/izlenmeler" className="text-primary underline">
+                <Link href={izlenmeHref} className="text-primary underline">
                   İzlenmeler
                 </Link>{" "}
                 sayfasına gidin.

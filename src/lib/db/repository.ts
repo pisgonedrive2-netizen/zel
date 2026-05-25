@@ -3,7 +3,7 @@ import { verifyPin } from "@/lib/password";
 import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
-import type { AppHydratePayload } from "@/store/store";
+import type { AppHydratePayload, BrandLink } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import type { AppUser } from "@/store/auth";
 import {
@@ -34,6 +34,31 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
   if (rows.length === 0) return;
   const { error } = await getSupabaseAdmin().from(table).upsert(rows, { onConflict: "id" });
   if (error) throw new Error(`${table} upsert: ${error.message}`);
+}
+
+/** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
+async function upsertBrandLinksMerged(links: BrandLink[]) {
+  if (links.length === 0) return;
+  const existing = await selectAll("brand_links", brandLinkFromRow);
+  const byId = new Map(existing.map((l) => [l.id, l]));
+  const merged = links.map((incoming) => {
+    const prev = byId.get(incoming.id);
+    if (!prev) return incoming;
+    return {
+      ...incoming,
+      url: incoming.url?.trim() ? incoming.url : prev.url,
+      handle: incoming.handle?.trim() ? incoming.handle : prev.handle,
+      ownerId: incoming.ownerId ?? prev.ownerId,
+      lastViews: incoming.lastViews ?? prev.lastViews,
+      lastSnapshotDate: incoming.lastSnapshotDate ?? prev.lastSnapshotDate,
+      lastLikes: incoming.lastLikes ?? prev.lastLikes,
+      lastComments: incoming.lastComments ?? prev.lastComments,
+      lastShares: incoming.lastShares ?? prev.lastShares,
+      externalRef: incoming.externalRef ?? prev.externalRef,
+      lastCheckedAt: incoming.lastCheckedAt ?? prev.lastCheckedAt,
+    };
+  });
+  await upsertRows("brand_links", merged.map(brandLinkToRow));
 }
 
 async function deleteNotIn(table: string, ids: string[], extraFilter?: { column: string; value: string }) {
@@ -144,8 +169,37 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     notifications,
   };
 
-  if (session.role === "admin") {
-    payload.users = await fetchUsers();
+  if (session.role === "admin" || session.role === "auditor") {
+    if (session.role === "admin") {
+      payload.users = await fetchUsers();
+    }
+    try {
+      const repairedSlots = await repairMissingBrandLinkSlots();
+      const repairedOrphans = await repairOrphanedBrandLinksFromSnapshots();
+      if (repairedSlots > 0 || repairedOrphans > 0) {
+        payload.brandLinks = await selectAll("brand_links", brandLinkFromRow);
+      }
+    } catch {
+      /* onarım isteğe bağlı */
+    }
+    try {
+      const { ensureTronKasaConfigured } = await import("@/lib/tron-sync");
+      const genel = payload.kasas?.find((k) => k.isDefault && !k.archived) ?? payload.kasas?.[0];
+      if (genel) {
+        const updated = await ensureTronKasaConfigured(genel);
+        if (
+          updated.tronAddress !== genel.tronAddress ||
+          updated.tronSyncFrom !== genel.tronSyncFrom
+        ) {
+          await upsertRows("kasas", [kasaAccountToRow(updated)]);
+          payload.kasas = (payload.kasas ?? []).map((k) =>
+            k.id === updated.id ? updated : k
+          );
+        }
+      }
+    } catch {
+      /* TRON env yoksa atla */
+    }
   }
 
   if (session.role === "streamer" && session.employeeId) {
@@ -286,9 +340,14 @@ async function syncAuditorScoped(payload: AppHydratePayload) {
 }
 
 async function syncAdminFull(payload: AppHydratePayload) {
-  const tables: Array<{ table: string; rows: Record<string, unknown>[]; skipDelete?: boolean }> = [
+  const tables: Array<{
+    table: string;
+    rows: Record<string, unknown>[];
+    skipDelete?: boolean;
+    mergeUpsert?: boolean;
+  }> = [
     { table: "employees", rows: (payload.employees ?? []).map(employeeToRow) },
-    { table: "brands", rows: (payload.brands ?? []).map(brandToRow) },
+    { table: "brands", rows: (payload.brands ?? []).map(brandToRow), skipDelete: true },
     { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow) },
     { table: "advances", rows: (payload.advances ?? []).map(advanceToRow) },
     { table: "salary_extras", rows: (payload.salaryExtras ?? []).map(salaryExtraToRow) },
@@ -300,9 +359,15 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "planned_item_payments", rows: (payload.plannedItemPayments ?? []).map(plannedPaymentToRow) },
     { table: "streamer_accounts", rows: (payload.streamerAccounts ?? []).map(streamerAccountToRow) },
     { table: "schedule_slots", rows: (payload.scheduleSlots ?? []).map(scheduleSlotToRow) },
-    { table: "brand_links", rows: (payload.brandLinks ?? []).map(brandLinkToRow) },
-    { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow) },
-    { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow) },
+    // Marka linkleri / snapshot / viewership asla toplu silinmez (sync eksik payload ile kayıp önlenir).
+    {
+      table: "brand_links",
+      rows: (payload.brandLinks ?? []).map(brandLinkToRow),
+      skipDelete: true,
+      mergeUpsert: true,
+    },
+    { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow), skipDelete: true },
+    { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow), skipDelete: true },
     { table: "brand_monthly_stats", rows: (payload.brandMonthlyStats ?? []).map(brandMonthlyStatsToRow) },
     // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
     // deleteNotIn yapmıyoruz: kullanıcı yanlışlıkla bağlı hareketleri olan
@@ -316,8 +381,12 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
   ];
 
-  for (const { table, rows, skipDelete } of tables) {
-    await upsertRows(table, rows);
+  for (const { table, rows, skipDelete, mergeUpsert } of tables) {
+    if (mergeUpsert && table === "brand_links") {
+      await upsertBrandLinksMerged((payload.brandLinks ?? []) as BrandLink[]);
+    } else {
+      await upsertRows(table, rows);
+    }
     if (!skipDelete && rows.length > 0) {
       await deleteNotIn(table, rows.map((r) => String(r.id)));
     }
@@ -385,11 +454,10 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
   // Bildirimler yalnızca sunucu/API ile yazılır — yayıncı sync ile üzerine yazmaz.
 
   const links = (payload.brandLinks ?? []).filter((l) => l.ownerId === employeeId);
-  await upsertRows("brand_links", links.map(brandLinkToRow));
-  await deleteNotIn("brand_links", links.map((l) => l.id), {
-    column: "owner_id",
-    value: employeeId,
-  });
+  if (links.length > 0) {
+    await upsertBrandLinksMerged(links);
+  }
+  // Yayıncı linkleri silinmez — boş sync veya eksik liste veri kaybına yol açmasın.
 
   const linkIds = links.map((l) => l.id);
   const snaps = (payload.linkSnapshots ?? []).filter((s) => linkIds.includes(s.linkId));
@@ -414,16 +482,88 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
   }
 
   const viewership = (payload.brandViewership ?? []).filter((v) => v.employeeId === employeeId);
-  await upsertRows("brand_viewership", viewership.map(viewershipToRow));
-  await deleteNotIn("brand_viewership", viewership.map((v) => v.id), {
-    column: "employee_id",
-    value: employeeId,
-  });
+  if (viewership.length > 0) {
+    await upsertRows("brand_viewership", viewership.map(viewershipToRow));
+  }
 }
 
 export async function deleteAppUser(id: string) {
   const { error } = await getSupabaseAdmin().from("app_users").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+const BRAND_LINK_PLATFORMS = ["Instagram", "Kick", "TikTok", "YouTube"] as const;
+
+/** Silinen marka slotlarını yeniden oluşturur; mevcut linklere dokunmaz. */
+export async function repairMissingBrandLinkSlots(): Promise<number> {
+  const brands = await selectAll("brands", brandFromRow);
+  const links = await selectAll("brand_links", brandLinkFromRow);
+  const slotKey = (brandId: string, platform: string) =>
+    `${brandId}|${platform.toLowerCase()}`;
+  const existing = new Set(links.map((l) => slotKey(l.brandId, l.platform)));
+  const rows: Record<string, unknown>[] = [];
+
+  for (const b of brands) {
+    if (b.status === "inactive") continue;
+    for (const platform of BRAND_LINK_PLATFORMS) {
+      if (existing.has(slotKey(b.id, platform))) continue;
+      rows.push(
+        brandLinkToRow({
+          id: `bl-${b.id}-${platform.toLowerCase()}`,
+          brandId: b.id,
+          platform,
+          handle: "",
+          url: "",
+          status: "active",
+          notes: "Otomatik slot (eksik kayıt onarımı)",
+          autoTrack: true,
+        })
+      );
+    }
+  }
+
+  if (rows.length > 0) await upsertRows("brand_links", rows);
+  return rows.length;
+}
+
+/** Snapshot'ı olan ama link kaydı silinmiş satırları minimal slot olarak geri yükler. */
+export async function repairOrphanedBrandLinksFromSnapshots(): Promise<number> {
+  const links = await selectAll("brand_links", brandLinkFromRow);
+  const linkIds = new Set(links.map((l) => l.id));
+  const brands = await selectAll("brands", brandFromRow);
+  const brandById = new Map(brands.map((b) => [b.id, b]));
+  const snaps = await selectAll("link_snapshots", linkSnapshotFromRow);
+  const orphanIds = [...new Set(snaps.map((s) => s.linkId))].filter((id) => !linkIds.has(id));
+  if (orphanIds.length === 0) return 0;
+
+  const rows: Record<string, unknown>[] = [];
+  for (const id of orphanIds) {
+    const m = /^bl-(.+?)-(instagram|kick|tiktok|youtube)$/i.exec(id);
+    const brandId = m?.[1];
+    const platformRaw = m?.[2]?.toLowerCase();
+    const platformMap: Record<string, string> = {
+      instagram: "Instagram",
+      kick: "Kick",
+      tiktok: "TikTok",
+      youtube: "YouTube",
+    };
+    const platform = platformRaw ? (platformMap[platformRaw] ?? "Instagram") : "Instagram";
+    if (brandId && !brandById.has(brandId)) continue;
+    rows.push(
+      brandLinkToRow({
+        id,
+        brandId: brandId ?? brands[0]?.id ?? "br-gala",
+        platform: platform === "Tiktok" ? "TikTok" : platform,
+        handle: "",
+        url: "",
+        status: "active",
+        notes: "Snapshot'tan geri yüklenen link (onarım)",
+        autoTrack: true,
+      })
+    );
+  }
+  if (rows.length > 0) await upsertRows("brand_links", rows);
+  return rows.length;
 }
 
 export async function countAppUsers(): Promise<number> {
