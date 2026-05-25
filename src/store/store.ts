@@ -2,9 +2,16 @@ import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { requestSyncFlush } from "@/lib/sync-client";
+import { persistKasaTransaction, removeKasaTransaction } from "@/lib/kasa-persist";
 
 /** Marka link / snapshot / izlenme — Supabase'e hemen yaz. */
 const flushLinkData = () => queueMicrotask(() => requestSyncFlush());
+const flushKasaData = () => queueMicrotask(() => requestSyncFlush());
+
+function persistKasaTxImmediate(tx: KasaTransaction) {
+  if (!isSupabaseClientMode()) return;
+  queueMicrotask(() => void persistKasaTransaction(tx));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tipler
@@ -2104,10 +2111,24 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
           ?? s.kasas.find((k) => k.isDefault && !k.archived)?.id
           ?? s.kasas[0]?.id
           ?? DEFAULT_KASA_ID;
-        return { kasaTransactions: [...s.kasaTransactions, { ...t, kasaId, id: uid() }] };
+        const row: KasaTransaction = { ...t, kasaId, id: uid() };
+        persistKasaTxImmediate(row);
+        flushKasaData();
+        return { kasaTransactions: [...s.kasaTransactions, row] };
       }),
-      updateKasaTransaction: (id, t) => set((s) => ({ kasaTransactions: s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x)) })),
-      deleteKasaTransaction: (id)    => set((s) => ({
+      updateKasaTransaction: (id, t) => set((s) => {
+        const kasaTransactions = s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x));
+        const row = kasaTransactions.find((x) => x.id === id);
+        if (row) persistKasaTxImmediate(row);
+        flushKasaData();
+        return { kasaTransactions };
+      }),
+      deleteKasaTransaction: (id)    => {
+        if (isSupabaseClientMode()) {
+          queueMicrotask(() => void removeKasaTransaction(id));
+        }
+        flushKasaData();
+        set((s) => ({
         kasaTransactions: s.kasaTransactions.filter((x) => x.id !== id),
         expenses: s.expenses.map((e) =>
           e.kasaTxId === id ? { ...e, kasaTxId: undefined } : e
@@ -2132,7 +2153,8 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
               }
             : p
         ),
-      })),
+      }));
+      },
 
       // Content expense
       addContentExpense: (e) => {

@@ -37,7 +37,13 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => r.json())
       .then((data: { user: typeof user }) => {
-        if (data.user) useAuth.setState({ user: data.user });
+        useAuth.setState({
+          user: data.user ?? null,
+          sessionReady: true,
+        });
+      })
+      .catch(() => {
+        useAuth.setState({ user: null, sessionReady: true });
       })
       .finally(() => setHydrated(true));
   }, []);

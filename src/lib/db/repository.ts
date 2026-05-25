@@ -374,7 +374,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
     // bir kasayı silerse FK RESTRICT hata fırlatır. Bunun yerine `archived`
     // bayrağıyla yönetiyoruz.
     { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
-    { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow) },
+    // Kasa hareketleri tek tek API ile de yazılır; toplu silme yapılmaz (veri kaybı önlenir).
+    { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
     { table: "content_expenses", rows: (payload.contentExpenses ?? []).map(contentExpenseToRow) },
     { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow) },
     { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow) },

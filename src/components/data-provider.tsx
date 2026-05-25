@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { registerSyncFlushHandler } from "@/lib/sync-client";
 import { Loader2 } from "lucide-react";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
@@ -14,6 +15,7 @@ import {
 } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
+import { SYNC_ERROR_EVENT } from "@/lib/kasa-persist";
 
 const SYNC_MS = 900;
 
@@ -29,7 +31,9 @@ function pickStoreSnapshot(): AppHydratePayload {
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const supabaseMode = isSupabaseClientMode();
   const user = useAuth((s) => s.user);
-  const [ready, setReady] = useState(true);
+  const sessionReady = useAuth((s) => s.sessionReady);
+  const router = useRouter();
+  const [ready, setReady] = useState(!supabaseMode);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [bootstrapOk, setBootstrapOk] = useState(!supabaseMode);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,7 +58,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         const msg = data.error ?? `Senkronizasyon başarısız (${res.status})`;
-        setSyncError(msg);
+        setSyncError(
+          res.status === 401
+            ? `${msg} — çıkış yapıp tekrar giriş yapın.`
+            : msg
+        );
         console.error("Sync failed:", msg);
         return;
       }
@@ -79,7 +87,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!supabaseMode) {
-      // localStorage modunda da sözleşme kirası ↔ kira kalemi uyumunu onar.
       const s = useStore.getState();
       const fixed = reconcileRentExtrasForAllEmployees(s.employees, s.salaryExtras);
       if (fixed !== s.salaryExtras) {
@@ -90,6 +97,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setReady(true);
       return;
     }
+
+    if (!sessionReady) return;
+
     if (!user) {
       setReady(true);
       setBootstrapOk(false);
@@ -100,13 +110,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setBootstrapOk(false);
     skipSync.current = true;
-    const emptyPatch: Record<string, unknown> = {};
-    for (const k of APP_SNAPSHOT_KEYS) emptyPatch[k] = [];
-    useStore.setState(emptyPatch);
+    setReady(false);
+
     (async () => {
       try {
         const res = await fetch("/api/bootstrap", { credentials: "include" });
-        if (!res.ok) throw new Error(await res.text());
+        if (res.status === 401) {
+          throw new Error("Oturum gerekli — lütfen tekrar giriş yapın");
+        }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Bootstrap (${res.status})`);
+        }
         const data = (await res.json()) as AppHydratePayload & { users?: unknown[] };
         if (cancelled) return;
         const patch: Record<string, unknown> = {};
@@ -132,19 +147,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         skipSync.current = true;
         setReady(true);
         setBootstrapOk(true);
+        setSyncError(null);
         setTimeout(() => { skipSync.current = false; }, 500);
       } catch (e) {
         console.error("Bootstrap failed:", e);
-        setReady(true);
-        setBootstrapOk(false);
-        setSyncError(
-          "İlk yükleme başarısız oldu. Sunucu kaydı bu oturumda devre dışı bırakıldı — sayfayı yenileyin."
-        );
+        if (!cancelled) {
+          setReady(true);
+          setBootstrapOk(false);
+          const msg = e instanceof Error ? e.message : "Bootstrap hatası";
+          setSyncError(
+            msg.includes("Oturum")
+              ? msg
+              : `İlk yükleme başarısız: ${msg}. Sayfayı yenileyin veya tekrar giriş yapın.`
+          );
+        }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [supabaseMode, user?.id]);
+  }, [supabaseMode, sessionReady, user?.id]);
 
   useEffect(() => {
     registerSyncFlushHandler(() => {
@@ -152,6 +173,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     });
     return () => registerSyncFlushHandler(null);
   }, [runSyncNow]);
+
+  useEffect(() => {
+    const onKasaError = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      if (detail) setSyncError(detail);
+    };
+    window.addEventListener(SYNC_ERROR_EVENT, onKasaError);
+    return () => window.removeEventListener(SYNC_ERROR_EVENT, onKasaError);
+  }, []);
 
   useEffect(() => {
     if (!supabaseMode || !user || !ready || !bootstrapOk) return;
@@ -178,7 +208,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [supabaseMode, user?.id, ready, bootstrapOk, runSyncNow]);
 
-  if (!ready && supabaseMode) {
+  if (supabaseMode && (!sessionReady || !ready)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -195,13 +225,34 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         >
           <p className="font-medium">Supabase kaydı başarısız</p>
           <p className="text-xs mt-1 opacity-90">{syncError}</p>
-          <button
-            type="button"
-            className="mt-2 text-xs underline"
-            onClick={() => setSyncError(null)}
-          >
-            Kapat
-          </button>
+          <div className="mt-2 flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="text-xs underline"
+              onClick={() => void runSyncNow()}
+            >
+              Tekrar dene
+            </button>
+            {syncError.includes("Oturum") && (
+              <button
+                type="button"
+                className="text-xs underline font-medium"
+                onClick={() => {
+                  void useAuth.getState().logout();
+                  router.replace("/login");
+                }}
+              >
+                Tekrar giriş yap
+              </button>
+            )}
+            <button
+              type="button"
+              className="text-xs underline opacity-70"
+              onClick={() => setSyncError(null)}
+            >
+              Kapat
+            </button>
+          </div>
         </div>
       )}
       {children}

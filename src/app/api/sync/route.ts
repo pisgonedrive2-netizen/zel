@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Senkronizasyon hatası";
-    return NextResponse.json({ error: msg }, { status: 403 });
+    const status = msg.includes("senkronizasyon izni") ? 403 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }

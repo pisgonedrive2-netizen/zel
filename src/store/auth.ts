@@ -70,6 +70,8 @@ interface AuthState {
   user: AppUser | null;
   /** Tüm kayıtlı kullanıcılar. Admin yeni ekleyebilir / PIN sıfırlayabilir. */
   users: AppUser[];
+  /** `/api/auth/me` tamamlandı mı (Supabase modunda bootstrap bundan sonra). */
+  sessionReady: boolean;
 
   login: (username: string, pin: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -96,6 +98,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
   return {
       user:  null,
       users: isSupabaseClientMode() ? [] : INITIAL_USERS,
+      sessionReady: !isSupabaseClientMode(),
 
       login: async (username, pin) => {
         // Yeni oturumda eski impersonation state'i taşımayalım.
@@ -113,7 +116,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
           });
           if (!res.ok) return false;
           const data = (await res.json()) as { user: AppUser };
-          set({ user: data.user });
+          set({ user: data.user, sessionReady: true });
           return true;
         }
         const u = get().users.find(
@@ -140,7 +143,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
         } catch {
           /* SSR güvenliği */
         }
-        set({ user: null });
+        set({ user: null, sessionReady: true });
       },
 
       addUser: async (u) => {
