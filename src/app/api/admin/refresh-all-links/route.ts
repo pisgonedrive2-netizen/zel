@@ -23,6 +23,8 @@ export const dynamic = "force-dynamic";
  *   - linkIds?: string[]       — verilen ID set'i (priority)
  *   - targetDate?: string      — YYYY-MM-DD (geçmiş ay snapshot tarihi)
  *   - jobId?: string           — UI poll için aynı id
+ *   - linkScope?: "month"|"all" — yenilenecek link kümesi
+ *   - monthYm?: string         — linkScope=month için YYYY-MM
  */
 export async function POST(req: NextRequest) {
   if (!isSupabaseEnabled() || !isRapidApiEnabled()) {
@@ -45,6 +47,8 @@ export async function POST(req: NextRequest) {
     linkIds?: string[];
     targetDate?: string;
     jobId?: string;
+    linkScope?: "month" | "all";
+    monthYm?: string;
   } = {};
   try {
     body = (await req.json().catch(() => ({}))) as typeof body;
@@ -68,6 +72,8 @@ export async function POST(req: NextRequest) {
       linkIds: body.linkIds,
       targetDate: body.targetDate,
       jobId,
+      linkScope: body.linkScope,
+      monthYm: body.monthYm,
     });
     finishBulkRefreshJob(jobId, summary);
     return NextResponse.json({ ok: true, jobId, summary });

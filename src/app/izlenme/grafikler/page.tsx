@@ -411,7 +411,24 @@ export default function GrafiklerPage() {
   const readOnly = useIsReadOnly();
   const { brands, brandLinks, linkSnapshots, contentExpenses } = useStore();
 
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+    filterLinks,
+  } = useIzlenmeViewMonth();
+  const scopedLinks = useMemo(
+    () => filterLinks(brandLinks, linkSnapshots),
+    [brandLinks, linkSnapshots, filterLinks]
+  );
+  const allActiveLinkCount = useMemo(
+    () => brandLinks.filter((l) => l.status === "active").length,
+    [brandLinks]
+  );
   const [activeTab, setActiveTab] = useState<TabKey>("trend");
 
   // Tab-local controls
@@ -445,7 +462,7 @@ export default function GrafiklerPage() {
   const brandMonthlyViews = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     for (const b of activeBrands) {
-      const links = brandLinks.filter((l) => l.brandId === b.id);
+      const links = scopedLinks.filter((l) => l.brandId === b.id);
       const inner = new Map<string, number>();
       for (const { ym } of monthsRange) {
         inner.set(ym, totalLinkViewsForMonth(links, ym, linkSnapshots, todayYm));
@@ -455,11 +472,11 @@ export default function GrafiklerPage() {
       map.set(b.id, inner);
     }
     return map;
-  }, [activeBrands, brandLinks, linkSnapshots, monthsRange, lastMonthYm, viewMonth, todayYm]);
+  }, [activeBrands, scopedLinks, linkSnapshots, monthsRange, lastMonthYm, viewMonth, todayYm]);
 
   const thisMonthByBrand = useMemo(() => {
     return activeBrands.map((b) => {
-      const linksForBrand = brandLinks.filter((l) => l.brandId === b.id);
+      const linksForBrand = scopedLinks.filter((l) => l.brandId === b.id);
       const views = brandMonthlyViews.get(b.id)?.get(viewMonth) ?? 0;
       return {
         brand: b,
@@ -467,7 +484,7 @@ export default function GrafiklerPage() {
         linkCount: linksForBrand.filter((l) => l.status === "active").length,
       };
     });
-  }, [activeBrands, brandLinks, brandMonthlyViews, viewMonth]);
+  }, [activeBrands, scopedLinks, brandMonthlyViews, viewMonth]);
 
   const lastMonthByBrand = useMemo(() => {
     return activeBrands.map((b) => ({
@@ -575,7 +592,7 @@ export default function GrafiklerPage() {
   const efficiencyData = useMemo<ScatterPoint[]>(() => {
     return activeBrands
       .map((b) => {
-        const links = brandLinks.filter((l) => l.brandId === b.id);
+        const links = scopedLinks.filter((l) => l.brandId === b.id);
         const activeLinks = links.filter((l) => l.status === "active");
         const views = brandMonthlyViews.get(b.id)?.get(viewMonth) ?? 0;
         const expenses = brandContentExpensesForMonth(contentExpenses, b, viewMonth)
@@ -592,7 +609,7 @@ export default function GrafiklerPage() {
         };
       })
       .filter((d) => d.x > 0 || d.y > 0);
-  }, [activeBrands, brandLinks, brandMonthlyViews, contentExpenses, viewMonth]);
+  }, [activeBrands, scopedLinks, brandMonthlyViews, contentExpenses, viewMonth]);
 
   const topEfficient = useMemo(() => {
     const candidates = efficiencyData.filter((d) => d.x > 0 && d.y > 0);
@@ -628,8 +645,8 @@ export default function GrafiklerPage() {
     return { total, lastTotal, totalGrowth, totalExpense, avgCpm, topGrowth };
   }, [thisMonthByBrand, lastMonthByBrand, activeBrands, contentExpenses, viewMonth, barData]);
 
-  const totalLinks = brandLinks.filter((l) => l.status === "active").length;
-  const totalOwners = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const totalLinks = scopedLinks.length;
+  const totalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
 
   // ── render ────────────────────────────────────────────────────────────────
 
@@ -642,9 +659,14 @@ export default function GrafiklerPage() {
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={activeBrands.length}
         totalStreamers={totalOwners}
         totalLinks={totalLinks}
+        totalAllLinks={allActiveLinkCount}
         totalViews={kpi.total}
         readOnly={readOnly}
       />

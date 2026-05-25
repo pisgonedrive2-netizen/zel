@@ -2,8 +2,8 @@
  * RapidAPI Basic plan limitleri ve otomatik yenileme bütçesi.
  *
  * KAYNAK (yükseltilmiş planlar — Mayıs 2026):
- *   • YouTube   (youtube138)                            : 1000 req/ay (varsayılan)
- *   • Instagram (instagram-api-fast-reliable-data-scraper): 1000 req/ay
+ *   • YouTube   (youtube138)                            : 5000 req/ay (varsayılan)
+ *   • Instagram (instagram-api-fast-reliable-data-scraper): 5000 req/ay
  *   • TikTok    (tiktok-scraper7)                       : 5000 req/ay
  *
  * Ortam değişkeni ile override: RAPIDAPI_YOUTUBE_MONTHLY_LIMIT vb.
@@ -44,18 +44,18 @@ export const SOCIAL_PLANS: Record<SocialPlatform, PlanConfig> = {
   youtube: {
     apiHost: "youtube138.p.rapidapi.com",
     label: "YouTube",
-    monthlyLimit: envMonthlyLimit("RAPIDAPI_YOUTUBE_MONTHLY_LIMIT", 1000),
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_YOUTUBE_MONTHLY_LIMIT", 5000),
     rateLimit: "5 req/sn",
     safeFraction: 0.85,
-    maxBatchPerRun: 8,
+    maxBatchPerRun: 40,
   },
   instagram: {
     apiHost: "instagram-api-fast-reliable-data-scraper.p.rapidapi.com",
     label: "Instagram",
-    monthlyLimit: envMonthlyLimit("RAPIDAPI_INSTAGRAM_MONTHLY_LIMIT", 1000),
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_INSTAGRAM_MONTHLY_LIMIT", 5000),
     rateLimit: "1000 req/saat",
     safeFraction: 0.85,
-    maxBatchPerRun: 8,
+    maxBatchPerRun: 40,
   },
   tiktok: {
     apiHost: "tiktok-scraper7.p.rapidapi.com",

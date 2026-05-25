@@ -103,7 +103,24 @@ export default function MarkalarPage() {
     employees,
   } = useStore();
 
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+    filterLinks,
+  } = useIzlenmeViewMonth();
+  const scopedLinks = useMemo(
+    () => filterLinks(brandLinks, linkSnapshots),
+    [brandLinks, linkSnapshots, filterLinks]
+  );
+  const allActiveLinkCount = useMemo(
+    () => brandLinks.filter((l) => l.status === "active").length,
+    [brandLinks]
+  );
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusKey>("active");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -124,7 +141,7 @@ export default function MarkalarPage() {
   // Tüm markaların hesaplanmış metrikleri (filtre ÖNCESİ, KPI/top performans için)
   const allRows = useMemo(() => {
     return brands.map((brand) => {
-      const links = brandLinks.filter((l) => l.brandId === brand.id);
+      const links = scopedLinks.filter((l) => l.brandId === brand.id);
       const totalNow = totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm);
       const totalPrev = totalLinkViewsForMonth(links, prevMonth, linkSnapshots, todayYm);
       const monthExpenses = brandContentExpensesForMonth(contentExpenses, brand, viewMonth);
@@ -160,7 +177,7 @@ export default function MarkalarPage() {
         spark,
       };
     });
-  }, [brands, brandLinks, linkSnapshots, contentExpenses, viewMonth, prevMonth, todayYm]);
+  }, [brands, scopedLinks, linkSnapshots, contentExpenses, viewMonth, prevMonth, todayYm]);
 
   // Filtre + sıralama
   const rows = useMemo(() => {
@@ -241,8 +258,8 @@ export default function MarkalarPage() {
       .slice(0, 3);
   }, [allRows]);
 
-  const totalLinks = brandLinks.filter((l) => l.status === "active").length;
-  const totalOwners = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const totalLinks = scopedLinks.length;
+  const totalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
   const grandTotal = allRows.reduce((s, r) => s + r.totalNow, 0);
 
   const operationRows = useMemo(() => {
@@ -277,9 +294,14 @@ export default function MarkalarPage() {
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={brands.filter((b) => b.status === "active").length}
         totalStreamers={totalOwners}
         totalLinks={totalLinks}
+        totalAllLinks={allActiveLinkCount}
         totalViews={grandTotal}
         readOnly={readOnly}
       />

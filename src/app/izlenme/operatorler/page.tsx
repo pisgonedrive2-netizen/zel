@@ -322,7 +322,24 @@ function StreamerAvatar({
 export default function OperatorlerPage() {
   const readOnly = useIsReadOnly();
   const { employees, brands, brandLinks, linkSnapshots, brandViewership } = useStore();
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+    filterLinks,
+  } = useIzlenmeViewMonth();
+  const scopedLinks = useMemo(
+    () => filterLinks(brandLinks, linkSnapshots),
+    [brandLinks, linkSnapshots, filterLinks]
+  );
+  const allActiveLinkCount = useMemo(
+    () => brandLinks.filter((l) => l.status === "active").length,
+    [brandLinks]
+  );
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("views");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
@@ -353,7 +370,7 @@ export default function OperatorlerPage() {
     };
     const acc = new Map<string, Acc>();
 
-    for (const l of brandLinks) {
+    for (const l of scopedLinks) {
       if (!l.ownerId) continue;
       const v = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm).lastViews;
       const vPrev = linkViewsForMonth(l, prevMonth, linkSnapshots, todayYm).lastViews;
@@ -463,7 +480,7 @@ export default function OperatorlerPage() {
         targetSum,
       } satisfies OperatorRow;
     });
-  }, [brandLinks, brandViewership, linkSnapshots, viewMonth, prevMonth, todayYm, employees, brands, months6]);
+  }, [scopedLinks, brandViewership, linkSnapshots, viewMonth, prevMonth, todayYm, employees, brands, months6]);
 
   // Filter + sort
   const rows = useMemo(() => {
@@ -528,8 +545,8 @@ export default function OperatorlerPage() {
   }, [allRows]);
 
   // Navbar için aktif link / yayıncı toplamları
-  const navTotalLinks = brandLinks.filter((l) => l.status === "active").length;
-  const navTotalOwners = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const navTotalLinks = scopedLinks.length;
+  const navTotalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
 
   const selected = useMemo(
     () => (selectedId ? allRows.find((r) => r.employeeId === selectedId) ?? null : null),
@@ -541,9 +558,14 @@ export default function OperatorlerPage() {
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={brands.filter((b) => b.status === "active").length}
         totalStreamers={navTotalOwners}
         totalLinks={navTotalLinks}
+        totalAllLinks={allActiveLinkCount}
         totalViews={grandTotal}
         readOnly={readOnly}
       />

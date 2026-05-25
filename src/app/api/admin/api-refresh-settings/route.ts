@@ -74,7 +74,7 @@ export async function PATCH(req: NextRequest) {
 
   const counts = await trackedCounts();
   if (body.cronIntervalHours != null) {
-    const minSuggested = Math.min(
+    const minSuggested = Math.max(
       suggestMinCronIntervalHours("youtube", counts.youtube),
       suggestMinCronIntervalHours("instagram", counts.instagram),
       suggestMinCronIntervalHours("tiktok", counts.tiktok)

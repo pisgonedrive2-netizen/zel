@@ -62,6 +62,24 @@ export interface PlatformRunSummary {
 
 const PLATFORMS: SocialPlatform[] = ["youtube", "instagram", "tiktok"];
 
+/** Seçili ayda snapshot'ı olan veya (bu ay ise) aktif linkler. */
+async function filterLinksForMonthScope(
+  links: BrandLinkRow[],
+  monthYm: string
+): Promise<BrandLinkRow[]> {
+  const todayYm = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const { data, error } = await getSupabaseAdmin()
+    .from("link_snapshots")
+    .select("link_id")
+    .like("date", `${monthYm}%`);
+  if (error) throw new Error(`link_snapshots month filter: ${error.message}`);
+  const idsInMonth = new Set((data ?? []).map((r) => String((r as { link_id: string }).link_id)));
+  return links.filter((l) => {
+    if (idsInMonth.has(l.id)) return true;
+    return monthYm === todayYm && l.status === "active";
+  });
+}
+
 /**
  * Bir platform için en uzun süredir kontrol edilmemiş aktif & auto_track
  * linkleri döner (oldest-first round-robin).
@@ -444,6 +462,9 @@ export async function refreshAllLinksBulk(opts: {
   targetDate?: string;
   /** UI poll için job id (in-memory state'i günceller). */
   jobId?: string;
+  /** `month` ise yalnızca bu aya ait (snapshot veya bu ay aktif) linkler yenilenir. */
+  linkScope?: "month" | "all";
+  monthYm?: string;
 } = {}): Promise<BulkRefreshSummary> {
   if (!isRapidApiEnabled()) {
     throw new Error("RAPIDAPI_KEY eksik — otomatik yenileme devre dışı.");
@@ -475,6 +496,9 @@ export async function refreshAllLinksBulk(opts: {
         const stale = !l.last_checked_at || new Date(l.last_checked_at).getTime() < cutoff;
         return hadError || stale;
       });
+    }
+    if (opts.linkScope === "month" && opts.monthYm) {
+      links = await filterLinksForMonthScope(links, opts.monthYm);
     }
     if (links.length === 0) continue;
 

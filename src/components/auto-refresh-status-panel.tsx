@@ -29,6 +29,11 @@ import { useAuth } from "@/store/auth";
 import { useStore } from "@/store/store";
 import { applyLinkMetricsToStore, type LinkMetricsStoreUpdate } from "@/lib/social-api/link-store-sync";
 import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
+import {
+  resolveRefreshTargetDate,
+  type IzlenmeApiDateMode,
+  type IzlenmeLinkScope,
+} from "@/lib/izlenme-refresh";
 
 interface PlatformStatus {
   platform: "youtube" | "tiktok" | "instagram";
@@ -64,6 +69,9 @@ interface PlatformStatus {
 export interface AutoRefreshStatusPanelProps {
   /** API sayfasında katalog zaten üstte gösteriliyorsa tekrarı gizle. */
   hideCapabilities?: boolean;
+  viewMonth?: string;
+  linkScope?: IzlenmeLinkScope;
+  apiDateMode?: IzlenmeApiDateMode;
 }
 
 interface RecentRun {
@@ -130,9 +138,15 @@ function staleHours(iso?: string | null): number | null {
   return (Date.now() - new Date(iso).getTime()) / 3_600_000;
 }
 
-export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefreshStatusPanelProps) {
+export function AutoRefreshStatusPanel({
+  hideCapabilities = false,
+  viewMonth: viewMonthProp,
+  linkScope: linkScopeProp = "all",
+  apiDateMode: apiDateModeProp = "view-month",
+}: AutoRefreshStatusPanelProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
+  const canEditSettings = user?.role === "admin";
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -251,7 +265,7 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
   }, [load]);
 
   const saveSettings = useCallback(async () => {
-    if (!draftSettings || !isAdmin) return;
+    if (!draftSettings || !canEditSettings) return;
     setSavingSettings(true);
     setSettingsMsg(null);
     try {
@@ -271,7 +285,7 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
     } finally {
       setSavingSettings(false);
     }
-  }, [draftSettings, isAdmin, load]);
+  }, [draftSettings, canEditSettings, load]);
 
   /**
    * Toplu yenileme — `mode`'a göre tüm aktif / sadece yenilenmemiş / seçili linkleri yeniler.
@@ -282,6 +296,8 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
     mode?: "all" | "failed-only" | "selected";
     linkIds?: string[];
     targetMonth?: string;
+    linkScope?: IzlenmeLinkScope;
+    apiDateMode?: IzlenmeApiDateMode;
   }) => {
     if (!isAdmin) return;
     const mode = opts?.mode ?? "all";
@@ -291,17 +307,14 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
 
     const jobId = `bulk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // Hedef tarih hesabı: ay seçildiyse o ayın son günü, yoksa "bugün" (server hesaplar)
-    let targetDate: string | undefined = undefined;
-    const useMonth = opts?.targetMonth ?? targetMonth;
-    if (useMonth) {
-      const [y, mo] = useMonth.split("-").map(Number);
-      const lastDay = new Date(y, mo, 0).getDate();
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const candidate = `${useMonth}-${String(lastDay).padStart(2, "0")}`;
-      // Eğer geçmiş ay ise candidate, bu ay ise bugün
-      targetDate = candidate < todayStr ? candidate : undefined;
-    }
+    const useMonth = opts?.targetMonth ?? targetMonth ?? viewMonthProp ?? "";
+    const scope = opts?.linkScope ?? linkScopeProp;
+    const dateMode = opts?.apiDateMode ?? apiDateModeProp;
+    const targetDate = useMonth
+      ? resolveRefreshTargetDate(useMonth, dateMode)
+      : viewMonthProp
+        ? resolveRefreshTargetDate(viewMonthProp, dateMode)
+        : undefined;
 
     // Polling: jobId ile sunucu durumunu çek
     const pollInterval = setInterval(async () => {
@@ -338,6 +351,8 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
           failedOnly: mode === "failed-only" ? true : undefined,
           linkIds: mode === "selected" ? opts?.linkIds : undefined,
           targetDate,
+          linkScope: scope,
+          monthYm: useMonth || viewMonthProp,
         }),
       });
       const json = (await res.json()) as {
@@ -482,7 +497,7 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
               Otomatik link yenileme
             </CardTitle>
             <CardDescription className="text-xs">
-              YouTube · Instagram · TikTok — yükseltilmiş plan (YT/IG ~1000, TikTok ~5000/ay, %85 güvenli kota).
+              YouTube · Instagram · TikTok — yükseltilmiş plan (YT/IG ~5000, TikTok ~5000/ay, %85 güvenli kota).
               {PLATFORM_FEATURES.youtube.length + PLATFORM_FEATURES.instagram.length + PLATFORM_FEATURES.tiktok.length}{" "}
               API özelliği · kontrol{" "}
               <span className="font-medium text-foreground">her {data.cronIntervalHours} saatte bir</span>.
@@ -604,23 +619,43 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
             <p className="text-xs font-medium flex items-center gap-1.5">
               <Settings2 size={13} /> Otomatik yenileme ayarları
             </p>
+            {!canEditSettings && (
+              <p className="text-[11px] text-amber-800 dark:text-amber-200 rounded-md border border-amber-300/60 bg-amber-50/50 dark:bg-amber-950/30 px-2 py-1.5">
+                Denetçi hesabı ayarları görüntüleyebilir; kaydetmek için yönetici girişi gerekir.
+              </p>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label htmlFor="cron-interval-select" className="text-[11px] text-muted-foreground">Kontrol aralığı (saat)</label>
-                <select
-                  id="cron-interval-select"
-                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={draftSettings.cronIntervalHours}
-                  onChange={(e) =>
-                    setDraftSettings((s) =>
-                      s ? { ...s, cronIntervalHours: Number(e.target.value) } : s
-                    )
-                  }
-                >
-                  {[6, 12, 24, 48, 72].map((h) => (
-                    <option key={h} value={h}>{h} saatte bir</option>
-                  ))}
-                </select>
+                {(() => {
+                  const minH = Math.max(
+                    6,
+                    ...(data?.platforms ?? []).map((p) => p.minSuggestedHours ?? 24)
+                  );
+                  return (
+                    <>
+                      <select
+                        id="cron-interval-select"
+                        className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                        value={draftSettings.cronIntervalHours}
+                        onChange={(e) =>
+                          setDraftSettings((s) =>
+                            s ? { ...s, cronIntervalHours: Number(e.target.value) } : s
+                          )
+                        }
+                      >
+                        {[6, 12, 24, 48, 72].map((h) => (
+                          <option key={h} value={h} disabled={h < minH}>
+                            {h} saatte bir{h < minH ? " (çok sık)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        Kotaya göre en az {minH} saat önerilir (link sayısına bağlı).
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
               <div>
                 <label htmlFor="notify-cooldown-select" className="text-[11px] text-muted-foreground">Bildirim bekleme (saat)</label>
@@ -652,7 +687,13 @@ export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefresh
               <Bell size={12} /> Kota / hata / ödeme uyarıları
             </label>
             <div className="flex items-center gap-2">
-              <Button type="button" size="sm" className="h-7 gap-1 text-xs" disabled={savingSettings} onClick={() => void saveSettings()}>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                disabled={savingSettings || !canEditSettings}
+                onClick={() => void saveSettings()}
+              >
                 {savingSettings ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
                 Kaydet
               </Button>

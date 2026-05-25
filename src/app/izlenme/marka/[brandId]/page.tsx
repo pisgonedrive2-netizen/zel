@@ -84,13 +84,21 @@ export default function BrandDetailPage({
     addBrandLink, deleteBrandLink,
   } = useStore();
 
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+  } = useIzlenmeViewMonth();
+  const showAllLinks = linkScope === "all";
   const [linksPanelOpen, setLinksPanelOpen] = useState(false);
   const [linkForm, setLinkForm] = useState<BrandLink | null | undefined>(undefined);
   const [chartMode, setChartMode] = useState<ChartMode>("area");
   const [snapshotModal, setSnapshotModal] = useState<{ link: BrandLink; snapshot?: LinkSnapshot } | null>(null);
   const [historyModal, setHistoryModal] = useState<BrandLink | null>(null);
-  const [showAllLinks, setShowAllLinks] = useState(false);
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
   const [refreshingLinkId, setRefreshingLinkId] = useState<string | null>(null);
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
@@ -114,13 +122,9 @@ export default function BrandDetailPage({
     [allBrandLinks, viewMonth, linkSnapshots, todayYm, showAllLinks]
   );
 
-  useEffect(() => {
-    setShowAllLinks(false);
-  }, [viewMonth]);
-
   const totalCurrentMonth = useMemo(
-    () => totalLinkViewsForMonth(allBrandLinks, viewMonth, linkSnapshots, todayYm),
-    [allBrandLinks, viewMonth, linkSnapshots, todayYm]
+    () => totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm),
+    [links, viewMonth, linkSnapshots, todayYm]
   );
 
   const monthExpenses = useMemo(
@@ -249,9 +253,14 @@ export default function BrandDetailPage({
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={navbarBrands}
         totalStreamers={navbarStreamers}
-        totalLinks={navbarLinks}
+        totalLinks={links.length}
+        totalAllLinks={allBrandLinks.length}
         totalViews={totalCurrentMonth}
         readOnly={readOnly}
       />
@@ -549,7 +558,7 @@ export default function BrandDetailPage({
               <input
                 type="checkbox"
                 checked={showAllLinks}
-                onChange={(e) => setShowAllLinks(e.target.checked)}
+                onChange={(e) => setLinkScope(e.target.checked ? "all" : "month")}
                 className="rounded"
               />
               Tüm linkleri göster
@@ -569,7 +578,7 @@ export default function BrandDetailPage({
                 <button
                   type="button"
                   className="text-primary underline"
-                  onClick={() => setShowAllLinks(true)}
+                  onClick={() => setLinkScope("all")}
                 >
                   Tüm linkleri göster
                 </button>

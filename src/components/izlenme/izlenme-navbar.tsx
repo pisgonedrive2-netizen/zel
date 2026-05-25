@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { shiftCalendarMonthYm } from "@/lib/data";
+import { resolveRefreshTargetDate, type IzlenmeApiDateMode, type IzlenmeLinkScope } from "@/lib/izlenme-refresh";
 import { izlenmeHref } from "@/lib/use-izlenme-view-month";
 import { useStore } from "@/store/store";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
@@ -34,9 +35,14 @@ interface ApiRefreshSummary {
 export interface IzlenmeNavbarProps {
   viewMonth: string;
   onChangeMonth: (next: string) => void;
+  linkScope: IzlenmeLinkScope;
+  onLinkScopeChange: (next: IzlenmeLinkScope) => void;
+  apiDateMode: IzlenmeApiDateMode;
+  onApiDateModeChange: (next: IzlenmeApiDateMode) => void;
   totalBrands: number;
   totalStreamers: number;
   totalLinks: number;
+  totalAllLinks?: number;
   totalViews: number;
   readOnly?: boolean;
 }
@@ -70,9 +76,14 @@ function monthTitleYm(ym: string) {
 export function IzlenmeNavbar({
   viewMonth,
   onChangeMonth,
+  linkScope,
+  onLinkScopeChange,
+  apiDateMode,
+  onApiDateModeChange,
   totalBrands,
   totalStreamers,
   totalLinks,
+  totalAllLinks,
   totalViews,
   readOnly,
 }: IzlenmeNavbarProps) {
@@ -150,14 +161,7 @@ export function IzlenmeNavbar({
     setRefreshLabel("Başlatılıyor…");
 
     const jobId = `nav-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    let targetDate: string | undefined;
-    const [y, mo] = viewMonth.split("-").map(Number);
-    if (y && mo) {
-      const lastDay = new Date(y, mo, 0).getDate();
-      const candidate = `${viewMonth}-${String(lastDay).padStart(2, "0")}`;
-      const todayStr = new Date().toISOString().slice(0, 10);
-      if (candidate < todayStr) targetDate = candidate;
-    }
+    const targetDate = resolveRefreshTargetDate(viewMonth, apiDateMode);
 
     const poll = setInterval(async () => {
       try {
@@ -189,7 +193,13 @@ export function IzlenmeNavbar({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId, targetDate, trigger: "izlenme-navbar" }),
+        body: JSON.stringify({
+          jobId,
+          targetDate,
+          linkScope,
+          monthYm: viewMonth,
+          trigger: "izlenme-navbar",
+        }),
       });
       const json = (await res.json()) as {
         ok?: boolean;
@@ -225,7 +235,16 @@ export function IzlenmeNavbar({
       setRefreshing(false);
       setTimeout(() => setRefreshLabel(null), 8000);
     }
-  }, [loadApi, readOnly, refreshing, updateBrandLink, upsertLinkSnapshot, viewMonth]);
+  }, [
+    apiDateMode,
+    linkScope,
+    loadApi,
+    readOnly,
+    refreshing,
+    updateBrandLink,
+    upsertLinkSnapshot,
+    viewMonth,
+  ]);
 
   const navVm = (delta: number) => onChangeMonth(shiftCalendarMonthYm(viewMonth, delta));
 
@@ -267,19 +286,34 @@ export function IzlenmeNavbar({
     <div className="sticky top-0 z-20 -mx-2 px-2 py-2.5 mb-6 bg-background/95 backdrop-blur-md border border-border/60 rounded-xl shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Link href={izlenmeHref("/izlenme", viewMonth)} className={navLinkClass("/izlenme")}>
+          <Link
+            href={izlenmeHref("/izlenme", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme")}
+          >
             <Eye size={11} className="inline mr-1" /> Genel
           </Link>
-          <Link href={izlenmeHref("/izlenme/markalar", viewMonth)} className={navLinkClass("/izlenme/markalar")}>
+          <Link
+            href={izlenmeHref("/izlenme/markalar", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme/markalar")}
+          >
             <Briefcase size={11} className="inline mr-1" /> Markalar
           </Link>
-          <Link href={izlenmeHref("/izlenme/operatorler", viewMonth)} className={navLinkClass("/izlenme/operatorler")}>
+          <Link
+            href={izlenmeHref("/izlenme/operatorler", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme/operatorler")}
+          >
             <Users size={11} className="inline mr-1" /> Operatörler
           </Link>
-          <Link href={izlenmeHref("/izlenme/grafikler", viewMonth)} className={navLinkClass("/izlenme/grafikler")}>
+          <Link
+            href={izlenmeHref("/izlenme/grafikler", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme/grafikler")}
+          >
             <BarChart3 size={11} className="inline mr-1" /> Grafikler
           </Link>
-          <Link href={izlenmeHref("/izlenme/api", viewMonth)} className={navLinkClass("/izlenme/api")}>
+          <Link
+            href={izlenmeHref("/izlenme/api", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme/api")}
+          >
             <RefreshCw size={11} className="inline mr-1" /> API
           </Link>
         </div>
@@ -313,6 +347,56 @@ export function IzlenmeNavbar({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+        <span className="inline-flex items-center rounded-full border border-border bg-muted/30 p-0.5">
+          <button
+            type="button"
+            onClick={() => onLinkScopeChange("month")}
+            className={
+              linkScope === "month"
+                ? "rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold text-background"
+                : "rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            }
+          >
+            Bu ayın linkleri
+          </button>
+          <button
+            type="button"
+            onClick={() => onLinkScopeChange("all")}
+            className={
+              linkScope === "all"
+                ? "rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold text-background"
+                : "rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            }
+          >
+            Tüm linkler
+          </button>
+        </span>
+        <span className="inline-flex items-center rounded-full border border-border bg-muted/30 p-0.5">
+          <button
+            type="button"
+            onClick={() => onApiDateModeChange("view-month")}
+            className={
+              apiDateMode === "view-month"
+                ? "rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold text-background"
+                : "rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            }
+            title="API verisi seçili ayın son gününe (veya bu ay ise bugüne) yazılır"
+          >
+            Ay tarihi
+          </button>
+          <button
+            type="button"
+            onClick={() => onApiDateModeChange("today")}
+            className={
+              apiDateMode === "today"
+                ? "rounded-full bg-foreground px-2 py-0.5 text-[10px] font-semibold text-background"
+                : "rounded-full px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            }
+            title="API verisi her zaman bugünün tarihine yazılır"
+          >
+            Bugün
+          </button>
+        </span>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/50 border border-border text-muted-foreground">
           <Briefcase size={10} /> {totalBrands} marka
         </span>
@@ -321,6 +405,9 @@ export function IzlenmeNavbar({
         </span>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/50 border border-border text-muted-foreground">
           <Activity size={10} /> {totalLinks} link
+          {linkScope === "month" && totalAllLinks != null && totalAllLinks !== totalLinks && (
+            <span className="opacity-60">/ {totalAllLinks}</span>
+          )}
         </span>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/50 border border-border text-muted-foreground">
           <Eye size={10} /> {fmtViews(totalViews)} izlenme · {monthTitleYm(viewMonth)}

@@ -57,7 +57,7 @@ export async function getMonthlyUsage(
   };
 }
 
-/** Eski 100'lük kayıtları güncel plan limitlerine çeker (YT/IG 1000, TikTok 5000). */
+/** Eski düşük limit kayıtlarını güncel plan limitlerine çeker (YT/IG 5000, TikTok 5000). */
 export async function syncQuotaLimitsFromConfig(month: string = currentMonthKey()): Promise<void> {
   const db = getSupabaseAdmin();
   for (const platform of PLATFORMS) {

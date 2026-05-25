@@ -49,7 +49,24 @@ export default function IzlenmeApiPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const { brands, brandLinks, linkSnapshots, pushNotification, updateBrandLink, upsertLinkSnapshot } = useStore();
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+    filterLinks,
+  } = useIzlenmeViewMonth();
+  const scopedLinks = useMemo(
+    () => filterLinks(brandLinks, linkSnapshots),
+    [brandLinks, linkSnapshots, filterLinks]
+  );
+  const allActiveLinkCount = useMemo(
+    () => brandLinks.filter((l) => l.status === "active").length,
+    [brandLinks]
+  );
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [apiStatus, setApiStatus] = useState<RefreshStatusPayload | null>(null);
 
@@ -67,10 +84,10 @@ export default function IzlenmeApiPage() {
 
   const totalBrands = brands.filter((b) => b.status === "active").length;
   const totalStreamers = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
-  const totalLinks = brandLinks.filter((l) => l.status === "active").length;
+  const totalLinks = scopedLinks.length;
   const totalViews = useMemo(
-    () => totalLinkViewsForMonth(brandLinks, viewMonth, linkSnapshots, todayYm),
-    [brandLinks, linkSnapshots, viewMonth, todayYm]
+    () => totalLinkViewsForMonth(scopedLinks, viewMonth, linkSnapshots, todayYm),
+    [scopedLinks, linkSnapshots, viewMonth, todayYm]
   );
 
   async function refreshSingle(linkId: string) {
@@ -99,7 +116,7 @@ export default function IzlenmeApiPage() {
   }, [apiStatus]);
 
   const apiSummary = useMemo(() => {
-    const apiLinks = brandLinks.filter((l) => {
+    const apiLinks = scopedLinks.filter((l) => {
       if (l.status !== "active") return false;
       const p = l.platform.toLowerCase();
       return p.includes("youtube") || p.includes("instagram") || p.includes("tiktok");
@@ -153,16 +170,21 @@ export default function IzlenmeApiPage() {
       lastChecked,
       staleAndErrorLinks,
     };
-  }, [brandLinks]);
+  }, [scopedLinks]);
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={totalBrands}
         totalStreamers={totalStreamers}
         totalLinks={totalLinks}
+        totalAllLinks={allActiveLinkCount}
         totalViews={totalViews}
         readOnly={readOnly}
       />
@@ -480,7 +502,12 @@ export default function IzlenmeApiPage() {
         </span>
       </div>
 
-      <AutoRefreshStatusPanel hideCapabilities />
+      <AutoRefreshStatusPanel
+        hideCapabilities
+        viewMonth={viewMonth}
+        linkScope={linkScope}
+        apiDateMode={apiDateMode}
+      />
     </div>
   );
 }

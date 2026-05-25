@@ -330,7 +330,16 @@ function TopStreamerRow({
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function IzlenmePage() {
   const readOnly = useIsReadOnly();
-  const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
+  const {
+    viewMonth,
+    setViewMonth,
+    todayYm,
+    linkScope,
+    setLinkScope,
+    apiDateMode,
+    setApiDateMode,
+    filterLinks,
+  } = useIzlenmeViewMonth();
 
   const {
     employees,
@@ -343,24 +352,31 @@ export default function IzlenmePage() {
 
   // ── Aggregates ─────────────────────────────────────────────────────────
   const totalBrandsActive = brands.filter((b) => b.status === "active").length;
-  const activeLinks = brandLinks.filter((l) => l.status === "active");
-  const totalActiveLinks = activeLinks.length;
+  const allActiveLinks = useMemo(
+    () => brandLinks.filter((l) => l.status === "active"),
+    [brandLinks]
+  );
+  const scopedLinks = useMemo(
+    () => filterLinks(brandLinks, linkSnapshots),
+    [brandLinks, linkSnapshots, filterLinks]
+  );
+  const totalActiveLinks = scopedLinks.length;
   const streamerAggregates = useMemo(
     () =>
       aggregateStreamersForMonth({
         employees,
-        brandLinks,
+        brandLinks: scopedLinks,
         brandViewership,
         monthYm: viewMonth,
         linkSnapshots,
         todayYm,
       }),
-    [employees, brandLinks, brandViewership, viewMonth, linkSnapshots, todayYm]
+    [employees, scopedLinks, brandViewership, viewMonth, linkSnapshots, todayYm]
   );
   const totalStreamers = streamerAggregates.length;
   const totalViewsMonth = useMemo(
-    () => totalViewsForMonth(brandLinks, brandViewership, viewMonth, linkSnapshots, todayYm),
-    [brandLinks, brandViewership, linkSnapshots, viewMonth, todayYm]
+    () => totalViewsForMonth(scopedLinks, brandViewership, viewMonth, linkSnapshots, todayYm),
+    [scopedLinks, brandViewership, linkSnapshots, viewMonth, todayYm]
   );
 
   const totalViewsLive = useMemo(
@@ -373,8 +389,8 @@ export default function IzlenmePage() {
     [viewMonth]
   );
   const prevMonthViews = useMemo(
-    () => totalLinkViewsForMonth(brandLinks, prevMonthYm, linkSnapshots, todayYm),
-    [brandLinks, linkSnapshots, prevMonthYm, todayYm]
+    () => totalLinkViewsForMonth(scopedLinks, prevMonthYm, linkSnapshots, todayYm),
+    [scopedLinks, linkSnapshots, prevMonthYm, todayYm]
   );
   const momPct = pctChange(totalViewsMonth, prevMonthViews);
 
@@ -388,7 +404,7 @@ export default function IzlenmePage() {
     return brands
       .filter((b) => b.status !== "inactive")
       .map((b) => {
-        const links = brandLinks.filter((l) => l.brandId === b.id);
+        const links = scopedLinks.filter((l) => l.brandId === b.id);
         const views = totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm);
         const streamerViews = brandViewership
           .filter((v) => v.brandId === b.id && v.month === viewMonth)
@@ -398,7 +414,7 @@ export default function IzlenmePage() {
       .filter((r) => r.views > 0)
       .sort((a, b) => b.views - a.views)
       .slice(0, 5);
-  }, [brands, brandLinks, linkSnapshots, brandViewership, viewMonth, todayYm]);
+  }, [brands, scopedLinks, linkSnapshots, brandViewership, viewMonth, todayYm]);
 
   const maxTopBrandViews = topBrands[0]?.views ?? 0;
 
@@ -422,7 +438,7 @@ export default function IzlenmePage() {
     const arr: { month: string; label: string; views: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const ym = shiftCalendarMonthYm(viewMonth, -i);
-      const views = totalLinkViewsForMonth(brandLinks, ym, linkSnapshots, todayYm);
+      const views = totalLinkViewsForMonth(scopedLinks, ym, linkSnapshots, todayYm);
       const viewerShipViews = brandViewership
         .filter((v) => v.month === ym)
         .reduce((s, v) => s + v.views, 0);
@@ -433,7 +449,7 @@ export default function IzlenmePage() {
       });
     }
     return arr;
-  }, [brandLinks, brandViewership, linkSnapshots, viewMonth, todayYm]);
+  }, [scopedLinks, brandViewership, linkSnapshots, viewMonth, todayYm]);
 
   const trendHasData = trendData.some((p) => p.views > 0);
   const trendMax = Math.max(0, ...trendData.map((p) => p.views));
@@ -473,9 +489,14 @@ export default function IzlenmePage() {
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={(next) => setViewMonth(next)}
+        linkScope={linkScope}
+        onLinkScopeChange={setLinkScope}
+        apiDateMode={apiDateMode}
+        onApiDateModeChange={setApiDateMode}
         totalBrands={totalBrandsActive}
         totalStreamers={totalStreamers}
         totalLinks={totalActiveLinks}
+        totalAllLinks={allActiveLinks.length}
         totalViews={totalViewsMonth}
         readOnly={readOnly}
       />
@@ -492,7 +513,10 @@ export default function IzlenmePage() {
           <Briefcase size={11} /> {totalBrandsActive} aktif marka
         </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-muted-foreground">
-          <Link2 size={11} /> {totalActiveLinks} aktif link
+          <Link2 size={11} /> {totalActiveLinks} link
+          {linkScope === "month" && allActiveLinks.length !== totalActiveLinks && (
+            <span className="opacity-70"> ({allActiveLinks.length} toplam)</span>
+          )}
         </span>
         <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-muted-foreground">
           <Users size={11} /> {totalStreamers} yayıncı
