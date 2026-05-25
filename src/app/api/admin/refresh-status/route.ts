@@ -32,6 +32,10 @@ interface PlatformStatus {
   apiHost: string;
   health: {
     status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+    connectivityStatus: "ok" | "warn" | "error" | "unknown";
+    lastPingAt: string | null;
+    linksWithError: number;
+    staleTrackedLinks: number;
     lastSuccessAt: string | null;
     lastErrorAt: string | null;
     lastError: string | null;
@@ -119,6 +123,10 @@ export async function GET(_req: NextRequest) {
         ? {
             status:
               calc.batchSize === 0 ? ("exhausted" as const) : platformHealth.status,
+            connectivityStatus: platformHealth.connectivityStatus,
+            lastPingAt: platformHealth.lastPingAt,
+            linksWithError: platformHealth.linksWithError,
+            staleTrackedLinks: platformHealth.staleTrackedLinks,
             lastSuccessAt: platformHealth.lastSuccessAt,
             lastErrorAt: platformHealth.lastErrorAt,
             lastError: platformHealth.lastError,

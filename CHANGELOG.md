@@ -5,6 +5,20 @@ PIN dayanıklılığı sorunlarından başlayıp, marka panelinde aylık operasy
 metrikleri, admin impersonation altyapısı ve son olarak 10 yeni özelliğin
 hayata geçirilmesi ile sonuçlanmıştır.
 
+**Detaylı son oturum özeti:** [`docs/DEGISIKLIKLER-2026-05-22.md`](docs/DEGISIKLIKLER-2026-05-22.md)
+
+---
+
+## 0b. API sağlık ayrımı — izlenme/api (22 Mayıs 2026)
+
+Ping başarılıyken sayfanın kırmızı görünmesi giderildi: **API bağlantısı** ile **link yenileme hataları** artık ayrı metrikler.
+
+* `src/lib/social-api/health.ts` — `connectivityStatus`, `lastPingAt`, `linksWithError`, `staleTrackedLinks`; ping probe kayıtları ayrı değerlendirilir.
+* `GET /api/admin/refresh-status` — health nesnesine yeni alanlar.
+* `/izlenme/api` — durum bandı, “Link hatası” KPI, `hideCapabilities` ile tekrarlayan katalog kaldırıldı.
+* `AutoRefreshStatusPanel` — kartlarda API bağlantısı / link hatası satırları; kırmızı çerçeve yalnızca erişim sorununda.
+* `IzlenmeNavbar` — “API erişim sorunu” vs “Link yenileme uyarısı” ayrımı.
+
 ---
 
 ## 0. Currency, API health ve link detay penceresi (Mayıs 19 ek)

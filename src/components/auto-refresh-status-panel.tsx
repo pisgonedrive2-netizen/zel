@@ -48,6 +48,10 @@ interface PlatformStatus {
   intervalTooAggressive?: boolean;
   health: {
     status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+    connectivityStatus: "ok" | "warn" | "error" | "unknown";
+    lastPingAt: string | null;
+    linksWithError: number;
+    staleTrackedLinks: number;
     lastSuccessAt: string | null;
     lastErrorAt: string | null;
     lastError: string | null;
@@ -55,6 +59,11 @@ interface PlatformStatus {
     errorCount24h: number;
     staleHours: number | null;
   } | null;
+}
+
+export interface AutoRefreshStatusPanelProps {
+  /** API sayfasında katalog zaten üstte gösteriliyorsa tekrarı gizle. */
+  hideCapabilities?: boolean;
 }
 
 interface RecentRun {
@@ -121,7 +130,7 @@ function staleHours(iso?: string | null): number | null {
   return (Date.now() - new Date(iso).getTime()) / 3_600_000;
 }
 
-export function AutoRefreshStatusPanel() {
+export function AutoRefreshStatusPanel({ hideCapabilities = false }: AutoRefreshStatusPanelProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const [data, setData] = useState<StatusResponse | null>(null);
@@ -211,10 +220,12 @@ export function AutoRefreshStatusPanel() {
                 ? {
                     ...p,
                     health: {
+                      ...p.health!,
                       status: "ok" as const,
+                      connectivityStatus: "ok" as const,
+                      lastPingAt: new Date().toISOString(),
                       lastSuccessAt: new Date().toISOString(),
-                      lastErrorAt: null,
-                      lastError: null,
+                      lastErrorAt: p.health?.lastErrorAt ?? null,
                       successCount24h: (p.health?.successCount24h ?? 0) + 1,
                       errorCount24h: p.health?.errorCount24h ?? 0,
                       staleHours: 0,
@@ -677,10 +688,11 @@ export function AutoRefreshStatusPanel() {
             const usagePct = p.monthlyLimit > 0 ? (p.requestsUsed / p.monthlyLimit) * 100 : 0;
             const exhausted = p.batchSizePerRun === 0;
             const hStatus = p.health?.status ?? "unknown";
+            const conn = p.health?.connectivityStatus ?? "unknown";
             const isPinging = pingingPlatform === p.platform;
             const accent = exhausted
               ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
-              : hStatus === "error"
+              : conn === "error"
                 ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
                 : hStatus === "warn" || usagePct > 70
                   ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/45 dark:bg-amber-950/30"
@@ -713,9 +725,24 @@ export function AutoRefreshStatusPanel() {
                   />
                 </div>
                 <dl className="text-xs space-y-1">
-                  <Row label="Sağlık">
+                  <Row label="API bağlantısı">
+                    <ConnectivityLabel status={p.health?.connectivityStatus ?? "unknown"} />
+                    {p.health?.lastPingAt && (
+                      <span className="text-muted-foreground ml-1 text-[10px]">
+                        · {fmtDate(p.health.lastPingAt)}
+                      </span>
+                    )}
+                  </Row>
+                  <Row label="Genel durum">
                     <HealthLabel status={hStatus} />
                   </Row>
+                  {(p.health?.linksWithError ?? 0) > 0 && (
+                    <Row label="Link hatası">
+                      <span className="text-red-700 dark:text-red-300 font-medium">
+                        {p.health?.linksWithError} link
+                      </span>
+                    </Row>
+                  )}
                   <Row label="Son 24sa">
                     <span className="text-emerald-700 dark:text-emerald-300">
                       {p.health?.successCount24h ?? 0}✓
@@ -749,9 +776,9 @@ export function AutoRefreshStatusPanel() {
                     </Row>
                   )}
                 </dl>
-                {p.health?.lastError && hStatus !== "ok" && hStatus !== "unknown" && (
-                  <div className="mt-2 rounded border border-red-200 bg-red-50/50 px-2 py-1 text-[10px] text-red-800 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200">
-                    <span className="font-medium">Son hata: </span>
+                {p.health?.lastError && hStatus !== "ok" && (
+                  <div className="mt-2 rounded border border-amber-200 bg-amber-50/50 px-2 py-1 text-[10px] text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200">
+                    <span className="font-medium">Link / yenileme: </span>
                     <span className="break-words">{p.health.lastError.slice(0, 140)}</span>
                   </div>
                 )}
@@ -772,7 +799,7 @@ export function AutoRefreshStatusPanel() {
           })}
         </div>
 
-        {isAdmin && (
+        {isAdmin && !hideCapabilities && (
           <div className="pt-2 border-t border-border/60">
             <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
               <Activity size={12} /> Platform API özellikleri — canlı test
@@ -1042,5 +1069,17 @@ function HealthDot({ status }: { status: string }) {
 
 function HealthLabel({ status }: { status: string }) {
   const c = HEALTH_COLORS[status] ?? HEALTH_COLORS.unknown;
+  return <span className={`font-medium ${c.text}`}>{c.label}</span>;
+}
+
+const CONNECTIVITY_COLORS: Record<string, { label: string; text: string }> = {
+  ok: { label: "erişilebilir", text: "text-emerald-700 dark:text-emerald-300" },
+  warn: { label: "belirsiz", text: "text-amber-700 dark:text-amber-300" },
+  error: { label: "erişilemiyor", text: "text-red-700 dark:text-red-300" },
+  unknown: { label: "test yok", text: "text-muted-foreground" },
+};
+
+function ConnectivityLabel({ status }: { status: string }) {
+  const c = CONNECTIVITY_COLORS[status] ?? CONNECTIVITY_COLORS.unknown;
   return <span className={`font-medium ${c.text}`}>{c.label}</span>;
 }

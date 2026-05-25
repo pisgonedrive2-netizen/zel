@@ -18,6 +18,7 @@ import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
 interface PlatformHealthSummary {
   platform: string;
   status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+  connectivityStatus: "ok" | "warn" | "error" | "unknown";
   safeRemaining: number;
 }
 
@@ -91,7 +92,11 @@ export function IzlenmeNavbar({
       const platforms = (data.platforms ?? []) as Array<{
         platform: string;
         safeRemaining: number;
-        health?: { status?: string; lastSuccessAt?: string | null };
+        health?: {
+          status?: string;
+          connectivityStatus?: string;
+          lastSuccessAt?: string | null;
+        };
       }>;
       const summary: ApiRefreshSummary = {
         rapidApiEnabled: !!data.rapidApiEnabled,
@@ -101,6 +106,8 @@ export function IzlenmeNavbar({
         platforms: platforms.map((p) => ({
           platform: p.platform,
           status: (p.health?.status as PlatformHealthSummary["status"]) ?? "unknown",
+          connectivityStatus:
+            (p.health?.connectivityStatus as PlatformHealthSummary["connectivityStatus"]) ?? "unknown",
           safeRemaining: p.safeRemaining ?? 0,
         })),
         lastSuccessAt:
@@ -110,8 +117,20 @@ export function IzlenmeNavbar({
             .sort((a, b) => b.localeCompare(a))[0] ?? null,
       };
       const order: ApiRefreshSummary["worstStatus"][] = ["exhausted", "error", "warn", "unknown", "ok"];
-      summary.worstStatus =
+      const connOrder: PlatformHealthSummary["connectivityStatus"][] = ["error", "warn", "unknown", "ok"];
+      const worstConn =
+        connOrder.find((s) => summary.platforms.some((p) => p.connectivityStatus === s)) ?? "ok";
+      const worstLink =
         order.find((s) => summary.platforms.some((p) => p.status === s)) ?? "ok";
+      if (worstConn === "error" || summary.platforms.some((p) => p.status === "exhausted")) {
+        summary.worstStatus = summary.platforms.some((p) => p.status === "exhausted")
+          ? "exhausted"
+          : "error";
+      } else if (worstConn === "warn" || worstConn === "unknown" || worstLink === "warn") {
+        summary.worstStatus = "warn";
+      } else {
+        summary.worstStatus = "ok";
+      }
       setApi(summary);
       setLastFetch(Date.now());
     } catch {
@@ -315,7 +334,16 @@ export function IzlenmeNavbar({
             onClick={() => router.push(izlenmeHref("/izlenme/api", viewMonth))}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-red-300 bg-red-50 text-red-700 dark:bg-red-950/30 dark:border-red-500/40 dark:text-red-300"
           >
-            <AlertCircle size={10} /> API problemi · detay
+            <AlertCircle size={10} />
+            {api.worstStatus === "exhausted" ? "Kota dolu" : "API erişim sorunu"} · detay
+          </button>
+        ) : api?.worstStatus === "warn" ? (
+          <button
+            type="button"
+            onClick={() => router.push(izlenmeHref("/izlenme/api", viewMonth))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:border-amber-500/40 dark:text-amber-200"
+          >
+            <AlertCircle size={10} /> Link yenileme uyarısı
           </button>
         ) : null}
         {lastFetch > 0 && (

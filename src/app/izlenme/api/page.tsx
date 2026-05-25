@@ -27,6 +27,7 @@ const fmtViews = (n: number) => {
 
 interface RefreshStatusPayload {
   ok: boolean;
+  rapidApiEnabled?: boolean;
   platforms?: Array<{
     platform: "youtube" | "instagram" | "tiktok";
     label: string;
@@ -34,6 +35,12 @@ interface RefreshStatusPayload {
     monthlyLimit: number;
     rateLimit: string;
     apiHost: string;
+    health?: {
+      status: string;
+      connectivityStatus: string;
+      lastPingAt: string | null;
+      linksWithError: number;
+    };
   }>;
 }
 
@@ -82,6 +89,14 @@ export default function IzlenmeApiPage() {
       setRefreshing((s) => ({ ...s, [linkId]: false }));
     }
   }
+
+  const apiConnectivity = useMemo(() => {
+    const plats = apiStatus?.platforms ?? [];
+    const allOk = plats.length > 0 && plats.every((p) => p.health?.connectivityStatus === "ok");
+    const anyDown = plats.some((p) => p.health?.connectivityStatus === "error");
+    const linkErrors = plats.reduce((s, p) => s + (p.health?.linksWithError ?? 0), 0);
+    return { allOk, anyDown, linkErrors, plats };
+  }, [apiStatus]);
 
   const apiSummary = useMemo(() => {
     const apiLinks = brandLinks.filter((l) => {
@@ -152,6 +167,36 @@ export default function IzlenmeApiPage() {
         readOnly={readOnly}
       />
 
+      {isAdmin && !readOnly && apiStatus && (
+        <div
+          className={`mb-4 rounded-lg border px-4 py-3 text-xs ${
+            !apiStatus.rapidApiEnabled
+              ? "border-muted bg-muted/30 text-muted-foreground"
+              : apiConnectivity.anyDown
+                ? "border-red-300 bg-red-50/40 text-red-900 dark:border-red-500/45 dark:bg-red-950/30 dark:text-red-100"
+                : apiConnectivity.linkErrors > 0
+                  ? "border-amber-300 bg-amber-50/40 text-amber-900 dark:border-amber-500/45 dark:bg-amber-950/30 dark:text-amber-100"
+                  : "border-emerald-300 bg-emerald-50/40 text-emerald-900 dark:border-emerald-500/45 dark:bg-emerald-950/30 dark:text-emerald-100"
+          }`}
+        >
+          {!apiStatus.rapidApiEnabled ? (
+            <p><strong>RapidAPI kapalı.</strong> Ortam değişkeninde <code className="text-[10px]">RAPIDAPI_KEY</code> tanımlı değil.</p>
+          ) : apiConnectivity.anyDown ? (
+            <p>
+              <strong>API erişim sorunu.</strong> En az bir platformda bağlantı testi başarısız veya hiç yapılmamış.
+              Ping başarılıysa aşağıdaki platform kartlarından <strong>Bağlantıyı test et</strong> ile kaydı güncelleyin.
+            </p>
+          ) : apiConnectivity.linkErrors > 0 ? (
+            <p>
+              <strong>RapidAPI erişilebilir</strong> ({apiConnectivity.linkErrors} link son yenilemede hata).
+              Bu link hataları API&apos;nin kapalı olduğu anlamına gelmez — bekleyen linkleri tek tek veya toplu yenileyin.
+            </p>
+          ) : (
+            <p><strong>Tüm platformlarda API bağlantısı sağlıklı.</strong> Otomatik yenileme ve manuel ping kayıtları güncel.</p>
+          )}
+        </div>
+      )}
+
       <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Card className="gap-1 py-4">
           <CardHeader className="pb-0">
@@ -186,7 +231,7 @@ export default function IzlenmeApiPage() {
         <Card className="gap-1 py-4">
           <CardHeader className="pb-0">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-              <AlertTriangle size={12} /> Son hata
+              <AlertTriangle size={12} /> Link hatası
             </CardTitle>
           </CardHeader>
           <CardContent className="pb-0">
@@ -194,7 +239,9 @@ export default function IzlenmeApiPage() {
               {apiSummary.errors.length}
             </p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {apiSummary.errors.length > 0 ? "Panelden tek tek veya toplu yenileyin" : "Aktif hata görünmüyor"}
+              {apiSummary.errors.length > 0
+                ? "API ayakta olabilir — link yenilemesi başarısız"
+                : "Son yenilemede link hatası yok"}
             </p>
           </CardContent>
         </Card>
@@ -433,7 +480,7 @@ export default function IzlenmeApiPage() {
         </span>
       </div>
 
-      <AutoRefreshStatusPanel />
+      <AutoRefreshStatusPanel hideCapabilities />
     </div>
   );
 }

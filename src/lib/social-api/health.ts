@@ -10,49 +10,98 @@ export function platformLinkLabels(platform: SocialPlatform): string[] {
 
 export interface PlatformHealth {
   platform: SocialPlatform;
+  /** Kart rengi / özet (bağlantı + link durumuna göre). */
   status: "ok" | "warn" | "error" | "exhausted" | "unknown";
+  /** RapidAPI probe / ping — API erişilebilir mi? */
+  connectivityStatus: "ok" | "warn" | "error" | "unknown";
+  lastPingAt: string | null;
+  /** Son 24 saatte last_check_error dolu aktif link sayısı. */
+  linksWithError: number;
+  /** 24 saatten eski veya hiç kontrol edilmemiş otomatik takip linkleri. */
+  staleTrackedLinks: number;
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
+  /** Son toplu çalıştırma özet hatası (link yenileme). */
   lastError: string | null;
   successCount24h: number;
   errorCount24h: number;
-  /** Saat cinsinden son başarılı çağrıdan beri geçen süre (yoksa null). */
   staleHours: number | null;
 }
 
+const PLATFORMS: SocialPlatform[] = ["youtube", "instagram", "tiktok"];
+
+function matchPlatform(platformLabel: string, p: SocialPlatform): boolean {
+  const labels = platformLinkLabels(p);
+  const lower = platformLabel.toLowerCase();
+  return labels.some((l) => lower.includes(l.toLowerCase()));
+}
+
+async function countLinkIssues(): Promise<
+  Record<SocialPlatform, { withError: number; stale: number; tracked: number }>
+> {
+  const out: Record<SocialPlatform, { withError: number; stale: number; tracked: number }> = {
+    youtube: { withError: 0, stale: 0, tracked: 0 },
+    instagram: { withError: 0, stale: 0, tracked: 0 },
+    tiktok: { withError: 0, stale: 0, tracked: 0 },
+  };
+  const db = getSupabaseAdmin();
+  const { data: links } = await db
+    .from("brand_links")
+    .select("platform, last_checked_at, last_check_error, auto_track, status")
+    .eq("status", "active")
+    .eq("auto_track", true);
+
+  const now = Date.now();
+  for (const row of links ?? []) {
+    const platStr = String((row as { platform: string }).platform);
+    const p = PLATFORMS.find((x) => matchPlatform(platStr, x));
+    if (!p) continue;
+    out[p].tracked++;
+    if ((row as { last_check_error?: string }).last_check_error) {
+      out[p].withError++;
+    }
+    const checked = (row as { last_checked_at?: string }).last_checked_at;
+    if (!checked || now - new Date(checked).getTime() > 24 * 3_600_000) {
+      out[p].stale++;
+    }
+  }
+  return out;
+}
+
 /**
- * Tüm platformlar için sağlık özeti döner.
- *
- * Mantık:
- *   - api_refresh_runs'a son 24 saatte yazılmış kayıtlardan başarı/başarısızlık
- *     dağılımı çıkarılır.
- *   - brand_links'te `last_check_error` dolu olan satırlar son hatayı verir.
- *   - status:
- *       error      → son 24 saatte 0 başarı + >=1 başarısız çalıştırma
- *       warn       → son başarı 36 saatten eski VEYA son 24 saatte hata oranı %50+
- *       exhausted  → quota güvenli sınıra ulaştı (refresh-runner kotaya göre 0 batch döner)
- *       ok         → son 24 saatte en az 1 başarı, hata yok ya da düşük oran
- *       unknown    → hiç çalıştırma kaydı yok (yeni kurulum)
+ * Platform sağlığı: API bağlantısı (ping/probe) ile link yenileme hataları ayrı değerlendirilir.
  */
 export async function getPlatformHealth(): Promise<PlatformHealth[]> {
   const db = getSupabaseAdmin();
   const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
-  const { data: runs } = await db
-    .from("api_refresh_runs")
-    .select("platform, started_at, links_succeeded, links_failed, error_summary")
-    .gte("started_at", since)
-    .order("started_at", { ascending: false });
+  const pingSince = new Date(Date.now() - 48 * 3_600_000).toISOString();
 
-  const platforms: SocialPlatform[] = ["youtube", "instagram", "tiktok"];
+  const [{ data: runs }, { data: pings }, linkIssues] = await Promise.all([
+    db
+      .from("api_refresh_runs")
+      .select("platform, started_at, links_succeeded, links_failed, error_summary, notes, triggered_by")
+      .gte("started_at", since)
+      .order("started_at", { ascending: false }),
+    db
+      .from("api_refresh_runs")
+      .select("platform, started_at, notes, triggered_by, links_succeeded")
+      .gte("started_at", pingSince)
+      .order("started_at", { ascending: false }),
+    countLinkIssues(),
+  ]);
+
   const now = Date.now();
 
-  return platforms.map<PlatformHealth>((p) => {
-    const platformRuns = (runs ?? []).filter((r) => (r as { platform: string }).platform === p) as Array<{
+  return PLATFORMS.map<PlatformHealth>((p) => {
+    const platformRuns = (runs ?? []).filter(
+      (r) => (r as { platform: string }).platform === p
+    ) as Array<{
       platform: string;
       started_at: string;
       links_succeeded: number;
       links_failed: number;
       error_summary: string;
+      notes?: string;
     }>;
 
     const totalSuccess = platformRuns.reduce((s, r) => s + (r.links_succeeded ?? 0), 0);
@@ -65,15 +114,35 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
 
     const lastSuccessAt = lastSuccessRun?.started_at ?? null;
     const lastErrorAt = lastFailRun?.started_at ?? null;
-    const successNewerThanError =
-      lastSuccessAt &&
-      (!lastErrorAt || new Date(lastSuccessAt).getTime() >= new Date(lastErrorAt).getTime());
+
+    const isProbe = (r: {
+      platform: string;
+      notes?: string;
+      triggered_by?: string;
+      links_succeeded?: number;
+    }) =>
+      r.platform === p &&
+      (r.notes === "connection_probe" ||
+        (r.triggered_by === "manual" && (r.links_succeeded ?? 0) > 0));
+    const lastPing = (pings ?? []).find(isProbe) as { started_at: string } | undefined;
+    const lastPingAt = lastPing?.started_at ?? null;
+    const connectivityStatus: PlatformHealth["connectivityStatus"] = lastPingAt
+      ? "ok"
+      : platformRuns.length === 0
+        ? "unknown"
+        : totalSuccess > 0
+          ? "ok"
+          : "warn";
+
+    const issues = linkIssues[p];
+    const linksWithError = issues.withError;
+    const staleTrackedLinks = issues.stale;
 
     const lastError =
-      successNewerThanError
-        ? null
+      linksWithError > 0
+        ? `${linksWithError} link son yenilemede hata`
         : lastFailRun?.error_summary?.trim()
-          ? lastFailRun.error_summary.slice(0, 200)
+          ? lastFailRun.error_summary.slice(0, 160)
           : null;
 
     const staleHours = lastSuccessAt
@@ -81,18 +150,29 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
       : null;
 
     let status: PlatformHealth["status"] = "unknown";
-    if (platformRuns.length > 0) {
-      const failRate = totalFail + totalSuccess > 0 ? totalFail / (totalFail + totalSuccess) : 0;
-      if (totalSuccess === 0 && totalFail > 0) status = "error";
-      else if (staleHours != null && staleHours > 36 && totalSuccess === 0) status = "warn";
-      else if (failRate >= 0.5 && totalFail > 2) status = "warn";
-      else if (totalSuccess > 0) status = "ok";
-      else status = "warn";
+
+    if (connectivityStatus === "ok") {
+      if (linksWithError > 0 || staleTrackedLinks > 3) status = "warn";
+      else status = "ok";
+    } else if (connectivityStatus === "warn") {
+      status = "warn";
+    } else if (platformRuns.length > 0 && totalSuccess === 0 && totalFail > 0) {
+      status = connectivityStatus === "unknown" ? "warn" : "error";
+    } else {
+      status = "unknown";
+    }
+
+    if (totalFail > 0 && totalSuccess === 0 && connectivityStatus !== "ok") {
+      status = "error";
     }
 
     return {
       platform: p,
       status,
+      connectivityStatus,
+      lastPingAt,
+      linksWithError,
+      staleTrackedLinks,
       lastSuccessAt,
       lastErrorAt,
       lastError,
@@ -103,7 +183,7 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
   });
 }
 
-/** Başarılı manuel ping — sağlık durumunu yeşile çeker, eski link hata bayraklarını temizler. */
+/** Başarılı manuel ping — bağlantı kaydı + ilgili platform link hata bayraklarını temizlemez (yalnızca probe). */
 export async function recordPlatformPingSuccess(platform: SocialPlatform): Promise<void> {
   const db = getSupabaseAdmin();
   const now = new Date().toISOString();
@@ -121,18 +201,8 @@ export async function recordPlatformPingSuccess(platform: SocialPlatform): Promi
     error_summary: "",
     notes: "connection_probe",
   });
-
-  const labels = platformLinkLabels(platform);
-  await db
-    .from("brand_links")
-    .update({ last_check_error: null, last_checked_at: now })
-    .in("platform", labels);
 }
 
-/**
- * Tek bir platform için minimal bir ping isteği yapar (test çağrısı).
- * Bu çağrı kotadan 1 tüketir; manuel olarak çağrılır (admin "test et" butonu).
- */
 export async function pingPlatform(platform: SocialPlatform): Promise<{
   ok: boolean;
   status: number;
@@ -143,10 +213,9 @@ export async function pingPlatform(platform: SocialPlatform): Promise<{
   const plan = SOCIAL_PLANS[platform];
   const start = Date.now();
   try {
-    // Çok düşük maliyetli, deterministik bir endpoint ile probe
     const probePath =
       platform === "youtube"
-        ? "/video/details/?id=dQw4w9WgXcQ" // canlı bir video id
+        ? "/video/details/?id=dQw4w9WgXcQ"
         : platform === "instagram"
           ? "/profile?username=instagram"
           : "/user/info?unique_id=@tiktok";
