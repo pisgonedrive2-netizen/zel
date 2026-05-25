@@ -37,6 +37,38 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
   if (error) throw new Error(`${table} upsert: ${error.message}`);
 }
 
+/** content_expense_id unique — upsert öncesi eski satırları temizler. */
+async function upsertSalaryExtras(rows: Record<string, unknown>[]) {
+  if (rows.length === 0) return;
+  const db = getSupabaseAdmin();
+
+  const byContent = new Map<string, Record<string, unknown>>();
+  const rest: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const cid = row.content_expense_id ? String(row.content_expense_id) : "";
+    if (cid) byContent.set(cid, row);
+    else rest.push(row);
+  }
+  const deduped = [...rest, ...byContent.values()];
+
+  for (const row of deduped) {
+    const cid = row.content_expense_id ? String(row.content_expense_id) : "";
+    const id = String(row.id);
+    if (!cid) continue;
+    const { error: delErr } = await db
+      .from("salary_extras")
+      .delete()
+      .eq("content_expense_id", cid)
+      .neq("id", id);
+    if (delErr) throw new Error(`salary_extras cleanup: ${delErr.message}`);
+  }
+
+  const { error } = await db
+    .from("salary_extras")
+    .upsert(deduped, { onConflict: "id" });
+  if (error) throw new Error(`salary_extras upsert: ${error.message}`);
+}
+
 /** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
 export async function upsertBrandLinksMerged(links: BrandLink[]) {
   if (links.length === 0) return;
@@ -360,7 +392,6 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "brands", rows: (payload.brands ?? []).map(brandToRow), skipDelete: true },
     { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow) },
     { table: "advances", rows: (payload.advances ?? []).map(advanceToRow) },
-    { table: "salary_extras", rows: (payloadDeduped.salaryExtras ?? []).map(salaryExtraToRow) },
     { table: "sponsor_transactions", rows: (payload.sponsorTransactions ?? []).map(sponsorTxToRow) },
     { table: "internal_projects", rows: (payload.projects ?? []).map(projectToRow) },
     { table: "internal_project_payments", rows: (payload.projectPayments ?? []).map(projectPaymentToRow) },
@@ -386,11 +417,6 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
     // Kasa hareketleri tek tek API ile de yazılır; toplu silme yapılmaz (veri kaybı önlenir).
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
-    {
-      table: "content_expenses",
-      rows: (payloadDeduped.contentExpenses ?? []).map(contentExpenseToRow),
-      skipDelete: true,
-    },
     { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow), skipDelete: true },
     { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow), skipDelete: true },
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
@@ -405,6 +431,19 @@ async function syncAdminFull(payload: AppHydratePayload) {
     if (!skipDelete && rows.length > 0) {
       await deleteNotIn(table, rows.map((r) => String(r.id)));
     }
+  }
+
+  const contentExpenseRows = (payloadDeduped.contentExpenses ?? []).map(contentExpenseToRow);
+  if (contentExpenseRows.length > 0) {
+    await upsertRows("content_expenses", contentExpenseRows);
+  }
+
+  await upsertSalaryExtras(
+    (payloadDeduped.salaryExtras ?? []).map(salaryExtraToRow)
+  );
+
+  if (contentExpenseRows.length > 0) {
+    await upsertRows("content_expenses", contentExpenseRows);
   }
 
   const ps = (payload.paymentStatuses ?? []).map(paymentStatusToRow);

@@ -76,7 +76,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
       setSyncError(null);
       const st = useStore.getState();
-      const fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, st.salaryExtras);
+      let fixedExtras = dedupeSalaryExtrasByContentExpense(
+        st.salaryExtras,
+        st.contentExpenses
+      );
+      fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, fixedExtras);
       if (fixedExtras !== st.salaryExtras) {
         skipSync.current = true;
         useStore.setState({ salaryExtras: fixedExtras });
