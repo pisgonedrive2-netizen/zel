@@ -6,7 +6,8 @@ import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import Link from "next/link";
 import { fmt, MONTHS, toYearMonthLocal } from "@/lib/data";
-import { totalViewsForMonth } from "@/lib/brand-month-metrics";
+import { monthLabelTr } from "@/lib/month-label";
+import { totalViewsForMonth, fmtCompactViews } from "@/lib/brand-month-metrics";
 import { payrollDueCaption, payrollMonthLongTitle, paymentWindowCalendarPhrase } from "@/lib/payroll-dates";
 import { motion } from "framer-motion";
 import {
@@ -253,11 +254,12 @@ export default function OzetPage() {
     {
       key: "izlenme",
       title: "Toplam İzlenme",
-      value: toplamIzlenme >= 1000 ? `${(toplamIzlenme / 1000).toFixed(1)}k` : String(toplamIzlenme),
+      value: fmtCompactViews(toplamIzlenme),
       trend: "up",
       trendLabel: `${takipliLink} link`,
-      description: "Tüm aktif linklerin toplamı",
+      description: `${toplamIzlenme.toLocaleString("tr-TR")} · link + yayıncı raporu (${monthLabelTr(currentMonth)})`,
       icon: TrendingUp,
+      valueClassName: toplamIzlenme >= 1_000_000 ? "text-xl sm:text-2xl" : "text-2xl",
     },
     {
       key: "link",
@@ -290,7 +292,7 @@ export default function OzetPage() {
       ? { icon: Clapperboard, title: `${fmt(icerikHarcBekleyen)} ödenmemiş içerik harcaması`, sub: "İçerik Harcamaları sayfasında detay", color: "text-amber-600 dark:text-amber-400", href: "/icerik-harcamalari" as const }
       : { icon: CheckCircle2, title: "Tüm içerik harcamaları kapalı", sub: "Bekleyen rapor yok", color: "text-green-600 dark:text-green-400", href: "/icerik-harcamalari" as const },
     { icon: Receipt, title: `Bu ay ödenen toplam ${fmt(aylikOdenenToplam)}`, sub: `Plan (maaş + onaylı içerik): ${fmt(aylikPlanCikis)} · detay için ödeme raporu`, color: "text-emerald-700 dark:text-emerald-400", href: "/rapor" as const },
-    { icon: Eye, title: `${aktifMarka} aktif marka takipte`, sub: `${takipliLink} link · ${toplamIzlenme.toLocaleString("tr-TR")} izlenme`, color: "text-purple-600 dark:text-purple-400", href: "/izlenme" as const },
+    { icon: Eye, title: `${aktifMarka} aktif marka takipte`, sub: `${takipliLink} link · ${fmtCompactViews(toplamIzlenme)} izlenme (${monthLabelTr(currentMonth)})`, color: "text-purple-600 dark:text-purple-400", href: "/izlenme" as const },
     { icon: FileText, title: "Ödeme Raporu hazır", sub: `${currentMonth} için CSV/PDF`, color: "text-purple-600 dark:text-purple-400", href: "/rapor" as const },
     { icon: Users,
       title: `${bordrolu.length} yayıncı bu ay bordoda`,

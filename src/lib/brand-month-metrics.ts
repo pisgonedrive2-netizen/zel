@@ -145,6 +145,28 @@ export function totalLinkViewsForMonth(
   );
 }
 
+/**
+ * Kısa izlenme gösterimi: 62M, 1.2k (asla 62035.6k gibi binler üstü k değil).
+ * 1M+ için M, 10k+ için k, altında tam sayı.
+ */
+export function fmtCompactViews(n: number): string {
+  const v = Math.abs(Math.floor(n));
+  if (v >= 1_000_000_000) {
+    const b = v / 1_000_000_000;
+    return `${b >= 10 ? b.toFixed(1) : b.toFixed(2)}B`;
+  }
+  if (v >= 1_000_000) {
+    const m = v / 1_000_000;
+    return `${m >= 100 ? Math.round(m) : m >= 10 ? m.toFixed(1) : m.toFixed(2)}M`;
+  }
+  if (v >= 10_000) {
+    const k = v / 1_000;
+    return `${k >= 100 ? Math.round(k) : k.toFixed(1)}k`;
+  }
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return v.toLocaleString("tr-TR");
+}
+
 /** Link snapshot + yayıncı manuel raporları (çift sayım olmadan toplam KPI). */
 export function totalViewsForMonth(
   links: BrandLink[],

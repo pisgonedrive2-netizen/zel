@@ -65,6 +65,8 @@ export interface StatisticsCard2Props {
   sparkline?: number[];
   delay?: number;
   className?: string;
+  /** Büyük sayılar için daha küçük punto (ör. 62M izlenme). */
+  valueClassName?: string;
 }
 
 export function StatisticsCard2({
@@ -77,6 +79,7 @@ export function StatisticsCard2({
   sparkline,
   delay = 0,
   className,
+  valueClassName,
 }: StatisticsCard2Props) {
   return (
     <motion.div
@@ -110,7 +113,12 @@ export function StatisticsCard2({
 
       {/* Value + badge */}
       <div className="flex items-end justify-between gap-2">
-        <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground leading-none">
+        <p
+          className={cn(
+            "font-bold tabular-nums tracking-tight text-foreground leading-none",
+            valueClassName ?? "text-2xl"
+          )}
+        >
           {value}
         </p>
         <TrendBadge trend={trend} label={trendLabel} />
