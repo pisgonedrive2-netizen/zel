@@ -19,8 +19,10 @@ import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
 import {
   linkViewsForMonth,
   totalLinkViewsForMonth,
+  totalViewsForMonth,
   totalContentExpensesForMonth,
 } from "@/lib/brand-month-metrics";
+import { aggregateStreamersForMonth } from "@/lib/streamer-month-metrics";
 import { brandChartColor } from "@/lib/brand-viewership-series";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
@@ -263,11 +265,13 @@ function TopBrandRow({
 function TopStreamerRow({
   name,
   linkCount,
+  manualViews,
   views,
   rank,
 }: {
   name: string;
   linkCount: number;
+  manualViews: number;
   views: number;
   rank: number;
 }) {
@@ -304,7 +308,12 @@ function TopStreamerRow({
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-sm text-foreground">{name}</p>
         <p className="text-[11px] text-muted-foreground">
-          {linkCount} link · {fmtViews(views)} izlenme
+          {linkCount} link
+          {manualViews > 0 && linkCount === 0
+            ? ` · ${fmtViews(manualViews)} manuel rapor`
+            : manualViews > 0
+              ? ` · ${fmtViews(views)} izlenme (${fmtViews(manualViews)} rapor)`
+              : ` · ${fmtViews(views)} izlenme`}
         </p>
       </div>
       {rank === 1 && (
@@ -336,13 +345,22 @@ export default function IzlenmePage() {
   const totalBrandsActive = brands.filter((b) => b.status === "active").length;
   const activeLinks = brandLinks.filter((l) => l.status === "active");
   const totalActiveLinks = activeLinks.length;
-  const totalStreamers = useMemo(
-    () => new Set(brandLinks.map((l) => l.ownerId).filter(Boolean) as string[]).size,
-    [brandLinks]
+  const streamerAggregates = useMemo(
+    () =>
+      aggregateStreamersForMonth({
+        employees,
+        brandLinks,
+        brandViewership,
+        monthYm: viewMonth,
+        linkSnapshots,
+        todayYm,
+      }),
+    [employees, brandLinks, brandViewership, viewMonth, linkSnapshots, todayYm]
   );
+  const totalStreamers = streamerAggregates.length;
   const totalViewsMonth = useMemo(
-    () => totalLinkViewsForMonth(brandLinks, viewMonth, linkSnapshots, todayYm),
-    [brandLinks, linkSnapshots, viewMonth, todayYm]
+    () => totalViewsForMonth(brandLinks, brandViewership, viewMonth, linkSnapshots, todayYm),
+    [brandLinks, brandViewership, linkSnapshots, viewMonth, todayYm]
   );
 
   const totalViewsLive = useMemo(
@@ -385,42 +403,19 @@ export default function IzlenmePage() {
   const maxTopBrandViews = topBrands[0]?.views ?? 0;
 
   // ── Top 5 streamers (operators) ────────────────────────────────────────
-  const topStreamers = useMemo(() => {
-    const byOwner = new Map<
-      string,
-      { ownerId: string; linkCount: number; views: number }
-    >();
-    for (const link of brandLinks) {
-      if (!link.ownerId) continue;
-      const entry =
-        byOwner.get(link.ownerId) ??
-        { ownerId: link.ownerId, linkCount: 0, views: 0 };
-      entry.linkCount += 1;
-      entry.views += linkViewsForMonth(link, viewMonth, linkSnapshots, todayYm).lastViews;
-      byOwner.set(link.ownerId, entry);
-    }
-    // Add streamer-only viewership rows (yayıncı raporları)
-    for (const v of brandViewership) {
-      if (v.month !== viewMonth || !v.employeeId) continue;
-      const entry =
-        byOwner.get(v.employeeId) ??
-        { ownerId: v.employeeId, linkCount: 0, views: 0 };
-      entry.views += v.views;
-      byOwner.set(v.employeeId, entry);
-    }
-    return [...byOwner.values()]
-      .map((e) => {
-        const emp = employees.find((x) => x.id === e.ownerId);
-        return {
-          name: emp?.name ?? "Bilinmiyor",
+  const topStreamers = useMemo(
+    () =>
+      streamerAggregates
+        .map((e) => ({
+          name: e.name,
           linkCount: e.linkCount,
-          views: e.views,
-        };
-      })
-      .filter((e) => e.views > 0 || e.linkCount > 0)
-      .sort((a, b) => b.views - a.views || b.linkCount - a.linkCount)
-      .slice(0, 5);
-  }, [brandLinks, brandViewership, employees, linkSnapshots, viewMonth, todayYm]);
+          manualViews: e.manualViews,
+          views: e.totalViews,
+        }))
+        .sort((a, b) => b.views - a.views || b.linkCount - a.linkCount)
+        .slice(0, 5),
+    [streamerAggregates]
+  );
 
   // ── 6-month trend ──────────────────────────────────────────────────────
   const trendData = useMemo(() => {
@@ -725,6 +720,7 @@ export default function IzlenmePage() {
                   key={`${s.name}-${i}`}
                   name={s.name}
                   linkCount={s.linkCount}
+                  manualViews={s.manualViews}
                   views={s.views}
                   rank={i + 1}
                 />

@@ -4,6 +4,7 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { kasaAccountFromRow } from "@/lib/db/mappers";
 import {
+  ensureTronKasaConfigured,
   syncTronTransfersForKasa,
   updateKasaTronSyncFrom,
 } from "@/lib/tron-sync";
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
     kasaId?: string;
     syncFrom?: string;
     persistSyncFrom?: boolean;
+    recentDays?: number;
   };
   const kasaId = body.kasaId?.trim();
   if (!kasaId) {
@@ -44,7 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Kasa bulunamadı" }, { status: 404 });
   }
 
-  const kasa = kasaAccountFromRow(data as Record<string, unknown>);
+  let kasa = kasaAccountFromRow(data as Record<string, unknown>);
+  kasa = await ensureTronKasaConfigured(kasa);
   const syncFrom = body.syncFrom?.trim();
 
   try {
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     const summary = await syncTronTransfersForKasa(kasa, {
       syncFrom: syncFrom || kasa.tronSyncFrom,
+      recentDays: body.recentDays,
     });
 
     if (summary.imported > 0) {

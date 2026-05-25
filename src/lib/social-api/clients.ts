@@ -130,7 +130,21 @@ function extractMetricsFromBundles(
 // ───────────────────────── YouTube ──────────────────────────────────────────
 async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind !== "video") {
-    // Kanal istatistiği — youtube138 channel/details endpoint
+    try {
+      const rawV2 = await rapidApiGet("youtube", "/v2/channel-details", {
+        channel_id: detected.externalRef,
+      });
+      const stats = (rawV2 as { stats?: unknown })?.stats ?? rawV2;
+      return {
+        views: pickFirstNumber(stats, ["viewCount", "views", "totalViews"]),
+        likes: null,
+        comments: null,
+        shares: pickFirstNumber(stats, ["subscriberCount", "subscribers"]),
+        raw: rawV2,
+      };
+    } catch {
+      /* v2 yoksa klasik endpoint */
+    }
     const raw = await rapidApiGet("youtube", "/channel/details/", { id: detected.externalRef });
     const stats = (raw as { stats?: unknown })?.stats ?? raw;
     return {
@@ -141,7 +155,12 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
       raw,
     };
   }
-  const raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
+  let raw: unknown;
+  try {
+    raw = await rapidApiGet("youtube", "/v2/video-details", { video_id: detected.externalRef });
+  } catch {
+    raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
+  }
   const stats =
     (raw as { stats?: unknown })?.stats ??
     (raw as { statistics?: unknown })?.statistics ??
@@ -230,14 +249,52 @@ async function fetchInstagram(detected: DetectedPlatform): Promise<FetchedMetric
 }
 
 // ───────────────────────── TikTok ───────────────────────────────────────────
+/** TikTok profil — son gönderilerin izlenme toplamı (pro /user/posts). */
+async function sumTikTokUserPostViews(uniqueId: string): Promise<number | null> {
+  try {
+    const raw = await rapidApiGet("tiktok", "/user/posts", {
+      unique_id: `@${uniqueId.replace(/^@/, "")}`,
+      count: "30",
+    });
+    const list =
+      (raw as { data?: { videos?: unknown[] } })?.data?.videos ??
+      (raw as { itemList?: unknown[] })?.itemList ??
+      (raw as { videos?: unknown[] })?.videos ??
+      [];
+    if (!Array.isArray(list) || list.length === 0) return null;
+    let sum = 0;
+    let any = false;
+    for (const item of list) {
+      const n = pickMetricDeep(item, [
+        "play_count",
+        "playCount",
+        "views",
+        "view_count",
+      ]);
+      if (n != null) {
+        sum += n;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind === "user") {
+    const uid = detected.externalRef.replace(/^@/, "");
     const raw = await rapidApiGet("tiktok", "/user/info", {
-      unique_id: `@${detected.externalRef.replace(/^@/, "")}`,
+      unique_id: `@${uid}`,
     });
     const data = (raw as { data?: unknown })?.data ?? raw;
+    const postViews = await sumTikTokUserPostViews(uid);
+    const profileViews =
+      pickFirstNumber(data, ["totalViews", "viewCount"]) ??
+      pickMetricDeep(data, ["play_count", "playCount"]);
     return {
-      views: null,
+      views: postViews ?? profileViews,
       likes: pickFirstNumber(data, ["heartCount", "diggCount", "totalHearts"]),
       comments: null,
       shares: pickFirstNumber(data, ["followerCount", "followers"]),

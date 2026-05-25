@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/refresh-links",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/tron-sync",
+      "schedule": "0 */4 * * *"
     }
   ]
 }

@@ -98,4 +98,34 @@ Bu deploy’da marka rotalarında değişiklik yok. Kontrol edildi:
 
 ---
 
+---
+
+## Ek düzeltme — TRON çıkış + izlenme paneli (aynı gün)
+
+### TRON kasa
+- Giden USDT için TronGrid **ayrı pass** (`all` + `only_from` + `only_to`).
+- `TRON_KASA_ADDRESS` / `TRON_SYNC_FROM` ortam değişkeni → kasa kaydına otomatik yazılır.
+- Kasa sayfasında **Son 30 gün** hızlı senkron.
+- Cron: `GET /api/cron/tron-sync` (4 saatte bir, `CRON_SECRET` gerekli).
+- `ignoreDuplicates` + global `tron_tx_id` çakışma koruması.
+
+### İzlenme / Acelya “0 link · 100k”
+- KPI ve yayıncı sıralaması artık **link + manuel `brand_viewership`** toplar.
+- Operatörler sayfası manuel raporları da sayar.
+- Kart metni: manuel rapor ayrı gösterilir.
+
+### Pro API veri çekimi
+- YouTube: önce `/v2/video-details` ve `/v2/channel-details`.
+- TikTok profil: `/user/posts` son 30 videonun izlenme toplamı.
+
+### Sizin yapmanız gerekenler (Vercel)
+| Değişken | Değer |
+|----------|--------|
+| `TRONGRID_API_KEY` | TronGrid Pro anahtarınız |
+| `TRON_KASA_ADDRESS` | `TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE` |
+| `TRON_SYNC_FROM` | `2025-04-01` |
+| `CRON_SECRET` | (mevcut cron ile aynı) |
+
+Kasa → Genel Kasa seç → **Son 30 gün** veya **TRON hareketlerini çek** → filtre **Tümü**.
+
 *Son güncelleme: 22 Mayıs 2026*

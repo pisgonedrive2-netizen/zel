@@ -113,7 +113,7 @@ function KasaAccountForm({
             <Input
               value={form.tronAddress ?? ""}
               onChange={(e) => set("tronAddress", e.target.value)}
-              placeholder="T..."
+              placeholder="TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE"
               className="font-mono text-xs"
             />
           </Field>
@@ -255,7 +255,7 @@ export default function KasaPage() {
     [kasas, selectedKasaId]
   );
 
-  const syncTronForKasa = async (opts?: { useResyncFrom?: boolean }) => {
+  const syncTronForKasa = async (opts?: { useResyncFrom?: boolean; recentDays?: number }) => {
     if (!selectedKasa?.tronAddress) {
       window.alert("Önce kasa ayarlarından TRON adresi kaydedin.");
       return;
@@ -277,6 +277,7 @@ export default function KasaPage() {
           kasaId: selectedKasa.id,
           syncFrom: fromDate,
           persistSyncFrom: Boolean(opts?.useResyncFrom && tronResyncFrom),
+          recentDays: opts?.recentDays,
         }),
       });
       const json = (await res.json()) as {
@@ -286,6 +287,7 @@ export default function KasaPage() {
         totalIn?: number;
         totalOut?: number;
         balanceUsd?: number;
+        outgoingFound?: number;
         error?: string;
       };
       if (!res.ok || !json.ok) throw new Error(json.error ?? "Senkron başarısız");
@@ -308,6 +310,9 @@ export default function KasaPage() {
           `${json.imported ?? 0} yeni TRON hareketi eklendi (${json.skipped ?? 0} atlandı).`,
           json.totalIn != null ? `Bu çekimde gelen: +${fmtUsdt(json.totalIn)}` : "",
           json.totalOut != null ? `Bu çekimde giden: −${fmtUsdt(json.totalOut)}` : "",
+          json.outgoingFound != null && json.outgoingFound > 0
+            ? `${json.outgoingFound} giden USDT hareketi işlendi.`
+            : "",
           `Güncel kasa bakiyesi: ${bal}`,
           "Satırları listeden düzenleyebilir; bildirim merkezinde özet görünür.",
         ]
@@ -499,6 +504,17 @@ export default function KasaPage() {
               onClick={() => void syncTronForKasa()}
             >
               {tronSyncing ? "Çekiliyor…" : "TRON hareketlerini çek"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 text-xs"
+              disabled={tronSyncing}
+              title="Son 30 gün USDT giriş/çıkış (hızlı güncelleme)"
+              onClick={() => void syncTronForKasa({ recentDays: 30 })}
+            >
+              Son 30 gün
             </Button>
             <input
               type="date"

@@ -321,7 +321,7 @@ function StreamerAvatar({
  */
 export default function OperatorlerPage() {
   const readOnly = useIsReadOnly();
-  const { employees, brands, brandLinks, linkSnapshots } = useStore();
+  const { employees, brands, brandLinks, linkSnapshots, brandViewership } = useStore();
   const { viewMonth, setViewMonth, todayYm } = useIzlenmeViewMonth();
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("views");
@@ -377,6 +377,34 @@ export default function OperatorlerPage() {
       acc.set(l.ownerId, cur);
     }
 
+    for (const v of brandViewership) {
+      if (v.month !== viewMonth || !v.employeeId) continue;
+      const cur =
+        acc.get(v.employeeId) ??
+        ({
+          employeeId: v.employeeId,
+          views: 0,
+          prevViews: 0,
+          brandIds: new Set<string>(),
+          brandViews: new Map<string, number>(),
+          links: [],
+          activeLinkCount: 0,
+        } satisfies Acc);
+      cur.views += v.views;
+      const vPrevRow = brandViewership.find(
+        (x) =>
+          x.employeeId === v.employeeId &&
+          x.brandId === v.brandId &&
+          x.month === prevMonth
+      );
+      cur.prevViews += vPrevRow?.views ?? 0;
+      if (v.brandId) {
+        cur.brandIds.add(v.brandId);
+        cur.brandViews.set(v.brandId, (cur.brandViews.get(v.brandId) ?? 0) + v.views);
+      }
+      acc.set(v.employeeId, cur);
+    }
+
     return Array.from(acc.values()).map((a) => {
       const emp = employees.find((e) => e.id === a.employeeId);
       const brandList = Array.from(a.brandIds);
@@ -395,11 +423,16 @@ export default function OperatorlerPage() {
         .slice(0, 3);
 
       // 6 aylık sparkline
-      const sparkline = months6.map(({ ym, label }) => ({
-        ym,
-        label,
-        views: totalLinkViewsForMonth(a.links, ym, linkSnapshots, todayYm),
-      }));
+      const sparkline = months6.map(({ ym, label }) => {
+        const manual = brandViewership
+          .filter((v) => v.employeeId === a.employeeId && v.month === ym)
+          .reduce((s, v) => s + v.views, 0);
+        return {
+          ym,
+          label,
+          views: totalLinkViewsForMonth(a.links, ym, linkSnapshots, todayYm) + manual,
+        };
+      });
 
       // Hedef hizalama: yayıncının yönettiği markaların toplam aylık hedefi vs bu ay izlenmesi
       const targetSum = brandList.reduce((s, bid) => {
@@ -430,7 +463,7 @@ export default function OperatorlerPage() {
         targetSum,
       } satisfies OperatorRow;
     });
-  }, [brandLinks, linkSnapshots, viewMonth, prevMonth, todayYm, employees, brands, months6]);
+  }, [brandLinks, brandViewership, linkSnapshots, viewMonth, prevMonth, todayYm, employees, brands, months6]);
 
   // Filter + sort
   const rows = useMemo(() => {

@@ -144,3 +144,18 @@ export function totalLinkViewsForMonth(
     0
   );
 }
+
+/** Link snapshot + yayıncı manuel raporları (çift sayım olmadan toplam KPI). */
+export function totalViewsForMonth(
+  links: BrandLink[],
+  viewership: { month: string; views: number }[],
+  monthYm: string,
+  allSnaps: LinkSnapshot[],
+  todayYm: string
+): number {
+  const linkTotal = totalLinkViewsForMonth(links, monthYm, allSnaps, todayYm);
+  const manual = viewership
+    .filter((v) => v.month === monthYm)
+    .reduce((s, v) => s + v.views, 0);
+  return linkTotal + manual;
+}
