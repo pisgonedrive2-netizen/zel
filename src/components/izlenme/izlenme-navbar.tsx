@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { AppLink as Link } from "@/components/app-link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity, AlertCircle, ArrowUpRight, Briefcase, ChevronLeft, ChevronRight,
