@@ -11,6 +11,7 @@ import {
   filterBrandLinksWithValidBrands,
   loadValidBrandIds,
 } from "@/lib/brand-links-sync";
+import { filterWeeklyPlansForBrand } from "@/lib/weekly-plan-brand-match";
 import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import type { AppUser } from "@/store/auth";
 import {
@@ -339,6 +340,10 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     const visibleEmployees = employees.filter(
       (e) => e.kind === "streamer" || e.kind === "moderator"
     );
+    const brandRow = brands.find((b) => b.id === bid);
+    const myWeeklyPlans = brandRow
+      ? filterWeeklyPlansForBrand(weeklyPlans, brandRow)
+      : [];
     return {
       employees: visibleEmployees,
       advances: [],
@@ -351,7 +356,9 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       expenses: expenses.filter((e) => e.brandId === bid),
       plannedItems: myPlannedItems,
       plannedItemPayments: myPlannedItemPayments,
-      streamerAccounts: [],
+      streamerAccounts: streamerAccounts.filter((a) =>
+        visibleEmployees.some((e) => e.id === a.employeeId)
+      ),
       scheduleSlots,
       brands: brands.filter((b) => b.id === bid),
       brandLinks: brandLinks.filter((l) => l.brandId === bid),
@@ -363,7 +370,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
-      weeklyPlans: [],
+      weeklyPlans: myWeeklyPlans,
       weekBrandReels: weekBrandReels.filter((r) => r.brandId === bid),
       notifications: notifications.filter(
         (n) => n.forRole === "brand" && (!n.forUserId || n.forUserId === session.userId)
