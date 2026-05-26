@@ -8,6 +8,7 @@ import type {
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
 import { pgDate, pgTime, pgTimestamptz } from "@/lib/db/pg-value";
+import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 const optNum = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
@@ -708,11 +709,14 @@ export function contentExpenseToRow(e: ContentExpense) {
 }
 
 export function weeklyPlanFromRow(r: Record<string, unknown>): WeeklyPlan {
+  const date = str(r.date).slice(0, 10);
+  const weekStartDb = str(r.week_start).slice(0, 10);
+  const weekStart = weekStartFromDateIso(date) || normalizeWeekAnchorIso(weekStartDb);
   return {
     id: str(r.id),
     employeeId: str(r.employee_id),
-    weekStart: str(r.week_start).slice(0, 10),
-    date: str(r.date).slice(0, 10),
+    weekStart,
+    date,
     startTime: r.start_time ? str(r.start_time) : undefined,
     endTime: r.end_time ? str(r.end_time) : undefined,
     activity: str(r.activity),

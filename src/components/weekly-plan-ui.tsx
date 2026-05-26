@@ -3,7 +3,12 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore, type WeeklyPlan, type Employee, WEEKDAYS_LONG } from "@/store/store";
-import { weekDayIsosFromStart, weekStartFromDateIso, todayDateLocal } from "@/lib/data";
+import {
+  weekDayIsosFromStart,
+  weekStartFromDateIso,
+  todayDateLocal,
+  formatDateLongTr,
+} from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -26,13 +31,7 @@ const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
   cancelled: "bg-muted border-border text-muted-foreground line-through",
 };
 
-export function formatDateLong(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("tr-TR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
+export const formatDateLong = formatDateLongTr;
 
 export function weekRangeLabel(weekStartIso: string) {
   const a = new Date(weekStartIso + "T00:00:00");

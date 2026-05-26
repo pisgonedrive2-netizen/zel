@@ -42,6 +42,9 @@ import {
   weekStartFromDateIso,
   shiftWeekStartIso,
   todayDateLocal,
+  formatDateLongTr,
+  planDateInWeek,
+  normalizeWeekAnchorIso,
 } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { payrollDueShort } from "@/lib/payroll-dates";
@@ -178,9 +181,7 @@ function isBrandLinkInMonth(
   return ym === todayYm && link.status === "active";
 }
 
-function formatDateLong(iso: string) {
-  return new Date(iso + "T00:00:00").toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" });
-}
+const formatDateLong = formatDateLongTr;
 
 /** Haftalık grup başlığı (örn. 12 May – 18 May 2026) */
 function weekRangeLabel(weekStartIso: string) {
@@ -1323,9 +1324,14 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const [month, setMonth] = useState<string>(todayYm);
 
   // Takvim haftası navigasyonu — geçmişe gidebilir
-  const [weekView, setWeekView] = useState<string>(thisWeek);
+  const [weekViewRaw, setWeekViewRaw] = useState<string>(thisWeek);
+  const weekView = useMemo(
+    () => normalizeWeekAnchorIso(weekViewRaw),
+    [weekViewRaw]
+  );
+  const setWeekView = (v: string) => setWeekViewRaw(normalizeWeekAnchorIso(v));
   const navWeek = (dir: 1 | -1) => {
-    setWeekView((prev) => shiftWeekStartIso(prev, dir));
+    setWeekView(shiftWeekStartIso(weekView, dir));
   };
   const weekViewIsThisWeek = weekView === thisWeek;
   const weekViewIsNextWeek = weekView === nextWeek;
@@ -1338,7 +1344,13 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     if (diff < 0) return `${Math.abs(diff)} hafta önce`;
     return `${diff} hafta sonra`;
   })();
-  const weekViewPlans = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === weekView);
+  const weekViewPlans = useMemo(
+    () =>
+      weeklyPlans.filter(
+        (p) => p.employeeId === me.id && planDateInWeek(p.date, weekView)
+      ),
+    [weeklyPlans, me.id, weekView]
+  );
 
   // Yeni harcama için varsayılan tarih — seçili ay/hafta bağlamına göre
   const [expenseDefaultDate, setExpenseDefaultDate] = useState<string | undefined>(undefined);
@@ -2372,7 +2384,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               plans={weekViewPlans}
               accountLabel={planAccountLabel}
               onAdd={() => setPlanModal({ mode: "new", weekStart: weekView })}
-              onEdit={(p) => setPlanModal({ mode: p, weekStart: weekView })}
+              onEdit={(p) =>
+                setPlanModal({
+                  mode: p,
+                  weekStart: weekStartFromDateIso(p.date) || weekView,
+                })
+              }
             />
 
             {myAllPlans.length > weekViewPlans.length && (
@@ -2389,8 +2406,9 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                       key={p.id}
                       type="button"
                       onClick={() => {
-                        setWeekView(p.weekStart);
-                        setPlanModal({ mode: p, weekStart: p.weekStart });
+                        const wk = weekStartFromDateIso(p.date);
+                        setWeekView(wk);
+                        setPlanModal({ mode: p, weekStart: wk });
                       }}
                       className="w-full text-left rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted/50"
                     >

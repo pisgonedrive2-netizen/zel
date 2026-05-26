@@ -2391,19 +2391,21 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Weekly plan
       addWeeklyPlan: (p) => {
         const id = uid();
-        const st = get();
-        const normalized = normalizeWeeklyPlanInput(p, {
-          employees: st.employees,
-          fallbackEmployeeId: p.employeeId,
-          streamerAccounts: st.streamerAccounts,
+        let row: WeeklyPlan | null = null;
+        set((s) => {
+          const normalized = normalizeWeeklyPlanInput(p, {
+            employees: s.employees,
+            fallbackEmployeeId: p.employeeId,
+            streamerAccounts: s.streamerAccounts,
+          });
+          if (!normalized) {
+            console.error("weekly_plan: geçersiz yayıncı veya tarih", p);
+            return s;
+          }
+          row = { ...normalized, id };
+          return { weeklyPlans: [...s.weeklyPlans, row] };
         });
-        if (!normalized) {
-          console.error("weekly_plan: geçersiz yayıncı veya tarih", p);
-          return id;
-        }
-        const row = { ...normalized, id };
-        set((s) => ({ weeklyPlans: [...s.weeklyPlans, row] }));
-        persistEntity("weekly_plan", row);
+        if (row) persistEntity("weekly_plan", row);
         return id;
       },
       updateWeeklyPlan: (id, p) => set((s) => {

@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { createNotificationPersisted } from "@/lib/notification-actions";
-import { weekDayIsosFromStart, shiftWeekStartIso } from "@/lib/data";
+import { weekDayIsosFromStart, shiftWeekStartIso, planDateInWeek, weekStartFromDateIso } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { logAudit } from "@/store/audit-log";
 
@@ -279,7 +279,10 @@ export default function TakvimPage() {
 
   const planEmployeeId = planEmpId || yayincilar[0]?.id || "";
   const plansForWeek = useMemo(
-    () => weeklyPlans.filter((p) => p.employeeId === planEmployeeId && p.weekStart === planWeek),
+    () =>
+      weeklyPlans.filter(
+        (p) => p.employeeId === planEmployeeId && planDateInWeek(p.date, planWeek)
+      ),
     [weeklyPlans, planEmployeeId, planWeek]
   );
 
@@ -289,7 +292,7 @@ export default function TakvimPage() {
   const plansThisWeekByEmpDay = useMemo(() => {
     const map = new Map<string, WeeklyPlan[]>();
     for (const p of weeklyPlans) {
-      if (p.weekStart !== planWeek) continue;
+      if (!planDateInWeek(p.date, planWeek)) continue;
       const key = `${p.employeeId}::${p.date}`;
       const arr = map.get(key) ?? [];
       arr.push(p);
@@ -641,7 +644,7 @@ export default function TakvimPage() {
             onEdit={(p) =>
               setPlanModal({
                 mode: p,
-                weekStart: p.weekStart,
+                weekStart: weekStartFromDateIso(p.date) || planWeek,
                 employeeId: p.employeeId,
               })
             }

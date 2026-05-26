@@ -11,6 +11,7 @@ import {
   filterBrandLinksWithValidBrands,
   loadValidBrandIds,
 } from "@/lib/brand-links-sync";
+import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import type { AppUser } from "@/store/auth";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
@@ -104,7 +105,12 @@ async function filterWeeklyPlanRows(plans: WeeklyPlan[]) {
   const valid = new Set((data ?? []).map((r) => String((r as { id: string }).id)));
   return plans
     .filter((p) => valid.has(p.employeeId))
-    .map((p) => weeklyPlanToRow(p));
+    .map((p) => {
+      const date = p.date?.slice(0, 10) ?? "";
+      const weekStart =
+        weekStartFromDateIso(date) || normalizeWeekAnchorIso(p.weekStart);
+      return weeklyPlanToRow({ ...p, date, weekStart });
+    });
 }
 
 async function upsertRows(table: string, rows: Record<string, unknown>[]) {

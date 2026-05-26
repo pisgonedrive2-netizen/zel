@@ -1,26 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { shiftWeekStartIso, weekDayIsosFromStart } from "@/lib/data";
+import {
+  shiftWeekStartIso,
+  weekDayIsosFromStart,
+  planDateInWeek,
+  formatDateLongTr,
+} from "@/lib/data";
 import { normalizeWeeklyPlanInput, resolveWeeklyPlanEmployeeId } from "./weekly-plan-normalize";
 import type { Employee } from "@/store/store";
 
-const employees: Employee[] = [
-  {
-    id: "emp-ramiz",
-    name: "Ramiz",
-    kind: "streamer",
-    status: "active",
-    startDate: "2026-01-01",
-    paymentDay: 1,
-  },
-  {
-    id: "emp-lucy",
-    name: "Lucy",
-    kind: "streamer",
-    status: "active",
-    startDate: "2026-01-01",
-    paymentDay: 1,
-  },
-];
+const employees = [
+  { id: "emp-ramiz", name: "Ramiz", kind: "streamer", status: "active" },
+  { id: "emp-lucy", name: "Lucy", kind: "streamer", status: "active" },
+] as Employee[];
 
 describe("weekly-plan-normalize", () => {
   it("resolves valid employee id", () => {
@@ -58,5 +49,22 @@ describe("week calendar local", () => {
     const days = weekDayIsosFromStart("2026-05-25");
     expect(days[0]).toBe("2026-05-25");
     expect(days[6]).toBe("2026-05-31");
+  });
+
+  it("normalizes legacy sunday week anchor to monday", () => {
+    const days = weekDayIsosFromStart("2026-05-24");
+    expect(days[0]).toBe("2026-05-25");
+    expect(days).toContain("2026-05-27");
+  });
+
+  it("planDateInWeek uses date not stale week_start", () => {
+    expect(planDateInWeek("2026-05-27", "2026-05-24")).toBe(true);
+    expect(planDateInWeek("2026-05-27", "2026-05-25")).toBe(true);
+    expect(planDateInWeek("2026-05-20", "2026-05-25")).toBe(false);
+  });
+
+  it("formatDateLongTr matches weekday", () => {
+    const label = formatDateLongTr("2026-05-27");
+    expect(label.toLowerCase()).toContain("çarşamba");
   });
 });

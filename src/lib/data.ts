@@ -101,9 +101,25 @@ export function toDateLocal(d: Date): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-/** Haftanın 7 günü (Pzt–Paz), yerel takvim — `toISOString` UTC kayması yok. */
+/**
+ * Hafta görünümü anchor — her zaman Pazartesi.
+ * Eski UTC hatasıyla Pazar (dow=0) kaydedilmiş week_start → ertesi gün Pazartesi.
+ */
+export function normalizeWeekAnchorIso(anchorIso: string): string {
+  const base = pgDateOnly(anchorIso);
+  if (!base) return anchorIso;
+  const [y, mo, day] = base.split("-").map(Number);
+  const d = new Date(y, mo - 1, day, 12, 0, 0);
+  if (d.getDay() === 0) {
+    d.setDate(d.getDate() + 1);
+    return toDateLocal(d);
+  }
+  return weekStartFromDateIso(base) || base;
+}
+
+/** Haftanın 7 günü (Pzt–Paz), yerel takvim — girdi her zaman o haftanın Pazartesi’sine çekilir. */
 export function weekDayIsosFromStart(weekStartIso: string): string[] {
-  const base = pgDateOnly(weekStartIso);
+  const base = normalizeWeekAnchorIso(weekStartIso);
   if (!base) return [];
   const [y, mo, day] = base.split("-").map(Number);
   const days: string[] = [];
@@ -116,7 +132,7 @@ export function weekDayIsosFromStart(weekStartIso: string): string[] {
 
 /** Hafta başlangıcını N hafta kaydır (yerel takvim). */
 export function shiftWeekStartIso(weekStartIso: string, deltaWeeks: number): string {
-  const base = pgDateOnly(weekStartIso);
+  const base = normalizeWeekAnchorIso(weekStartIso);
   if (!base) return weekStartIso;
   const [y, mo, day] = base.split("-").map(Number);
   const d = new Date(y, mo - 1, day + deltaWeeks * 7, 12, 0, 0);
@@ -137,6 +153,26 @@ export function weekStartFromDateIso(isoDate: string): string {
   const dow = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - dow);
   return toDateLocal(d);
+}
+
+/** ISO tarih → "27 Mayıs Çarşamba" (yerel, UTC kayması yok). */
+export function formatDateLongTr(iso: string): string {
+  const base = pgDateOnly(iso);
+  if (!base) return iso;
+  const [y, mo, day] = base.split("-").map(Number);
+  const d = new Date(y, mo - 1, day, 12, 0, 0);
+  return d.toLocaleDateString("tr-TR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+/** Plan bu hafta aralığında mı (week_start alanı hatalı olsa bile date ile). */
+export function planDateInWeek(planDateIso: string, weekAnchorIso: string): boolean {
+  const days = weekDayIsosFromStart(weekAnchorIso);
+  const d = pgDateOnly(planDateIso);
+  return d != null && days.includes(d);
 }
 
 function pgDateOnly(value: string): string | null {
