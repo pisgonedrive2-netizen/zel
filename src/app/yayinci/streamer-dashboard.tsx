@@ -8,7 +8,7 @@ import {
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2, Lock,
   Plus, Pencil, Image as ImageIcon, Trash2, Clock, Bell, MessageSquare,
   Check, X as CloseIcon, Link2, Activity, TrendingUp, Video,
-  Download, FileSpreadsheet, Target, BarChart3, Search, Trophy, Filter, LayoutList, LayoutGrid, X,
+  Download, FileSpreadsheet, Target, BarChart3, Search, Trophy, Filter, LayoutList, LayoutGrid, X, RefreshCw,
 } from "lucide-react";
 import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
@@ -48,7 +48,8 @@ import {
 } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { PlanWeekBoard, PlanHistoryPanel } from "@/components/streamer/weekly-plan-calendar";
-import { payrollDueShort } from "@/lib/payroll-dates";
+import { payrollDueShort, payrollDueCaption } from "@/lib/payroll-dates";
+import { reloadStreamerExpensesFromServer } from "@/lib/reload-streamer-expenses";
 import {
   downloadBrandMonthCsv,
   downloadBrandMonthPdf,
@@ -1305,7 +1306,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const rentFromExtrasOnly = empExtras.filter(e => e.type === "rent").reduce((s, e) => s + e.amount, 0);
   const bonus      = empExtras.filter(e => e.type === "bonus")    .reduce((s, e) => s + e.amount, 0);
   const exp        = empExtras.filter(e => e.type === "expense")  .reduce((s, e) => s + e.amount, 0);
-  const ded        = empExtras.filter(e => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
+  const empDeductions = empExtras.filter((e) => e.type === "deduction");
+  const ded        = empDeductions.reduce((s, e) => s + e.amount, 0);
   const advTaken   = empAdv.reduce((s, a) => s + a.amount, 0);
 
   const net          = calcNetPayable(me, month, advances, salaryExtras, paymentStatuses);
@@ -1322,6 +1324,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const myThisWeekTotal = myThisWeek.reduce((s, e) => s + e.amountUsd, 0);
   const myMonthTotal = myActiveExpenses.filter(e => e.month === month).reduce((s, e) => s + e.amountUsd, 0);
   const myPending    = myExpenses.filter(e => e.reviewStatus === "pending");
+  const pendingOtherMonths = useMemo(
+    () => myPending.filter((e) => e.month !== month),
+    [myPending, month]
+  );
   const myMonthContentAprv = sumApprovedContentExpenses(contentExpenses, me.id, month);
   const myMonthPlanOut     = plannedPayrollPlusApprovedContent(me, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const myMonthPaidOut     = totalCashOutPaidForMonth(me, month, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -1398,6 +1404,17 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     }, 60_000);
     return () => clearInterval(t);
   }, [user.id]);
+
+  useEffect(() => {
+    if (section !== "harcamalar" || !isSupabaseClientMode()) return;
+    let cancelled = false;
+    void reloadStreamerExpensesFromServer(me.id).then((r) => {
+      if (!cancelled && !r.ok && r.error) console.warn("[expenses reload]", r.error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, me.id]);
 
   // ── Marka linkleri ──
   // Tüm linkler — form / yardımcı işlemler için
@@ -2007,7 +2024,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                   </span>
                 ) : active ? (
                   <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
-                    <AlertCircle size={12} /> Ödeme bekliyor · {payrollDueShort(month, me.paymentDay)}
+                    <AlertCircle size={12} /> Ödeme bekliyor · {payrollDueCaption(month, me.paymentDay)}
                   </span>
                 ) : (
                   <span className="text-muted-foreground">Bordro {monthLabel(me.payrollStartMonth)} itibariyle başlar</span>
@@ -2031,10 +2048,32 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 )}
                 {bonus > 0 && <Row label="Prim / Bonus" value={`+ ${fmt(bonus)}`} positive />}
                 {exp > 0   && <Row label="Ekstra Ödeme" value={`+ ${fmt(exp)}`} positive />}
-                {ded > 0   && <Row label="Avans Kesintisi" value={`− ${fmt(ded)}`} negative sub="Açık avans geri ödemesi" />}
+                {empDeductions.map((d) => (
+                  <Row
+                    key={d.id}
+                    label={/avans/i.test(d.description) ? "Avans kesintisi" : "Kesinti"}
+                    value={`− ${fmt(d.amount)}`}
+                    negative
+                    sub={d.description}
+                  />
+                ))}
                 {advTaken > 0 && <Row label="Bu Ay Alınan Avans" value={`− ${fmt(advTaken)}`} negative />}
                 <Separator className="my-2" />
                 <Row label="Net ödenecek (maaş)" value={fmt(net)} bold />
+                {month === "2026-05" && empDeductions.some((d) => /plan geçişi/i.test(d.description)) && (
+                  <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 leading-relaxed">
+                    Mayıs plan geçişi: yarım dönem maaş kesintisi (
+                    {fmt(empDeductions.find((d) => /plan geçişi/i.test(d.description))?.amount ?? 1500)}
+                    ) + tam kira ile birlikte{" "}
+                    <strong>1 Haziran 2026</strong>&apos;da toplam {fmt(2000)} ödendi. Bu tutar içerik
+                    harcaması değildir; maaş bordrosu satırıdır.
+                  </p>
+                )}
+                {active && !paid && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {payrollDueCaption(month, me.paymentDay)}
+                  </p>
+                )}
                 {(myMonthContentAprv > 0 || myMonthPaidOut > net) && (
                   <div className="pt-2 mt-1 border-t border-border/50 space-y-1 text-xs">
                     <div className="flex justify-between gap-4">
@@ -2108,6 +2147,24 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
       {section === "harcamalar" && (
         <div className="w-full min-w-0 space-y-4">
+          {pendingOtherMonths.length > 0 && (
+            <div className="rounded-lg border border-blue-300 bg-blue-50/80 dark:border-blue-500/45 dark:bg-blue-950/35 px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-blue-900 dark:text-blue-100">
+                <strong>{pendingOtherMonths.length}</strong> onay bekleyen harcama başka aylarda (
+                {[...new Set(pendingOtherMonths.map((e) => monthLabelTr(e.month)))].join(", ")}
+                ). Üstteki ay seçicisinden o aya geçin veya aşağıdaki listeye bakın.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="shrink-0 h-8"
+                onClick={() => setMonth(pendingOtherMonths[0]!.month)}
+              >
+                {monthLabelTr(pendingOtherMonths[0]!.month)}&apos;a git
+              </Button>
+            </div>
+          )}
           {myExpenses.some((e) => e.reviewStatus === "needs_info") && (
             <div className="rounded-lg border border-amber-300 bg-amber-50/80 dark:border-amber-500/45 dark:bg-amber-950/35 px-4 py-3 text-sm text-amber-900 dark:text-amber-100 flex items-start gap-2">
               <AlertCircle size={18} className="shrink-0 mt-0.5" />
@@ -2135,6 +2192,20 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 h-8"
+                onClick={() => {
+                  void reloadStreamerExpensesFromServer(me.id).then((r) => {
+                    if (!r.ok) window.alert(r.error ?? "Yüklenemedi");
+                  });
+                }}
+              >
+                <RefreshCw size={14} />
+                Sunucudan yükle
+              </Button>
               <Button
                 type="button"
                 size="sm"
@@ -2227,6 +2298,23 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
             {/* Sağ: haftalık listeler */}
             <div className="xl:col-span-8 w-full min-w-0 space-y-8">
+              {pendingOtherMonths.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Diğer aylarda onay bekleyen
+                  </p>
+                  <div className="space-y-2">
+                    {pendingOtherMonths.map((e) => (
+                      <ExpenseRow
+                        key={e.id}
+                        expense={e}
+                        onEdit={() => setExpenseModal(e)}
+                        onWithdraw={canStreamerWithdrawExpense(e) ? () => handleExpenseWithdraw(e) : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
               {filteredExpensesForMonth.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center">

@@ -8,24 +8,33 @@ import {
   persistSalaryExtraRow,
 } from "@/lib/content-expense-sync";
 import {
-  scheduleSlotFromRow,
   scheduleSlotToRow,
-  brandLinkFromRow,
   brandLinkToRow,
-  linkSnapshotFromRow,
   linkSnapshotToRow,
-  viewershipFromRow,
   viewershipToRow,
-  weeklyPlanFromRow,
   weeklyPlanToRow,
-  weekBrandReelFromRow,
   weekBrandReelToRow,
-  streamerAccountFromRow,
   streamerAccountToRow,
   employeeFromRow,
   salaryExtraFromRow,
-  contentExpenseFromRow,
+  brandLinkFromRow,
+  linkSnapshotFromRow,
+  weeklyPlanFromRow,
+  weekBrandReelFromRow,
+  streamerAccountFromRow,
+  scheduleSlotFromRow,
+  viewershipFromRow,
 } from "@/lib/db/mappers";
+import {
+  brandLinkFromPayload,
+  contentExpenseFromPayload,
+  linkSnapshotFromPayload,
+  scheduleSlotFromPayload,
+  streamerAccountFromPayload,
+  viewershipFromPayload,
+  weekBrandReelFromPayload,
+  weeklyPlanFromPayload,
+} from "@/lib/db/client-payload";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import type {
   ScheduleSlot,
@@ -35,14 +44,8 @@ import type {
   WeeklyPlan,
   WeekBrandReel,
   StreamerAccount,
-  ContentExpense,
   SalaryExtra,
 } from "@/store/store";
-
-function contentExpenseFromPayload(row: Record<string, unknown>): ContentExpense {
-  if (row.employeeId != null) return row as unknown as ContentExpense;
-  return contentExpenseFromRow(row);
-}
 
 function salaryExtraFromPayload(row: Record<string, unknown>): SalaryExtra {
   if (row.employeeId != null) return row as unknown as SalaryExtra;
@@ -86,33 +89,34 @@ async function authorizeWrite(
   if (session.role === "streamer" && session.employeeId) {
     switch (entity) {
       case "schedule_slot": {
-        const s = scheduleSlotFromRow(row);
+        const s = scheduleSlotFromPayload(row);
         return assertStreamerOwns(session, s.employeeId) ? null : "Yetki yok";
       }
       case "brand_link": {
-        const l = brandLinkFromRow(row);
-        return l.ownerId === session.employeeId ? null : "Yetki yok";
+        const l = brandLinkFromPayload(row);
+        const ownerId = l.ownerId ?? session.employeeId;
+        return ownerId === session.employeeId ? null : "Yetki yok";
       }
       case "link_snapshot":
         return null;
       case "brand_viewership": {
-        const v = viewershipFromRow(row);
+        const v = viewershipFromPayload(row);
         return !v.employeeId || v.employeeId === session.employeeId ? null : "Yetki yok";
       }
       case "weekly_plan": {
-        const p = weeklyPlanFromRow(row);
+        const p = weeklyPlanFromPayload(row);
         return p.employeeId === session.employeeId ? null : "Yetki yok";
       }
       case "week_brand_reel": {
-        const r = weekBrandReelFromRow(row);
+        const r = weekBrandReelFromPayload(row);
         return r.employeeId === session.employeeId ? null : "Yetki yok";
       }
       case "streamer_account": {
-        const a = streamerAccountFromRow(row);
+        const a = streamerAccountFromPayload(row);
         return a.employeeId === session.employeeId ? null : "Yetki yok";
       }
       case "content_expense": {
-        const e = contentExpenseFromRow(row);
+        const e = contentExpenseFromPayload(row);
         return e.employeeId === session.employeeId ? null : "Yetki yok";
       }
       case "salary_extra":
@@ -152,7 +156,7 @@ export async function POST(req: Request) {
   try {
     switch (entity) {
       case "schedule_slot": {
-        const slot = scheduleSlotFromRow(row) as ScheduleSlot;
+        const slot = scheduleSlotFromPayload(row) as ScheduleSlot;
         const { error } = await db
           .from("schedule_slots")
           .upsert(scheduleSlotToRow(slot), { onConflict: "id" });
@@ -160,12 +164,15 @@ export async function POST(req: Request) {
         break;
       }
       case "brand_link": {
-        const link = brandLinkFromRow(row) as BrandLink;
+        let link = brandLinkFromPayload(row) as BrandLink;
+        if (session.role === "streamer" && session.employeeId) {
+          link = { ...link, ownerId: link.ownerId ?? session.employeeId };
+        }
         await upsertBrandLinksMerged([link], []);
         break;
       }
       case "link_snapshot": {
-        const snap = linkSnapshotFromRow(row) as LinkSnapshot;
+        const snap = linkSnapshotFromPayload(row) as LinkSnapshot;
         if (session.role === "streamer" && session.employeeId) {
           const { data: linkRow } = await db
             .from("brand_links")
@@ -184,7 +191,7 @@ export async function POST(req: Request) {
         break;
       }
       case "brand_viewership": {
-        const v = viewershipFromRow(row) as BrandViewership;
+        const v = viewershipFromPayload(row) as BrandViewership;
         const { error } = await db
           .from("brand_viewership")
           .upsert(viewershipToRow(v), { onConflict: "id" });
@@ -192,7 +199,7 @@ export async function POST(req: Request) {
         break;
       }
       case "weekly_plan": {
-        const p = weeklyPlanFromRow(row) as WeeklyPlan;
+        const p = weeklyPlanFromPayload(row) as WeeklyPlan;
         const [{ data: empRows, error: empErr }, { data: accRows, error: accErr }] =
           await Promise.all([
             db.from("employees").select("*"),
@@ -242,7 +249,7 @@ export async function POST(req: Request) {
         break;
       }
       case "week_brand_reel": {
-        const r = weekBrandReelFromRow(row) as WeekBrandReel;
+        const r = weekBrandReelFromPayload(row) as WeekBrandReel;
         const { error } = await db
           .from("week_brand_reels")
           .upsert(weekBrandReelToRow(r), { onConflict: "id" });
@@ -250,7 +257,7 @@ export async function POST(req: Request) {
         break;
       }
       case "streamer_account": {
-        const a = streamerAccountFromRow(row) as StreamerAccount;
+        const a = streamerAccountFromPayload(row) as StreamerAccount;
         const { error } = await db
           .from("streamer_accounts")
           .upsert(streamerAccountToRow(a), { onConflict: "id" });
