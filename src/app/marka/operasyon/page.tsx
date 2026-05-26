@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Download, FileSpreadsheet, BarChart3 } from "lucide-react";
+import { Download, FileSpreadsheet, BarChart3, Wallet } from "lucide-react";
 import { useStore } from "@/store/store";
+import { sumBrandContentExpensesForMonth } from "@/lib/brand-month-metrics";
 import { BrandLogo } from "@/components/brand-logo";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
@@ -25,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function MarkaOperasyonPage() {
-  const { brandMonthlyStats } = useStore();
+  const { brandMonthlyStats, brands, contentExpenses } = useStore();
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
   const izlenmeHref = markaHref("/marka/izlenmeler", month);
@@ -35,12 +36,22 @@ export default function MarkaOperasyonPage() {
     : undefined;
   const hasStats = statsRow ? hasBrandMonthlyStatsData(statsRow) : false;
 
+  const monthExpense = brand
+    ? sumBrandContentExpensesForMonth(contentExpenses, brand, month, brands)
+    : 0;
+
   const buildOperationExport = (): BrandOperationPdfInput | null => {
     if (!brand || !brandId) return null;
     const row = findBrandMonthlyStats(brandMonthlyStats, brandId, month);
     const operationStats = row
       ? brandStatsExportRows(row, deriveBrandMonthlyStats(row))
       : [];
+    if (monthExpense > 0) {
+      operationStats.push({
+        label: "İçerik harcaması (pay)",
+        value: `$${monthExpense.toLocaleString("tr-TR")}`,
+      });
+    }
     return {
       brandFullName: brand.name,
       monthYm: month,
@@ -84,8 +95,8 @@ export default function MarkaOperasyonPage() {
                 size="sm"
                 className="gap-1.5"
                 onClick={() => doExport("pdf")}
-                disabled={!hasStats}
-                title={hasStats ? undefined : "Önce bu ay için veri kaydedin"}
+                disabled={!hasStats && monthExpense <= 0}
+                title={hasStats || monthExpense > 0 ? undefined : "Önce bu ay için veri kaydedin"}
               >
                 <Download size={14} /> PDF indir
               </Button>
@@ -95,7 +106,7 @@ export default function MarkaOperasyonPage() {
                 size="sm"
                 className="gap-1.5"
                 onClick={() => doExport("csv")}
-                disabled={!hasStats}
+                disabled={!hasStats && monthExpense <= 0}
               >
                 <FileSpreadsheet size={14} /> CSV
               </Button>
@@ -103,6 +114,25 @@ export default function MarkaOperasyonPage() {
           </div>
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
+
+          {monthExpense > 0 && (
+            <Card className="border-amber-200/60 bg-amber-50/20 dark:border-amber-500/40 dark:bg-amber-950/25">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Wallet size={16} className="text-amber-700 dark:text-amber-300" />
+                  İçerik harcaması · {monthTitle}
+                </CardTitle>
+                <CardDescription>
+                  Bu markaya yazılan pay (ortak harcamalar eşit bölünür)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold tabular-nums text-amber-800 dark:text-amber-200">
+                  ${monthExpense.toLocaleString("tr-TR")}
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {!hasStats && (
             <Card className="border-violet-200/60 bg-violet-50/20 dark:border-violet-500/40 dark:bg-violet-950/25">

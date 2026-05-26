@@ -12,13 +12,20 @@ import { MarkaLinksPreviewModal } from "@/components/marka-links-preview-modal";
 import { useMarkaPortal, monthLabelTr } from "@/hooks/use-marka-portal";
 import { markaHref } from "@/lib/use-marka-view-month";
 import { toYearMonthLocal } from "@/lib/data";
-import { linkViewsForMonth } from "@/lib/brand-month-metrics";
+import { buildBrandMonthExportPayload } from "@/lib/izlenme-brand-export";
 import {
   downloadBrandMonthCsv,
   downloadBrandMonthPdf,
   weekOverlapsMonth,
-  type BrandMonthPdfInput,
 } from "@/lib/marka-izlenme-pdf";
+import {
+  enrichBrandLinksForMonth,
+  filterBrandLinksDisplay,
+  sortBrandLinksDisplay,
+} from "@/lib/brand-link-display";
+import { BrandLinkListToolbar } from "@/components/brand-link-list-toolbar";
+import { BrandLinkThumb } from "@/components/brand-link-thumb";
+import type { BrandLinkSortKey } from "@/lib/brand-link-display";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +35,6 @@ import { ViewDotCard } from "@/components/view-dot-card";
 import { Select } from "@/components/ui/field";
 
 const CARD_PREVIEW_LIMIT = 5;
-const PLATFORM_LEGEND = ["YouTube", "Instagram", "TikTok", "Kick", "Twitch", "Telegram"];
 
 function weekRangeLabel(weekStartIso: string) {
   const a = new Date(weekStartIso + "T00:00:00");
@@ -51,9 +57,23 @@ export default function MarkaIzlenmelerPage() {
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
   const operasyonHref = markaHref("/marka/operasyon", month);
-  const { brandLinks, brandViewership, weekBrandReels, linkSnapshots, employees } = useStore();
+  const {
+    brands,
+    brandLinks,
+    brandViewership,
+    weekBrandReels,
+    linkSnapshots,
+    employees,
+    contentExpenses,
+    brandMonthlyStats,
+  } = useStore();
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reelStreamerFilter, setReelStreamerFilter] = useState<string>("all");
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkPlatform, setLinkPlatform] = useState("all");
+  const [linkOwnerId, setLinkOwnerId] = useState("all");
+  const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
+  const [linkMonthOnly, setLinkMonthOnly] = useState(true);
 
   const todayYm = toYearMonthLocal(new Date());
 
@@ -62,18 +82,58 @@ export default function MarkaIzlenmelerPage() {
     [brandLinks, brandId]
   );
 
+  const enrichedLinks = useMemo(
+    () => enrichBrandLinksForMonth(linksForBrand, month, linkSnapshots, todayYm, employees),
+    [linksForBrand, month, linkSnapshots, todayYm, employees]
+  );
+
+  const linkOwners = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of linksForBrand) {
+      const id = l.ownerId ?? "_none";
+      const name = l.ownerId
+        ? employees.find((e) => e.id === id)?.name ?? "?"
+        : "Genel / atanmamış";
+      map.set(id, name);
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [linksForBrand, employees]);
+
+  const linkPlatforms = useMemo(
+    () => [...new Set(linksForBrand.map((l) => l.platform))].sort((a, b) => a.localeCompare(b, "tr")),
+    [linksForBrand]
+  );
+
+  const filteredLinks = useMemo(() => {
+    const list = filterBrandLinksDisplay(enrichedLinks, {
+      search: linkSearch,
+      platform: linkPlatform,
+      ownerId: linkOwnerId,
+      monthOnly: linkMonthOnly,
+      monthYm: month,
+      todayYm,
+    });
+    return sortBrandLinksDisplay(list, linkSort);
+  }, [
+    enrichedLinks,
+    linkSearch,
+    linkPlatform,
+    linkOwnerId,
+    linkMonthOnly,
+    month,
+    todayYm,
+    linkSort,
+  ]);
+
   const linksWithMonthViews = useMemo(
     () =>
-      linksForBrand
-        .map((link) => ({
-          link,
-          ...linkViewsForMonth(link, month, linkSnapshots, todayYm),
-        }))
-        .sort((a, b) => {
-          if (b.lastViews !== a.lastViews) return b.lastViews - a.lastViews;
-          return a.link.platform.localeCompare(b.link.platform, "tr");
-        }),
-    [linksForBrand, month, linkSnapshots, todayYm]
+      filteredLinks.map((link) => ({
+        link,
+        lastViews: link.lastViews,
+        refDate: link.refDate,
+        stale: link.stale,
+      })),
+    [filteredLinks]
   );
 
   const viewRows = useMemo(
@@ -97,8 +157,8 @@ export default function MarkaIzlenmelerPage() {
   }, [reelsInMonth, reelStreamerFilter]);
 
   const totalLinkViewsMonth = useMemo(
-    () => linksWithMonthViews.reduce((s, r) => s + r.lastViews, 0),
-    [linksWithMonthViews]
+    () => enrichedLinks.reduce((s, r) => s + r.lastViews, 0),
+    [enrichedLinks]
   );
 
   const totalStreamerViewsMonth = useMemo(
@@ -114,100 +174,30 @@ export default function MarkaIzlenmelerPage() {
 
   const empName = (id?: string) => employees.find((e) => e.id === id)?.name ?? id ?? "—";
 
-  const buildExportPayload = (): BrandMonthPdfInput | null => {
-    if (!brand) return null;
-    const linkRows = linksWithMonthViews.map(({ link, lastViews, refDate }) => {
-      const likes = link.lastLikes ?? 0;
-      const comments = link.lastComments ?? 0;
-      const shares = link.lastShares ?? 0;
-      const totalEngage = likes + comments + shares;
-      const engagementRate = lastViews > 0
-        ? `${((totalEngage / lastViews) * 100).toFixed(2)}%`
-        : "-";
-      return {
-        platform: link.platform,
-        handle: link.handle || "-",
-        url: link.url || "-",
-        owner: link.ownerId ? empName(link.ownerId) : "Genel / atanmamış",
-        lastViews: lastViews > 0 ? fmtViews(lastViews) : "-",
-        lastSnapshot: refDate ?? "-",
-        lastLikes: link.lastLikes != null ? fmtViews(link.lastLikes) : undefined,
-        lastComments: link.lastComments != null ? fmtViews(link.lastComments) : undefined,
-        lastShares: link.lastShares != null ? fmtViews(link.lastShares) : undefined,
-        engagementRate,
-      };
-    });
-
-    // Platform breakdown — toplam izlenme/etkileşim
-    const platformMap = new Map<string, {
-      linkCount: number;
-      totalViews: number;
-      totalLikes: number;
-      totalComments: number;
-      totalShares: number;
-    }>();
-    for (const { link, lastViews } of linksWithMonthViews) {
-      const cur = platformMap.get(link.platform) ?? {
-        linkCount: 0,
-        totalViews: 0,
-        totalLikes: 0,
-        totalComments: 0,
-        totalShares: 0,
-      };
-      cur.linkCount += 1;
-      cur.totalViews += lastViews ?? 0;
-      cur.totalLikes += link.lastLikes ?? 0;
-      cur.totalComments += link.lastComments ?? 0;
-      cur.totalShares += link.lastShares ?? 0;
-      platformMap.set(link.platform, cur);
-    }
-    const platformBreakdown = Array.from(platformMap.entries())
-      .sort((a, b) => b[1].totalViews - a[1].totalViews)
-      .map(([platform, v]) => ({
-        platform,
-        linkCount: String(v.linkCount),
-        totalViews: fmtViews(v.totalViews),
-        totalLikes: fmtViews(v.totalLikes),
-        totalComments: fmtViews(v.totalComments),
-        totalShares: fmtViews(v.totalShares),
-      }));
-    const monthlyRows = viewRows.map((v) => ({
-      kaynak: v.employeeId ? `Yayinci: ${empName(v.employeeId)}` : "Genel / admin",
-      izlenme: fmtViews(v.views),
-      url: v.url || "-",
-      not: v.notes || "-",
-    }));
-    if (monthlyRows.length === 0 && totalLinkViewsMonth > 0) {
-      monthlyRows.push({
-        kaynak: "Marka linkleri toplami (hesaplanan)",
-        izlenme: fmtViews(totalLinkViewsMonth),
-        url: "-",
-        not: "-",
-      });
-    }
-    const reels = reelsInMonth.map((r) => ({
-      hafta: weekRangeLabel(r.weekStart),
-      yayıncı: empName(r.employeeId),
-      platform: r.platform,
-      link: r.contentUrl,
-      not: r.notes || "-",
-    }));
-    return {
-      brandFullName: brand.name,
-      monthYm: month,
-      monthTitle,
-      links: linkRows,
-      monthlyRows,
-      reels,
-      platformBreakdown,
-    };
-  };
-
   const doExport = (kind: "pdf" | "csv") => {
-    const p = buildExportPayload();
-    if (!p) return;
-    if (kind === "pdf") downloadBrandMonthPdf(p, brand?.shortName);
-    else downloadBrandMonthCsv(p, brand?.shortName);
+    if (!brand) return;
+    try {
+      const p = buildBrandMonthExportPayload({
+        brand,
+        viewMonth: month,
+        todayYm,
+        brands,
+        brandLinks: linksForBrand,
+        linkSnapshots,
+        brandViewership,
+        brandMonthlyStats,
+        employees,
+        weekBrandReels,
+        contentExpenses,
+      });
+      if (!p) return;
+      if (kind === "pdf") downloadBrandMonthPdf(p, brand.shortName);
+      else downloadBrandMonthCsv(p, brand.shortName);
+    } catch (err) {
+      window.alert(
+        `Dışa aktarım başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`
+      );
+    }
   };
 
   const previewLinks = linksWithMonthViews.slice(0, CARD_PREVIEW_LIMIT);
@@ -320,8 +310,8 @@ export default function MarkaIzlenmelerPage() {
                   <div>
                     <CardTitle className="text-base">Marka linkleri</CardTitle>
                     <CardDescription>
-                      {monthLabelTr(month)} · {linksForBrand.length} kayıt · önizleme{" "}
-                      {Math.min(CARD_PREVIEW_LIMIT, linksForBrand.length)}
+                      {monthLabelTr(month)} · {filteredLinks.length} / {linksForBrand.length} link
+                      · önizleme {Math.min(CARD_PREVIEW_LIMIT, filteredLinks.length)}
                     </CardDescription>
                   </div>
                   {linksForBrand.length > 0 && (
@@ -337,18 +327,21 @@ export default function MarkaIzlenmelerPage() {
                     </Button>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1.5 pt-2">
-                  {PLATFORM_LEGEND.map((p) => (
-                    <span
-                      key={p}
-                      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                      title={p}
-                    >
-                      <SocialPlatformIcon platform={p} size={14} />
-                      <span className="hidden sm:inline">{p}</span>
-                    </span>
-                  ))}
-                </div>
+                <BrandLinkListToolbar
+                  className="pt-2"
+                  search={linkSearch}
+                  onSearchChange={setLinkSearch}
+                  platform={linkPlatform}
+                  onPlatformChange={setLinkPlatform}
+                  platforms={linkPlatforms}
+                  ownerId={linkOwnerId}
+                  onOwnerChange={setLinkOwnerId}
+                  owners={linkOwners}
+                  sortKey={linkSort}
+                  onSortChange={setLinkSort}
+                  monthOnly={linkMonthOnly}
+                  onMonthOnlyChange={setLinkMonthOnly}
+                />
               </CardHeader>
               <CardContent className="space-y-2 max-h-[360px] overflow-y-auto">
                 {linksForBrand.length === 0 ? (
@@ -364,7 +357,8 @@ export default function MarkaIzlenmelerPage() {
                       className={`rounded-lg border px-3 py-2.5 text-sm ${platformAccentClass(link.platform)}`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <SocialPlatformIcon platform={link.platform} size={22} />
+                        <BrandLinkThumb link={link} className="h-10 w-10 rounded-md shrink-0" />
+                        <SocialPlatformIcon platform={link.platform} size={18} className="shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium">{link.platform}</span>
@@ -406,13 +400,13 @@ export default function MarkaIzlenmelerPage() {
                     </div>
                   ))
                 )}
-                {linksForBrand.length > CARD_PREVIEW_LIMIT && (
+                {filteredLinks.length > CARD_PREVIEW_LIMIT && (
                   <button
                     type="button"
                     onClick={() => setLinksModalOpen(true)}
                     className="w-full text-center text-xs text-primary hover:underline py-2"
                   >
-                    +{linksForBrand.length - CARD_PREVIEW_LIMIT} link daha · tümünü aç
+                    +{filteredLinks.length - CARD_PREVIEW_LIMIT} link daha · tümünü aç
                   </button>
                 )}
               </CardContent>

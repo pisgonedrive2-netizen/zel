@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, AlertCircle, BarChart3, Bot, Camera, ExternalLink,
+  ArrowLeft, AlertCircle, BarChart3, Bot, Camera, Download, ExternalLink, FileSpreadsheet,
   Eye, Globe, History, Instagram, Loader2, LogIn, MessageCircle, Music2, Plus,
   RefreshCw, Send, Target, TrendingDown, TrendingUp, Twitch, Youtube,
 } from "lucide-react";
@@ -21,8 +21,28 @@ import {
   filterLinksForViewMonth,
   linkEngagementForMonth,
   linkViewsForMonth,
+  sumBrandContentExpensesForMonth,
   totalLinkViewsForMonth,
 } from "@/lib/brand-month-metrics";
+import { buildBrandMonthExportPayload } from "@/lib/izlenme-brand-export";
+import {
+  downloadBrandMonthCsv,
+  downloadBrandMonthPdf,
+  downloadBrandOperationCsv,
+  downloadBrandOperationPdf,
+} from "@/lib/marka-izlenme-pdf";
+import {
+  brandStatsExportRows,
+  deriveBrandMonthlyStats,
+} from "@/lib/brand-monthly-stats";
+import {
+  enrichBrandLinksForMonth,
+  filterBrandLinksDisplay,
+  sortBrandLinksDisplay,
+  type BrandLinkSortKey,
+} from "@/lib/brand-link-display";
+import { BrandLinkListToolbar } from "@/components/brand-link-list-toolbar";
+import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
 import { LinkDetailsModal } from "@/components/link-details-modal";
@@ -72,7 +92,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
 
   const {
     brands, brandLinks, linkSnapshots, brandViewership, brandMonthlyStats,
-    contentExpenses, employees,
+    contentExpenses, employees, weekBrandReels,
     addLinkSnapshot, updateLinkSnapshot, deleteLinkSnapshot,
     updateBrandLink, upsertLinkSnapshot,
     addBrandLink, deleteBrandLink,
@@ -94,6 +114,10 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   const [historyModal, setHistoryModal] = useState<BrandLink | null>(null);
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
   const [refreshingLinkId, setRefreshingLinkId] = useState<string | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [linkPlatform, setLinkPlatform] = useState("all");
+  const [linkOwnerId, setLinkOwnerId] = useState("all");
+  const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
 
   const brand = brands.find((b) => b.id === brandId);
@@ -127,12 +151,103 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
         : [],
     [brand, contentExpenses, viewMonth]
   );
-  const totalExpenses = monthExpenses.reduce((s, e) => s + e.amountUsd, 0);
-
   const stats = useMemo(
     () => findBrandMonthlyStats(brandMonthlyStats, brandId, viewMonth),
     [brandMonthlyStats, brandId, viewMonth]
   );
+
+  const totalExpenses = brand
+    ? sumBrandContentExpensesForMonth(contentExpenses, brand, viewMonth, brands)
+    : 0;
+
+  const scopedLinkFilters = useMemo(() => {
+    const enriched = enrichBrandLinksForMonth(
+      links,
+      viewMonth,
+      linkSnapshots,
+      todayYm,
+      employees
+    );
+    const owners = Array.from(
+      new Map(
+        allBrandLinks.map((l) => {
+          const id = l.ownerId ?? "_none";
+          const name = l.ownerId
+            ? employees.find((e) => e.id === l.ownerId)?.name ?? "?"
+            : "Genel";
+          return [id, name] as const;
+        })
+      ).entries()
+    ).map(([id, name]) => ({ id, name }));
+    const platforms = [...new Set(allBrandLinks.map((l) => l.platform))].sort((a, b) =>
+      a.localeCompare(b, "tr")
+    );
+    const filtered = sortBrandLinksDisplay(
+      filterBrandLinksDisplay(enriched, {
+        search: linkSearch,
+        platform: linkPlatform,
+        ownerId: linkOwnerId,
+      }),
+      linkSort
+    );
+    return { filtered, owners, platforms };
+  }, [
+    links,
+    allBrandLinks,
+    viewMonth,
+    linkSnapshots,
+    todayYm,
+    employees,
+    linkSearch,
+    linkPlatform,
+    linkOwnerId,
+    linkSort,
+  ]);
+
+  const exportBrandReport = (kind: "pdf" | "csv") => {
+    if (!brand) return;
+    try {
+      const p = buildBrandMonthExportPayload({
+        brand,
+        viewMonth,
+        todayYm,
+        brands,
+        brandLinks: allBrandLinks,
+        linkSnapshots,
+        brandViewership,
+        brandMonthlyStats,
+        employees,
+        weekBrandReels,
+        contentExpenses,
+      });
+      if (!p) return;
+      if (kind === "pdf") downloadBrandMonthPdf(p, brand.shortName);
+      else downloadBrandMonthCsv(p, brand.shortName);
+    } catch (err) {
+      window.alert(
+        `Dışa aktarım başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`
+      );
+    }
+  };
+
+  const exportOperationReport = (kind: "pdf" | "csv") => {
+    if (!brand || !stats) return;
+    const operationStats = brandStatsExportRows(stats, deriveBrandMonthlyStats(stats));
+    if (totalExpenses > 0) {
+      operationStats.push({
+        label: "İçerik harcaması (pay)",
+        value: `$${totalExpenses.toLocaleString("tr-TR")}`,
+      });
+    }
+    const payload = {
+      brandFullName: brand.name,
+      monthYm: viewMonth,
+      monthTitle: monthTitleYm(viewMonth),
+      operationStats,
+    };
+    if (kind === "pdf") downloadBrandOperationPdf(payload, brand.shortName);
+    else downloadBrandOperationCsv(payload, brand.shortName);
+  };
 
   // Platforma göre dağılım
   const platformBreakdown = useMemo(() => {
@@ -258,20 +373,51 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
           <BrandLogo brandId={brand.id} title={brand.name} size={28} className="rounded-lg shrink-0" />
           <span className="text-sm font-medium truncate">{brand.name}</span>
         </div>
-        {user?.role === "admin" && (
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <Button
+            type="button"
             size="sm"
             variant="outline"
-            className="gap-1 h-8 ml-auto border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/45 dark:text-amber-300 dark:hover:bg-amber-950/40"
-            onClick={() => {
-              enterBrandPanel(brand.id, brand.name);
-              router.push("/marka/izlenmeler");
-            }}
-            title="Bu markanın paneline gir"
+            className="gap-1 h-8"
+            onClick={() => exportBrandReport("pdf")}
           >
-            <LogIn size={12} /> Marka paneli
+            <Download size={12} /> İzlenme PDF
           </Button>
-        )}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1 h-8"
+            onClick={() => exportBrandReport("csv")}
+          >
+            <FileSpreadsheet size={12} /> CSV
+          </Button>
+          {stats && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1 h-8"
+              onClick={() => exportOperationReport("pdf")}
+            >
+              <Download size={12} /> Operasyon PDF
+            </Button>
+          )}
+          {user?.role === "admin" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 h-8 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/45 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              onClick={() => {
+                enterBrandPanel(brand.id, brand.name);
+                router.push("/marka/izlenmeler");
+              }}
+              title="Bu markanın paneline gir"
+            >
+              <LogIn size={12} /> Marka paneli
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* KPI kartları */}
@@ -499,10 +645,25 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-1.5">
+        <CardContent className="space-y-3">
+          {allBrandLinks.length > 0 && (
+            <BrandLinkListToolbar
+              search={linkSearch}
+              onSearchChange={setLinkSearch}
+              platform={linkPlatform}
+              onPlatformChange={setLinkPlatform}
+              platforms={scopedLinkFilters.platforms}
+              ownerId={linkOwnerId}
+              onOwnerChange={setLinkOwnerId}
+              owners={scopedLinkFilters.owners}
+              sortKey={linkSort}
+              onSortChange={setLinkSort}
+              showMonthToggle={false}
+            />
+          )}
           {allBrandLinks.length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-3">Henüz link yok.</p>
-          ) : links.length === 0 ? (
+          ) : scopedLinkFilters.filtered.length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-6 text-center">
               {monthTitleYm(viewMonth)} için kayıtlı snapshot veya canlı veri yok.{" "}
               {!showAllLinks && (
@@ -516,7 +677,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
               )}
             </p>
           ) : (
-            links.map((l) => {
+            scopedLinkFilters.filtered.map((l) => {
               const Icon = platformIcon(l.platform);
               const monthMeta = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm);
               const { lastViews, refDate, stale, snapsInMonth } = monthMeta;
@@ -535,7 +696,8 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
                   key={`${l.id}-${viewMonth}`}
                   className="flex items-center gap-2 px-2.5 py-2.5 rounded-md border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
                 >
-                  <Icon size={14} className="shrink-0 text-muted-foreground" />
+                  <BrandLinkThumb link={l} className="h-9 w-9 rounded-md shrink-0" />
+                  <Icon size={14} className="shrink-0 text-muted-foreground hidden sm:block" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium text-sm">{l.platform}</span>
