@@ -643,6 +643,9 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     month: str(r.month),
     employeeId: str(r.employee_id),
     brandId: r.brand_id ? str(r.brand_id) : undefined,
+    brandIds: Array.isArray(r.brand_ids)
+      ? (r.brand_ids as unknown[]).map((x) => str(x)).filter(Boolean)
+      : undefined,
     brandName: str(r.brand_name),
     category: str(r.category),
     description: str(r.description),
@@ -675,6 +678,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     month: e.month,
     employee_id: e.employeeId,
     brand_id: e.brandId ?? null,
+    brand_ids: e.brandIds?.length ? e.brandIds : null,
     brand_name: e.brandName,
     category: e.category,
     description: e.description,

@@ -43,6 +43,12 @@ import {
   type BrandMonthPdfInput,
 } from "@/lib/marka-izlenme-pdf";
 import { downloadStreamerExpensesPdf } from "@/lib/streamer-expense-pdf";
+import { BrandMultiSelect } from "@/components/brand-multi-select";
+import {
+  buildExpenseBrandFields,
+  formatExpenseBrandLabel,
+  resolveExpenseBrandIds,
+} from "@/lib/content-expense-brands";
 import { monthLabelTr } from "@/lib/month-label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -191,11 +197,15 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   const { brands } = useStore();
   const today = new Date().toISOString().slice(0, 10);
   const initDate = initial?.date ?? defaultDate ?? today;
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>(() =>
+    initial ? resolveExpenseBrandIds(initial, brands) : []
+  );
   const [form, setForm] = useState<Omit<ContentExpense, "id">>({
     date:        initDate,
     month:       initDate.slice(0, 7),
     employeeId,
     brandId:     initial?.brandId,
+    brandIds:    initial?.brandIds,
     brandName:   initial?.brandName   ?? "",
     category:    initial?.category    ?? "Vlog",
     description: initial?.description ?? "",
@@ -211,10 +221,9 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleBrand = (bid: string) => {
-    if (!bid) { setForm(f => ({ ...f, brandId: undefined })); return; }
-    const b = brands.find(x => x.id === bid);
-    setForm(f => ({ ...f, brandId: bid, brandName: b?.shortName ?? f.brandName }));
+  const applyBrands = (ids: string[]) => {
+    setSelectedBrandIds(ids);
+    setForm((f) => ({ ...f, ...buildExpenseBrandFields(ids, brands) }));
   };
 
   const readOnly = initial ? !canStreamerEditExpense(initial) : false;
@@ -235,6 +244,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
           : thread;
       onSave({
         ...form,
+        ...buildExpenseBrandFields(selectedBrandIds, brands),
         reviewThread: nextThread,
         reviewStatus: initial?.reviewStatus === "needs_info" ? "pending" : "pending",
         submittedAt: new Date().toISOString(),
@@ -263,14 +273,20 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
           <Field label="Tarih" hint="Geçmiş tarih seçebilirsiniz — sol ok ile geriye gidin" required>
             <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
           </Field>
-          <Field label="Marka">
-            <Select value={form.brandId ?? ""} onChange={e => handleBrand(e.target.value)}
-              options={[{ value: "", label: "— Marka yok / serbest —" }, ...brands.map(b => ({ value: b.id, label: `${b.name} (${b.shortName})` }))]} />
+          <Field label="Marka(lar)" hint="Ortak harcama için birden fazla marka seçebilirsiniz">
+            <BrandMultiSelect brands={brands} value={selectedBrandIds} onChange={applyBrands} disabled={readOnly && initial?.reviewStatus !== "needs_info"} />
           </Field>
         </FormGrid>
         <FormGrid>
-          <Field label="Marka Etiketi" hint='Marka olmayan satırlar için manuel etiket (ör. "Siteler", "Reklam")'>
-            <Input value={form.brandName} onChange={e => set("brandName", e.target.value)} placeholder="Gala / Pipo / Siteler" />
+          <Field label="Marka Etiketi" hint='Listede yoksa manuel yazın (ör. "Siteler")'>
+            <Input
+              value={form.brandName}
+              onChange={(e) => {
+                set("brandName", e.target.value);
+                if (selectedBrandIds.length) setSelectedBrandIds([]);
+              }}
+              placeholder="Gala / Pipo / Siteler"
+            />
           </Field>
           <Field label="Kategori">
             <Select value={form.category} onChange={e => set("category", e.target.value)}

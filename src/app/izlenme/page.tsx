@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Eye, Briefcase, Users, Link2, BarChart3, Activity, RefreshCw,
@@ -30,6 +30,15 @@ import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import {
+  TrendRangeBar,
+  type TrendGranularity,
+  type TrendRangeMonths,
+} from "@/components/izlenme/trend-range-bar";
+import {
+  buildGlobalDailyTrendForMonth,
+  buildGlobalMonthlyTrend,
+} from "@/lib/izlenme-global-trend";
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const fmtViews = (n: number) => {
@@ -433,23 +442,40 @@ export default function IzlenmePage() {
     [streamerAggregates]
   );
 
-  // ── 6-month trend ──────────────────────────────────────────────────────
+  const [trendRangeMonths, setTrendRangeMonths] = useState<TrendRangeMonths>(6);
+  const [trendGranularity, setTrendGranularity] = useState<TrendGranularity>("month");
+
   const trendData = useMemo(() => {
-    const arr: { month: string; label: string; views: number }[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const ym = shiftCalendarMonthYm(viewMonth, -i);
-      const views = totalLinkViewsForMonth(scopedLinks, ym, linkSnapshots, todayYm);
-      const viewerShipViews = brandViewership
-        .filter((v) => v.month === ym)
-        .reduce((s, v) => s + v.views, 0);
-      arr.push({
-        month: ym,
-        label: monthShortYm(ym),
-        views: views + viewerShipViews,
+    if (trendGranularity === "day") {
+      return buildGlobalDailyTrendForMonth({
+        monthYm: viewMonth,
+        scopedLinks,
+        linkSnapshots,
+        todayYm,
       });
     }
-    return arr;
-  }, [scopedLinks, brandViewership, linkSnapshots, viewMonth, todayYm]);
+    return buildGlobalMonthlyTrend({
+      anchorYm: viewMonth,
+      monthCount: trendRangeMonths,
+      scopedLinks,
+      linkSnapshots,
+      brandViewership,
+      todayYm,
+    });
+  }, [
+    trendGranularity,
+    trendRangeMonths,
+    scopedLinks,
+    brandViewership,
+    linkSnapshots,
+    viewMonth,
+    todayYm,
+  ]);
+
+  const trendRangeLabel =
+    trendGranularity === "day"
+      ? `${monthTitleYm(viewMonth)} · günlük`
+      : `Son ${trendRangeMonths} ay`;
 
   const trendHasData = trendData.some((p) => p.views > 0);
   const trendMax = Math.max(0, ...trendData.map((p) => p.views));
@@ -592,18 +618,26 @@ export default function IzlenmePage() {
           <div className="min-w-0">
             <CardTitle className="text-base flex items-center gap-2">
               <BarChart3 size={16} className="text-indigo-600 dark:text-indigo-400" />
-              Son 6 Ay · Toplam İzlenme Trendi
+              Toplam İzlenme Trendi
             </CardTitle>
             <CardDescription className="text-xs">
-              Link snapshot'ları ve yayıncı raporlarının ay bazlı toplamı.
+              {trendRangeLabel} · link snapshot + yayıncı raporu
             </CardDescription>
           </div>
-          <Link
-            href="/izlenme/grafikler"
-            className="hidden sm:inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
-          >
-            Tüm grafikler <ArrowRight size={11} />
-          </Link>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <TrendRangeBar
+              rangeMonths={trendRangeMonths}
+              onRangeMonthsChange={setTrendRangeMonths}
+              granularity={trendGranularity}
+              onGranularityChange={setTrendGranularity}
+            />
+            <Link
+              href="/izlenme/grafikler"
+              className="hidden sm:inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Tüm grafikler <ArrowRight size={11} />
+            </Link>
+          </div>
         </CardHeader>
         <CardContent className="pt-2">
           {trendHasData ? (

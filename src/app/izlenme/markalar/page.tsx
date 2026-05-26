@@ -20,7 +20,11 @@ import {
   Trophy,
   Users,
   Wallet,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { brandExpenseShareUsd } from "@/lib/content-expense-brands";
 import {
   Area,
   AreaChart,
@@ -44,8 +48,15 @@ import { cn } from "@/lib/utils";
 import {
   brandContentExpensesForMonth,
   linkViewsForMonth,
+  sumBrandContentExpensesForMonth,
   totalLinkViewsForMonth,
 } from "@/lib/brand-month-metrics";
+import { buildBrandMonthExportPayload } from "@/lib/izlenme-brand-export";
+import {
+  downloadBrandMonthPdf,
+  downloadMarkalarOverviewCsv,
+  downloadMarkalarOverviewPdf,
+} from "@/lib/marka-izlenme-pdf";
 import {
   findBrandMonthlyStats,
   fmtBrandCount,
@@ -101,6 +112,7 @@ export default function MarkalarPage() {
     brandViewership,
     brandMonthlyStats,
     employees,
+    weekBrandReels,
   } = useStore();
 
   const {
@@ -144,8 +156,18 @@ export default function MarkalarPage() {
       const links = scopedLinks.filter((l) => l.brandId === brand.id);
       const totalNow = totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm);
       const totalPrev = totalLinkViewsForMonth(links, prevMonth, linkSnapshots, todayYm);
-      const monthExpenses = brandContentExpensesForMonth(contentExpenses, brand, viewMonth);
-      const totalExpense = monthExpenses.reduce((s, e) => s + e.amountUsd, 0);
+      const monthExpenses = brandContentExpensesForMonth(
+        contentExpenses,
+        brand,
+        viewMonth,
+        brands
+      );
+      const totalExpense = sumBrandContentExpensesForMonth(
+        contentExpenses,
+        brand,
+        viewMonth,
+        brands
+      );
       const ownerIds = Array.from(
         new Set(links.map((l) => l.ownerId).filter((v): v is string => Boolean(v)))
       );
@@ -267,27 +289,131 @@ export default function MarkalarPage() {
       .filter((b) => b.status !== "inactive")
       .map((b) => {
         const stats = findBrandMonthlyStats(brandMonthlyStats, b.id, viewMonth);
-        const views = brandViewership
-          .filter((v) => v.brandId === b.id && v.month === viewMonth)
-          .reduce((s, v) => s + v.views, 0);
-        const expenseUsd = brandContentExpensesForMonth(contentExpenses, b, viewMonth)
-          .reduce((s, e) => s + e.amountUsd, 0);
-        const employeeIds = Array.from(
-          new Set(
-            brandViewership
-              .filter((v) => v.brandId === b.id && v.month === viewMonth && v.employeeId)
-              .map((v) => v.employeeId!)
-          )
+        const monthExpenses = brandContentExpensesForMonth(
+          contentExpenses,
+          b,
+          viewMonth,
+          brands
         );
-        const cpr = stats && stats.newRegistrations > 0 ? expenseUsd / stats.newRegistrations : null;
-        return { brand: b, stats, views, expenseUsd, employeeIds, cpr };
+
+        const byEmployee = new Map<string, { views: number; expenseUsd: number }>();
+        for (const v of brandViewership) {
+          if (v.brandId !== b.id || v.month !== viewMonth || !v.employeeId) continue;
+          const cur = byEmployee.get(v.employeeId) ?? { views: 0, expenseUsd: 0 };
+          cur.views += v.views;
+          byEmployee.set(v.employeeId, cur);
+        }
+        let unassignedExpenseUsd = 0;
+        for (const e of monthExpenses) {
+          const empId = e.employeeId?.trim();
+          if (!empId) {
+            unassignedExpenseUsd += e.amountUsd;
+            continue;
+          }
+          const cur = byEmployee.get(empId) ?? { views: 0, expenseUsd: 0 };
+          cur.expenseUsd += e.amountUsd;
+          byEmployee.set(empId, cur);
+        }
+
+        const streamers = [...byEmployee.entries()]
+          .map(([employeeId, data]) => ({
+            employeeId,
+            name: employees.find((emp) => emp.id === employeeId)?.name ?? "—",
+            views: data.views,
+            expenseUsd: data.expenseUsd,
+          }))
+          .filter((s) => s.views > 0 || s.expenseUsd > 0)
+          .sort(
+            (a, b) =>
+              b.views - a.views || b.expenseUsd - a.expenseUsd || a.name.localeCompare(b.name, "tr")
+          );
+
+        const views = streamers.reduce((s, x) => s + x.views, 0);
+        const expenseUsd = sumBrandContentExpensesForMonth(
+          contentExpenses,
+          b,
+          viewMonth,
+          brands
+        );
+        const assignedExpenseUsd = expenseUsd - unassignedExpenseUsd;
+        const cpr =
+          stats && stats.newRegistrations > 0 ? expenseUsd / stats.newRegistrations : null;
+
+        return {
+          brand: b,
+          stats,
+          views,
+          expenseUsd,
+          assignedExpenseUsd,
+          unassignedExpenseUsd,
+          streamers,
+          cpr,
+        };
       })
       .sort((a, b) => {
         const aHas = a.stats && hasBrandMonthlyStatsData(a.stats) ? 1 : 0;
         const bHas = b.stats && hasBrandMonthlyStatsData(b.stats) ? 1 : 0;
         return bHas - aHas || b.views - a.views;
       });
-  }, [brands, brandMonthlyStats, brandViewership, contentExpenses, viewMonth]);
+  }, [brands, brandMonthlyStats, brandViewership, contentExpenses, employees, viewMonth]);
+
+  const exportOverview = (kind: "pdf" | "csv") => {
+    try {
+      const payload = {
+        monthYm: viewMonth,
+        monthTitle: monthTitleYm(viewMonth),
+        rows: rows.map((r) => ({
+          marka: r.brand.name,
+          kisa: r.brand.shortName,
+          izlenme: fmtViews(r.totalNow),
+          oncekiAy: fmtViews(r.totalPrev),
+          degisim:
+            r.mom == null ? "—" : `${r.mom >= 0 ? "+" : ""}${r.mom.toFixed(1)}%`,
+          harcama:
+            r.totalExpense > 0
+              ? `$${r.totalExpense.toLocaleString("tr-TR")}`
+              : "—",
+          link: String(r.links.length),
+          yayinci: String(r.ownerCount),
+          hedef:
+            r.targetPct != null ? `${r.targetPct.toFixed(0)}%` : "—",
+          durum: r.brand.status,
+        })),
+      };
+      if (kind === "pdf") downloadMarkalarOverviewPdf(payload);
+      else downloadMarkalarOverviewCsv(payload);
+    } catch (err) {
+      window.alert(
+        `Dışa aktarım başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`
+      );
+    }
+  };
+
+  const exportBrandPdf = (brandId: string) => {
+    const brand = brands.find((b) => b.id === brandId);
+    if (!brand) return;
+    try {
+      const payload = buildBrandMonthExportPayload({
+        brand,
+        viewMonth,
+        todayYm,
+        brands,
+        brandLinks: scopedLinks.filter((l) => l.brandId === brandId),
+        linkSnapshots,
+        brandViewership,
+        brandMonthlyStats,
+        employees,
+        weekBrandReels: useStore.getState().weekBrandReels ?? [],
+      });
+      if (!payload) return;
+      const { downloadBrandMonthPdf } = require("@/lib/marka-izlenme-pdf") as typeof import("@/lib/marka-izlenme-pdf");
+      downloadBrandMonthPdf(payload, brand.shortName);
+    } catch (err) {
+      window.alert(
+        `PDF başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`
+      );
+    }
+  };
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
@@ -391,17 +517,41 @@ export default function MarkalarPage() {
                 ile.
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-[220px]">
-              <Search
-                size={13}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-              />
-              <Input
-                placeholder="Marka ara…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="!h-8 !text-xs !pl-7"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => exportOverview("pdf")}
+                disabled={rows.length === 0}
+              >
+                <Download size={13} />
+                PDF özet
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => exportOverview("csv")}
+                disabled={rows.length === 0}
+              >
+                <FileSpreadsheet size={13} />
+                CSV özet
+              </Button>
+              <div className="relative w-full sm:w-[200px]">
+                <Search
+                  size={13}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                />
+                <Input
+                  placeholder="Marka ara…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="!h-8 !text-xs !pl-7"
+                />
+              </div>
             </div>
           </div>
 
@@ -462,6 +612,7 @@ export default function MarkalarPage() {
                   key={row.brand.id}
                   row={row}
                   viewMonth={viewMonth}
+                  onDownloadPdf={() => exportBrandPdf(row.brand.id)}
                 />
               ))}
             </div>
@@ -481,7 +632,8 @@ export default function MarkalarPage() {
         }
         description={
           <>
-            Kayıt, FTD, net yatırım, yayıncı izlenmesi ve içerik harcaması —{" "}
+            Kayıt, FTD, net yatırım ve yayıncı izlenmesi; marka harcaması ay toplamıdır
+            (yayıncı satırında yalnızca o kişinin kayıtlı harcaması). —{" "}
             {monthTitleYm(viewMonth)}
           </>
         }
@@ -535,16 +687,43 @@ export default function MarkalarPage() {
                           {r.brand.shortName}
                         </Link>
                       </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground">
-                        {r.employeeIds.length > 0
-                          ? r.employeeIds
-                              .slice(0, 3)
-                              .map((eid) => employees.find((e) => e.id === eid)?.name ?? "?")
-                              .join(", ") +
-                            (r.employeeIds.length > 3
-                              ? ` +${r.employeeIds.length - 3}`
-                              : "")
-                          : "—"}
+                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-[220px]">
+                        {r.streamers.length === 0 ? (
+                          "—"
+                        ) : (
+                          <ul className="space-y-1">
+                            {r.streamers.slice(0, 4).map((s) => (
+                              <li key={s.employeeId} className="leading-snug">
+                                <span className="font-medium text-foreground">{s.name}</span>
+                                {s.views > 0 ? (
+                                  <span className="text-muted-foreground">
+                                    {" "}
+                                    · {fmtViews(s.views)} izlenme
+                                  </span>
+                                ) : null}
+                                {s.expenseUsd > 0 ? (
+                                  <span className="text-amber-700 dark:text-amber-300">
+                                    {" "}
+                                    · ${s.expenseUsd.toLocaleString("tr-TR")}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground/70"> · harcama yok</span>
+                                )}
+                              </li>
+                            ))}
+                            {r.streamers.length > 4 ? (
+                              <li className="text-[10px] opacity-70">
+                                +{r.streamers.length - 4} yayıncı daha
+                              </li>
+                            ) : null}
+                            {r.unassignedExpenseUsd > 0 ? (
+                              <li className="text-[10px] text-amber-800/90 dark:text-amber-200/90 pt-0.5 border-t border-border/40 mt-1">
+                                Genel (yayıncısız): $
+                                {r.unassignedExpenseUsd.toLocaleString("tr-TR")}
+                              </li>
+                            ) : null}
+                          </ul>
+                        )}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {r.views > 0 ? fmtViews(r.views) : "—"}
@@ -574,9 +753,24 @@ export default function MarkalarPage() {
                           : "—"}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums text-amber-700 dark:text-amber-300">
-                        {r.expenseUsd > 0
-                          ? `$${r.expenseUsd.toLocaleString("tr-TR")}`
-                          : "—"}
+                        {r.expenseUsd > 0 ? (
+                          <div className="leading-snug">
+                            <div>${r.expenseUsd.toLocaleString("tr-TR")}</div>
+                            {r.unassignedExpenseUsd > 0 &&
+                            r.assignedExpenseUsd > 0 &&
+                            r.unassignedExpenseUsd !== r.expenseUsd ? (
+                              <div className="text-[10px] font-normal text-muted-foreground">
+                                Yayıncı: ${r.assignedExpenseUsd.toLocaleString("tr-TR")}
+                              </div>
+                            ) : r.unassignedExpenseUsd > 0 && r.assignedExpenseUsd === 0 ? (
+                              <div className="text-[10px] font-normal text-muted-foreground">
+                                Tamamı genel
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {r.cpr != null && Number.isFinite(r.cpr)
@@ -758,7 +952,15 @@ interface BrandRowVm {
   spark: { month: string; views: number }[];
 }
 
-function BrandCard({ row, viewMonth }: { row: BrandRowVm; viewMonth: string }) {
+function BrandCard({
+  row,
+  viewMonth,
+  onDownloadPdf,
+}: {
+  row: BrandRowVm;
+  viewMonth: string;
+  onDownloadPdf: () => void;
+}) {
   const { brand, links, ownerCount, totalNow, totalExpense, mom, target, targetPct, spark } =
     row;
   const positive = (mom ?? 0) >= 0;
@@ -825,9 +1027,24 @@ function BrandCard({ row, viewMonth }: { row: BrandRowVm; viewMonth: string }) {
                 )}
               </div>
             </div>
-            <Badge variant="outline" className={cn("text-[9px]", statusVariant)}>
-              {brand.status}
-            </Badge>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <Badge variant="outline" className={cn("text-[9px]", statusVariant)}>
+                {brand.status}
+              </Badge>
+              <button
+                type="button"
+                title="Bu marka için izlenme PDF"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDownloadPdf();
+                }}
+                className="inline-flex items-center gap-0.5 rounded-md border border-border/70 bg-background/80 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Download size={10} />
+                PDF
+              </button>
+            </div>
           </div>
         </CardHeader>
 
@@ -946,9 +1163,15 @@ function BrandCard({ row, viewMonth }: { row: BrandRowVm; viewMonth: string }) {
                 icon={<Wallet size={10} />}
                 label={`$${totalExpense.toLocaleString("tr-TR")}`}
                 tone="amber"
+                title="Bu markaya yazılan içerik harcaması (ortak kayıtlar paylaştırılır)"
               />
             ) : (
-              <MetaPill icon={<Wallet size={10} />} label="—" tone="muted" />
+              <MetaPill
+                icon={<Wallet size={10} />}
+                label="—"
+                tone="muted"
+                title="Bu ay bu markaya atanmış harcama yok"
+              />
             )}
           </div>
 
@@ -968,13 +1191,16 @@ function MetaPill({
   icon,
   label,
   tone = "default",
+  title,
 }: {
   icon: ReactNode;
   label: string;
   tone?: "default" | "amber" | "muted";
+  title?: string;
 }) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 text-[10px] tabular-nums",
         tone === "amber" && "text-amber-700 dark:text-amber-300",

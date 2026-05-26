@@ -60,8 +60,8 @@ describe("brand-month-metrics", () => {
         reviewStatus: "approved",
       },
     ];
-    expect(sumBrandContentExpensesForMonth(expenses, brand, "2026-04")).toBe(100);
-    expect(sumBrandContentExpensesForMonth(expenses, brand, "2026-05")).toBe(200);
+    expect(sumBrandContentExpensesForMonth(expenses, brand, "2026-04", [brand])).toBe(100);
+    expect(sumBrandContentExpensesForMonth(expenses, brand, "2026-05", [brand])).toBe(200);
     expect(brandContentExpensesForMonth(expenses, brand, "2026-04")).toHaveLength(1);
   });
 

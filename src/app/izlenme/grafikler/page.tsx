@@ -52,7 +52,7 @@ import {
   Trophy,
 } from "lucide-react";
 import {
-  brandContentExpensesForMonth,
+  sumBrandContentExpensesForMonth,
   totalLinkViewsForMonth,
 } from "@/lib/brand-month-metrics";
 import { shiftCalendarMonthYm } from "@/lib/data";
@@ -433,7 +433,7 @@ export default function GrafiklerPage() {
 
   // Tab-local controls
   const [trendMode, setTrendMode] = useState<"stacked" | "grouped" | "percent">("stacked");
-  const [trendMonths, setTrendMonths] = useState<6 | 12>(6);
+  const [trendMonths, setTrendMonths] = useState<3 | 6 | 12 | 24>(6);
   const [showOthers, setShowOthers] = useState(true);
 
   const [shareMode, setShareMode] = useState<"pie" | "donut" | "treemap">("donut");
@@ -595,8 +595,12 @@ export default function GrafiklerPage() {
         const links = scopedLinks.filter((l) => l.brandId === b.id);
         const activeLinks = links.filter((l) => l.status === "active");
         const views = brandMonthlyViews.get(b.id)?.get(viewMonth) ?? 0;
-        const expenses = brandContentExpensesForMonth(contentExpenses, b, viewMonth)
-          .reduce((s, e) => s + e.amountUsd, 0);
+        const expenses = sumBrandContentExpensesForMonth(
+          contentExpenses,
+          b,
+          viewMonth,
+          brands
+        );
         const cpm = views > 0 ? expenses / (views / 1000) : 0;
         return {
           id: b.id,
@@ -609,7 +613,7 @@ export default function GrafiklerPage() {
         };
       })
       .filter((d) => d.x > 0 || d.y > 0);
-  }, [activeBrands, scopedLinks, brandMonthlyViews, contentExpenses, viewMonth]);
+  }, [activeBrands, scopedLinks, brandMonthlyViews, contentExpenses, viewMonth, brands]);
 
   const topEfficient = useMemo(() => {
     const candidates = efficiencyData.filter((d) => d.x > 0 && d.y > 0);
@@ -626,12 +630,8 @@ export default function GrafiklerPage() {
 
     const totalExpense = activeBrands.reduce(
       (s, b) =>
-        s +
-        brandContentExpensesForMonth(contentExpenses, b, viewMonth).reduce(
-          (sx, e) => sx + e.amountUsd,
-          0,
-        ),
-      0,
+        s + sumBrandContentExpensesForMonth(contentExpenses, b, viewMonth, brands),
+      0
     );
     const avgCpm = total > 0 ? totalExpense / (total / 1000) : 0;
 
@@ -643,7 +643,7 @@ export default function GrafiklerPage() {
       }
     }
     return { total, lastTotal, totalGrowth, totalExpense, avgCpm, topGrowth };
-  }, [thisMonthByBrand, lastMonthByBrand, activeBrands, contentExpenses, viewMonth, barData]);
+  }, [thisMonthByBrand, lastMonthByBrand, activeBrands, contentExpenses, viewMonth, barData, brands]);
 
   const totalLinks = scopedLinks.length;
   const totalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
@@ -760,11 +760,18 @@ export default function GrafiklerPage() {
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
                 <ModeToggle
                   ariaLabel="Aralık"
-                  value={String(trendMonths) as "6" | "12"}
-                  onChange={(v) => setTrendMonths(v === "12" ? 12 : 6)}
+                  value={String(trendMonths)}
+                  onChange={(v) => {
+                    const n = Number(v);
+                    if (n === 3 || n === 6 || n === 12 || n === 24) {
+                      setTrendMonths(n);
+                    }
+                  }}
                   options={[
+                    { value: "3", label: "3 ay" },
                     { value: "6", label: "6 ay" },
                     { value: "12", label: "12 ay" },
+                    { value: "24", label: "1 yıl" },
                   ]}
                 />
                 <ModeToggle

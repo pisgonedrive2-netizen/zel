@@ -1,15 +1,11 @@
 import type { Brand, BrandLink, ContentExpense, LinkSnapshot } from "@/store/store";
 import { expenseReviewStatus } from "@/lib/content-expense";
+import {
+  brandExpenseShareUsd,
+  expenseMatchesBrand,
+} from "@/lib/content-expense-brands";
 
-/** Harcama marka ile eşleşir (brandId veya eski kayıtlarda brandName). */
-export function expenseMatchesBrand(expense: ContentExpense, brand: Brand): boolean {
-  if (expense.brandId && expense.brandId === brand.id) return true;
-  if (!expense.brandId && expense.brandName) {
-    const n = expense.brandName.trim().toLowerCase();
-    return n === brand.shortName.trim().toLowerCase() || n === brand.name.trim().toLowerCase();
-  }
-  return false;
-}
+export { expenseMatchesBrand } from "@/lib/content-expense-brands";
 
 /** İptal/red dışındaki harcamalar (CPM ve özet için). */
 export function isCountableContentExpense(e: ContentExpense): boolean {
@@ -21,19 +17,33 @@ export function isCountableContentExpense(e: ContentExpense): boolean {
 export function brandContentExpensesForMonth(
   expenses: ContentExpense[],
   brand: Brand,
-  monthYm: string
+  monthYm: string,
+  allBrands: Brand[] = []
 ): ContentExpense[] {
+  const brands = allBrands.length > 0 ? allBrands : [brand];
   return expenses.filter(
-    (e) => e.month === monthYm && expenseMatchesBrand(e, brand) && isCountableContentExpense(e)
+    (e) =>
+      e.month === monthYm &&
+      isCountableContentExpense(e) &&
+      expenseMatchesBrand(e, brand, brands)
   );
 }
 
 export function sumBrandContentExpensesForMonth(
   expenses: ContentExpense[],
   brand: Brand,
-  monthYm: string
+  monthYm: string,
+  allBrands: Brand[] = []
 ): number {
-  return brandContentExpensesForMonth(expenses, brand, monthYm).reduce((s, e) => s + e.amountUsd, 0);
+  const brands = allBrands.length > 0 ? allBrands : [brand];
+  return expenses
+    .filter(
+      (e) =>
+        e.month === monthYm &&
+        isCountableContentExpense(e) &&
+        expenseMatchesBrand(e, brand, brands)
+    )
+    .reduce((s, e) => s + brandExpenseShareUsd(e, brand.id, brands), 0);
 }
 
 /** Tüm markalar — seçili ay içerik harcaması toplamı. */

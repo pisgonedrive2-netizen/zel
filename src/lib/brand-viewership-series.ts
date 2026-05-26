@@ -47,7 +47,7 @@ export function buildBrandViewershipSeries(opts: {
   todayYm: string;
   maxMonths?: number;
 }): BrandMonthViewRow[] {
-  const maxMonths = opts.maxMonths ?? 12;
+  const maxMonths = opts.maxMonths ?? 24;
   const links = opts.brandLinks.filter((l) => l.brandId === opts.brandId);
   const dataMonths = collectBrandDataMonths({
     brandId: opts.brandId,

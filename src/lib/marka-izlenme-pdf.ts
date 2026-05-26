@@ -333,6 +333,130 @@ export function downloadBrandOperationCsv(
   });
 }
 
+export type MarkalarOverviewRow = {
+  marka: string;
+  kisa: string;
+  izlenme: string;
+  oncekiAy: string;
+  degisim: string;
+  harcama: string;
+  link: string;
+  yayinci: string;
+  hedef: string;
+  durum: string;
+};
+
+export type MarkalarOverviewInput = {
+  monthYm: string;
+  monthTitle: string;
+  rows: MarkalarOverviewRow[];
+};
+
+/** `/izlenme/markalar` — filtrelenmiş marka kartları özeti. */
+export function downloadMarkalarOverviewPdf(input: MarkalarOverviewInput): void {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const mt = latin1ish(input.monthTitle);
+
+  doc.setFontSize(15);
+  doc.text("Markalar izlenme ozeti", 14, 14);
+  doc.setFontSize(10);
+  doc.text(`Donem: ${mt} (${input.monthYm})`, 14, 21);
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text(
+    latin1ish(
+      "Izlenme link snapshot toplami; harcama ortak kayitlarda markalar arasinda esit bolunur."
+    ),
+    14,
+    26
+  );
+  doc.setTextColor(0);
+
+  autoTable(doc, {
+    startY: 32,
+    head: [
+      [
+        "Marka",
+        latin1ish("Kisa"),
+        "Izlenme",
+        latin1ish("Onceki ay"),
+        latin1ish("Degisim"),
+        "Harcama",
+        "Link",
+        latin1ish("Yayinci"),
+        "Hedef",
+        "Durum",
+      ],
+    ],
+    body: input.rows.map((r) => [
+      latin1ish(r.marka),
+      latin1ish(r.kisa),
+      r.izlenme,
+      r.oncekiAy,
+      r.degisim,
+      r.harcama,
+      r.link,
+      r.yayinci,
+      r.hedef,
+      latin1ish(r.durum),
+    ]),
+    styles: { fontSize: 7.5, cellPadding: 1.5 },
+    headStyles: { fillColor: [79, 70, 229] },
+    margin: { left: 10, right: 10 },
+  });
+
+  if (typeof window === "undefined") {
+    throw new Error("PDF indirme yalnızca tarayıcıda kullanılabilir.");
+  }
+  doc.save(`markalar_ozet_${input.monthYm}.pdf`);
+}
+
+export function downloadMarkalarOverviewCsv(input: MarkalarOverviewInput): void {
+  downloadProfessionalCsv({
+    filename: `markalar_ozet_${input.monthYm}.csv`,
+    metadata: {
+      Uygulama: "Foxstream",
+      "Rapor turu": "Markalar izlenme ozeti",
+      Donem: `${input.monthTitle} (${input.monthYm})`,
+      "Olusturulma (TR)": fmtDateTime(new Date()),
+    },
+    sections: [
+      summarySection("Ozet", [
+        { metric: "Marka sayisi", value: input.rows.length, unit: "adet" },
+        { metric: "Donem", value: input.monthTitle, unit: input.monthYm },
+      ]),
+      numberedDetailSection(
+        "Markalar",
+        [
+          "Marka",
+          "Kisa",
+          "Izlenme",
+          "Onceki_ay",
+          "Degisim",
+          "Harcama",
+          "Link",
+          "Yayinci",
+          "Hedef",
+          "Durum",
+        ],
+        input.rows.map((r) => [
+          r.marka,
+          r.kisa,
+          r.izlenme,
+          r.oncekiAy,
+          r.degisim,
+          r.harcama,
+          r.link,
+          r.yayinci,
+          r.hedef,
+          r.durum,
+        ]),
+        input.monthYm
+      ),
+    ],
+  });
+}
+
 export function downloadBrandMonthCsv(input: BrandMonthPdfInput, filenamePrefix?: string): void {
   const slug = (filenamePrefix ?? input.brandFullName).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 40);
   const sections: CsvReport["sections"] = [

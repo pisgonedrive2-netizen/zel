@@ -393,7 +393,9 @@ export interface ContentExpense {
   date: string;          // YYYY-MM-DD
   month: string;         // YYYY-MM
   employeeId: string;    // Harcamayı yapan/rapor eden
-  brandId?: string;      // İlgili marka (varsa)
+  brandId?: string;      // İlgili marka (varsa) — çoklu seçimde birincil
+  /** Ortak harcama: tutar bu markalar arasında eşit bölünür. */
+  brandIds?: string[];
   brandName: string;     // "Padi", "Pipo", "Siteler" vb.
   category: string;      // "Vlog", "Yetişkin İçerik", "Yol", "Reklam"
   description: string;

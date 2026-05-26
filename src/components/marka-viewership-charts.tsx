@@ -52,7 +52,7 @@ export function MarkaViewershipCharts({
         brandViewership,
         endMonthYm: monthYm,
         todayYm,
-        maxMonths: 12,
+        maxMonths: 24,
       }),
     [brand.id, brandLinks, linkSnapshots, brandViewership, monthYm, todayYm]
   );
@@ -190,11 +190,12 @@ export function MarkaViewershipCharts({
               highlightLabelIndex={highlightIndex >= 0 ? highlightIndex : undefined}
               height={340}
               periods={[
-                { key: "12", label: "Son 12 ay", takeLast: 12 },
-                { key: "6", label: "Son 6 ay", takeLast: 6 },
-                { key: "3", label: "Son 3 ay", takeLast: 3 },
+                { key: "24", label: "1 yıl", takeLast: 24 },
+                { key: "12", label: "12 ay", takeLast: 12 },
+                { key: "6", label: "6 ay", takeLast: 6 },
+                { key: "3", label: "3 ay", takeLast: 3 },
               ]}
-              defaultPeriodKey="12"
+              defaultPeriodKey="6"
             />
           </div>
         </CardContent>

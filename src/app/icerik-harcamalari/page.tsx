@@ -26,6 +26,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { BrandMultiSelect } from "@/components/brand-multi-select";
+import {
+  buildExpenseBrandFields,
+  formatExpenseBrandLabel,
+  resolveExpenseBrandIds,
+} from "@/lib/content-expense-brands";
 import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import type { AppNotification } from "@/store/store";
@@ -62,11 +68,15 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
   const { brands, employees } = useStore();
   const today = new Date().toISOString().slice(0, 10);
   const initDate = initial?.date ?? defaultDate ?? today;
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>(() =>
+    initial ? resolveExpenseBrandIds(initial, brands) : []
+  );
   const [form, setForm] = useState<Omit<ContentExpense, "id">>({
     date:        initDate,
     month:       initDate.slice(0, 7),
     employeeId:  initial?.employeeId  ?? employees.find(e => e.kind === "streamer")?.id ?? "",
     brandId:     initial?.brandId,
+    brandIds:    initial?.brandIds,
     brandName:   initial?.brandName   ?? "",
     category:    initial?.category    ?? "Vlog",
     description: initial?.description ?? "",
@@ -79,15 +89,19 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
-  // Brand seçildiğinde brandName'i otomatik doldur
-  const handleBrand = (bid: string) => {
-    if (!bid) { setForm(f => ({ ...f, brandId: undefined })); return; }
-    const b = brands.find(x => x.id === bid);
-    setForm(f => ({ ...f, brandId: bid, brandName: b?.shortName ?? f.brandName }));
+  const applyBrands = (ids: string[]) => {
+    setSelectedBrandIds(ids);
+    setForm((f) => ({ ...f, ...buildExpenseBrandFields(ids, brands) }));
   };
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ ...form, ...buildExpenseBrandFields(selectedBrandIds, brands) });
+        onClose();
+      }}
+    >
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tarih" required>
@@ -102,14 +116,20 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
             <Select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} required
               options={employees.filter(e => e.status === "active").map(e => ({ value: e.id, label: e.name }))} />
           </Field>
-          <Field label="Marka">
-            <Select value={form.brandId ?? ""} onChange={e => handleBrand(e.target.value)}
-              options={[{ value: "", label: "— Marka yok —" }, ...brands.map(b => ({ value: b.id, label: `${b.name} (${b.shortName})` }))]} />
+          <Field label="Marka(lar)" hint="Birden fazla seçilirse tutar markalar arasında eşit bölünür">
+            <BrandMultiSelect brands={brands} value={selectedBrandIds} onChange={applyBrands} />
           </Field>
         </FormGrid>
         <FormGrid>
-          <Field label="Marka Etiketi" hint='Marka olmayan satırlar için manuel etiket (ör. "Siteler", "Reklam")'>
-            <Input value={form.brandName} onChange={e => set("brandName", e.target.value)} placeholder="Gala / Pipo / Siteler" />
+          <Field label="Marka Etiketi" hint='Marka listesinde yoksa manuel etiket (ör. "Siteler")'>
+            <Input
+              value={form.brandName}
+              onChange={(e) => {
+                set("brandName", e.target.value);
+                if (selectedBrandIds.length) setSelectedBrandIds([]);
+              }}
+              placeholder="Gala / Pipo / Siteler"
+            />
           </Field>
           <Field label="Kategori">
             <Select value={form.category} onChange={e => set("category", e.target.value)}
@@ -530,7 +550,9 @@ function ContentExpensesPageInner() {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="text-[10px]">{e.brandName}</Badge>
+                        <Badge variant="outline" className="text-[10px]">
+                          {formatExpenseBrandLabel(e, brands)}
+                        </Badge>
                         <span className="text-[11px] text-muted-foreground">{emp?.name} · {e.date}</span>
                       </div>
                       <p className="text-sm text-foreground line-clamp-1 mt-0.5">{e.description}</p>
