@@ -47,6 +47,7 @@ import {
   normalizeWeekAnchorIso,
 } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
+import { PlanWeekBoard, PlanHistoryPanel } from "@/components/streamer/weekly-plan-calendar";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
   downloadBrandMonthCsv,
@@ -803,89 +804,6 @@ function MarkaLinkListRow({
         </button>
       </div>
     </div>
-  );
-}
-
-// ── Plan görünümü ────────────────────────────────────────────────────────
-const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
-  planned:     "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/50 dark:border-blue-500/40 dark:text-blue-100",
-  in_progress: "bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-950/45 dark:border-amber-500/40 dark:text-amber-100",
-  completed:   "bg-green-50 border-green-200 text-green-900 dark:bg-green-950/45 dark:border-green-500/40 dark:text-green-100",
-  cancelled:   "bg-muted border-border text-muted-foreground line-through",
-};
-
-function PlanGrid({ weekStart, label, plans, accountLabel, onAdd, onEdit }: {
-  weekStart: string;
-  label: string;
-  plans: WeeklyPlan[];
-  accountLabel?: (id?: string) => string;
-  onAdd: () => void;
-  onEdit: (p: WeeklyPlan) => void;
-}) {
-  const days = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
-
-  const dayCell = (iso: string, i: number, compact?: boolean) => {
-    const dayPlans = plans
-      .filter(p => p.date === iso)
-      .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
-    const isToday = iso === todayDateLocal();
-    return (
-      <div
-        key={iso}
-        className={`border rounded-lg p-2 min-h-[128px] ${
-          compact ? "min-w-[9.5rem] max-w-[11rem] w-[9.5rem] flex-none snap-start shrink-0" : "min-w-0 w-full"
-        } ${isToday ? "border-blue-300 bg-blue-50/30 dark:border-blue-500/50 dark:bg-blue-950/35" : "border-border"}`}
-      >
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          {WEEKDAYS_LONG[i].slice(0, 3)} <span className="text-foreground/60">{iso.slice(8, 10)}</span>
-        </p>
-        {dayPlans.length === 0 ? (
-          <p className="text-[10px] text-muted-foreground/40 italic">—</p>
-        ) : (
-          <div className="space-y-1">
-            {dayPlans.map(p => (
-              <button key={p.id} type="button" onClick={() => onEdit(p)}
-                className={`block w-full text-left px-1.5 py-1 rounded border text-[10px] ${STATUS_COLORS[p.status]}`}>
-                {(p.startTime || p.endTime) && (
-                  <p className="font-mono text-[9px]">{p.startTime}{p.endTime && `–${p.endTime}`}</p>
-                )}
-                <p className="font-medium leading-tight">{p.activity}</p>
-                {p.streamerAccountId && accountLabel && (
-                  <p className="text-[9px] opacity-60 truncate">{accountLabel(p.streamerAccountId)}</p>
-                )}
-                {p.brandName && <p className="text-[9px] opacity-70 truncate">{p.brandName}</p>}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <Card className="w-full min-w-0 overflow-hidden">
-      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-        <div className="min-w-0">
-          <CardTitle className="text-base">{label}</CardTitle>
-          <CardDescription className="mt-1">
-            {formatDateLong(days[0])} – {formatDateLong(days[6])}
-          </CardDescription>
-        </div>
-        <Button size="sm" onClick={onAdd} className="gap-1.5 shrink-0" type="button">
-          <Plus size={14} /> Plan Ekle
-        </Button>
-      </CardHeader>
-      <CardContent className="pt-0">
-        {/* Mobil / tablet: yatay kaydırmalı hafta şeridi */}
-        <div className="flex lg:hidden gap-2 overflow-x-auto pb-2 snap-x snap-mandatory touch-pan-x -mx-1 px-1">
-          {days.map((iso, i) => dayCell(iso, i, true))}
-        </div>
-        {/* Masaüstü: tam genişlik 7 sütun */}
-        <div className="hidden lg:grid lg:grid-cols-7 gap-2 w-full min-w-0">
-          {days.map((iso, i) => dayCell(iso, i, false))}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1991,6 +1909,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 <>
                   Temel {fmt(baseSalary)}
                   {rent > 0 && <> · Kira +{fmt(rent)}</>}
+                  {bonus + exp > 0 && <> · Ek +{fmt(bonus + exp)}</>}
+                  {ded > 0 && <> · Kesinti −{fmt(ded)}</>}
                 </>
               ) : "—"}
             </p>
@@ -2378,10 +2298,13 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               </div>
             </div>
 
-            <PlanGrid
+            <PlanWeekBoard
               weekStart={weekView}
               label={weekViewLabel}
               plans={weekViewPlans}
+              employee={me}
+              bordroYm={month}
+              salaryExtras={salaryExtras}
               accountLabel={planAccountLabel}
               onAdd={() => setPlanModal({ mode: "new", weekStart: weekView })}
               onEdit={(p) =>
@@ -2392,38 +2315,21 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               }
             />
 
-            {myAllPlans.length > weekViewPlans.length && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Tüm plan geçmişi</CardTitle>
-                  <CardDescription className="text-xs">
-                    {myAllPlans.length} kayıt — geçmiş haftalar dahil, veriler sunucuda saklanır
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="max-h-64 overflow-y-auto space-y-1.5">
-                  {myAllPlans.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => {
-                        const wk = weekStartFromDateIso(p.date);
-                        setWeekView(wk);
-                        setPlanModal({ mode: p, weekStart: wk });
-                      }}
-                      className="w-full text-left rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted/50"
-                    >
-                      <span className="font-medium">{formatDateLong(p.date)}</span>
-                      {" · "}
-                      <span>{p.activity}</span>
-                      {p.streamerAccountId && (
-                        <span className="text-muted-foreground"> · {planAccountLabel(p.streamerAccountId)}</span>
-                      )}
-                      {p.brandName && <span className="text-muted-foreground"> · {p.brandName}</span>}
-                    </button>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
+            <PlanHistoryPanel
+              plans={myAllPlans}
+              weekView={weekView}
+              thisWeek={thisWeek}
+              employeeId={me.id}
+              userId={user.id}
+              accountLabel={planAccountLabel}
+              onOpenWeek={setWeekView}
+              onEdit={(p) =>
+                setPlanModal({
+                  mode: p,
+                  weekStart: weekStartFromDateIso(p.date) || weekView,
+                })
+              }
+            />
 
             {/* Recurring template — read-only */}
             <Card>
