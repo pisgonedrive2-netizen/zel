@@ -13,8 +13,11 @@ import {
   type Employee,
   type SalaryExtra,
   type ContentExpense,
+  type Brand,
+  type BrandLink,
 } from "@/store/store";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { filterBrandLinksWithValidBrands } from "@/lib/brand-links-sync";
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
 import { SYNC_ERROR_EVENT } from "@/lib/sync-notify";
@@ -30,6 +33,12 @@ function pickStoreSnapshot(): AppHydratePayload {
   out.salaryExtras = dedupeSalaryExtrasByContentExpense(
     s.salaryExtras,
     s.contentExpenses
+  );
+  const brands = s.brands as Brand[];
+  const brandIds = new Set(brands.map((b) => b.id));
+  out.brandLinks = filterBrandLinksWithValidBrands(
+    s.brandLinks as BrandLink[],
+    brandIds
   );
   return out;
 }
@@ -167,6 +176,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         );
         salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
         patch.salaryExtras = salaryExtras;
+        const brandsBoot = (patch.brands ?? []) as Brand[];
+        const brandIdSet = new Set(brandsBoot.map((b) => b.id));
+        if (patch.brandLinks) {
+          patch.brandLinks = filterBrandLinksWithValidBrands(
+            patch.brandLinks as BrandLink[],
+            brandIdSet
+          );
+        }
         useStore.setState(patch);
         if (data.users && user.role === "admin") {
           useAuth.setState({ users: data.users as ReturnType<typeof useAuth.getState>["users"] });

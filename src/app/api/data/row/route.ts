@@ -159,7 +159,7 @@ export async function POST(req: Request) {
       }
       case "brand_link": {
         const link = brandLinkFromRow(row) as BrandLink;
-        await upsertBrandLinksMerged([link]);
+        await upsertBrandLinksMerged([link], []);
         break;
       }
       case "link_snapshot": {

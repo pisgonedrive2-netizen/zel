@@ -3,10 +3,14 @@ import { verifyPin } from "@/lib/password";
 import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
-import type { AppHydratePayload, BrandLink } from "@/store/store";
+import type { AppHydratePayload, Brand, BrandLink } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { syncContentExpensesAndSalaryExtras } from "@/lib/content-expense-sync";
+import {
+  filterBrandLinksWithValidBrands,
+  loadValidBrandIds,
+} from "@/lib/brand-links-sync";
 import type { AppUser } from "@/store/auth";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
@@ -39,11 +43,18 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
 }
 
 /** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
-export async function upsertBrandLinksMerged(links: BrandLink[]) {
+export async function upsertBrandLinksMerged(
+  links: BrandLink[],
+  brandsFromPayload: Brand[] = []
+) {
   if (links.length === 0) return;
+  const validBrandIds = await loadValidBrandIds(brandsFromPayload);
+  const safeLinks = filterBrandLinksWithValidBrands(links, validBrandIds);
+  if (safeLinks.length === 0) return;
+
   const existing = await selectAll("brand_links", brandLinkFromRow);
   const byId = new Map(existing.map((l) => [l.id, l]));
-  const merged = links.map((incoming) => {
+  const merged = safeLinks.map((incoming) => {
     const prev = byId.get(incoming.id);
     if (!prev) return incoming;
     return {
@@ -378,7 +389,6 @@ async function syncAdminFull(payload: AppHydratePayload) {
     },
     { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow), skipDelete: true },
     { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow), skipDelete: true },
-    { table: "brand_monthly_stats", rows: (payload.brandMonthlyStats ?? []).map(brandMonthlyStatsToRow) },
     // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
     // deleteNotIn yapmıyoruz: kullanıcı yanlışlıkla bağlı hareketleri olan
     // bir kasayı silerse FK RESTRICT hata fırlatır. Bunun yerine `archived`
@@ -393,7 +403,10 @@ async function syncAdminFull(payload: AppHydratePayload) {
 
   for (const { table, rows, skipDelete, mergeUpsert } of tables) {
     if (mergeUpsert && table === "brand_links") {
-      await upsertBrandLinksMerged((payload.brandLinks ?? []) as BrandLink[]);
+      await upsertBrandLinksMerged(
+        (payload.brandLinks ?? []) as BrandLink[],
+        (payload.brands ?? []) as Brand[]
+      );
     } else {
       await upsertRows(table, rows);
     }
@@ -406,6 +419,14 @@ async function syncAdminFull(payload: AppHydratePayload) {
     payloadDeduped.contentExpenses ?? [],
     payloadDeduped.salaryExtras ?? []
   );
+
+  const validBrandIds = await loadValidBrandIds(payload.brands ?? []);
+  const brandStats = (payload.brandMonthlyStats ?? []).filter((s) =>
+    validBrandIds.has(s.brandId)
+  );
+  if (brandStats.length > 0) {
+    await upsertRows("brand_monthly_stats", brandStats.map(brandMonthlyStatsToRow));
+  }
 
   const ps = (payload.paymentStatuses ?? []).map(paymentStatusToRow);
   if (ps.length > 0) {
@@ -462,7 +483,7 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
 
   const links = (payload.brandLinks ?? []).filter((l) => l.ownerId === employeeId);
   if (links.length > 0) {
-    await upsertBrandLinksMerged(links);
+    await upsertBrandLinksMerged(links, payload.brands ?? []);
   }
   // Yayıncı linkleri silinmez — boş sync veya eksik liste veri kaybına yol açmasın.
 
