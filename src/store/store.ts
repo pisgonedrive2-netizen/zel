@@ -2328,14 +2328,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             s.kasas[0];
           if (!targetKasa) return {};
 
-          // Eski bir kasa hareketi varsa temizle (yeniden ödeme akışı).
-          const trimmedTx = expense.kasaTxId
-            ? s.kasaTransactions.filter((t) => t.id !== expense.kasaTxId)
-            : s.kasaTransactions;
+          const tag = `[ICEXP:${contentExpenseId}]`;
+          // Hem mevcut kasaTxId referansını hem de aynı içerik harcamasına ait
+          // başka tag'li (örn. önceki sync'te düşmüş ama linki kopmuş) kayıtları
+          // birlikte temizle — "iki kez kasadan düşme" hatasını engeller.
+          const trimmedTx = s.kasaTransactions.filter((t) => {
+            if (t.id === expense.kasaTxId) return false;
+            const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+            return !blob.includes(tag);
+          });
 
           const txId = uid();
           const empName =
             s.employees.find((e) => e.id === expense.employeeId)?.name ?? "Yayıncı";
+          const noteWithTag = notes ? `${notes} ${tag}` : tag;
           const newTx: KasaTransaction = {
             id: txId,
             kasaId: targetKasa.id,
@@ -2346,7 +2352,7 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
             counterparty: empName,
             proof,
-            notes,
+            notes: noteWithTag,
           };
 
           return {
@@ -2369,9 +2375,12 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       unpayContentExpense: (id) =>
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === id);
-          const kasaTransactions = expense?.kasaTxId
-            ? s.kasaTransactions.filter((t) => t.id !== expense.kasaTxId)
-            : s.kasaTransactions;
+          const tag = `[ICEXP:${id}]`;
+          const kasaTransactions = s.kasaTransactions.filter((t) => {
+            if (expense?.kasaTxId && t.id === expense.kasaTxId) return false;
+            const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+            return !blob.includes(tag);
+          });
           return {
             kasaTransactions,
             contentExpenses: s.contentExpenses.map((x) =>

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Download, FileSpreadsheet, Target, LayoutGrid, Users, Filter } from "lucide-react";
+import { ExternalLink, Download, FileSpreadsheet, Target, LayoutGrid, Users, Filter, Pencil, Check, X } from "lucide-react";
 import { useStore } from "@/store/store";
 import { BrandLogo } from "@/components/brand-logo";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
@@ -28,6 +28,7 @@ import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import type { BrandLinkSortKey } from "@/lib/brand-link-display";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { SocialPlatformIcon, platformAccentClass } from "@/components/social-platform-icon";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -66,6 +67,7 @@ export default function MarkaIzlenmelerPage() {
     employees,
     contentExpenses,
     brandMonthlyStats,
+    updateBrand,
   } = useStore();
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reelStreamerFilter, setReelStreamerFilter] = useState<string>("all");
@@ -171,6 +173,44 @@ export default function MarkaIzlenmelerPage() {
     brand && hasTarget
       ? Math.min(100, (totalLinkViewsMonth / brand.monthlyTarget!) * 100)
       : null;
+
+  const canEditTarget =
+    user?.role === "admin" ||
+    (user?.role === "brand" && user.brandId === brandId);
+  const [targetEditing, setTargetEditing] = useState(false);
+  const [targetInput, setTargetInput] = useState<string>(
+    brand?.monthlyTarget != null ? String(brand.monthlyTarget) : ""
+  );
+  const [targetBusy, setTargetBusy] = useState(false);
+
+  const saveTarget = async () => {
+    if (!brand || !brandId) return;
+    const trimmed = targetInput.trim();
+    const next = trimmed === "" ? null : Math.max(0, Math.round(Number(trimmed)));
+    if (next != null && (!Number.isFinite(next) || Number.isNaN(next))) {
+      window.alert("Geçersiz sayı");
+      return;
+    }
+    setTargetBusy(true);
+    try {
+      const res = await fetch("/api/marka/target", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ brandId, monthlyTarget: next }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || "Kayıt başarısız");
+      }
+      updateBrand(brandId, { monthlyTarget: next ?? undefined });
+      setTargetEditing(false);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Kayıt başarısız");
+    } finally {
+      setTargetBusy(false);
+    }
+  };
 
   const empName = (id?: string) => employees.find((e) => e.id === id)?.name ?? id ?? "—";
 
@@ -281,28 +321,89 @@ export default function MarkaIzlenmelerPage() {
             description={monthLabelTr(month)}
           >
           <div className="grid gap-4 md:grid-cols-2">
-            {hasTarget && targetPct !== null && (
-              <Card className="md:col-span-2 border-blue-200/60 bg-blue-50/20 dark:border-blue-500/40 dark:bg-blue-950/30">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Target size={16} className="text-blue-700 dark:text-blue-300" />
-                    Aylık izlenme hedefi
-                  </CardTitle>
-                  <CardDescription>
-                    {monthLabelTr(month)} · hedef {fmtViews(brand.monthlyTarget!)} · link toplamı{" "}
-                    {fmtViews(totalLinkViewsMonth)} ({targetPct.toFixed(0)}%)
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
+            <Card className="md:col-span-2 border-blue-200/60 bg-blue-50/20 dark:border-blue-500/40 dark:bg-blue-950/30">
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Target size={16} className="text-blue-700 dark:text-blue-300" />
+                      Aylık izlenme hedefi
+                    </CardTitle>
+                    <CardDescription>
+                      {hasTarget
+                        ? `${monthLabelTr(month)} · hedef ${fmtViews(brand.monthlyTarget!)} · link toplamı ${fmtViews(totalLinkViewsMonth)} (${targetPct!.toFixed(0)}%)`
+                        : "Bu marka için aylık izlenme hedefi henüz tanımlanmamış."}
+                    </CardDescription>
+                  </div>
+                  {canEditTarget && !targetEditing && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 shrink-0"
+                      onClick={() => {
+                        setTargetInput(
+                          brand.monthlyTarget != null ? String(brand.monthlyTarget) : ""
+                        );
+                        setTargetEditing(true);
+                      }}
+                    >
+                      <Pencil size={12} />
+                      {hasTarget ? "Hedefi düzenle" : "Hedef gir"}
+                    </Button>
+                  )}
+                  {canEditTarget && targetEditing && (
+                    <div className="flex flex-wrap items-center gap-1 shrink-0">
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1000}
+                        placeholder="örn. 500000"
+                        value={targetInput}
+                        onChange={(e) => setTargetInput(e.target.value)}
+                        className="h-8 w-32 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 gap-1"
+                        disabled={targetBusy}
+                        onClick={() => void saveTarget()}
+                      >
+                        <Check size={12} />
+                        Kaydet
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        disabled={targetBusy}
+                        onClick={() => setTargetEditing(false)}
+                      >
+                        <X size={12} />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {hasTarget && targetPct !== null ? (
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div
                       className={`h-full ${targetPct >= 100 ? "bg-green-500" : "bg-blue-500"}`}
                       style={{ width: `${targetPct}%` }}
                     />
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Hedef belirlendiğinde gerçekleşme yüzdesi burada görünür ve yönetici panelinde
+                    tüm raporlara yansır.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader className="pb-2">
