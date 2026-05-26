@@ -40,7 +40,10 @@ import {
   defaultSnapshotDateInMonth,
   weekDayIsosFromStart,
   weekStartFromDateIso,
+  shiftWeekStartIso,
+  todayDateLocal,
 } from "@/lib/data";
+import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
   downloadBrandMonthCsv,
@@ -397,8 +400,19 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tarih" required>
-            <Select value={form.date} onChange={e => set("date", e.target.value)} required
-              options={weekDays.map(d => ({ value: d, label: formatDateLong(d) }))} />
+            <Select
+              value={form.date}
+              onChange={(e) => {
+                const date = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  date,
+                  weekStart: weekStartFromDateIso(date),
+                }));
+              }}
+              required
+              options={weekDays.map((d) => ({ value: d, label: formatDateLong(d) }))}
+            />
           </Field>
           <Field label="Aktivite" required>
             <Select value={form.activity} onChange={e => set("activity", e.target.value)} required
@@ -807,21 +821,13 @@ function PlanGrid({ weekStart, label, plans, accountLabel, onAdd, onEdit }: {
   onAdd: () => void;
   onEdit: (p: WeeklyPlan) => void;
 }) {
-  const days = useMemo(() => {
-    const arr: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart + "T00:00:00");
-      d.setDate(d.getDate() + i);
-      arr.push(d.toISOString().slice(0, 10));
-    }
-    return arr;
-  }, [weekStart]);
+  const days = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
 
   const dayCell = (iso: string, i: number, compact?: boolean) => {
     const dayPlans = plans
       .filter(p => p.date === iso)
       .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
-    const isToday = iso === new Date().toISOString().slice(0, 10);
+    const isToday = iso === todayDateLocal();
     return (
       <div
         key={iso}
@@ -1064,9 +1070,7 @@ function AddWeekReelForm({
   const weekOptions = useMemo(() => {
     const opts: { value: string; label: string }[] = [];
     for (let i = -4; i <= 1; i++) {
-      const d = new Date(thisWeek + "T00:00:00");
-      d.setDate(d.getDate() + i * 7);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = shiftWeekStartIso(thisWeek, i);
       const isThis = iso === thisWeek;
       const isNext = iso === nextWeek;
       const prefix = isThis ? "Bu hafta · " : isNext ? "Gelecek · " : i < 0 ? `${Math.abs(i)} hafta önce · ` : "";
@@ -1321,9 +1325,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   // Takvim haftası navigasyonu — geçmişe gidebilir
   const [weekView, setWeekView] = useState<string>(thisWeek);
   const navWeek = (dir: 1 | -1) => {
-    const d = new Date(weekView + "T00:00:00");
-    d.setDate(d.getDate() + dir * 7);
-    setWeekView(d.toISOString().slice(0, 10));
+    setWeekView((prev) => shiftWeekStartIso(prev, dir));
   };
   const weekViewIsThisWeek = weekView === thisWeek;
   const weekViewIsNextWeek = weekView === nextWeek;
@@ -1795,18 +1797,19 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   const handlePlanSave = (data: Omit<WeeklyPlan, "id">) => {
     if (!planModal) return;
-    const date = data.date?.trim();
-    if (!date) {
-      window.alert("Plan için geçerli bir tarih seçin.");
+    const st = useStore.getState();
+    const normalized = normalizeWeeklyPlanInput(
+      { ...data, employeeId: me.id, createdBy: user.id },
+      {
+        employees: st.employees,
+        fallbackEmployeeId: me.id,
+        streamerAccounts: st.streamerAccounts.filter((a) => a.employeeId === me.id),
+      }
+    );
+    if (!normalized) {
+      window.alert("Plan kaydedilemedi — geçerli bir tarih ve yayıncı seçin.");
       return;
     }
-    const normalized: Omit<WeeklyPlan, "id"> = {
-      ...data,
-      date,
-      weekStart: weekStartFromDateIso(date),
-      startTime: data.startTime?.trim() || undefined,
-      endTime: data.endTime?.trim() || undefined,
-    };
     if (planModal.mode === "new") {
       addWeeklyPlan(normalized);
       pushNotification({

@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { createNotificationPersisted } from "@/lib/notification-actions";
+import { weekDayIsosFromStart, shiftWeekStartIso } from "@/lib/data";
+import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { logAudit } from "@/store/audit-log";
 
 // ── Platform icon helper ──────────────────────────────────────────────────
@@ -282,16 +284,7 @@ export default function TakvimPage() {
   );
 
   // Üst grid'de gösterim için bu haftanın günleri (Pazartesi - Pazar)
-  const currentWeekDays = useMemo(() => {
-    const arr: string[] = [];
-    const base = new Date(planWeek + "T00:00:00");
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() + i);
-      arr.push(d.toISOString().slice(0, 10));
-    }
-    return arr;
-  }, [planWeek]);
+  const currentWeekDays = useMemo(() => weekDayIsosFromStart(planWeek), [planWeek]);
 
   const plansThisWeekByEmpDay = useMemo(() => {
     const map = new Map<string, WeeklyPlan[]>();
@@ -624,9 +617,7 @@ export default function TakvimPage() {
           />
           <div className="flex items-center gap-1 border border-border rounded-lg px-1">
             <Button type="button" size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => {
-              const d = new Date(planWeek + "T00:00:00");
-              d.setDate(d.getDate() - 7);
-              setPlanWeek(weekStartOf(d));
+              setPlanWeek(shiftWeekStartIso(planWeek, -1));
             }}>
               <ChevronLeft size={16} />
             </Button>
@@ -647,7 +638,13 @@ export default function TakvimPage() {
             label={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Plan"}
             plans={plansForWeek}
             onAdd={() => setPlanModal({ mode: "new", weekStart: planWeek, employeeId: planEmployeeId })}
-            onEdit={(p) => setPlanModal({ mode: p, weekStart: p.weekStart, employeeId: p.employeeId })}
+            onEdit={(p) =>
+              setPlanModal({
+                mode: p,
+                weekStart: p.weekStart,
+                employeeId: p.employeeId,
+              })
+            }
           />
         )}
       </div>
@@ -714,14 +711,25 @@ export default function TakvimPage() {
             employees={yayincilar}
             initial={planModal.mode === "new" ? undefined : planModal.mode}
             onSave={(d) => {
+              const normalized = normalizeWeeklyPlanInput(d, {
+                employees,
+                fallbackEmployeeId: planModal.employeeId,
+                streamerAccounts,
+              });
+              if (!normalized) {
+                window.alert("Plan kaydedilemedi — geçerli yayıncı ve tarih seçin.");
+                return;
+              }
+              const payload = { ...normalized, createdBy: user?.id ?? normalized.createdBy };
               if (planModal.mode === "new") {
-                const newId = addWeeklyPlan(d);
-                void notifyPlanChange("added", { ...d, id: newId });
+                const newId = addWeeklyPlan(payload);
+                void notifyPlanChange("added", { ...payload, id: newId });
               } else {
-                const next = { ...(planModal.mode as WeeklyPlan), ...d };
-                updateWeeklyPlan(planModal.mode.id, d);
+                const next = { ...(planModal.mode as WeeklyPlan), ...payload };
+                updateWeeklyPlan(planModal.mode.id, payload);
                 void notifyPlanChange("updated", next);
               }
+              setPlanModal(null);
             }}
             onDelete={planModal.mode !== "new"
               ? () => {

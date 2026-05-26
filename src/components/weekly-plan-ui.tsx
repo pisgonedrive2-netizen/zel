@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore, type WeeklyPlan, type Employee, WEEKDAYS_LONG } from "@/store/store";
-import { weekDayIsosFromStart, weekStartFromDateIso } from "@/lib/data";
+import { weekDayIsosFromStart, weekStartFromDateIso, todayDateLocal } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -115,7 +115,14 @@ export function WeeklyPlanForm({
           <Field label="Tarih" required>
             <Select
               value={form.date}
-              onChange={(e) => set("date", e.target.value)}
+              onChange={(e) => {
+                const date = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  date,
+                  weekStart: weekStartFromDateIso(date),
+                }));
+              }}
               required
               options={weekDays.map((d) => ({ value: d, label: formatDateLong(d) }))}
             />
@@ -196,7 +203,7 @@ export function WeeklyPlanGrid({
     const dayPlans = plans
       .filter((p) => p.date === iso)
       .sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
-    const isToday = iso === new Date().toISOString().slice(0, 10);
+    const isToday = iso === todayDateLocal();
     return (
       <div
         key={iso}

@@ -22,11 +22,11 @@ import {
   weekBrandReelToRow,
   streamerAccountFromRow,
   streamerAccountToRow,
+  employeeFromRow,
   salaryExtraFromRow,
   contentExpenseFromRow,
 } from "@/lib/db/mappers";
-import { pgDate } from "@/lib/db/pg-value";
-import { weekStartFromDateIso } from "@/lib/data";
+import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import type {
   ScheduleSlot,
   BrandLink,
@@ -193,17 +193,47 @@ export async function POST(req: Request) {
       }
       case "weekly_plan": {
         const p = weeklyPlanFromRow(row) as WeeklyPlan;
-        const date = pgDate(p.date, p.weekStart);
-        if (!date) {
+        const [{ data: empRows, error: empErr }, { data: accRows, error: accErr }] =
+          await Promise.all([
+            db.from("employees").select("*"),
+            db.from("streamer_accounts").select("*"),
+          ]);
+        if (empErr) throw new Error(empErr.message);
+        if (accErr) throw new Error(accErr.message);
+        const employees = (empRows ?? []).map((r) =>
+          employeeFromRow(r as Record<string, unknown>)
+        );
+        const streamerAccounts = (accRows ?? []).map((r) =>
+          streamerAccountFromRow(r as Record<string, unknown>)
+        );
+        const planInput =
+          session.role === "streamer" && session.employeeId
+            ? { ...p, employeeId: session.employeeId }
+            : p;
+        const normalized = normalizeWeeklyPlanInput(planInput, {
+          employees,
+          fallbackEmployeeId: session.employeeId ?? p.employeeId,
+          streamerAccounts,
+        });
+        if (!normalized) {
           return NextResponse.json(
-            { error: "Plan tarihi gerekli (YYYY-MM-DD boş olamaz)" },
+            { error: "Geçersiz yayıncı veya plan tarihi — yayıncı listesinden seçin." },
             { status: 400 }
           );
         }
+        let createdBy = normalized.createdBy ?? null;
+        if (createdBy) {
+          const { data: u } = await db
+            .from("app_users")
+            .select("id")
+            .eq("id", createdBy)
+            .maybeSingle();
+          if (!u) createdBy = session.userId;
+        }
         const safe: WeeklyPlan = {
-          ...p,
-          date,
-          weekStart: pgDate(p.weekStart, weekStartFromDateIso(date)) ?? date,
+          ...normalized,
+          id: p.id,
+          createdBy: createdBy ?? undefined,
         };
         const { error } = await db
           .from("weekly_plans")

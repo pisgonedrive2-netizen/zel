@@ -114,6 +114,20 @@ export function weekDayIsosFromStart(weekStartIso: string): string[] {
   return days;
 }
 
+/** Hafta başlangıcını N hafta kaydır (yerel takvim). */
+export function shiftWeekStartIso(weekStartIso: string, deltaWeeks: number): string {
+  const base = pgDateOnly(weekStartIso);
+  if (!base) return weekStartIso;
+  const [y, mo, day] = base.split("-").map(Number);
+  const d = new Date(y, mo - 1, day + deltaWeeks * 7, 12, 0, 0);
+  return toDateLocal(d);
+}
+
+/** Bugünün yerel ISO tarihi. */
+export function todayDateLocal(): string {
+  return toDateLocal(new Date());
+}
+
 /** Verilen günün hafta başlangıcı (Pazartesi), yerel. */
 export function weekStartFromDateIso(isoDate: string): string {
   const base = pgDateOnly(isoDate);

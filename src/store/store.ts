@@ -12,6 +12,7 @@ import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import { weekStartFromDateIso } from "@/lib/data";
+import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -2390,37 +2391,36 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Weekly plan
       addWeeklyPlan: (p) => {
         const id = uid();
-        const date = (p.date?.trim() || p.weekStart?.trim() || "").slice(0, 10);
-        const weekStart =
-          weekStartFromDateIso(date) || (p.weekStart?.trim() ?? "").slice(0, 10) || date;
-        const row = {
-          ...p,
-          id,
-          date: date || weekStart,
-          weekStart,
-          startTime: p.startTime?.trim() || undefined,
-          endTime: p.endTime?.trim() || undefined,
-        };
+        const st = get();
+        const normalized = normalizeWeeklyPlanInput(p, {
+          employees: st.employees,
+          fallbackEmployeeId: p.employeeId,
+          streamerAccounts: st.streamerAccounts,
+        });
+        if (!normalized) {
+          console.error("weekly_plan: geçersiz yayıncı veya tarih", p);
+          return id;
+        }
+        const row = { ...normalized, id };
         set((s) => ({ weeklyPlans: [...s.weeklyPlans, row] }));
         persistEntity("weekly_plan", row);
         return id;
       },
       updateWeeklyPlan: (id, p) => set((s) => {
-        const weeklyPlans = s.weeklyPlans.map((x) => {
-          if (x.id !== id) return x;
-          const merged = { ...x, ...p };
-          const date = (merged.date?.trim() || merged.weekStart || "").slice(0, 10);
-          const weekStart = weekStartFromDateIso(date) || merged.weekStart;
-          return {
-            ...merged,
-            date,
-            weekStart,
-            startTime: merged.startTime?.trim() || undefined,
-            endTime: merged.endTime?.trim() || undefined,
-          };
-        });
-        const row = weeklyPlans.find((x) => x.id === id);
-        if (row) persistEntity("weekly_plan", row);
+        const existing = s.weeklyPlans.find((x) => x.id === id);
+        if (!existing) return s;
+        const normalized = normalizeWeeklyPlanInput(
+          { ...existing, ...p },
+          {
+            employees: s.employees,
+            fallbackEmployeeId: existing.employeeId,
+            streamerAccounts: s.streamerAccounts,
+          }
+        );
+        if (!normalized) return s;
+        const row = { ...normalized, id };
+        const weeklyPlans = s.weeklyPlans.map((x) => (x.id === id ? row : x));
+        persistEntity("weekly_plan", row);
         return { weeklyPlans };
       }),
       deleteWeeklyPlan: (id)    => {

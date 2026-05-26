@@ -3,7 +3,7 @@ import { verifyPin } from "@/lib/password";
 import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
-import type { AppHydratePayload, Brand, BrandLink } from "@/store/store";
+import type { AppHydratePayload, Brand, BrandLink, WeeklyPlan } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { syncContentExpensesAndSalaryExtras } from "@/lib/content-expense-sync";
@@ -95,6 +95,16 @@ export async function fetchViewershipBootstrap(
     linkSnapshots,
     brandViewership,
   };
+}
+
+/** FK: yalnızca employees tablosunda olan id ile plan yaz. */
+async function filterWeeklyPlanRows(plans: WeeklyPlan[]) {
+  const { data, error } = await getSupabaseAdmin().from("employees").select("id");
+  if (error) throw new Error(`employees: ${error.message}`);
+  const valid = new Set((data ?? []).map((r) => String((r as { id: string }).id)));
+  return plans
+    .filter((p) => valid.has(p.employeeId))
+    .map((p) => weeklyPlanToRow(p));
 }
 
 async function upsertRows(table: string, rows: Record<string, unknown>[]) {
@@ -423,6 +433,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
     salaryExtras: salaryExtrasDeduped,
   };
 
+  const weeklyPlanRows = await filterWeeklyPlanRows(payload.weeklyPlans ?? []);
+
   const tables: Array<{
     table: string;
     rows: Record<string, unknown>[];
@@ -457,7 +469,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "kasas", rows: (payload.kasas ?? []).map(kasaAccountToRow), skipDelete: true },
     // Kasa hareketleri tek tek API ile de yazılır; toplu silme yapılmaz (veri kaybı önlenir).
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
-    { table: "weekly_plans", rows: (payload.weeklyPlans ?? []).map(weeklyPlanToRow), skipDelete: true },
+    { table: "weekly_plans", rows: weeklyPlanRows, skipDelete: true },
     { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow), skipDelete: true },
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
   ];
@@ -526,8 +538,9 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
   }
 
   const plans = (payload.weeklyPlans ?? []).filter((p) => p.employeeId === employeeId);
-  if (plans.length > 0) {
-    await upsertRows("weekly_plans", plans.map(weeklyPlanToRow));
+  const planRows = await filterWeeklyPlanRows(plans);
+  if (planRows.length > 0) {
+    await upsertRows("weekly_plans", planRows);
   }
 
   const reels = (payload.weekBrandReels ?? []).filter((r) => r.employeeId === employeeId);
