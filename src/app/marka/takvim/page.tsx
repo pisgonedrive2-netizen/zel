@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
+  Maximize2,
 } from "lucide-react";
 import {
   useStore,
@@ -41,6 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Modal from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
@@ -83,6 +85,7 @@ export default function MarkaTakvimPage() {
 
   const thisWeek = weekStartOf(todayDateLocal());
   const [weekView, setWeekView] = useState(thisWeek);
+  const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
     setWeekView(weekStartOf(`${month}-15`));
@@ -178,7 +181,7 @@ export default function MarkaTakvimPage() {
                   {monthTitle} içinde {plansInMonth.length} etkinlik · bu hafta {weekPlans.length}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 <Button variant="ghost" size="sm" type="button" className="h-8 w-8 p-0" onClick={() => navWeek(-1)}>
                   <ChevronLeft size={14} />
                 </Button>
@@ -198,6 +201,16 @@ export default function MarkaTakvimPage() {
                 )}
                 <Button variant="ghost" size="sm" type="button" className="h-8 w-8 p-0" onClick={() => navWeek(1)}>
                   <ChevronRight size={14} />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  className="h-8 gap-1 text-xs"
+                  onClick={() => setFullscreen(true)}
+                  title="Geniş takvim görünümü"
+                >
+                  <Maximize2 size={12} /> Geniş ekran
                 </Button>
               </div>
             </CardHeader>
@@ -387,8 +400,192 @@ export default function MarkaTakvimPage() {
               </div>
             </CardContent>
           </Card>
+          <BrandWeekFullscreen
+            open={fullscreen}
+            onClose={() => setFullscreen(false)}
+            brandName={brand.name}
+            weekStart={weekView}
+            weekPlans={weekPlans}
+            employees={empById}
+            weekDays={weekDays}
+            navWeek={navWeek}
+            onJumpThisWeek={() => setWeekView(thisWeek)}
+            isThisWeek={weekView === thisWeek}
+            accountLabel={accountLabel}
+          />
         </div>
       )}
     </MarkaPageGuard>
+  );
+}
+
+function parsePlanTime(t?: string): number {
+  if (!t) return -1;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function formatPlanTimeRange(p: WeeklyPlan): string | null {
+  if (!p.startTime && !p.endTime) return null;
+  return `${p.startTime ?? "—"}${p.endTime ? `–${p.endTime}` : ""}`;
+}
+
+function BrandWeekFullscreen({
+  open,
+  onClose,
+  brandName,
+  weekStart,
+  weekPlans,
+  employees,
+  weekDays,
+  navWeek,
+  onJumpThisWeek,
+  isThisWeek,
+  accountLabel,
+}: {
+  open: boolean;
+  onClose: () => void;
+  brandName: string;
+  weekStart: string;
+  weekPlans: WeeklyPlan[];
+  employees: Map<string, Employee>;
+  weekDays: string[];
+  navWeek: (dir: -1 | 1) => void;
+  onJumpThisWeek: () => void;
+  isThisWeek: boolean;
+  accountLabel: (id?: string) => string;
+}) {
+  const hours = useMemo(() => {
+    const set = new Set<number>();
+    for (let h = 8; h <= 23; h++) set.add(h);
+    for (const p of weekPlans) {
+      const st = parsePlanTime(p.startTime);
+      if (st >= 0) set.add(Math.floor(st / 60));
+      const en = parsePlanTime(p.endTime);
+      if (en >= 0) set.add(Math.floor(en / 60));
+    }
+    const arr = [...set].sort((a, b) => a - b);
+    return arr.length ? arr : [10, 12, 14, 16, 18, 20, 22];
+  }, [weekPlans]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${brandName} · geniş takvim`}
+      size="full"
+    >
+      <div className="space-y-3 -mx-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {weekRangeLabel(weekStart)} · saat dilimli yayıncı planları
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="h-8 w-8 p-0"
+              onClick={() => navWeek(-1)}
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            {!isThisWeek && (
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                className="h-7 px-2 text-[10px]"
+                onClick={onJumpThisWeek}
+              >
+                Bu hafta
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="h-8 w-8 p-0"
+              onClick={() => navWeek(1)}
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        </div>
+        <div className="overflow-x-auto border border-border rounded-xl">
+          <div
+            className="grid min-w-[720px]"
+            style={{ gridTemplateColumns: `3.5rem repeat(7, minmax(5.5rem, 1fr))` }}
+          >
+            <div className="border-b border-border bg-muted/30 p-1" />
+            {weekDays.map((iso, i) => (
+              <div
+                key={iso}
+                className="border-b border-l border-border bg-muted/30 p-2 text-center"
+              >
+                <p className="text-[10px] font-semibold uppercase text-muted-foreground">
+                  {WEEKDAYS_LONG[i].slice(0, 3)}
+                </p>
+                <p className="text-xs font-medium">{iso.slice(8, 10)}</p>
+              </div>
+            ))}
+            {hours.map((hour) => (
+              <div key={hour} className="contents">
+                <div className="border-b border-border px-1 py-2 text-[10px] text-muted-foreground text-right font-mono bg-muted/20">
+                  {String(hour).padStart(2, "0")}:00
+                </div>
+                {weekDays.map((iso) => {
+                  const slotPlans = weekPlans.filter((p) => {
+                    if (p.date !== iso) return false;
+                    const st = parsePlanTime(p.startTime);
+                    if (st < 0) return hour === 10;
+                    return Math.floor(st / 60) === hour;
+                  });
+                  return (
+                    <div
+                      key={`${iso}-${hour}`}
+                      className="border-b border-l border-border p-0.5 min-h-[52px] align-top"
+                    >
+                      {slotPlans.map((p) => {
+                        const emp = employees.get(p.employeeId);
+                        return (
+                          <div
+                            key={p.id}
+                            className={cn(
+                              "w-full text-left px-1 py-0.5 mb-0.5 rounded border text-[9px]",
+                              STATUS_COLORS[p.status]
+                            )}
+                          >
+                            <p className="font-semibold truncate">
+                              {emp?.name.split(" ")[0] ?? "Yayıncı"}
+                            </p>
+                            {formatPlanTimeRange(p) && (
+                              <p className="font-mono text-[8px] opacity-80">
+                                {formatPlanTimeRange(p)}
+                              </p>
+                            )}
+                            <p className="font-medium truncate">{p.activity}</p>
+                            {p.streamerAccountId && (
+                              <p className="opacity-60 truncate text-[8px]">
+                                {accountLabel(p.streamerAccountId)}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Saatsiz planlar 10:00 satırında gösterilir. Marka etiketiyle (
+          <strong>{brandName}</strong>) eşleşen tüm yayıncı planları burada
+          gözükür.
+        </p>
+      </div>
+    </Modal>
   );
 }
