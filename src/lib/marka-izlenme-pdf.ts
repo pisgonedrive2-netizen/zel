@@ -384,7 +384,7 @@ export function downloadMarkalarOverviewPdf(input: MarkalarOverviewInput): void 
         "Harcama",
         "Link",
         latin1ish("Yayinci"),
-        "Hedef",
+        latin1ish("Hedef (tutar / %)"),
         "Durum",
       ],
     ],

@@ -21,13 +21,49 @@ import { filterBrandLinksWithValidBrands } from "@/lib/brand-links-sync";
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
 import { SYNC_ERROR_EVENT } from "@/lib/sync-notify";
+import { RELOAD_VIEWERSHIP_EVENT } from "@/lib/viewership-reload";
 
 const SYNC_MS = 900;
+const BOOTSTRAP_RETRIES = 3;
+
+async function fetchJsonWithRetry(
+  url: string,
+  opts?: RequestInit
+): Promise<Response> {
+  let last: Response | null = null;
+  for (let i = 0; i < BOOTSTRAP_RETRIES; i++) {
+    const res = await fetch(url, { cache: "no-store", ...opts });
+    last = res;
+    if (res.ok || res.status === 401) return res;
+    if (i < BOOTSTRAP_RETRIES - 1) {
+      await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+    }
+  }
+  return last!;
+}
+
+function applyViewershipToPatch(
+  patch: Record<string, unknown>,
+  data: Pick<AppHydratePayload, "brands" | "brandLinks" | "linkSnapshots" | "brandViewership">
+) {
+  if (data.brands !== undefined) patch.brands = data.brands;
+  if (data.brandLinks !== undefined) {
+    const brands = (patch.brands ?? useStore.getState().brands) as Brand[];
+    const brandIdSet = new Set(brands.map((b) => b.id));
+    patch.brandLinks = filterBrandLinksWithValidBrands(data.brandLinks, brandIdSet);
+  }
+  if (data.linkSnapshots !== undefined) patch.linkSnapshots = data.linkSnapshots;
+  if (data.brandViewership !== undefined) patch.brandViewership = data.brandViewership;
+}
+
+/** Toplu sync'e dahil edilmeyen anahtarlar (sunucu/API ile yazılır). */
+const SYNC_EXCLUDE_KEYS = new Set<string>(["linkSnapshots", "brandViewership"]);
 
 function pickStoreSnapshot(): AppHydratePayload {
   const s = useStore.getState();
   const out: AppHydratePayload = {};
   for (const k of APP_SNAPSHOT_KEYS) {
+    if (SYNC_EXCLUDE_KEYS.has(k)) continue;
     (out as Record<string, unknown>)[k] = s[k];
   }
   out.salaryExtras = dedupeSalaryExtrasByContentExpense(
@@ -153,7 +189,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const res = await fetch("/api/bootstrap", { credentials: "include" });
+        const res = await fetchJsonWithRetry("/api/bootstrap", {
+          credentials: "include",
+        });
         if (res.status === 401) {
           throw new Error("Oturum gerekli — lütfen tekrar giriş yapın");
         }
@@ -183,6 +221,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             patch.brandLinks as BrandLink[],
             brandIdSet
           );
+        }
+        const snapCount = Array.isArray(patch.linkSnapshots)
+          ? (patch.linkSnapshots as unknown[]).length
+          : 0;
+        if (snapCount === 0) {
+          try {
+            const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {
+              credentials: "include",
+            });
+            if (vr.ok) {
+              const vd = (await vr.json()) as Pick<
+                AppHydratePayload,
+                "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
+              >;
+              if (Array.isArray(vd.linkSnapshots) && vd.linkSnapshots.length > 0) {
+                applyViewershipToPatch(patch, vd);
+              }
+            }
+          } catch {
+            /* izlenme yüklemesi isteğe bağlı */
+          }
         }
         useStore.setState(patch);
         if (data.users && user.role === "admin") {
@@ -219,6 +278,45 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     return () => { cancelled = true; };
   }, [supabaseMode, sessionReady, user?.id]);
+
+  useEffect(() => {
+    if (!supabaseMode || !user) return;
+
+    const reloadViewership = async () => {
+      skipSync.current = true;
+      try {
+        const res = await fetchJsonWithRetry("/api/bootstrap/viewership", {
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setSyncError(data.error ?? `İzlenme yüklenemedi (${res.status})`);
+          return;
+        }
+        const vd = (await res.json()) as Pick<
+          AppHydratePayload,
+          "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
+        >;
+        const patch: Record<string, unknown> = {};
+        applyViewershipToPatch(patch, vd);
+        useStore.setState(patch);
+        setSyncError(null);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Ağ hatası";
+        setSyncError(`İzlenme verileri yüklenemedi: ${msg}`);
+      } finally {
+        setTimeout(() => {
+          skipSync.current = false;
+        }, 500);
+      }
+    };
+
+    const onReload = () => {
+      void reloadViewership();
+    };
+    window.addEventListener(RELOAD_VIEWERSHIP_EVENT, onReload);
+    return () => window.removeEventListener(RELOAD_VIEWERSHIP_EVENT, onReload);
+  }, [supabaseMode, user?.id]);
 
   useEffect(() => {
     registerSyncFlushHandler(() => {

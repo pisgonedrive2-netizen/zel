@@ -34,7 +34,13 @@ import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { fmtDateTime } from "@/lib/fmt-date";
-import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
+import {
+  fmt,
+  toYearMonthLocal,
+  defaultSnapshotDateInMonth,
+  weekDayIsosFromStart,
+  weekStartFromDateIso,
+} from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
   downloadBrandMonthCsv,
@@ -370,18 +376,24 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
   // Bu hafta haftanın günleri
-  const weekDays = useMemo(() => {
-    const days: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart + "T00:00:00");
-      d.setDate(d.getDate() + i);
-      days.push(d.toISOString().slice(0, 10));
-    }
-    return days;
-  }, [weekStart]);
+  const weekDays = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const date = form.date?.trim() || weekDays[0] || weekStart;
+        if (!date) return;
+        onSave({
+          ...form,
+          date,
+          weekStart: weekStartFromDateIso(date),
+          startTime: form.startTime?.trim() || undefined,
+          endTime: form.endTime?.trim() || undefined,
+        });
+        onClose();
+      }}
+    >
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Tarih" required>
@@ -1783,11 +1795,17 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   const handlePlanSave = (data: Omit<WeeklyPlan, "id">) => {
     if (!planModal) return;
-    // KRITIK: weekStart'ı her zaman seçilen tarihten yeniden hesapla, böylece
-    // tarih farklı bir haftaya kaydırılsa bile admin takvimi doğru hücrede gösterir.
+    const date = data.date?.trim();
+    if (!date) {
+      window.alert("Plan için geçerli bir tarih seçin.");
+      return;
+    }
     const normalized: Omit<WeeklyPlan, "id"> = {
       ...data,
-      weekStart: weekStartOf(new Date(data.date + "T00:00:00")),
+      date,
+      weekStart: weekStartFromDateIso(date),
+      startTime: data.startTime?.trim() || undefined,
+      endTime: data.endTime?.trim() || undefined,
     };
     if (planModal.mode === "new") {
       addWeeklyPlan(normalized);

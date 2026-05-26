@@ -11,6 +11,7 @@ import {
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
+import { weekStartFromDateIso } from "@/lib/data";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -2389,13 +2390,35 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       // Weekly plan
       addWeeklyPlan: (p) => {
         const id = uid();
-        const row = { ...p, id };
+        const date = (p.date?.trim() || p.weekStart?.trim() || "").slice(0, 10);
+        const weekStart =
+          weekStartFromDateIso(date) || (p.weekStart?.trim() ?? "").slice(0, 10) || date;
+        const row = {
+          ...p,
+          id,
+          date: date || weekStart,
+          weekStart,
+          startTime: p.startTime?.trim() || undefined,
+          endTime: p.endTime?.trim() || undefined,
+        };
         set((s) => ({ weeklyPlans: [...s.weeklyPlans, row] }));
         persistEntity("weekly_plan", row);
         return id;
       },
       updateWeeklyPlan: (id, p) => set((s) => {
-        const weeklyPlans = s.weeklyPlans.map((x) => (x.id === id ? { ...x, ...p } : x));
+        const weeklyPlans = s.weeklyPlans.map((x) => {
+          if (x.id !== id) return x;
+          const merged = { ...x, ...p };
+          const date = (merged.date?.trim() || merged.weekStart || "").slice(0, 10);
+          const weekStart = weekStartFromDateIso(date) || merged.weekStart;
+          return {
+            ...merged,
+            date,
+            weekStart,
+            startTime: merged.startTime?.trim() || undefined,
+            endTime: merged.endTime?.trim() || undefined,
+          };
+        });
         const row = weeklyPlans.find((x) => x.id === id);
         if (row) persistEntity("weekly_plan", row);
         return { weeklyPlans };
@@ -2512,16 +2535,27 @@ export const useStore = isSupabaseClientMode()
 
 /** Verilen tarihin Pazartesi'sini ISO YYYY-MM-DD olarak döndürür. */
 export function weekStartOf(d: Date | string = new Date()): string {
-  const date = typeof d === "string" ? new Date(d + "T00:00:00") : new Date(d);
-  const dow  = (date.getDay() + 6) % 7; // 0 = Pzt
+  if (typeof d === "string") {
+    const iso = d.trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return weekStartFromDateIso(iso);
+  }
+  const date = typeof d === "string" ? new Date(d.includes("T") ? d : `${d}T12:00:00`) : new Date(d);
+  const dow = (date.getDay() + 6) % 7;
   date.setDate(date.getDate() - dow);
-  return date.toISOString().slice(0, 10);
+  const y = date.getFullYear();
+  const mo = date.getMonth() + 1;
+  const day = date.getDate();
+  return `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 export function nextWeekStartOf(d: Date | string = new Date()): string {
-  const m = new Date(weekStartOf(d) + "T00:00:00");
-  m.setDate(m.getDate() + 7);
-  return m.toISOString().slice(0, 10);
+  const base = weekStartOf(d);
+  const [y, mo, day] = base.split("-").map(Number);
+  const m = new Date(y, mo - 1, day + 7, 12, 0, 0);
+  const ny = m.getFullYear();
+  const nmo = m.getMonth() + 1;
+  const nd = m.getDate();
+  return `${ny}-${String(nmo).padStart(2, "0")}-${String(nd).padStart(2, "0")}`;
 }
 
 /** Bekleyen onay sayısı (yayıncı harcaması). */

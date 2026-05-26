@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore, type WeeklyPlan, type Employee, WEEKDAYS_LONG } from "@/store/store";
+import { weekDayIsosFromStart, weekStartFromDateIso } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -40,12 +41,9 @@ export function weekRangeLabel(weekStartIso: string) {
   return `${a.toLocaleDateString("tr-TR", { day: "numeric", month: "short" })} – ${b.toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
-/** Pazartesi ISO (YYYY-MM-DD) */
+/** Pazartesi ISO (YYYY-MM-DD), yerel takvim */
 export function weekStartOfIso(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  const dow = (d.getDay() + 6) % 7;
-  d.setDate(d.getDate() - dow);
-  return d.toISOString().slice(0, 10);
+  return weekStartFromDateIso(isoDate);
 }
 
 export function WeeklyPlanForm({
@@ -84,21 +82,21 @@ export function WeeklyPlanForm({
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const weekDays = useMemo(() => {
-    const days: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart + "T00:00:00");
-      d.setDate(d.getDate() + i);
-      days.push(d.toISOString().slice(0, 10));
-    }
-    return days;
-  }, [weekStart]);
+  const weekDays = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSave({ ...form, weekStart: weekStartOfIso(form.date) });
+        const date = form.date?.trim() || weekDays[0] || weekStart;
+        if (!date) return;
+        onSave({
+          ...form,
+          date,
+          weekStart: weekStartOfIso(date),
+          startTime: form.startTime?.trim() || undefined,
+          endTime: form.endTime?.trim() || undefined,
+        });
         onClose();
       }}
     >
@@ -192,15 +190,7 @@ export function WeeklyPlanGrid({
   onAdd: () => void;
   onEdit: (p: WeeklyPlan) => void;
 }) {
-  const days = useMemo(() => {
-    const arr: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart + "T00:00:00");
-      d.setDate(d.getDate() + i);
-      arr.push(d.toISOString().slice(0, 10));
-    }
-    return arr;
-  }, [weekStart]);
+  const days = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
 
   const dayCell = (iso: string, i: number, compact?: boolean) => {
     const dayPlans = plans

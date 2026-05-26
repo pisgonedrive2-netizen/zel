@@ -7,6 +7,7 @@ import type {
   WeekBrandReel, AppNotification,
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
+import { pgDate, pgTime, pgTimestamptz } from "@/lib/db/pg-value";
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 const optNum = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
@@ -672,9 +673,13 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
 }
 
 export function contentExpenseToRow(e: ContentExpense) {
+  const date =
+    pgDate(e.date, e.month ? `${e.month}-01` : null) ??
+    (e.month?.length >= 7 ? `${e.month.slice(0, 7)}-01` : null) ??
+    "1970-01-01";
   return {
     id: e.id,
-    date: e.date,
+    date,
     month: e.month,
     employee_id: e.employeeId,
     brand_id: e.brandId ?? null,
@@ -685,7 +690,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     amount_usd: e.amountUsd,
     amount_thb: e.amountThb ?? null,
     paid: e.paid,
-    paid_date: e.paidDate ?? null,
+    paid_date: pgDate(e.paidDate),
     notes: e.notes,
     screenshot_url: e.screenshotUrl ?? null,
     submitted_at: e.submittedAt ?? null,
@@ -721,13 +726,16 @@ export function weeklyPlanFromRow(r: Record<string, unknown>): WeeklyPlan {
 }
 
 export function weeklyPlanToRow(p: WeeklyPlan) {
+  const date =
+    pgDate(p.date, p.weekStart) ?? pgDate(p.weekStart) ?? new Date().toISOString().slice(0, 10);
+  const weekStart = pgDate(p.weekStart, date) ?? date;
   const row: Record<string, unknown> = {
     id: p.id,
     employee_id: p.employeeId,
-    week_start: p.weekStart,
-    date: p.date,
-    start_time: p.startTime ?? null,
-    end_time: p.endTime ?? null,
+    week_start: weekStart,
+    date,
+    start_time: pgTime(p.startTime),
+    end_time: pgTime(p.endTime),
     activity: p.activity,
     brand_name: p.brandName ?? null,
     notes: p.notes,
@@ -756,15 +764,16 @@ export function weekBrandReelFromRow(r: Record<string, unknown>): WeekBrandReel 
 }
 
 export function weekBrandReelToRow(r: WeekBrandReel) {
+  const weekStart = pgDate(r.weekStart) ?? r.weekStart;
   return {
     id: r.id,
     employee_id: r.employeeId,
-    week_start: r.weekStart,
+    week_start: weekStart,
     brand_id: r.brandId,
     content_url: r.contentUrl,
     platform: r.platform,
     brand_link_id: r.brandLinkId ?? null,
-    published_at: r.publishedAt ?? null,
+    published_at: pgTimestamptz(r.publishedAt),
     notes: r.notes,
     created_at: r.createdAt,
   };

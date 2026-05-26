@@ -27,6 +27,7 @@ import { brandChartColor } from "@/lib/brand-viewership-series";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
+import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -483,6 +484,31 @@ export default function IzlenmePage() {
   // ── Counts for navbar / chips ──────────────────────────────────────────
   const hasNoData = brandLinks.length === 0 && brands.length === 0;
 
+  const latestSnapshotYm = useMemo(() => {
+    let max = "";
+    for (const s of linkSnapshots) {
+      const ym = s.date.slice(0, 7);
+      if (ym > max) max = ym;
+    }
+    return max || null;
+  }, [linkSnapshots]);
+
+  const viewsAllLinksMonth = useMemo(
+    () =>
+      totalLinkViewsForMonth(
+        brandLinks.filter((l) => l.status === "active"),
+        viewMonth,
+        linkSnapshots,
+        todayYm
+      ),
+    [brandLinks, viewMonth, linkSnapshots, todayYm]
+  );
+
+  const monthFilterHidesData =
+    linkScope === "month" &&
+    totalViewsMonth === 0 &&
+    viewsAllLinksMonth > 0;
+
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       {/* Page header */}
@@ -510,6 +536,43 @@ export default function IzlenmePage() {
           </p>
         </div>
       </header>
+
+      <ViewershipReloadBanner
+        snapshotCount={linkSnapshots.length}
+        linkCount={brandLinks.filter((l) => l.url?.trim()).length}
+        viewMonth={viewMonth}
+      />
+
+      {monthFilterHidesData && (
+        <div className="mb-4 rounded-xl border border-blue-300/70 bg-blue-50/80 px-4 py-3 text-sm text-blue-950 dark:border-blue-500/40 dark:bg-blue-950/40 dark:text-blue-100">
+          <p className="font-medium">Ay filtresi bazı linkleri gizliyor</p>
+          <p className="mt-1 text-xs opacity-90">
+            {monthTitleYm(viewMonth)} için görünür link yok; tüm aktif linklerde toplam{" "}
+            <span className="font-semibold tabular-nums">{fmtViews(viewsAllLinksMonth)}</span>{" "}
+            izlenme var. Navbar’dan <strong>Tüm linkler</strong> seçeneğini deneyin.
+          </p>
+        </div>
+      )}
+
+      {linkSnapshots.length > 0 &&
+        latestSnapshotYm &&
+        viewMonth !== latestSnapshotYm &&
+        totalViewsMonth === 0 && (
+          <div className="mb-4 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
+            <p className="font-medium text-foreground">Bu ayda kayıtlı izlenme yok</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Snapshot verisi en son{" "}
+              <button
+                type="button"
+                className="underline font-medium text-foreground"
+                onClick={() => setViewMonth(latestSnapshotYm)}
+              >
+                {monthTitleYm(latestSnapshotYm)}
+              </button>{" "}
+              ayında — geçmek için tıklayın.
+            </p>
+          </div>
+        )}
 
       {/* Sticky tabs + month picker */}
       <IzlenmeNavbar

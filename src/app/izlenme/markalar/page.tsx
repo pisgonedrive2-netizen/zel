@@ -65,6 +65,7 @@ import {
 } from "@/lib/brand-monthly-stats";
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
+import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
 
 type SortKey = "views" | "target" | "growth";
@@ -376,7 +377,11 @@ export default function MarkalarPage() {
           link: String(r.links.length),
           yayinci: String(r.ownerCount),
           hedef:
-            r.targetPct != null ? `${r.targetPct.toFixed(0)}%` : "—",
+            r.target != null && r.target > 0
+              ? `${fmtViews(r.target)} · ${r.targetPct != null ? `${r.targetPct.toFixed(0)}%` : "—"}`
+              : r.targetPct != null
+                ? `${r.targetPct.toFixed(0)}%`
+                : "—",
           durum: r.brand.status,
         })),
       };
@@ -417,6 +422,11 @@ export default function MarkalarPage() {
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+      <ViewershipReloadBanner
+        snapshotCount={linkSnapshots.length}
+        linkCount={brandLinks.filter((l) => l.url?.trim()).length}
+        viewMonth={viewMonth}
+      />
       <IzlenmeNavbar
         viewMonth={viewMonth}
         onChangeMonth={setViewMonth}

@@ -25,6 +25,8 @@ import {
   salaryExtraFromRow,
   contentExpenseFromRow,
 } from "@/lib/db/mappers";
+import { pgDate } from "@/lib/db/pg-value";
+import { weekStartFromDateIso } from "@/lib/data";
 import type {
   ScheduleSlot,
   BrandLink,
@@ -191,9 +193,21 @@ export async function POST(req: Request) {
       }
       case "weekly_plan": {
         const p = weeklyPlanFromRow(row) as WeeklyPlan;
+        const date = pgDate(p.date, p.weekStart);
+        if (!date) {
+          return NextResponse.json(
+            { error: "Plan tarihi gerekli (YYYY-MM-DD boş olamaz)" },
+            { status: 400 }
+          );
+        }
+        const safe: WeeklyPlan = {
+          ...p,
+          date,
+          weekStart: pgDate(p.weekStart, weekStartFromDateIso(date)) ?? date,
+        };
         const { error } = await db
           .from("weekly_plans")
-          .upsert(weeklyPlanToRow(p), { onConflict: "id" });
+          .upsert(weeklyPlanToRow(safe), { onConflict: "id" });
         if (error) throw new Error(error.message);
         break;
       }

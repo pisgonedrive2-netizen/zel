@@ -30,10 +30,71 @@ import {
 
 type Rows = Record<string, unknown>[];
 
+const SELECT_PAGE = 1000;
+
+/** PostgREST varsayılan satır sınırını aşmamak için sayfalı okuma. */
 async function selectAll<T>(table: string, map: (r: Record<string, unknown>) => T): Promise<T[]> {
-  const { data, error } = await getSupabaseAdmin().from(table).select("*");
-  if (error) throw new Error(`${table}: ${error.message}`);
-  return (data ?? []).map((r) => map(r as Record<string, unknown>));
+  const out: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await getSupabaseAdmin()
+      .from(table)
+      .select("*")
+      .range(from, from + SELECT_PAGE - 1);
+    if (error) throw new Error(`${table}: ${error.message}`);
+    const rows = data ?? [];
+    out.push(...rows.map((r) => map(r as Record<string, unknown>)));
+    if (rows.length < SELECT_PAGE) break;
+    from += SELECT_PAGE;
+  }
+  return out;
+}
+
+/** İzlenme panosu — marka, link, snapshot, manuel rapor (yeniden yükleme için). */
+export async function fetchViewershipBootstrap(
+  session: SessionPayload
+): Promise<
+  Pick<AppHydratePayload, "brands" | "brandLinks" | "linkSnapshots" | "brandViewership">
+> {
+  const [brands, brandLinks, linkSnapshots, brandViewership] = await Promise.all([
+    selectAll("brands", brandFromRow),
+    selectAll("brand_links", brandLinkFromRow),
+    selectAll("link_snapshots", linkSnapshotFromRow),
+    selectAll("brand_viewership", viewershipFromRow),
+  ]);
+  const validBrandIds = await loadValidBrandIds(brands);
+  const safeLinks = filterBrandLinksWithValidBrands(brandLinks, validBrandIds);
+
+  if (session.role === "streamer" && session.employeeId) {
+    const eid = session.employeeId;
+    const myLinks = safeLinks.filter((l) => l.ownerId === eid);
+    const myLinkIds = new Set(myLinks.map((l) => l.id));
+    return {
+      brands: brands.filter((b) => b.status === "active"),
+      brandLinks: myLinks,
+      linkSnapshots: linkSnapshots.filter((s) => myLinkIds.has(s.linkId)),
+      brandViewership: brandViewership.filter((v) => v.employeeId === eid),
+    };
+  }
+
+  if (session.role === "brand" && session.brandId) {
+    const bid = session.brandId;
+    const myLinks = safeLinks.filter((l) => l.brandId === bid);
+    const myLinkIds = new Set(myLinks.map((l) => l.id));
+    return {
+      brands: brands.filter((b) => b.id === bid),
+      brandLinks: myLinks,
+      linkSnapshots: linkSnapshots.filter((s) => myLinkIds.has(s.linkId)),
+      brandViewership: brandViewership.filter((v) => v.brandId === bid),
+    };
+  }
+
+  return {
+    brands,
+    brandLinks: safeLinks,
+    linkSnapshots,
+    brandViewership,
+  };
 }
 
 async function upsertRows(table: string, rows: Record<string, unknown>[]) {
@@ -387,8 +448,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
       skipDelete: true,
       mergeUpsert: true,
     },
-    { table: "link_snapshots", rows: (payload.linkSnapshots ?? []).map(linkSnapshotToRow), skipDelete: true },
-    { table: "brand_viewership", rows: (payload.brandViewership ?? []).map(viewershipToRow), skipDelete: true },
+    // link_snapshots / brand_viewership: yalnızca row-persist, refresh-runner ve admin API.
+    // Toplu sync ile yazılmaz — boş/eksik istemci state veri kaybı riski.
     // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
     // deleteNotIn yapmıyoruz: kullanıcı yanlışlıkla bağlı hareketleri olan
     // bir kasayı silerse FK RESTRICT hata fırlatır. Bunun yerine `archived`

@@ -101,6 +101,36 @@ export function toDateLocal(d: Date): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+/** Haftanın 7 günü (Pzt–Paz), yerel takvim — `toISOString` UTC kayması yok. */
+export function weekDayIsosFromStart(weekStartIso: string): string[] {
+  const base = pgDateOnly(weekStartIso);
+  if (!base) return [];
+  const [y, mo, day] = base.split("-").map(Number);
+  const days: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(y, mo - 1, day + i, 12, 0, 0);
+    days.push(toDateLocal(d));
+  }
+  return days;
+}
+
+/** Verilen günün hafta başlangıcı (Pazartesi), yerel. */
+export function weekStartFromDateIso(isoDate: string): string {
+  const base = pgDateOnly(isoDate);
+  if (!base) return "";
+  const [y, mo, day] = base.split("-").map(Number);
+  const d = new Date(y, mo - 1, day, 12, 0, 0);
+  const dow = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - dow);
+  return toDateLocal(d);
+}
+
+function pgDateOnly(value: string): string | null {
+  const v = value.trim();
+  const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 export function shiftCalendarMonthYm(ym: string, deltaMonths: number): string {
   const [y, mo] = ym.split("-").map(Number);
   const d = new Date(y, mo - 1 + deltaMonths, 1);
