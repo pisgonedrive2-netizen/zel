@@ -8,7 +8,7 @@ import {
   Instagram, Youtube, Globe, MessageCircle, Send, Twitch, Music2, Lock,
   Plus, Pencil, Image as ImageIcon, Trash2, Clock, Bell, MessageSquare,
   Check, X as CloseIcon, Link2, Activity, TrendingUp, Video,
-  Download, FileSpreadsheet, Target, BarChart3,
+  Download, FileSpreadsheet, Target, BarChart3, Search, Trophy, Filter, LayoutList, LayoutGrid, X,
 } from "lucide-react";
 import {
   useStore, calcNetPayable, calcOpenAdvanceBalance, calcAdvanceRepaid,
@@ -30,6 +30,8 @@ import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
+import { BrandLinkThumb } from "@/components/brand-link-thumb";
+import { FilterChipBar } from "@/components/filter-chip-bar";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { fmt, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
@@ -51,6 +53,8 @@ import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormG
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
 import { canStreamerEditExpense, canStreamerWithdrawExpense, isActiveContentExpense } from "@/lib/content-expense";
+import { cn } from "@/lib/utils";
+import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const monthLabel = (ym: string) =>
@@ -131,6 +135,32 @@ function linkMonthViewsMeta(
     if (before) delta = link.lastViews - before.views;
   }
   return { displayViews, snapDate, snapsInMonth, delta };
+}
+
+/**
+ * Marka linkleri sekmesi — seçili ay:
+ * - o ay eklenen linkler
+ * - veya o ayda snapshot’ı olan linkler (önceki aylarda eklenmiş olsa bile)
+ * - tarihsiz eski kayıtlar: bu ay snapshot veya içinde bulunulan ay + aktif
+ */
+function isBrandLinkInMonth(
+  link: BrandLink,
+  ym: string,
+  todayYm: string,
+  snaps: LinkSnapshot[]
+): boolean {
+  const hasSnapInMonth = snaps.some(
+    (s) => s.linkId === link.id && s.date.startsWith(ym)
+  );
+  if (hasSnapInMonth) return true;
+
+  if (link.createdAt) {
+    const createdYm = link.createdAt.slice(0, 7);
+    if (createdYm === ym) return true;
+    return false;
+  }
+
+  return ym === todayYm && link.status === "active";
 }
 
 function formatDateLong(iso: string) {
@@ -462,10 +492,11 @@ function AccountForm({ employeeId, initial, onSave, onDelete, onClose }: {
 }
 
 // ── Brand Link Form ──────────────────────────────────────────────────────
-function BrandLinkForm({ ownerId, brands, initial, onSave, onDelete, onClose }: {
+function BrandLinkForm({ ownerId, brands, initial, existingLinks, onSave, onDelete, onClose }: {
   ownerId: string;
   brands: { id: string; name: string; shortName: string }[];
   initial?: BrandLink;
+  existingLinks: BrandLink[];
   onSave: (d: Omit<BrandLink, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
@@ -485,7 +516,21 @@ function BrandLinkForm({ ownerId, brands, initial, onSave, onDelete, onClose }: 
   const favicon = faviconFor(form.url);
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
+    <form onSubmit={e => {
+      e.preventDefault();
+      const dup = findDuplicateBrandLink(existingLinks, form.url, initial?.id, {
+        ownerId,
+        brandId: form.brandId,
+      });
+      if (dup) {
+        window.alert(
+          `Bu URL zaten kayıtlı: ${dup.platform}${dup.handle ? ` · ${dup.handle}` : ""}. Aynı linki tekrar ekleyemezsiniz.`
+        );
+        return;
+      }
+      onSave(form);
+      onClose();
+    }}>
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Marka" required>
@@ -580,6 +625,141 @@ function SnapshotForm({
       </div>
       <FormActions onCancel={onClose} submitLabel="Snapshot Kaydet" />
     </form>
+  );
+}
+
+type MarkaLinkSort = "views-desc" | "views-asc" | "brand-az" | "platform" | "newest";
+type MarkaLinkSnapFilter = "all" | "has-snap" | "no-snap";
+
+function MarkaLinkListRow({
+  link,
+  brand,
+  month,
+  todayYm,
+  linkSnapshots,
+  onDetails,
+  onSnapshot,
+  onEdit,
+  onDelete,
+}: {
+  link: BrandLink;
+  brand?: Brand;
+  month: string;
+  todayYm: string;
+  linkSnapshots: LinkSnapshot[];
+  onDetails: () => void;
+  onSnapshot: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const Icon = platformIcon(link.platform);
+  const { displayViews, snapDate, snapsInMonth, delta } = linkMonthViewsMeta(
+    link,
+    month,
+    linkSnapshots,
+    todayYm
+  );
+
+  return (
+    <div className="group flex items-start gap-3 px-3 py-2.5 rounded-lg border border-border bg-background hover:border-purple-200 dark:hover:border-purple-500/50 transition-colors">
+      <div className="relative shrink-0 mt-0.5">
+        <BrandLinkThumb link={link} className="h-14 w-14" />
+        <span
+          className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-md border border-border bg-background shadow-sm"
+          title={link.platform}
+        >
+          <Icon size={11} className="text-purple-700 dark:text-purple-300" />
+        </span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-sm font-medium">{brand?.shortName ?? "—"}</p>
+          {link.status === "inactive" && (
+            <Badge variant="outline" className="text-[9px] text-muted-foreground">pasif</Badge>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground truncate">{link.handle || "(handle yok)"}</p>
+        {link.url && (
+          <p className="text-[10px] text-blue-600 truncate font-mono">{urlHostname(link.url)}</p>
+        )}
+        {snapDate && (
+          <p className="text-[9px] text-muted-foreground mt-0.5">
+            Bu ay kayıt: {snapDate}
+            {snapsInMonth.length > 1 ? ` · ${snapsInMonth.length} snapshot` : ""}
+          </p>
+        )}
+        {!snapDate && month === todayYm && link.lastSnapshotDate && (
+          <p className="text-[9px] text-muted-foreground mt-0.5">Canlı: {link.lastSnapshotDate}</p>
+        )}
+        {!snapDate && month !== todayYm && (
+          <p className="text-[9px] text-amber-700/90 dark:text-amber-300/90 mt-0.5">Bu ay için snapshot yok</p>
+        )}
+      </div>
+      <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
+        <p className="text-sm font-bold tabular-nums leading-tight">
+          {displayViews != null ? fmtViews(displayViews) : "—"}
+        </p>
+        <p className="text-[9px] text-muted-foreground inline-flex items-center gap-0.5">
+          <Eye size={9} />
+          {snapsInMonth.length} bu ay
+        </p>
+        {delta !== 0 && displayViews != null && (
+          <p
+            className={`text-[9px] inline-flex items-center gap-0.5 ${delta > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+          >
+            <TrendingUp size={8} className={delta < 0 ? "rotate-180" : ""} />
+            {Math.abs(delta).toLocaleString("tr-TR")}
+          </p>
+        )}
+      </div>
+      <div className="flex flex-col items-center gap-0.5 shrink-0">
+        {isAutoTrackable(link.url, link.platform, link.handle, link.externalRef) && (
+          <button
+            type="button"
+            onClick={onDetails}
+            title="API'den canlı detayları çek"
+            className="p-2 rounded-md border border-border/60 bg-muted/30 hover:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+          >
+            <BarChart3 size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onSnapshot}
+          title="Snapshot ekle (izlenme güncelle)"
+          className="p-2 rounded-md border border-border/60 bg-muted/30 hover:bg-purple-500/15 text-purple-700 dark:text-purple-400"
+        >
+          <Eye size={14} />
+        </button>
+        {link.url && (
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener"
+            title="Linki aç"
+            className="p-2 rounded-md border border-border/60 bg-muted/30 hover:bg-blue-500/15 text-blue-600 dark:text-blue-400"
+          >
+            <ExternalLink size={14} />
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Düzenle"
+          className="p-2 rounded-md border border-border/60 bg-muted/30 hover:bg-accent text-foreground"
+        >
+          <Pencil size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Sil"
+          className="p-2 rounded-md border border-border/60 bg-muted/30 hover:bg-red-500/15 text-red-600 dark:text-red-400"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1144,6 +1324,17 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const [snapshotModal, setSnapshotModal] = useState<BrandLink | null>(null);
   const [detailsLink,   setDetailsLink]   = useState<BrandLink | null>(null);
   const [walletEdit,    setWalletEdit]    = useState<string | null>(null); // null = not editing
+  const [expenseBrandFilter, setExpenseBrandFilter] = useState("all");
+  const [activeLinkPlatformFilter, setActiveLinkPlatformFilter] = useState("all");
+  const [activeLinkBrandFilter, setActiveLinkBrandFilter] = useState("all");
+  const [activeLinkSearch, setActiveLinkSearch] = useState("");
+  const [markaLinkPlatformFilter, setMarkaLinkPlatformFilter] = useState("all");
+  const [markaLinkBrandFilter, setMarkaLinkBrandFilter] = useState("all");
+  const [markaLinkSearch, setMarkaLinkSearch] = useState("");
+  const [markaLinkSort, setMarkaLinkSort] = useState<MarkaLinkSort>("views-desc");
+  const [markaLinkSnapFilter, setMarkaLinkSnapFilter] = useState<MarkaLinkSnapFilter>("all");
+  const [markaLinkStatusFilter, setMarkaLinkStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [markaLinkLayout, setMarkaLinkLayout] = useState<"platform" | "list">("platform");
 
   // ── Maaş hesapları ──
   const active     = isPayrollActive(me, month);
@@ -1178,6 +1369,42 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     () => myExpenses.filter((e) => e.month === month),
     [myExpenses, month]
   );
+
+  const expenseBrandChips = useMemo(() => {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const e of myExpensesForMonth) {
+      const id = e.brandId || e.brandName || "diger";
+      const label =
+        brands.find((b) => b.id === e.brandId)?.shortName ??
+        e.brandName ??
+        "Diğer";
+      const cur = counts.get(id) ?? { label, count: 0 };
+      counts.set(id, { label: cur.label, count: cur.count + 1 });
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+  }, [myExpensesForMonth, brands]);
+
+  const filteredExpensesForMonth = useMemo(() => {
+    if (expenseBrandFilter === "all") return myExpensesForMonth;
+    return myExpensesForMonth.filter((e) => {
+      const id = e.brandId || e.brandName || "diger";
+      return id === expenseBrandFilter;
+    });
+  }, [myExpensesForMonth, expenseBrandFilter]);
+
+  useEffect(() => {
+    setExpenseBrandFilter("all");
+  }, [month]);
+
+  useEffect(() => {
+    setMarkaLinkPlatformFilter("all");
+    setMarkaLinkBrandFilter("all");
+    setMarkaLinkSearch("");
+    setMarkaLinkSnapFilter("all");
+    setMarkaLinkStatusFilter("all");
+  }, [month]);
 
   // ── Plans ──
   const myPlansThisWeek = weeklyPlans.filter(p => p.employeeId === me.id && p.weekStart === thisWeek);
@@ -1217,14 +1444,13 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const myBrandLinks = brandLinks.filter(l => l.ownerId === me.id);
   // Seçili aya ait linkler — listede yalnızca o ay (veya öncesi) eklenmiş ve hâlâ aktif olanlar gösterilir.
   // createdAt yoksa (eski kayıtlar) liste dışı tutmamak için göster.
-  const myBrandLinksForMonth = useMemo(() => {
-    const monthEnd = new Date(`${month}-01T00:00:00`);
-    monthEnd.setMonth(monthEnd.getMonth() + 1);
-    return myBrandLinks.filter((l) => {
-      if (!l.createdAt) return true;
-      return new Date(l.createdAt).getTime() < monthEnd.getTime();
-    });
-  }, [myBrandLinks, month]);
+  const myBrandLinksForMonth = useMemo(
+    () =>
+      myBrandLinks.filter((l) =>
+        isBrandLinkInMonth(l, month, todayYm, linkSnapshots)
+      ),
+    [myBrandLinks, month, todayYm, linkSnapshots]
+  );
 
   // ── Önceki aylar özeti ──
   const myHistory = useMemo(() => {
@@ -1250,7 +1476,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   const expensesByWeek = useMemo(() => {
     const source =
-      section === "harcamalar" ? myExpensesForMonth : myExpenses;
+      section === "harcamalar" ? filteredExpensesForMonth : myExpenses;
     const sorted = [...source].sort((a, b) => b.date.localeCompare(a.date));
     const map = new Map<string, ContentExpense[]>();
     for (const e of sorted) {
@@ -1270,19 +1496,125 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0], "tr"));
   }, [myAccounts]);
 
+  const linkHasSnapInMonth = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of linkSnapshots) {
+      if (s.date.startsWith(month)) set.add(s.linkId);
+    }
+    return set;
+  }, [linkSnapshots, month]);
+
+  const linkViewsInMonth = (link: BrandLink) =>
+    linkMonthViewsMeta(link, month, linkSnapshots, todayYm).displayViews ?? -1;
+
+  const filteredMarkaLinksForMonth = useMemo(() => {
+    let list = [...myBrandLinksForMonth];
+
+    if (markaLinkStatusFilter !== "all") {
+      list = list.filter((l) => l.status === markaLinkStatusFilter);
+    }
+    if (markaLinkPlatformFilter !== "all") {
+      list = list.filter((l) => l.platform === markaLinkPlatformFilter);
+    }
+    if (markaLinkBrandFilter !== "all") {
+      list = list.filter((l) => l.brandId === markaLinkBrandFilter);
+    }
+    if (markaLinkSnapFilter === "has-snap") {
+      list = list.filter((l) => linkHasSnapInMonth.has(l.id));
+    } else if (markaLinkSnapFilter === "no-snap") {
+      list = list.filter((l) => !linkHasSnapInMonth.has(l.id));
+    }
+
+    const q = markaLinkSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((l) => {
+        const brand = brands.find((b) => b.id === l.brandId);
+        return (
+          l.platform.toLowerCase().includes(q) ||
+          (l.handle ?? "").toLowerCase().includes(q) ||
+          (l.url ?? "").toLowerCase().includes(q) ||
+          (l.notes ?? "").toLowerCase().includes(q) ||
+          (brand?.shortName ?? "").toLowerCase().includes(q) ||
+          (brand?.name ?? "").toLowerCase().includes(q)
+        );
+      });
+    }
+
+    list.sort((a, b) => {
+      switch (markaLinkSort) {
+        case "views-asc":
+          return linkViewsInMonth(a) - linkViewsInMonth(b);
+        case "brand-az": {
+          const ba = brands.find((x) => x.id === a.brandId)?.shortName ?? "";
+          const bb = brands.find((x) => x.id === b.brandId)?.shortName ?? "";
+          return ba.localeCompare(bb, "tr") || linkViewsInMonth(b) - linkViewsInMonth(a);
+        }
+        case "platform":
+          return (
+            a.platform.localeCompare(b.platform, "tr") ||
+            linkViewsInMonth(b) - linkViewsInMonth(a)
+          );
+        case "newest":
+          return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+        case "views-desc":
+        default:
+          return linkViewsInMonth(b) - linkViewsInMonth(a);
+      }
+    });
+
+    return list;
+  }, [
+    myBrandLinksForMonth,
+    markaLinkStatusFilter,
+    markaLinkPlatformFilter,
+    markaLinkBrandFilter,
+    markaLinkSnapFilter,
+    markaLinkSearch,
+    markaLinkSort,
+    linkHasSnapInMonth,
+    brands,
+    month,
+    linkSnapshots,
+    todayYm,
+  ]);
+
+  const markaLinkPlatformOptions = useMemo(() => {
+    const set = new Set(myBrandLinksForMonth.map((l) => l.platform));
+    return [...set].sort((a, b) => a.localeCompare(b, "tr"));
+  }, [myBrandLinksForMonth]);
+
+  const markaLinkBrandOptions = useMemo(() => {
+    const ids = new Set(
+      myBrandLinksForMonth.map((l) => l.brandId).filter(Boolean) as string[]
+    );
+    return [...ids]
+      .map((id) => brands.find((b) => b.id === id))
+      .filter((b): b is Brand => Boolean(b))
+      .sort((a, b) => a.shortName.localeCompare(b.shortName, "tr"));
+  }, [myBrandLinksForMonth, brands]);
+
+  const markaLinkFiltersActive =
+    markaLinkPlatformFilter !== "all" ||
+    markaLinkBrandFilter !== "all" ||
+    markaLinkSearch.trim() !== "" ||
+    markaLinkSnapFilter !== "all" ||
+    markaLinkStatusFilter !== "all" ||
+    markaLinkSort !== "views-desc" ||
+    markaLinkLayout !== "platform";
+
   const brandLinksByPlatform = useMemo(() => {
     const m = new Map<string, BrandLink[]>();
-    for (const l of myBrandLinksForMonth) {
+    for (const l of filteredMarkaLinksForMonth) {
       if (!m.has(l.platform)) m.set(l.platform, []);
       m.get(l.platform)!.push(l);
     }
     return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0], "tr"));
-  }, [myBrandLinksForMonth]);
+  }, [filteredMarkaLinksForMonth]);
 
   /** Seçili ay için marka başına: link snapshot (o ay) veya bu ay ise lastViews toplamı. */
   const linkViewsByBrandForMonth = useMemo(() => {
     const agg = new Map<string, number>();
-    for (const l of myBrandLinks) {
+    for (const l of myBrandLinksForMonth) {
       if (!l.brandId) continue;
       const monthSnaps = linkSnapshots
         .filter((s) => s.linkId === l.id && s.date.startsWith(month))
@@ -1298,7 +1630,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       agg.set(l.brandId, (agg.get(l.brandId) ?? 0) + v);
     }
     return agg;
-  }, [myBrandLinks, linkSnapshots, month, todayYm]);
+  }, [myBrandLinksForMonth, linkSnapshots, month, todayYm]);
 
   const myReels = useMemo(
     () => weekBrandReels.filter((r) => r.employeeId === me.id),
@@ -1316,6 +1648,70 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const activeBrands = useMemo(
     () => [...brands].filter((b) => b.status === "active").sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")),
     [brands]
+  );
+
+  const myActiveLinks = useMemo(
+    () => brandLinks.filter((l) => l.ownerId === me.id && l.status === "active"),
+    [brandLinks, me.id]
+  );
+
+  const filteredActiveLinks = useMemo(() => {
+    let list = myActiveLinks;
+    if (activeLinkPlatformFilter !== "all") {
+      list = list.filter((l) => l.platform === activeLinkPlatformFilter);
+    }
+    if (activeLinkBrandFilter !== "all") {
+      list = list.filter((l) => l.brandId === activeLinkBrandFilter);
+    }
+    const q = activeLinkSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((l) => {
+        const brand = brands.find((b) => b.id === l.brandId);
+        return (
+          l.platform.toLowerCase().includes(q) ||
+          (l.handle ?? "").toLowerCase().includes(q) ||
+          (l.url ?? "").toLowerCase().includes(q) ||
+          (brand?.shortName ?? "").toLowerCase().includes(q) ||
+          (brand?.name ?? "").toLowerCase().includes(q)
+        );
+      });
+    }
+    return list;
+  }, [
+    myActiveLinks,
+    activeLinkPlatformFilter,
+    activeLinkBrandFilter,
+    activeLinkSearch,
+    brands,
+  ]);
+
+  const activeLinkPlatformOptions = useMemo(() => {
+    const set = new Set(myActiveLinks.map((l) => l.platform));
+    return [...set].sort((a, b) => a.localeCompare(b, "tr"));
+  }, [myActiveLinks]);
+
+  const activeLinkBrandOptions = useMemo(() => {
+    const ids = new Set(myActiveLinks.map((l) => l.brandId).filter(Boolean) as string[]);
+    return [...ids]
+      .map((id) => brands.find((b) => b.id === id))
+      .filter((b): b is Brand => Boolean(b))
+      .sort((a, b) => a.shortName.localeCompare(b.shortName, "tr"));
+  }, [myActiveLinks, brands]);
+
+  const leaderVideos = useMemo(
+    () =>
+      [...filteredActiveLinks].sort(
+        (a, b) => (b.lastViews ?? 0) - (a.lastViews ?? 0)
+      ),
+    [filteredActiveLinks]
+  );
+
+  const linksSortedByViews = useMemo(
+    () =>
+      [...filteredActiveLinks].sort(
+        (a, b) => (b.lastViews ?? 0) - (a.lastViews ?? 0)
+      ),
+    [filteredActiveLinks]
   );
 
   // ── Submit handler — admin'e bildirim gönder ──
@@ -1804,6 +2200,27 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             </div>
           </div>
 
+          {expenseBrandChips.length > 0 && (
+            <FilterChipBar
+              ariaLabel="Markaya göre harcama filtresi"
+              layout="wrap"
+              value={expenseBrandFilter}
+              onChange={setExpenseBrandFilter}
+              chips={[
+                {
+                  id: "all",
+                  label: "Tüm markalar",
+                  count: myExpensesForMonth.length,
+                },
+                ...expenseBrandChips.map(([id, { label, count }]) => ({
+                  id,
+                  label,
+                  count,
+                })),
+              ]}
+            />
+          )}
+
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
             {/* Sol: özet */}
             <div className="xl:col-span-4 space-y-3 xl:sticky xl:top-[4.5rem] self-start w-full min-w-0">
@@ -1841,12 +2258,16 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
             {/* Sağ: haftalık listeler */}
             <div className="xl:col-span-8 w-full min-w-0 space-y-8">
-              {myExpensesForMonth.length === 0 ? (
+              {filteredExpensesForMonth.length === 0 ? (
                 <Card>
                   <CardContent className="py-10 text-center">
                     <Receipt className="mx-auto text-muted-foreground/30 mb-2" size={28} />
                     <p className="text-sm text-muted-foreground">
-                      {month === todayYm ? "Henüz harcama göndermedin." : `${monthLabel(month)} için harcama yok.`}
+                      {expenseBrandFilter !== "all"
+                        ? "Bu marka için seçili ayda harcama yok."
+                        : month === todayYm
+                          ? "Henüz harcama göndermedin."
+                          : `${monthLabel(month)} için harcama yok.`}
                     </p>
                     <Button size="sm" className="mt-4 gap-1.5" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} type="button">
                       <Plus size={14} /> İlk harcamayı ekle
@@ -2322,154 +2743,294 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           </div>
 
           <Card>
-            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-1.5 text-base">
-                  <Activity size={14} className="text-purple-600 dark:text-purple-400" />
-                  Platformlara göre linkler
-                </CardTitle>
-                <CardDescription>
-                  {monthLabel(month)} · {myBrandLinksForMonth.length} link · gösterilen izlenme bu aydaki son snapshot (yoksa bu ay + güncel değer)
-                </CardDescription>
+            <CardHeader className="space-y-4 pb-2">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-1.5 text-base">
+                    <Activity size={14} className="text-purple-600 dark:text-purple-400" />
+                    Platformlara göre linkler
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    {monthLabel(month)} · {filteredMarkaLinksForMonth.length} / {myBrandLinksForMonth.length} link
+                    {markaLinkFiltersActive ? " (filtreli)" : ""} · izlenme: ayın son snapshot’ı
+                  </CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="inline-flex rounded-lg border border-border p-0.5">
+                    <button
+                      type="button"
+                      title="Platform gruplu"
+                      onClick={() => setMarkaLinkLayout("platform")}
+                      className={cn(
+                        "p-1.5 rounded-md transition-colors",
+                        markaLinkLayout === "platform"
+                          ? "bg-foreground/10 text-foreground"
+                          : "text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      <LayoutGrid size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Tek liste (sıralı)"
+                      onClick={() => setMarkaLinkLayout("list")}
+                      className={cn(
+                        "p-1.5 rounded-md transition-colors",
+                        markaLinkLayout === "list"
+                          ? "bg-foreground/10 text-foreground"
+                          : "text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      <LayoutList size={14} />
+                    </button>
+                  </div>
+                  {markaLinkFiltersActive && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1 text-xs"
+                      onClick={() => {
+                        setMarkaLinkPlatformFilter("all");
+                        setMarkaLinkBrandFilter("all");
+                        setMarkaLinkSearch("");
+                        setMarkaLinkSnapFilter("all");
+                        setMarkaLinkStatusFilter("all");
+                        setMarkaLinkSort("views-desc");
+                        setMarkaLinkLayout("platform");
+                      }}
+                    >
+                      <X size={12} /> Filtreleri sıfırla
+                    </Button>
+                  )}
+                </div>
               </div>
+
+              <div className="relative w-full max-w-md">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-8 h-9 text-sm"
+                  placeholder="Marka, handle, URL veya not ara…"
+                  value={markaLinkSearch}
+                  onChange={(e) => setMarkaLinkSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="min-w-[10rem] flex-1 sm:max-w-[200px]">
+                  <Field label="Sıralama">
+                    <Select
+                      value={markaLinkSort}
+                      onChange={(e) => setMarkaLinkSort(e.target.value as MarkaLinkSort)}
+                      options={[
+                        { value: "views-desc", label: "İzlenme (yüksek → düşük)" },
+                        { value: "views-asc", label: "İzlenme (düşük → yüksek)" },
+                        { value: "brand-az", label: "Marka (A → Z)" },
+                        { value: "platform", label: "Platform, sonra izlenme" },
+                        { value: "newest", label: "En yeni eklenen" },
+                      ]}
+                    />
+                  </Field>
+                </div>
+                <div className="min-w-[8rem] sm:max-w-[140px]">
+                  <Field label="Durum">
+                    <Select
+                      value={markaLinkStatusFilter}
+                      onChange={(e) =>
+                        setMarkaLinkStatusFilter(e.target.value as "all" | "active" | "inactive")
+                      }
+                      options={[
+                        { value: "all", label: "Tümü" },
+                        { value: "active", label: "Aktif" },
+                        { value: "inactive", label: "Pasif" },
+                      ]}
+                    />
+                  </Field>
+                </div>
+                <div className="min-w-[10rem] sm:max-w-[180px]">
+                  <Field label="Snapshot (bu ay)">
+                    <Select
+                      value={markaLinkSnapFilter}
+                      onChange={(e) =>
+                        setMarkaLinkSnapFilter(e.target.value as MarkaLinkSnapFilter)
+                      }
+                      options={[
+                        { value: "all", label: "Tümü" },
+                        { value: "has-snap", label: "Snapshot var" },
+                        { value: "no-snap", label: "Snapshot yok" },
+                      ]}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              {markaLinkPlatformOptions.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                    <Filter size={10} /> Platform
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMarkaLinkPlatformFilter("all")}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                        markaLinkPlatformFilter === "all"
+                          ? "border-violet-500/50 bg-violet-500/15 text-violet-900 dark:text-violet-100"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      Tümü ({myBrandLinksForMonth.length})
+                    </button>
+                    {markaLinkPlatformOptions.map((plat) => {
+                      const Pl = platformIcon(plat);
+                      const count = myBrandLinksForMonth.filter((l) => l.platform === plat).length;
+                      return (
+                        <button
+                          key={plat}
+                          type="button"
+                          onClick={() =>
+                            setMarkaLinkPlatformFilter((p) => (p === plat ? "all" : plat))
+                          }
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            markaLinkPlatformFilter === plat
+                              ? "border-violet-500/50 bg-violet-500/15 text-violet-900 dark:text-violet-100"
+                              : "border-border text-muted-foreground hover:bg-accent"
+                          )}
+                        >
+                          <Pl size={11} />
+                          {plat}
+                          <span className="opacity-70">({count})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {markaLinkBrandOptions.length > 0 && (
+                <FilterChipBar
+                  ariaLabel="Markaya göre link filtresi"
+                  layout="wrap"
+                  value={markaLinkBrandFilter}
+                  onChange={setMarkaLinkBrandFilter}
+                  chips={[
+                    {
+                      id: "all",
+                      label: "Tüm markalar",
+                      count: myBrandLinksForMonth.length,
+                    },
+                    ...markaLinkBrandOptions.map((b) => ({
+                      id: b.id,
+                      label: b.shortName,
+                      count: myBrandLinksForMonth.filter((l) => l.brandId === b.id).length,
+                    })),
+                  ]}
+                />
+              )}
             </CardHeader>
             <CardContent>
               {myBrandLinksForMonth.length === 0 ? (
                 <div className="text-center py-8 px-4 border border-dashed border-border rounded-lg">
                   <Activity size={22} className="mx-auto text-muted-foreground/40 mb-2" />
-                  <p className="text-sm text-muted-foreground">Henüz marka linki yok.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {myBrandLinks.length > 0
+                      ? `${monthLabel(month)} için eklenmiş link yok.`
+                      : "Henüz marka linki yok."}
+                  </p>
                   <p className="text-xs text-muted-foreground/70 mt-1">
                     {brands.length === 0
                       ? "Önce yönetici marka tanımlamalı."
-                      : "Yeni link ekleyerek başla."}
+                      : myBrandLinks.length > 0
+                        ? "Başka bir ay seçin veya bu ay yeni link ekleyin."
+                        : "Yeni link ekleyerek başla."}
                   </p>
                 </div>
+              ) : filteredMarkaLinksForMonth.length === 0 ? (
+                <div className="text-center py-10 px-4 border border-dashed border-border rounded-lg">
+                  <Filter size={24} className="mx-auto text-muted-foreground/35 mb-2" />
+                  <p className="text-sm text-muted-foreground">Filtreye uyan link yok.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => {
+                      setMarkaLinkPlatformFilter("all");
+                      setMarkaLinkBrandFilter("all");
+                      setMarkaLinkSearch("");
+                      setMarkaLinkSnapFilter("all");
+                      setMarkaLinkStatusFilter("all");
+                    }}
+                  >
+                    Filtreleri temizle
+                  </Button>
+                </div>
+              ) : markaLinkLayout === "list" ? (
+                <div className="space-y-2 max-h-[min(70vh,960px)] overflow-y-auto pr-1">
+                  {filteredMarkaLinksForMonth.map((link) => {
+                    const brand = brands.find((b) => b.id === link.brandId);
+                    return (
+                      <MarkaLinkListRow
+                        key={link.id}
+                        link={link}
+                        brand={brand}
+                        month={month}
+                        todayYm={todayYm}
+                        linkSnapshots={linkSnapshots}
+                        onDetails={() => setDetailsLink(link)}
+                        onSnapshot={() => setSnapshotModal(link)}
+                        onEdit={() => setLinkModal(link)}
+                        onDelete={() => {
+                          if (confirm(`${brand?.shortName ?? "Link"} silinsin mi?`)) {
+                            deleteBrandLink(link.id);
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-6 max-h-[min(70vh,960px)] overflow-y-auto pr-1">
                   {brandLinksByPlatform.map(([platform, links]) => {
                     const PlIcon = platformIcon(platform);
+                    const platformViews = links.reduce(
+                      (s, l) => s + Math.max(0, linkViewsInMonth(l)),
+                      0
+                    );
                     return (
                       <div key={platform} className="rounded-xl border border-border bg-card overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2.5 bg-purple-50/80 dark:bg-purple-950/40 border-b border-border">
                           <PlIcon size={16} className="text-purple-700 dark:text-purple-300 shrink-0" />
                           <span className="text-sm font-semibold">{platform}</span>
-                          <Badge variant="secondary" className="text-[10px] ml-auto">{links.length} link</Badge>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {links.length} link
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
+                            {fmtViews(platformViews)} toplam
+                          </span>
                         </div>
                         <div className="p-3 space-y-2">
                           {links.map((link) => {
-                            const Icon = platformIcon(link.platform);
                             const brand = brands.find((b) => b.id === link.brandId);
-                            const { displayViews, snapDate, snapsInMonth, delta } = linkMonthViewsMeta(
-                              link,
-                              month,
-                              linkSnapshots,
-                              todayYm
-                            );
                             return (
-                              <div
+                              <MarkaLinkListRow
                                 key={link.id}
-                                className="group flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-background hover:border-purple-200 dark:hover:border-purple-500/50 transition-colors"
-                              >
-                                <div
-                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-500/45 dark:bg-purple-950/50 dark:text-purple-100 mt-0.5"
-                                  title={link.platform}
-                                >
-                                  <Icon size={18} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <p className="text-sm font-medium">{brand?.shortName ?? "—"}</p>
-                                    {link.status === "inactive" && (
-                                      <Badge variant="outline" className="text-[9px] text-muted-foreground">pasif</Badge>
-                                    )}
-                                  </div>
-                                  <p className="text-[11px] text-muted-foreground truncate">{link.handle || "(handle yok)"}</p>
-                                  {link.url && (
-                                    <p className="text-[10px] text-blue-600 truncate font-mono">{urlHostname(link.url)}</p>
-                                  )}
-                                  {snapDate && (
-                                    <p className="text-[9px] text-muted-foreground mt-0.5">
-                                      Bu ay kayıt: {snapDate}
-                                      {snapsInMonth.length > 1 ? ` · ${snapsInMonth.length} snapshot` : ""}
-                                    </p>
-                                  )}
-                                  {!snapDate && month === todayYm && link.lastSnapshotDate && (
-                                    <p className="text-[9px] text-muted-foreground mt-0.5">Canlı: {link.lastSnapshotDate}</p>
-                                  )}
-                                  {!snapDate && month !== todayYm && (
-                                    <p className="text-[9px] text-amber-700/90 dark:text-amber-300/90 mt-0.5">Bu ay için snapshot yok</p>
-                                  )}
-                                </div>
-                                <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
-                                  <p className="text-sm font-bold tabular-nums leading-tight">
-                                    {displayViews != null ? fmtViews(displayViews) : "—"}
-                                  </p>
-                                  <p className="text-[9px] text-muted-foreground inline-flex items-center gap-0.5">
-                                    <Eye size={9} />
-                                    {snapsInMonth.length} bu ay
-                                  </p>
-                                  {delta !== 0 && displayViews != null && (
-                                    <p className={`text-[9px] inline-flex items-center gap-0.5 ${delta > 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                                      <TrendingUp size={8} className={delta < 0 ? "rotate-180" : ""} />
-                                      {Math.abs(delta).toLocaleString("tr-TR")}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="flex flex-col items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                  {isAutoTrackable(
-                                    link.url,
-                                    link.platform,
-                                    link.handle,
-                                    link.externalRef
-                                  ) && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setDetailsLink(link)}
-                                      title="API'den canlı detayları çek"
-                                      className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                    >
-                                      <BarChart3 size={12} />
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setSnapshotModal(link)}
-                                    title="Snapshot ekle (izlenme güncelle)"
-                                    className="p-1.5 rounded hover:bg-purple-500/15 text-purple-600 dark:text-purple-400"
-                                  >
-                                    <Eye size={12} />
-                                  </button>
-                                  {link.url && (
-                                    <a
-                                      href={link.url}
-                                      target="_blank"
-                                      rel="noopener"
-                                      title="Linki aç"
-                                      className="p-1.5 rounded hover:bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                                    >
-                                      <ExternalLink size={12} />
-                                    </a>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setLinkModal(link)}
-                                    title="Düzenle"
-                                    className="p-1.5 rounded hover:bg-accent text-muted-foreground"
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (confirm(`${brand?.shortName ?? "Link"} silinsin mi?`)) deleteBrandLink(link.id);
-                                    }}
-                                    title="Sil"
-                                    className="p-1.5 rounded hover:bg-red-500/15 text-red-600 dark:text-red-400"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              </div>
+                                link={link}
+                                brand={brand}
+                                month={month}
+                                todayYm={todayYm}
+                                linkSnapshots={linkSnapshots}
+                                onDetails={() => setDetailsLink(link)}
+                                onSnapshot={() => setSnapshotModal(link)}
+                                onEdit={() => setLinkModal(link)}
+                                onDelete={() => {
+                                  if (confirm(`${brand?.shortName ?? "Link"} silinsin mi?`)) {
+                                    deleteBrandLink(link.id);
+                                  }
+                                }}
+                              />
                             );
                           })}
                         </div>
@@ -2556,7 +3117,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       )}
 
       {section === "istatistikler" && (() => {
-        const myLinks = brandLinks.filter((l) => l.ownerId === me.id && l.status === "active");
+        const myLinks = filteredActiveLinks;
         const totalViews = myLinks.reduce((s, l) => s + (l.lastViews ?? 0), 0);
         const totalLikes = myLinks.reduce((s, l) => s + (l.lastLikes ?? 0), 0);
         const totalComments = myLinks.reduce((s, l) => s + (l.lastComments ?? 0), 0);
@@ -2567,8 +3128,6 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           acc[l.platform] = (acc[l.platform] ?? 0) + (l.lastViews ?? 0);
           return acc;
         }, {});
-        const brandMap: Record<string, string> = {};
-        brands.forEach((b) => { brandMap[b.id] = b.name; });
         return (
           <div className="space-y-4">
             {/* KPI row */}
@@ -2585,6 +3144,74 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 </div>
               ))}
             </div>
+
+            {leaderVideos.length > 0 && (
+              <Card className="border-violet-200/80 dark:border-violet-500/35">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy size={16} className="text-amber-500" />
+                    Lider videolar
+                  </CardTitle>
+                  <CardDescription>En yüksek izlenmeye göre sıralı · ilk 9</CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {leaderVideos.slice(0, 9).map((l, idx) => {
+                    const brand = brands.find((b) => b.id === l.brandId);
+                    const rank = idx + 1;
+                    return (
+                      <div
+                        key={l.id}
+                        className="flex gap-3 rounded-xl border border-border bg-muted/20 p-2.5"
+                      >
+                        <div className="relative shrink-0">
+                          <BrandLinkThumb
+                            link={l}
+                            className="h-16 w-16"
+                            lazyApi
+                            priority={rank <= 6}
+                          />
+                          <span
+                            className={cn(
+                              "absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold border shadow-sm",
+                              rank === 1
+                                ? "bg-amber-400 text-amber-950 border-amber-500"
+                                : rank <= 3
+                                  ? "bg-violet-500 text-white border-violet-600"
+                                  : "bg-background text-muted-foreground border-border"
+                            )}
+                          >
+                            {rank}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold truncate">
+                            {brand?.shortName ?? "—"} · {l.platform}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                            {l.handle || urlHostname(l.url)}
+                          </p>
+                          <p className="text-sm font-bold tabular-nums text-violet-600 dark:text-violet-400 mt-1">
+                            {fmtN(l.lastViews ?? 0)}
+                          </p>
+                        </div>
+                        {l.url ? (
+                          <a
+                            href={l.url}
+                            target="_blank"
+                            rel="noopener"
+                            className="shrink-0 self-start p-1.5 rounded-md border border-border/60 hover:bg-accent"
+                            title="Linki aç"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Platform breakdown */}
             <Card>
               <CardHeader className="pb-2">
@@ -2617,20 +3244,135 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             </Card>
             {/* Link list */}
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Tüm aktif linkler</CardTitle>
+              <CardHeader className="pb-2 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Tüm aktif linkler</CardTitle>
+                    <CardDescription>
+                      {filteredActiveLinks.length} / {myActiveLinks.length} aktif link · izlenmeye göre sıralı
+                    </CardDescription>
+                  </div>
+                  <div className="relative w-full sm:max-w-xs">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="pl-8 h-8 text-sm"
+                      placeholder="Handle, URL veya marka ara…"
+                      value={activeLinkSearch}
+                      onChange={(e) => setActiveLinkSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveLinkPlatformFilter("all")}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      activeLinkPlatformFilter === "all"
+                        ? "border-foreground/30 bg-foreground/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    Tüm platformlar
+                  </button>
+                  {activeLinkPlatformOptions.map((plat) => {
+                    const Pl = platformIcon(plat);
+                    return (
+                      <button
+                        key={plat}
+                        type="button"
+                        onClick={() =>
+                          setActiveLinkPlatformFilter((p) => (p === plat ? "all" : plat))
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          activeLinkPlatformFilter === plat
+                            ? "border-violet-500/50 bg-violet-500/15 text-violet-800 dark:text-violet-200"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        <Pl size={11} />
+                        {plat}
+                      </button>
+                    );
+                  })}
+                </div>
+                {activeLinkBrandOptions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveLinkBrandFilter("all")}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                        activeLinkBrandFilter === "all"
+                          ? "border-foreground/30 bg-foreground/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      Tüm markalar
+                    </button>
+                    {activeLinkBrandOptions.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() =>
+                          setActiveLinkBrandFilter((id) => (id === b.id ? "all" : b.id))
+                        }
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          activeLinkBrandFilter === b.id
+                            ? "border-primary/40 bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        {b.shortName}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </CardHeader>
-              <CardContent className="space-y-1.5">
+              <CardContent className="space-y-2">
                 {myLinks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">Henüz aktif link yok.</p>
+                  <p className="text-sm text-muted-foreground italic py-4 text-center">
+                    {myActiveLinks.length === 0
+                      ? "Henüz aktif link yok."
+                      : "Filtreye uyan link yok."}
+                  </p>
                 ) : (
-                  myLinks.map((l) => (
-                    <div key={l.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border/60 bg-muted/20">
-                      <span className="text-xs font-medium w-24 truncate">{l.platform}</span>
-                      <span className="text-xs text-muted-foreground flex-1 truncate">{l.handle || l.url}</span>
-                      <span className="text-xs font-bold tabular-nums text-violet-600 dark:text-violet-400">{fmtN(l.lastViews ?? 0)}</span>
-                    </div>
-                  ))
+                  linksSortedByViews.map((l) => {
+                    const brand = brands.find((b) => b.id === l.brandId);
+                    const Pl = platformIcon(l.platform);
+                    const rank =
+                      leaderVideos.findIndex((x) => x.id === l.id) + 1;
+                    return (
+                      <div
+                        key={l.id}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border/60 bg-muted/20"
+                      >
+                        {rank > 0 && rank <= 3 ? (
+                          <span className="w-5 shrink-0 text-center text-[10px] font-bold text-amber-600">
+                            #{rank}
+                          </span>
+                        ) : (
+                          <span className="w-5 shrink-0" />
+                        )}
+                        <BrandLinkThumb link={l} className="h-11 w-11" lazyApi />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium truncate flex items-center gap-1">
+                            <Pl size={11} className="shrink-0 text-violet-600" />
+                            {l.platform}
+                            {brand ? (
+                              <span className="text-muted-foreground font-normal">· {brand.shortName}</span>
+                            ) : null}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground truncate">{l.handle || l.url}</p>
+                        </div>
+                        <span className="text-xs font-bold tabular-nums text-violet-600 dark:text-violet-400 shrink-0">
+                          {fmtN(l.lastViews ?? 0)}
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
               </CardContent>
             </Card>
@@ -2701,6 +3443,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           <BrandLinkForm
             ownerId={me.id}
             brands={brands}
+            existingLinks={brandLinks.filter((l) => l.ownerId === me.id)}
             initial={linkModal === "new" ? undefined : linkModal}
             onSave={(d) => {
               if (linkModal === "new") {

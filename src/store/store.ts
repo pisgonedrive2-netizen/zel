@@ -10,6 +10,7 @@ import {
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
+import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -2077,9 +2078,20 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
 
       // Brand link
       addBrandLink: (l) => {
-        const row = { ...l, id: uid(), createdAt: l.createdAt ?? new Date().toISOString() };
-        set((s) => ({ brandLinks: [...s.brandLinks, row] }));
-        persistEntity("brand_link", row);
+        set((s) => {
+          const dup = findDuplicateBrandLink(s.brandLinks, l.url, undefined, {
+            brandId: l.brandId,
+            ownerId: l.ownerId,
+          });
+          if (dup) return s;
+          const row = {
+            ...l,
+            id: uid(),
+            createdAt: l.createdAt ?? new Date().toISOString(),
+          };
+          persistEntity("brand_link", row);
+          return { brandLinks: [...s.brandLinks, row] };
+        });
       },
       updateBrandLink: (id, l) => {
         set((s) => {

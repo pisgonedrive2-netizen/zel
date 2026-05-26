@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import { SOCIAL_PLATFORMS, type Brand, type BrandLink, type Employee } from "@/store/store";
 
 export function BrandLinkFormModal({
@@ -11,6 +12,7 @@ export function BrandLinkFormModal({
   brand,
   employees,
   initial,
+  existingLinks,
   onSave,
   onDelete,
 }: {
@@ -19,6 +21,7 @@ export function BrandLinkFormModal({
   brand: Brand;
   employees: Employee[];
   initial?: BrandLink;
+  existingLinks: BrandLink[];
   onSave: (d: Omit<BrandLink, "id">) => void;
   onDelete?: () => void;
 }) {
@@ -61,6 +64,15 @@ export function BrandLinkFormModal({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          const dup = findDuplicateBrandLink(existingLinks, form.url, initial?.id, {
+            brandId: brand.id,
+          });
+          if (dup) {
+            window.alert(
+              `Bu URL zaten bu marka için kayıtlı (${dup.platform}${dup.handle ? ` · ${dup.handle}` : ""}).`
+            );
+            return;
+          }
           onSave(form);
           onClose();
         }}

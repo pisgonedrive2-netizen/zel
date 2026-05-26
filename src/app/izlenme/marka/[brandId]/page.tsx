@@ -750,6 +750,7 @@ export default function BrandDetailPage({
         onClose={() => setLinkForm(undefined)}
         brand={brand}
         employees={employees}
+        existingLinks={brandLinks.filter((l) => l.brandId === brandId)}
         initial={linkForm ?? undefined}
         onSave={(d) => {
           if (linkForm) {

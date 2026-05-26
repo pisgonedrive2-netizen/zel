@@ -22,9 +22,10 @@ export const dynamic = "force-dynamic";
  * güncellenir — izlenme panelinde görünür.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const thumbOnly = req.nextUrl.searchParams.get("thumbOnly") === "1";
   if (!isSupabaseEnabled() || !isRapidApiEnabled()) {
     return NextResponse.json({ ok: false, error: "RapidAPI veya Supabase yapılandırılmamış" }, { status: 503 });
   }
@@ -100,6 +101,17 @@ export async function GET(
   try {
     const details = await fetchRichDetailsForLink(detected);
     await incrementUsage(detected.platform, 1);
+
+    if (thumbOnly) {
+      return NextResponse.json({
+        ok: true,
+        details: {
+          thumbnailUrl: details.thumbnailUrl,
+          title: details.title,
+          platform: details.platform,
+        },
+      });
+    }
 
     const persisted = await persistLinkMetricsUpdate({
       linkId: id,
