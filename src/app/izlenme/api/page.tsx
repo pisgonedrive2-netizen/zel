@@ -30,11 +30,17 @@ const fmtViews = (n: number) => {
 interface RefreshStatusPayload {
   ok: boolean;
   rapidApiEnabled?: boolean;
+  cronIntervalHours?: number;
   platforms?: Array<{
     platform: "youtube" | "instagram" | "tiktok";
     label: string;
     requestsUsed: number;
     monthlyLimit: number;
+    monthlyBudget?: number;
+    safeRemaining?: number;
+    trackedLinkCount?: number;
+    batchSizePerRun?: number;
+    estimatedIntervalLabel?: string;
     rateLimit: string;
     apiHost: string;
     health?: {
@@ -42,6 +48,7 @@ interface RefreshStatusPayload {
       connectivityStatus: string;
       lastPingAt: string | null;
       linksWithError: number;
+      staleTrackedLinks?: number;
     };
   }>;
 }
@@ -76,15 +83,15 @@ export default function IzlenmeApiPage() {
 
   const loadApiStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/refresh-status", { credentials: "include" });
+      const res = await fetch("/api/admin/refresh-status", { credentials: "include", cache: "no-store" });
       const json = (await res.json()) as RefreshStatusPayload;
       if (json.ok) setApiStatus(json);
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => {
-    if (isAdmin && !readOnly) void loadApiStatus();
-  }, [isAdmin, readOnly, loadApiStatus]);
+  const handleStatusLoaded = useCallback((json: { ok: boolean }) => {
+    if (json.ok) setApiStatus(json as RefreshStatusPayload);
+  }, []);
 
   const totalBrands = brands.filter((b) => b.status === "active").length;
   const totalStreamers = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
@@ -132,8 +139,18 @@ export default function IzlenmeApiPage() {
     });
     const errors = apiLinks.filter((l) => !!l.lastCheckError);
     const autoTrack = apiLinks.filter((l) => l.autoTrack !== false);
+    const quotaByKey: Record<string, NonNullable<RefreshStatusPayload["platforms"]>[number]> = {};
+    for (const p of apiStatus?.platforms ?? []) {
+      quotaByKey[p.platform] = p;
+    }
     const platforms = ["Instagram", "YouTube", "TikTok"].map((label) => {
       const key = label.toLowerCase();
+      const platKey = key.includes("youtube")
+        ? "youtube"
+        : key.includes("tiktok")
+          ? "tiktok"
+          : "instagram";
+      const quota = quotaByKey[platKey];
       const links = apiLinks.filter((l) => l.platform.toLowerCase().includes(key));
       const platformErrors = links.filter((l) => !!l.lastCheckError).length;
       const platformStale = links.filter((l) => {
@@ -144,6 +161,7 @@ export default function IzlenmeApiPage() {
         links.reduce((s, l) => s + (l[field] ?? 0), 0);
       return {
         label,
+        platKey,
         links: links.length,
         autoTrack: links.filter((l) => l.autoTrack !== false).length,
         errors: platformErrors,
@@ -152,6 +170,10 @@ export default function IzlenmeApiPage() {
         likes: sum("lastLikes"),
         comments: sum("lastComments"),
         shares: sum("lastShares"),
+        requestsUsed: quota?.requestsUsed ?? 0,
+        monthlyLimit: quota?.monthlyLimit ?? SOCIAL_PLANS[platKey as keyof typeof SOCIAL_PLANS].monthlyLimit,
+        trackedLinkCount: quota?.trackedLinkCount ?? links.filter((l) => l.autoTrack !== false).length,
+        batchSizePerRun: quota?.batchSizePerRun,
       };
     });
     const lastChecked = apiLinks
@@ -176,7 +198,7 @@ export default function IzlenmeApiPage() {
       staleAndErrorLinks,
       goneLinks,
     };
-  }, [scopedLinks]);
+  }, [scopedLinks, apiStatus]);
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
@@ -194,6 +216,14 @@ export default function IzlenmeApiPage() {
         totalViews={totalViews}
         readOnly={readOnly}
       />
+
+      {isAdmin && !readOnly && (
+        <div className="mb-3 flex justify-end">
+          <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => void loadApiStatus()}>
+            <RefreshCw size={13} /> API özetini yenile
+          </Button>
+        </div>
+      )}
 
       {isAdmin && !readOnly && apiStatus && (
         <div
@@ -316,6 +346,18 @@ export default function IzlenmeApiPage() {
                   <span className="text-muted-foreground">Otomatik takip</span>
                   <span className="font-medium">{p.autoTrack}</span>
                 </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">API kota (ay)</span>
+                  <span className="font-medium tabular-nums text-[11px]">
+                    {p.requestsUsed.toLocaleString("tr-TR")} / {p.monthlyLimit.toLocaleString("tr-TR")}
+                  </span>
+                </div>
+                {p.batchSizePerRun != null && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Cron batch</span>
+                    <span className="font-medium tabular-nums">{p.batchSizePerRun}</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground">Bekleyen</span>
                   <span className={p.stale > 0 ? "text-amber-700 dark:text-amber-300 font-medium" : "text-emerald-700 dark:text-emerald-300 font-medium"}>
@@ -585,6 +627,7 @@ export default function IzlenmeApiPage() {
         viewMonth={viewMonth}
         linkScope={linkScope}
         apiDateMode={apiDateMode}
+        onStatusLoaded={handleStatusLoaded}
       />
     </div>
   );

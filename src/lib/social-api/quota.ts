@@ -57,17 +57,27 @@ export async function getMonthlyUsage(
   };
 }
 
-/** Eski düşük limit kayıtlarını güncel plan limitlerine çeker (YT/IG 5000, TikTok 5000). */
+/** DB kotasını güncel plan limitleriyle hizalar (env / SOCIAL_PLANS). */
 export async function syncQuotaLimitsFromConfig(month: string = currentMonthKey()): Promise<void> {
   const db = getSupabaseAdmin();
   for (const platform of PLATFORMS) {
     const limit = SOCIAL_PLANS[platform].monthlyLimit;
-    await db
+    const id = rowId(platform, month);
+    await db.from("api_quota_usage").upsert(
+      {
+        id,
+        platform,
+        month,
+        monthly_limit: limit,
+      },
+      { onConflict: "platform,month", ignoreDuplicates: true }
+    );
+    const { error } = await db
       .from("api_quota_usage")
       .update({ monthly_limit: limit })
       .eq("platform", platform)
-      .eq("month", month)
-      .lt("monthly_limit", limit);
+      .eq("month", month);
+    if (error) throw new Error(`api_quota_usage sync limit: ${error.message}`);
   }
 }
 

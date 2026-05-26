@@ -75,6 +75,8 @@ export interface AutoRefreshStatusPanelProps {
   viewMonth?: string;
   linkScope?: IzlenmeLinkScope;
   apiDateMode?: IzlenmeApiDateMode;
+  /** Üst özet / kota kartları için aynı veriyi paylaş. */
+  onStatusLoaded?: (data: StatusResponse) => void;
 }
 
 interface RecentRun {
@@ -146,6 +148,7 @@ export function AutoRefreshStatusPanel({
   viewMonth: viewMonthProp,
   linkScope: linkScopeProp = "all",
   apiDateMode: apiDateModeProp = "view-month",
+  onStatusLoaded,
 }: AutoRefreshStatusPanelProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
@@ -228,12 +231,13 @@ export function AutoRefreshStatusPanel({
       if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setData(json);
       if (json.settings) setDraftSettings(json.settings);
+      onStatusLoaded?.(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "?");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onStatusLoaded]);
 
   const testPlatform = useCallback(async (platform: string) => {
     setPingingPlatform(platform);

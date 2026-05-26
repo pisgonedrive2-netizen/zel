@@ -83,15 +83,36 @@ interface AuthState {
   deleteUser: (id: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
+/** Oturum kullanıcısını listedeki güncel profille eşle (sidebar / header). */
+function syncSessionUser(session: AppUser, row: AppUser): AppUser {
+  return {
+    ...session,
+    name: row.name,
+    username: row.username,
+    avatar: row.avatar,
+    role: row.role,
+    employeeId: row.employeeId,
+    brandId: row.brandId,
+    active: row.active,
+    lastLoginAt: row.lastLoginAt,
+    pin: session.pin || row.pin,
+  };
+}
+
 const authCreator: StateCreator<AuthState> = (set, get) => {
   const refreshUsersFromServer = async (): Promise<boolean> => {
     const res = await fetch("/api/users", { credentials: "include" });
     if (!res.ok) return false;
     const data = (await res.json()) as { users?: AppUser[] };
     if (!data.users) return false;
-    set((s) => ({
-      users: mergeUsersWithPinCache(data.users!, s.users),
-    }));
+    set((s) => {
+      const users = mergeUsersWithPinCache(data.users!, s.users);
+      const row = s.user ? users.find((u) => u.id === s.user!.id) : undefined;
+      return {
+        users,
+        user: row && s.user ? syncSessionUser(s.user, row) : s.user,
+      };
+    });
     return true;
   };
 
@@ -243,10 +264,30 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
               };
             }
             if (plainPin) cacheAdminPin(id, plainPin);
-            await refreshUsersFromServer();
-            if (plainPin) {
+            const refreshed = await refreshUsersFromServer();
+            if (refreshed) {
+              set((s) => {
+                const row = s.users.find((u) => u.id === id);
+                const next: Partial<AuthState> = {};
+                if (plainPin) {
+                  next.users = s.users.map((u) =>
+                    u.id === id ? { ...u, pin: plainPin } : u
+                  );
+                }
+                if (row && s.user?.id === id) {
+                  next.user = syncSessionUser(
+                    plainPin ? { ...s.user, pin: plainPin } : s.user,
+                    row
+                  );
+                }
+                return next;
+              });
+            } else if (get().user?.id === id) {
               set((s) => ({
-                users: s.users.map((u) => (u.id === id ? { ...u, pin: plainPin } : u)),
+                user: { ...s.user!, ...profileOnly, ...(plainPin ? { pin: plainPin } : {}) },
+                users: s.users.map((u) =>
+                  u.id === id ? { ...u, ...profileOnly, ...(plainPin ? { pin: plainPin } : {}) } : u
+                ),
               }));
             }
           } catch {

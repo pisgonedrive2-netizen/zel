@@ -64,11 +64,11 @@ export async function GET(_req: NextRequest) {
   }
 
   const db = getSupabaseAdmin();
+  await syncQuotaLimitsFromConfig();
   const [usage, health, refreshSettings] = await Promise.all([
     getAllUsage(),
     getPlatformHealth(),
     getApiRefreshSettings(),
-    syncQuotaLimitsFromConfig().catch(() => undefined),
   ]);
   const cronIntervalHours = refreshSettings.cronIntervalHours;
 
