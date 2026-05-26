@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Activity, AlertTriangle, CheckCircle2, Clock, ExternalLink, Instagram,
-  Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Share2, Sparkles, Trash2, Youtube,
+  Activity, AlertTriangle, Camera, CheckCircle2, Clock, ExternalLink, Globe, Instagram,
+  Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Search, Share2, Sparkles, Trash2, Youtube,
 } from "lucide-react";
 import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilities-card";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
@@ -15,11 +15,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
-import { totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
+import { LinkSnapshotForm } from "@/components/link-snapshot-form";
+import Modal from "@/components/ui/modal";
+import { totalLinkViewsForMonth, linkViewsForMonth } from "@/lib/brand-month-metrics";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
 import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
 import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
+import {
+  isSupportedApiPlatform,
+  splitActiveLinksByApiSupport,
+} from "@/lib/social-api/api-platform-filter";
+import { resolveRefreshTargetDate } from "@/lib/izlenme-refresh";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import type { BrandLink } from "@/store/store";
 
 const fmtViews = (n: number) => {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -58,7 +66,14 @@ export default function IzlenmeApiPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const canDeleteLinks = user?.role === "admin";
-  const { brands, brandLinks, linkSnapshots, pushNotification, updateBrandLink, upsertLinkSnapshot } = useStore();
+  const {
+    brands,
+    brandLinks,
+    linkSnapshots,
+    updateBrandLink,
+    upsertLinkSnapshot,
+    addLinkSnapshot,
+  } = useStore();
   const {
     viewMonth,
     setViewMonth,
@@ -80,6 +95,10 @@ export default function IzlenmeApiPage() {
   const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
   const [apiStatus, setApiStatus] = useState<RefreshStatusPayload | null>(null);
+  const [snapshotLink, setSnapshotLink] = useState<BrandLink | null>(null);
+  const [pendingFilter, setPendingFilter] = useState<"all" | "stale" | "error" | "gone">("all");
+  const [pendingPlatform, setPendingPlatform] = useState<"all" | "youtube" | "instagram" | "tiktok">("all");
+  const [pendingBrandQuery, setPendingBrandQuery] = useState("");
 
   const loadApiStatus = useCallback(async () => {
     try {
@@ -126,12 +145,12 @@ export default function IzlenmeApiPage() {
     return { allOk, anyDown, linkErrors, plats };
   }, [apiStatus]);
 
+  const { apiLinks, otherLinks } = useMemo(
+    () => splitActiveLinksByApiSupport(scopedLinks),
+    [scopedLinks]
+  );
+
   const apiSummary = useMemo(() => {
-    const apiLinks = scopedLinks.filter((l) => {
-      if (l.status !== "active") return false;
-      const p = l.platform.toLowerCase();
-      return p.includes("youtube") || p.includes("instagram") || p.includes("tiktok");
-    });
     const now = Date.now();
     const stale = apiLinks.filter((l) => {
       if (!l.lastCheckedAt) return true;
@@ -151,7 +170,7 @@ export default function IzlenmeApiPage() {
           ? "tiktok"
           : "instagram";
       const quota = quotaByKey[platKey];
-      const links = apiLinks.filter((l) => l.platform.toLowerCase().includes(key));
+      const links = apiLinks.filter((l) => isSupportedApiPlatform(l.platform) && l.platform.toLowerCase().includes(key));
       const platformErrors = links.filter((l) => !!l.lastCheckError).length;
       const platformStale = links.filter((l) => {
         if (!l.lastCheckedAt) return true;
@@ -190,6 +209,7 @@ export default function IzlenmeApiPage() {
     const goneLinks = staleAndErrorLinks.filter((l) => isPostOrLinkGoneError(l.lastCheckError));
     return {
       apiLinks,
+      otherLinks,
       autoTrack,
       stale,
       errors,
@@ -198,7 +218,29 @@ export default function IzlenmeApiPage() {
       staleAndErrorLinks,
       goneLinks,
     };
-  }, [scopedLinks, apiStatus]);
+  }, [apiLinks, otherLinks, apiStatus]);
+
+  const filteredPendingLinks = useMemo(() => {
+    const q = pendingBrandQuery.trim().toLowerCase();
+    return apiSummary.staleAndErrorLinks.filter((l) => {
+      if (pendingPlatform !== "all" && !l.platform.toLowerCase().includes(pendingPlatform)) {
+        return false;
+      }
+      if (pendingFilter === "stale" && l.lastCheckError) return false;
+      if (pendingFilter === "error" && !l.lastCheckError) return false;
+      if (pendingFilter === "gone" && !isPostOrLinkGoneError(l.lastCheckError)) return false;
+      if (q) {
+        const brand = brands.find((b) => b.id === l.brandId);
+        const hay = `${brand?.name ?? ""} ${l.handle ?? ""} ${l.platform}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [apiSummary.staleAndErrorLinks, pendingFilter, pendingPlatform, pendingBrandQuery, brands]);
+
+  const defaultSnapshotDate =
+    resolveRefreshTargetDate(viewMonth, apiDateMode) ??
+    new Date().toISOString().slice(0, 10);
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
@@ -265,7 +307,11 @@ export default function IzlenmeApiPage() {
           <CardContent className="pb-0">
             <p className="text-2xl font-bold tabular-nums">{apiSummary.apiLinks.length}</p>
             <p className="text-[11px] text-muted-foreground mt-1">
-              {apiSummary.autoTrack.length} otomatik takipte · toplam {fmtViews(totalViews)}
+              {apiSummary.autoTrack.length} otomatik takipte
+              {apiSummary.otherLinks.length > 0
+                ? ` · ${apiSummary.otherLinks.length} manuel platform`
+                : ""}{" "}
+              · toplam {fmtViews(totalViews)}
             </p>
           </CardContent>
         </Card>
@@ -430,6 +476,62 @@ export default function IzlenmeApiPage() {
         </Card>
       )}
 
+      {apiSummary.otherLinks.length > 0 && (
+        <Card className="mb-5 border-dashed border-amber-300/60 dark:border-amber-500/35">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Globe size={15} /> API dışı platformlar
+              <Badge variant="outline" className="text-[10px] tabular-nums">
+                {apiSummary.otherLinks.length}
+              </Badge>
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Twitch, Kick, X vb. — otomatik yenileme yok; manuel snapshot ile izlenme girin.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-h-[240px] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="border-b border-border text-muted-foreground">
+                <tr>
+                  <th className="py-1.5 pr-2 text-left font-medium">Marka</th>
+                  <th className="py-1.5 pr-2 text-left font-medium">Platform</th>
+                  <th className="py-1.5 pr-2 text-left font-medium">İzlenme</th>
+                  <th className="py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {apiSummary.otherLinks.map((l) => {
+                  const brand = brands.find((b) => b.id === l.brandId);
+                  const monthViews = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm).lastViews;
+                  return (
+                    <tr key={l.id} className="border-b border-border/50">
+                      <td className="py-1.5 pr-2 font-medium truncate max-w-[140px]">
+                        {brand?.name ?? "—"}
+                      </td>
+                      <td className="py-1.5 pr-2 text-muted-foreground">{l.platform}</td>
+                      <td className="py-1.5 pr-2 tabular-nums">{fmtViews(monthViews)}</td>
+                      <td className="py-1.5 text-right">
+                        {!readOnly && isAdmin && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] gap-1"
+                            onClick={() => setSnapshotLink(l)}
+                          >
+                            <Camera size={11} /> Snapshot
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bekleyen yenileme linkleri */}
       <Card className="mb-5">
         <CardHeader className="pb-2 flex-row items-center justify-between gap-2 flex-wrap">
@@ -437,12 +539,11 @@ export default function IzlenmeApiPage() {
             <CardTitle className="text-base flex items-center gap-2">
               <Clock size={15} /> Bekleyen yenileme linkleri
               <Badge variant="outline" className="text-[10px] tabular-nums">
-                {apiSummary.stale.length + apiSummary.errors.length}
+                {apiSummary.staleAndErrorLinks.length}
               </Badge>
             </CardTitle>
             <CardDescription className="text-xs">
-              24 saatten eski snapshot veya hata almış linkler — yenileyebilir veya gönderi yoksa silebilirsiniz
-              (yayıncı panelinden de kaldırılır).
+              Yalnızca YouTube / Instagram / TikTok — 24 saatten eski veya hatalı; manuel snapshot veya API yenileme.
             </CardDescription>
           </div>
           {canDeleteLinks && !readOnly && apiSummary.goneLinks.length > 0 && (
@@ -480,9 +581,73 @@ export default function IzlenmeApiPage() {
           )}
         </CardHeader>
         <CardContent>
+          {apiSummary.staleAndErrorLinks.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={pendingBrandQuery}
+                  onChange={(e) => setPendingBrandQuery(e.target.value)}
+                  placeholder="Marka veya handle ara…"
+                  className="h-8 w-[180px] rounded-md border border-border bg-background pl-7 pr-2 text-xs"
+                />
+              </div>
+              <div className="inline-flex rounded-md border border-border p-0.5 text-[10px]">
+                {(
+                  [
+                    ["all", "Tümü"],
+                    ["stale", "Bekleyen"],
+                    ["error", "Hata"],
+                    ["gone", "Gönderi yok"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPendingFilter(key)}
+                    className={`rounded px-2 py-1 ${
+                      pendingFilter === key
+                        ? "bg-muted font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="inline-flex rounded-md border border-border p-0.5 text-[10px]">
+                {(
+                  [
+                    ["all", "Platform"],
+                    ["youtube", "YouTube"],
+                    ["instagram", "IG"],
+                    ["tiktok", "TikTok"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPendingPlatform(key)}
+                    className={`rounded px-2 py-1 ${
+                      pendingPlatform === key
+                        ? "bg-muted font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {apiSummary.staleAndErrorLinks.length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-4 text-center">
               Bekleyen yenileme yok — tüm linkler güncel.
+            </p>
+          ) : filteredPendingLinks.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-4 text-center">
+              Filtreye uyan bekleyen link yok.
             </p>
           ) : (
             <div className="max-h-[420px] overflow-y-auto -mx-1 px-1">
@@ -498,7 +663,7 @@ export default function IzlenmeApiPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {apiSummary.staleAndErrorLinks.map((l) => {
+                  {filteredPendingLinks.map((l) => {
                     const brand = brands.find((b) => b.id === l.brandId);
                     const P = l.platform.toLowerCase().includes("instagram")
                       ? Instagram
@@ -556,6 +721,17 @@ export default function IzlenmeApiPage() {
                           {(isAdmin || canDeleteLinks) && !readOnly && (
                             <div className="flex items-center gap-0.5">
                               {isAdmin && (
+                              <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0"
+                                title="Manuel snapshot"
+                                disabled={refreshing[l.id] || deleting[l.id]}
+                                onClick={() => setSnapshotLink(l)}
+                              >
+                                <Camera size={12} />
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -570,6 +746,7 @@ export default function IzlenmeApiPage() {
                                   <RefreshCw size={12} />
                                 )}
                               </Button>
+                              </>
                               )}
                               {canDeleteLinks && (
                               <Button
@@ -629,6 +806,32 @@ export default function IzlenmeApiPage() {
         apiDateMode={apiDateMode}
         onStatusLoaded={handleStatusLoaded}
       />
+
+      <Modal
+        open={!!snapshotLink}
+        onClose={() => setSnapshotLink(null)}
+        title={snapshotLink ? `Manuel snapshot · ${snapshotLink.handle || snapshotLink.platform}` : ""}
+      >
+        {snapshotLink && !readOnly && (
+          <LinkSnapshotForm
+            key={snapshotLink.id}
+            link={snapshotLink}
+            defaultDateForNew={defaultSnapshotDate}
+            suggestedViewsForNew={
+              linkViewsForMonth(snapshotLink, viewMonth, linkSnapshots, todayYm).lastViews
+            }
+            onSave={(d) => {
+              addLinkSnapshot({ ...d, linkId: snapshotLink.id });
+              updateBrandLink(snapshotLink.id, {
+                lastViews: d.views,
+                lastSnapshotDate: d.date,
+              });
+              setSnapshotLink(null);
+            }}
+            onClose={() => setSnapshotLink(null)}
+          />
+        )}
+      </Modal>
     </div>
   );
 }

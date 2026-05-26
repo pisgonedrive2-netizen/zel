@@ -262,9 +262,9 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
       .sort((a, b) => b.views - a.views);
   }, [allBrandLinks, linkSnapshots, viewMonth, todayYm]);
 
-  // Yayıncı / link sahibi bazlı izlenme dağılımı
+  // Yayıncı / link sahibi bazlı izlenme dağılımı — link snapshot + manuel yayıncı raporu
   const ownerBreakdown = useMemo(() => {
-    const map = new Map<string, { name: string; views: number; count: number }>();
+    const map = new Map<string, { name: string; views: number; count: number; source: "link" | "manual" | "mixed" }>();
     for (const l of allBrandLinks) {
       const v = linkViewsForMonth(l, viewMonth, linkSnapshots, todayYm).lastViews;
       if (v <= 0) continue;
@@ -272,13 +272,30 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
       const name = l.ownerId
         ? employees.find((e) => e.id === l.ownerId)?.name ?? "?"
         : "Genel";
-      const e = map.get(key) ?? { name, views: 0, count: 0 };
+      const e = map.get(key) ?? { name, views: 0, count: 0, source: "link" as const };
       e.views += v;
       e.count += 1;
       map.set(key, e);
     }
+    if (brand) {
+      for (const v of brandViewership) {
+        if (v.brandId !== brand.id || v.month !== viewMonth) continue;
+        if (!v.views) continue;
+        const key = v.employeeId ?? "_manual";
+        const name = v.employeeId
+          ? employees.find((e) => e.id === v.employeeId)?.name ?? "?"
+          : "Manuel yayıncı raporu";
+        const prev = map.get(key);
+        if (prev) {
+          prev.views += v.views;
+          prev.source = prev.source === "link" ? "mixed" : prev.source;
+        } else {
+          map.set(key, { name, views: v.views, count: 0, source: "manual" });
+        }
+      }
+    }
     return Array.from(map.values()).sort((a, b) => b.views - a.views);
-  }, [allBrandLinks, linkSnapshots, viewMonth, todayYm, employees]);
+  }, [allBrandLinks, linkSnapshots, viewMonth, todayYm, employees, brand, brandViewership]);
 
   // Geçmiş ayla karşılaştırma
   const prevMonth = shiftCalendarMonthYm(viewMonth, -1);
@@ -591,7 +608,22 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
                   return (
                     <div key={o.name + i}>
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-medium">{o.name}</span>
+                        <span className="font-medium flex items-center gap-1.5">
+                          {o.name}
+                          {o.source !== "link" && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] !h-4 px-1.5 border-amber-300 text-amber-700 dark:border-amber-500/45 dark:text-amber-300"
+                              title={
+                                o.source === "manual"
+                                  ? "Manuel yayıncı izlenme raporu — bağlı link yok"
+                                  : "Link + manuel rapor birlikte sayılıyor"
+                              }
+                            >
+                              {o.source === "manual" ? "manuel" : "link+manuel"}
+                            </Badge>
+                          )}
+                        </span>
                         <span className="tabular-nums text-muted-foreground">
                           {fmtViews(o.views)}{" "}
                           <span className="text-[10px] opacity-60">({pct.toFixed(0)}%)</span>

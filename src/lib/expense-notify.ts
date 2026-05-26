@@ -3,7 +3,7 @@ import { notificationToRow } from "@/lib/db/mappers";
 import type { AppNotification } from "@/store/store";
 import { fmt } from "@/lib/data";
 
-/** Yayıncı harcama gönderdiğinde admin/denetçiye kalıcı bildirim (ref_id ile tekilleştirilir). */
+/** Yayıncı harcama gönderdiğinde yalnızca yöneticiye kalıcı bildirim (ref_id ile tekilleştirilir). */
 export async function ensureExpenseSubmittedNotifications(args: {
   expenseId: string;
   employeeName: string;
@@ -35,31 +35,26 @@ export async function ensureExpenseSubmittedNotifications(args: {
     triggeredBy: args.triggeredBy,
   };
 
-  for (const forRole of ["admin", "auditor"] as const) {
-    const notif: AppNotification = {
-      id: `n-${crypto.randomUUID().slice(0, 12)}`,
-      type: "expense_submitted",
-      title:
-        forRole === "admin"
-          ? `${args.employeeName} yeni harcama gönderdi`
-          : `Yeni yayıncı harcama raporu`,
-      forRole,
-      ...base,
-    };
-    const { error } = await getSupabaseAdmin()
-      .from("app_notifications")
-      .insert(notificationToRow(notif));
-    if (error) {
-      const isEnum =
-        error.message.includes("enum") ||
-        error.message.includes("invalid input value");
-      if (isEnum) {
-        await getSupabaseAdmin()
-          .from("app_notifications")
-          .insert(notificationToRow({ ...notif, type: "general" }));
-      } else {
-        throw new Error(error.message);
-      }
+  const notif: AppNotification = {
+    id: `n-${crypto.randomUUID().slice(0, 12)}`,
+    type: "expense_submitted",
+    title: `${args.employeeName} yeni harcama gönderdi`,
+    forRole: "admin",
+    ...base,
+  };
+  const { error } = await getSupabaseAdmin()
+    .from("app_notifications")
+    .insert(notificationToRow(notif));
+  if (error) {
+    const isEnum =
+      error.message.includes("enum") ||
+      error.message.includes("invalid input value");
+    if (isEnum) {
+      await getSupabaseAdmin()
+        .from("app_notifications")
+        .insert(notificationToRow({ ...notif, type: "general" }));
+    } else {
+      throw new Error(error.message);
     }
   }
 }

@@ -96,6 +96,18 @@ const monthTitleYm = (ym: string) =>
 const monthShort = (ym: string) =>
   new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "short" });
 
+/** "Son içerik: 12 Nis · 2 ay önce" gibi etiket. */
+function lastContentDateLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const datePart = d.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+  const diffDays = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (diffDays <= 0) return datePart;
+  if (diffDays < 30) return `${datePart} · ${diffDays} gün önce`;
+  const months = Math.floor(diffDays / 30);
+  return `${datePart} · ${months} ay önce`;
+}
+
 /**
  * `/izlenme/markalar` — marka odaklı operasyon özet sayfası.
  *
@@ -187,6 +199,19 @@ export default function MarkalarPage() {
         });
       }
 
+      // Bu marka için en son içerik harcaması tarihi (tüm geçmiş) ve toplam
+      let lastContentDate: string | null = null;
+      let lifetimeContentUsd = 0;
+      let lifetimeContentCount = 0;
+      for (const e of contentExpenses) {
+        const share = brandExpenseShareUsd(e, brand.id, brands);
+        if (share <= 0) continue;
+        lifetimeContentUsd += share;
+        lifetimeContentCount += 1;
+        const d = e.date ?? `${e.month}-01`;
+        if (!lastContentDate || d > lastContentDate) lastContentDate = d;
+      }
+
       return {
         brand,
         links,
@@ -194,6 +219,10 @@ export default function MarkalarPage() {
         totalNow,
         totalPrev,
         totalExpense,
+        monthExpenseCount: monthExpenses.length,
+        lastContentDate,
+        lifetimeContentUsd,
+        lifetimeContentCount,
         mom,
         target,
         targetPct,
@@ -956,6 +985,10 @@ interface BrandRowVm {
   totalNow: number;
   totalPrev: number;
   totalExpense: number;
+  monthExpenseCount: number;
+  lastContentDate: string | null;
+  lifetimeContentUsd: number;
+  lifetimeContentCount: number;
   mom: number | null;
   target: number | null;
   targetPct: number | null;
@@ -971,8 +1004,24 @@ function BrandCard({
   viewMonth: string;
   onDownloadPdf: () => void;
 }) {
-  const { brand, links, ownerCount, totalNow, totalExpense, mom, target, targetPct, spark } =
-    row;
+  const {
+    brand,
+    links,
+    ownerCount,
+    totalNow,
+    totalExpense,
+    monthExpenseCount,
+    lastContentDate,
+    lifetimeContentUsd,
+    lifetimeContentCount,
+    mom,
+    target,
+    targetPct,
+    spark,
+  } = row;
+  const lastContentLabel = lastContentDate
+    ? lastContentDateLabel(lastContentDate)
+    : null;
   const positive = (mom ?? 0) >= 0;
   const trendColor =
     mom == null
@@ -1171,19 +1220,29 @@ function BrandCard({
             {totalExpense > 0 ? (
               <MetaPill
                 icon={<Wallet size={10} />}
-                label={`$${totalExpense.toLocaleString("tr-TR")}`}
+                label={`$${totalExpense.toLocaleString("tr-TR")} · ${monthExpenseCount}`}
                 tone="amber"
-                title="Bu markaya yazılan içerik harcaması (ortak kayıtlar paylaştırılır)"
+                title={`Bu ay ${monthExpenseCount} içerik harcaması — ortak kayıtlar paylaştırılır`}
               />
             ) : (
               <MetaPill
                 icon={<Wallet size={10} />}
-                label="—"
+                label="Bu ay içerik yok"
                 tone="muted"
-                title="Bu ay bu markaya atanmış harcama yok"
+                title="Bu ay bu markaya atanmış içerik harcaması yok"
               />
             )}
           </div>
+
+          {totalExpense === 0 && (lastContentLabel || lifetimeContentCount > 0) && (
+            <p className="text-[10px] text-muted-foreground italic -mt-1">
+              {lastContentLabel
+                ? `Son içerik: ${lastContentLabel}`
+                : "Bu markaya hiç içerik yazılmamış"}
+              {lifetimeContentCount > 0 &&
+                ` · toplam ${lifetimeContentCount} kayıt, $${lifetimeContentUsd.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}`}
+            </p>
+          )}
 
           {/* Detay CTA — hover'da görünür */}
           <div className="opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-200 pt-1">

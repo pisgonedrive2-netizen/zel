@@ -104,14 +104,15 @@ async function filterWeeklyPlanRows(plans: WeeklyPlan[]) {
   const { data, error } = await getSupabaseAdmin().from("employees").select("id");
   if (error) throw new Error(`employees: ${error.message}`);
   const valid = new Set((data ?? []).map((r) => String((r as { id: string }).id)));
-  return plans
-    .filter((p) => valid.has(p.employeeId))
-    .map((p) => {
-      const date = p.date?.slice(0, 10) ?? "";
-      const weekStart =
-        weekStartFromDateIso(date) || normalizeWeekAnchorIso(p.weekStart);
-      return weeklyPlanToRow({ ...p, date, weekStart });
-    });
+  const byId = new Map<string, ReturnType<typeof weeklyPlanToRow>>();
+  for (const p of plans) {
+    if (!valid.has(p.employeeId)) continue;
+    const date = p.date?.slice(0, 10) ?? "";
+    const weekStart =
+      weekStartFromDateIso(date) || normalizeWeekAnchorIso(p.weekStart);
+    byId.set(p.id, weeklyPlanToRow({ ...p, date, weekStart }));
+  }
+  return [...byId.values()];
 }
 
 async function upsertRows(table: string, rows: Record<string, unknown>[]) {

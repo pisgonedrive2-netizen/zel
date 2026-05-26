@@ -1714,15 +1714,6 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         refId: newId,
         href: `/icerik-harcamalari?review=${newId}`,
       });
-      pushNotification({
-        type: "expense_submitted",
-        title: `Yeni yayıncı harcama raporu`,
-        message: `${me.name}: ${data.brandName} $${data.amountUsd}`,
-        forRole: "auditor",
-        triggeredBy: user.id,
-        refId: newId,
-        href: `/icerik-harcamalari?review=${newId}`,
-      });
       void fetch("/api/content-expenses/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

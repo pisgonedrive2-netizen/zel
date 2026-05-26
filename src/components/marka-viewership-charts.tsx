@@ -194,8 +194,9 @@ export function MarkaViewershipCharts({
                 { key: "12", label: "12 ay", takeLast: 12 },
                 { key: "6", label: "6 ay", takeLast: 6 },
                 { key: "3", label: "3 ay", takeLast: 3 },
+                { key: "1", label: "1 ay", takeLast: 1 },
               ]}
-              defaultPeriodKey="6"
+              defaultPeriodKey="1"
             />
           </div>
         </CardContent>

@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  Camera,
   ExternalLink,
   Loader2,
   PlayCircle,
@@ -27,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SocialPlatformIcon } from "@/components/social-platform-icon";
 import { useAuth } from "@/store/auth";
-import { useStore } from "@/store/store";
+import { useStore, type BrandLink } from "@/store/store";
 import { applyLinkMetricsToStore, type LinkMetricsStoreUpdate } from "@/lib/social-api/link-store-sync";
 import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
 import {
@@ -37,6 +38,10 @@ import {
 } from "@/lib/izlenme-refresh";
 import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
 import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
+import { isSupportedApiPlatform } from "@/lib/social-api/api-platform-filter";
+import { LinkSnapshotForm } from "@/components/link-snapshot-form";
+import Modal from "@/components/ui/modal";
+import { linkViewsForMonth } from "@/lib/brand-month-metrics";
 
 interface PlatformStatus {
   platform: "youtube" | "tiktok" | "instagram";
@@ -125,8 +130,6 @@ interface PingResult {
   platform: string;
 }
 
-const SUPPORTED_PLATFORMS = ["youtube", "instagram", "tiktok"];
-
 function formatCountdown(ms: number): string {
   if (ms <= 0) return "şimdi";
   const totalSecs = Math.floor(ms / 1000);
@@ -176,17 +179,23 @@ export function AutoRefreshStatusPanel({
     status: "running" | "completed" | "error";
   } | null>(null);
   const [showStaleOnly, setShowStaleOnly] = useState(false);
+  const [stalePlatformFilter, setStalePlatformFilter] = useState<
+    "all" | "youtube" | "instagram" | "tiktok"
+  >("all");
+  const [snapshotLink, setSnapshotLink] = useState<BrandLink | null>(null);
   const [targetMonth, setTargetMonth] = useState<string>(""); // YYYY-MM, boş = bugün
-  const { updateBrandLink, upsertLinkSnapshot, brandLinks, brands, pushNotification } = useStore();
+  const { updateBrandLink, upsertLinkSnapshot, addLinkSnapshot, brandLinks, brands, linkSnapshots, pushNotification } =
+    useStore();
+  const todayYm = new Date().toISOString().slice(0, 7);
+  const snapshotMonthYm = viewMonthProp ?? (targetMonth || todayYm);
+  const defaultSnapshotDate =
+    resolveRefreshTargetDate(snapshotMonthYm, apiDateModeProp) ??
+    new Date().toISOString().slice(0, 10);
 
   // ── Stale links (API destekli, aktif, en son kontrol edilmeyen önce) ──────
   const staleLinks = useMemo(() => {
     return brandLinks
-      .filter((l) => {
-        if (l.status !== "active") return false;
-        const plat = l.platform.toLowerCase();
-        return SUPPORTED_PLATFORMS.some((p) => plat.includes(p));
-      })
+      .filter((l) => l.status === "active" && isSupportedApiPlatform(l.platform))
       .map((l) => ({
         link: l,
         brand: brands.find((b) => b.id === l.brandId),
@@ -519,6 +528,7 @@ export function AutoRefreshStatusPanel({
   }
 
   return (
+    <>
     <Card>
       <CardHeader className="pb-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1032,8 +1042,40 @@ export function AutoRefreshStatusPanel({
 
             {staleOpen && (
               <div className="border-t border-border divide-y divide-border/50 max-h-[360px] overflow-y-auto">
+                <div className="px-3 py-2 border-b border-border/50 flex flex-wrap gap-1">
+                  {(
+                    [
+                      ["all", "Tümü"],
+                      ["youtube", "YT"],
+                      ["instagram", "IG"],
+                      ["tiktok", "TT"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setStalePlatformFilter(key)}
+                      className={`rounded px-2 py-0.5 text-[10px] ${
+                        stalePlatformFilter === key
+                          ? "bg-muted font-medium"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
                 {staleLinks
-                  .filter(({ hours }) => !showStaleOnly || hours === null || hours > 24)
+                  .filter(({ hours, link }) => {
+                    if (showStaleOnly && hours !== null && hours <= 24) return false;
+                    if (
+                      stalePlatformFilter !== "all" &&
+                      !link.platform.toLowerCase().includes(stalePlatformFilter)
+                    ) {
+                      return false;
+                    }
+                    return true;
+                  })
                   .map(({ link, brand, hours }) => {
                   const isRefreshing = refreshingLink === link.id;
                   const isDeleting = deletingLink === link.id;
@@ -1103,6 +1145,19 @@ export function AutoRefreshStatusPanel({
                         {(isAdmin || canDeleteLinks) && (
                           <>
                             {isAdmin && (
+                            <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] gap-1"
+                              disabled={isRefreshing || isDeleting || bulkRunning}
+                              onClick={() => setSnapshotLink(link)}
+                              title="Manuel snapshot gir"
+                            >
+                              <Camera size={10} />
+                              Snapshot
+                            </Button>
                             <Button
                               type="button"
                               size="sm"
@@ -1119,6 +1174,7 @@ export function AutoRefreshStatusPanel({
                               )}
                               Yenile
                             </Button>
+                            </>
                             )}
                             {canDeleteLinks && (
                             <Button
@@ -1178,6 +1234,33 @@ export function AutoRefreshStatusPanel({
         </div>
       </CardContent>
     </Card>
+
+    <Modal
+      open={!!snapshotLink}
+      onClose={() => setSnapshotLink(null)}
+      title={snapshotLink ? `Manuel snapshot · ${snapshotLink.handle || snapshotLink.platform}` : ""}
+    >
+      {snapshotLink && isAdmin && (
+        <LinkSnapshotForm
+          key={snapshotLink.id}
+          link={snapshotLink}
+          defaultDateForNew={defaultSnapshotDate}
+          suggestedViewsForNew={
+            linkViewsForMonth(snapshotLink, snapshotMonthYm, linkSnapshots, todayYm).lastViews
+          }
+          onSave={(d) => {
+            addLinkSnapshot({ ...d, linkId: snapshotLink.id });
+            updateBrandLink(snapshotLink.id, {
+              lastViews: d.views,
+              lastSnapshotDate: d.date,
+            });
+            setSnapshotLink(null);
+          }}
+          onClose={() => setSnapshotLink(null)}
+        />
+      )}
+    </Modal>
+    </>
   );
 }
 
