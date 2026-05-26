@@ -61,8 +61,29 @@ async function upsertSalaryExtras(
   if (error) throw new Error(`salary_extras upsert: ${error.message}`);
 }
 
+async function nullifyMissingFk<T extends Record<string, unknown>>(
+  rows: T[],
+  column: "salary_extra_id" | "kasa_tx_id",
+  table: "salary_extras" | "kasa_transactions"
+): Promise<T[]> {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    const v = r[column];
+    if (v) ids.add(String(v));
+  }
+  if (ids.size === 0) return rows;
+  const dbIds = await loadIdSet(table);
+  return rows.map((r) => {
+    const v = r[column];
+    if (v && !dbIds.has(String(v))) return { ...r, [column]: null } as T;
+    return r;
+  });
+}
+
 /**
- * Döngüsel FK: önce içerik (salary_extra_id=null), sonra bordro kalemi, sonra bağlantı.
+ * Döngüsel FK: önce içerik (salary_extra_id=null, kasa_tx_id valid), sonra
+ * bordro kalemi, sonra bağlantıyı kur. `kasa_tx_id` mevcut kasa hareketine
+ * referans veriyorsa korunur; yoksa `null`'a düşürülür ki FK ihlali olmasın.
  */
 export async function syncContentExpensesAndSalaryExtras(
   contentExpenses: ContentExpense[],
@@ -74,7 +95,8 @@ export async function syncContentExpensesAndSalaryExtras(
   const contentIds = new Set(contentRows.map((r) => String(r.id)));
 
   if (contentRows.length > 0) {
-    const phase1 = contentRows.map((r) => ({ ...r, salary_extra_id: null }));
+    let phase1 = contentRows.map((r) => ({ ...r, salary_extra_id: null }));
+    phase1 = await nullifyMissingFk(phase1, "kasa_tx_id", "kasa_transactions");
     await upsertRows("content_expenses", phase1);
   }
 
@@ -85,13 +107,14 @@ export async function syncContentExpensesAndSalaryExtras(
     const dbExtraIds = await loadIdSet("salary_extras");
     for (const id of dbExtraIds) validExtraIds.add(id);
 
-    const phase3 = contentRows.map((r) => {
+    let phase3 = contentRows.map((r) => {
       const sid = r.salary_extra_id ? String(r.salary_extra_id) : "";
       if (sid && !validExtraIds.has(sid)) {
         return { ...r, salary_extra_id: null };
       }
       return r;
     });
+    phase3 = await nullifyMissingFk(phase3, "kasa_tx_id", "kasa_transactions");
     await upsertRows("content_expenses", phase3);
   }
 }
@@ -105,7 +128,7 @@ export async function persistSalaryExtraRow(extra: SalaryExtra): Promise<void> {
 }
 
 export async function persistContentExpenseRow(expense: ContentExpense): Promise<void> {
-  const row = contentExpenseToRow(expense);
+  let row = contentExpenseToRow(expense);
   if (expense.salaryExtraId) {
     const { data } = await getSupabaseAdmin()
       .from("salary_extras")
@@ -114,10 +137,25 @@ export async function persistContentExpenseRow(expense: ContentExpense): Promise
       .maybeSingle();
     if (!data) {
       const phase1 = { ...row, salary_extra_id: null };
-      await upsertRows("content_expenses", [phase1]);
+      const phase1Safe = (await nullifyMissingFk(
+        [phase1],
+        "kasa_tx_id",
+        "kasa_transactions"
+      ))[0];
+      await upsertRows("content_expenses", [phase1Safe]);
       throw new Error(
         "Bordro kalemi henüz kayıtlı değil — önce salary_extra kaydedilmeli."
       );
+    }
+  }
+  if (expense.kasaTxId) {
+    const { data } = await getSupabaseAdmin()
+      .from("kasa_transactions")
+      .select("id")
+      .eq("id", expense.kasaTxId)
+      .maybeSingle();
+    if (!data) {
+      row = { ...row, kasa_tx_id: null };
     }
   }
   await upsertRows("content_expenses", [row]);
