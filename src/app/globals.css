@@ -180,16 +180,32 @@
 .dark .recharts-cartesian-grid line { stroke: oklch(0.32 0.02 260) !important; }
 
 /* ─── Login brand marquee (iki eş grup, -50% = bir grup) ─────────── */
+@keyframes brand-marquee-scroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
 .brand-marquee-window {
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
 }
 
 .brand-marquee-track {
-  animation: none;
-  transform: translate3d(0, 0, 0);
+  animation: brand-marquee-scroll 34s linear infinite;
+  will-change: transform;
 }
 
 .brand-marquee-track--reverse {
-  animation: none;
+  animation-direction: reverse;
+  animation-duration: 30s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-marquee-track {
+    animation-duration: 80s;
+  }
 }

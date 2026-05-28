@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   CalendarRange,
@@ -60,9 +59,12 @@ import {
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
 
-export default function MarkaAnlasmaDetayPage() {
-  const params = useParams<{ id: string }>();
-  const dealId = params?.id;
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
+  const { id: dealId } = use(params);
   const portal = useMarkaPortal();
   const { user, brandId, brand, canViewBrand } = portal;
   const employees = useStore((s) => s.employees);
