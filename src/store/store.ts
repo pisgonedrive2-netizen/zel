@@ -1228,6 +1228,18 @@ export const initialKasas: Kasa[] = [
     orderIndex: 0,
     notes: "Varsayılan kasa. Henüz başka bir kasa açılmadıysa tüm hareketler buraya bağlanır.",
   },
+  {
+    id: "kasa-tron",
+    name: "TRON USDT cüzdan",
+    kind: "usdt",
+    currency: "USD",
+    isDefault: false,
+    archived: false,
+    orderIndex: 90,
+    notes: "TronGrid otomatik çekim için ayrılmış kasa. Manuel kasa bakiyesi etkilenmez.",
+    tronAddress: process.env.NEXT_PUBLIC_TRON_KASA_ADDRESS ?? "",
+    tronSyncFrom: "2025-04-01",
+  },
 ];
 
 export const initialKasaTransactions: KasaTransaction[] = [

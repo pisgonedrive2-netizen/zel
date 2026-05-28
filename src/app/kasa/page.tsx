@@ -499,73 +499,140 @@ export default function KasaPage() {
         >
           Tümü ({fmtUsdt(calcKasaBalance(kasaTransactions))})
         </button>
-        {perKasaSummary.map(({ kasa, balance, count }) => (
-          <button
-            key={kasa.id}
-            onClick={() => setSelectedKasaId(kasa.id)}
-            onDoubleClick={() => !readOnly && setKasaModal(kasa)}
-            title={!readOnly ? "Çift tıklayarak düzenle" : undefined}
-            className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
-              selectedKasaId === kasa.id
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
-            }`}
-          >
-            {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
-            {kasa.name}
-            <span className="opacity-70 tabular-nums">· {fmtUsdt(balance)}</span>
-            <span className="opacity-50 text-[10px]">({count})</span>
-          </button>
-        ))}
+        {perKasaSummary.map(({ kasa, balance, count }) => {
+          const isTron = Boolean(kasa.tronAddress);
+          const active = selectedKasaId === kasa.id;
+          return (
+            <button
+              key={kasa.id}
+              onClick={() => setSelectedKasaId(kasa.id)}
+              onDoubleClick={() => !readOnly && setKasaModal(kasa)}
+              title={!readOnly ? "Çift tıklayarak düzenle" : undefined}
+              className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
+                active
+                  ? isTron
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-blue-600 text-white border-blue-600"
+                  : isTron
+                    ? "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/40"
+                    : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
+              {isTron && <Link2 size={11} className="shrink-0 opacity-80" />}
+              {kasa.name}
+              <span className="opacity-70 tabular-nums">· {fmtUsdt(balance)}</span>
+              <span className="opacity-50 text-[10px]">({count})</span>
+            </button>
+          );
+        })}
         {visibleKasas.some((k) => k.archived) && (
           <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1 ml-2">
             <Archive size={11} /> {visibleKasas.filter((k) => k.archived).length} arşivli
           </span>
         )}
-        {selectedKasa?.tronAddress && !readOnly && (
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs gap-1.5"
-              disabled={tronSyncing}
-              onClick={() => void syncTronForKasa()}
-            >
-              {tronSyncing ? "Çekiliyor…" : "TRON hareketlerini çek"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="h-8 text-xs"
-              disabled={tronSyncing}
-              title="Son 30 gün USDT giriş/çıkış (hızlı güncelleme)"
-              onClick={() => void syncTronForKasa({ recentDays: 30 })}
-            >
-              Son 30 gün
-            </Button>
-            <input
-              type="date"
-              value={tronResyncFrom || selectedKasa.tronSyncFrom || ""}
-              onChange={(e) => setTronResyncFrom(e.target.value)}
-              className="h-8 rounded-md border border-border bg-card px-2 text-xs"
-              title="Geçmişe dönük çekim başlangıcı"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs"
-              disabled={tronSyncing}
-              title="Seçilen tarihten itibaren çek ve kasa ayarına kaydet"
-              onClick={() => void syncTronForKasa({ useResyncFrom: true })}
-            >
-              Geçmişten doldur
-            </Button>
-          </div>
-        )}
       </div>
+
+      {/* TRON USDT cüzdan — manuel kasadan ayrı çalışır */}
+      {(() => {
+        const tronKasa = visibleKasas.find((k) => k.tronAddress && !k.archived);
+        if (!tronKasa) return null;
+        const tronBalance = calcKasaBalance(kasaTransactions, undefined, tronKasa.id);
+        const tronCount = kasaTransactions.filter((t) => t.kasaId === tronKasa.id).length;
+        const isActive = selectedKasaId === tronKasa.id;
+        return (
+          <Card className="mb-5 border-emerald-200/60 bg-emerald-50/30 dark:border-emerald-500/40 dark:bg-emerald-950/25">
+            <CardHeader className="py-3 px-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm flex items-center gap-2 text-emerald-900 dark:text-emerald-200">
+                    <Link2 size={14} />
+                    TRON USDT cüzdan — otomatik senkron
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Manuel kasa bakiyesinden ayrı çalışır. TronGrid hareketleri yalnızca bu kasaya
+                    yazılır; <strong>Genel Kasa</strong> bu işlemlerden etkilenmez.
+                  </CardDescription>
+                  <p className="text-xs mt-2 flex flex-wrap items-center gap-3">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Wallet size={11} className="text-emerald-700 dark:text-emerald-400" />
+                      <span className="font-semibold tabular-nums text-emerald-900 dark:text-emerald-100">
+                        {fmtUsdt(tronBalance)}
+                      </span>
+                      <span className="text-muted-foreground">· {tronCount} işlem</span>
+                    </span>
+                    {tronKasa.tronAddress && (
+                      <Copyable text={tronKasa.tronAddress} />
+                    )}
+                  </p>
+                </div>
+                {!readOnly && (
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={isActive ? "outline" : "ghost"}
+                      className="h-8 text-xs gap-1.5"
+                      onClick={() => setSelectedKasaId(tronKasa.id)}
+                    >
+                      {isActive ? "Listede" : "Hareketleri gör"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                      disabled={tronSyncing}
+                      onClick={() => {
+                        setSelectedKasaId(tronKasa.id);
+                        void syncTronForKasa({ recentDays: 30 });
+                      }}
+                    >
+                      {tronSyncing ? "Çekiliyor…" : "Son 30 gün çek"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      disabled={tronSyncing}
+                      title="Kasa ayarındaki başlangıçtan beri tüm USDT giriş/çıkış"
+                      onClick={() => {
+                        setSelectedKasaId(tronKasa.id);
+                        void syncTronForKasa();
+                      }}
+                    >
+                      Tüm geçmiş
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {!readOnly && isActive && (
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <span className="text-[11px] text-muted-foreground">Geçmişten doldur:</span>
+                  <input
+                    type="date"
+                    value={tronResyncFrom || tronKasa.tronSyncFrom || ""}
+                    onChange={(e) => setTronResyncFrom(e.target.value)}
+                    className="h-7 rounded-md border border-border bg-card px-2 text-xs"
+                    title="Geçmişe dönük çekim başlangıcı"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    disabled={tronSyncing}
+                    title="Seçilen tarihten itibaren çek ve kasa ayarına kaydet"
+                    onClick={() => void syncTronForKasa({ useResyncFrom: true })}
+                  >
+                    Tarihten itibaren çek
+                  </Button>
+                </div>
+              )}
+            </CardHeader>
+          </Card>
+        );
+      })()}
 
       {tronInfo && (
         <Card className="mb-5 border-border/80">
