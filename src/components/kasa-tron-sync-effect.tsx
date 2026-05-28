@@ -4,12 +4,14 @@ import { useEffect, useRef } from "react";
 import { useAuth } from "@/store/auth";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
+import { findPrimaryTronKasa } from "@/lib/kasa-tron-metrics";
+import { useStore } from "@/store/store";
 
 const POLL_MS = 60_000;
 
 /**
- * Admin/denetçi paneli açıkken izlenen TRON cüzdanını kontrol eder.
- * Kasa hareketlerine yazmaz — yalnızca giriş/çıkış bildirimi.
+ * Ramiz TRON cüzdanı: çıkış/giriş hem bildirim hem kasa hareketine yazılır (tron-sync).
+ * İzleme adresi (tron-watch) ek bildirim üretir.
  */
 export function KasaTronSyncEffect() {
   const user = useAuth((s) => s.user);
@@ -22,19 +24,47 @@ export function KasaTronSyncEffect() {
     const run = async () => {
       if (running.current) return;
       if (document.visibilityState === "hidden") return;
+      const { kasas, kasaTransactions } = useStore.getState();
+      const tronKasa = findPrimaryTronKasa(kasas, kasaTransactions);
+      if (!tronKasa?.tronAddress) return;
       running.current = true;
       try {
-        const res = await fetch("/api/kasa/tron-watch", {
+        const syncRes = await fetch("/api/kasa/tron-sync", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kasaId: tronKasa.id,
+            recentDays: 3,
+            triggeredBy: "background-sync",
+          }),
+        });
+        if (syncRes.ok) {
+          const syncJson = (await syncRes.json()) as { imported?: number; ok?: boolean };
+          if ((syncJson.imported ?? 0) > 0) {
+            const boot = await fetch("/api/bootstrap", { credentials: "include", cache: "no-store" });
+            if (boot.ok) {
+              const data = (await boot.json()) as {
+                kasaTransactions?: typeof kasaTransactions;
+                kasas?: typeof kasas;
+              };
+              if (data.kasaTransactions) {
+                useStore.setState({ kasaTransactions: data.kasaTransactions });
+              }
+              if (data.kasas) {
+                useStore.setState({ kasas: data.kasas });
+              }
+            }
+            await refreshNotificationsFromServer();
+          }
+        }
+
+        await fetch("/api/kasa/tron-watch", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recentDays: 3 }),
         });
-        if (!res.ok) return;
-        const json = (await res.json()) as { newCount?: number; notifications?: number };
-        if ((json.newCount ?? 0) > 0 || (json.notifications ?? 0) > 0) {
-          await refreshNotificationsFromServer();
-        }
       } catch {
         /* sessiz */
       } finally {
@@ -52,7 +82,7 @@ export function KasaTronSyncEffect() {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user]);
+  }, [user?.id, user?.role]);
 
   return null;
 }

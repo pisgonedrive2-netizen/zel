@@ -795,12 +795,24 @@ export default function NotificationsPage() {
       {activeTab === "akis" && (
         <Card className="flex flex-col gap-0 py-0 overflow-hidden max-h-[calc(100dvh-11rem)] min-h-[320px]">
           <CardHeader className="py-3 px-4 pb-2 shrink-0 border-b border-border/60">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Filter size={14} /> Bildirim akışı
-              <Badge variant="outline" className="text-[10px] font-normal">
-                {filtered.length} kayıt
-              </Badge>
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Filter size={14} /> Bildirim akışı
+                <Badge variant="outline" className="text-[10px] font-normal">
+                  {filtered.length} kayıt
+                </Badge>
+              </CardTitle>
+              {isAdmin && supabaseMode && filtered.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void clearFiltered()}
+                  className="text-destructive h-7 px-2.5 text-[11px]"
+                >
+                  <Trash2 size={11} /> Temizle
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <div className="px-4 pt-2 shrink-0">{filterBar}</div>
           <CardContent className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-2">

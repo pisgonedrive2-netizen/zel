@@ -14,6 +14,9 @@ const NAV: { href: string; label: string; match: string }[] = [
   { href: "/yayinci/izlenmeler",     label: "İzlenmeler",      match: "izlenmeler" },
   { href: "/yayinci/hesaplar",       label: "Hesaplar",        match: "hesaplar" },
   { href: "/yayinci/marka-linkleri", label: "Marka linkleri",  match: "marka-linkleri" },
+  { href: "/yayinci/profil",         label: "Havuz profili",   match: "profil" },
+  { href: "/yayinci/teklifler",      label: "Teklifler",       match: "teklifler" },
+  { href: "/yayinci/postlar",        label: "Postlar",         match: "postlar" },
   { href: "/yayinci/gecmis",         label: "Geçmiş aylar",    match: "gecmis" },
   { href: "/yayinci/bildirimler",    label: "Mesajlar",        match: "bildirimler" },
 ];

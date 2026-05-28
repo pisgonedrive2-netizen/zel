@@ -73,7 +73,10 @@ interface AuthState {
   /** `/api/auth/me` tamamlandı mı (Supabase modunda bootstrap bundan sonra). */
   sessionReady: boolean;
 
-  login: (username: string, pin: string) => Promise<boolean>;
+  login: (
+    username: string,
+    pin: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
   logout: () => Promise<void>;
 
   // Admin actions
@@ -128,32 +131,80 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
         } catch {
           /* SSR */
         }
-        if (isSupabaseClientMode()) {
+        const un = username.toLowerCase().trim();
+        const pinTrim = pin.trim();
+        if (!un || !pinTrim) {
+          return { ok: false as const, error: "Kullanıcı adı ve şifre gerekli." };
+        }
+
+        /** Canlı/localhost aynı DB — önce sunucu API (NEXT_PUBLIC olmasa bile). */
+        try {
           const res = await fetch("/api/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ username, pin }),
+            body: JSON.stringify({ username: un, pin: pinTrim }),
           });
-          if (!res.ok) return false;
-          const data = (await res.json()) as { user: AppUser };
-          set({ user: data.user, sessionReady: true });
-          return true;
+          const data = (await res.json().catch(() => ({}))) as {
+            user?: AppUser;
+            error?: string;
+          };
+          if (res.ok && data.user) {
+            set({ user: data.user, sessionReady: true });
+            return { ok: true as const };
+          }
+          if (res.status === 503) {
+            /* Supabase kapalı — yalnızca yerel seed kullanıcılar */
+          } else if (res.status === 401) {
+            return {
+              ok: false as const,
+              error: data.error ?? "Kullanıcı adı veya şifre hatalı.",
+            };
+          } else if (res.status >= 500) {
+            return {
+              ok: false as const,
+              error:
+                data.error ??
+                "Sunucu hatası — `npm run dev` ile yeniden başlatıp tekrar deneyin.",
+            };
+          } else {
+            return {
+              ok: false as const,
+              error: data.error ?? `Giriş başarısız (${res.status}).`,
+            };
+          }
+        } catch {
+          return {
+            ok: false as const,
+            error:
+              "Sunucuya bağlanılamadı — localhost açık mı? (http://127.0.0.1:3000)",
+          };
         }
-        const u = get().users.find(
-          (x) => x.username.toLowerCase().trim() === username.toLowerCase().trim() &&
-                 x.pin === pin.trim() &&
-                 x.active
-        );
+
+        const pool = [...get().users, ...INITIAL_USERS];
+        const seen = new Set<string>();
+        const u = pool.find((x) => {
+          const key = x.username.toLowerCase().trim();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return key === un && x.pin === pinTrim && x.active;
+        });
         if (u) {
           const updated = { ...u, lastLoginAt: new Date().toISOString() };
           set((s) => ({
-            user:  updated,
-            users: s.users.map((x) => (x.id === u.id ? updated : x)),
+            user: updated,
+            users: s.users.some((x) => x.id === u.id)
+              ? s.users.map((x) => (x.id === u.id ? updated : x))
+              : [...s.users, updated],
+            sessionReady: true,
           }));
-          return true;
+          return { ok: true as const };
         }
-        return false;
+        return {
+          ok: false as const,
+          error:
+            "Kullanıcı adı veya şifre hatalı. (Yerel mod — canlı sitedeki PIN ile aynı olmayabilir.)",
+        };
       },
       logout: async () => {
         if (isSupabaseClientMode()) {
@@ -491,7 +542,7 @@ export function canAccess(
 export function landingFor(role: Role): string {
   if (role === "admin")   return "/ozet";
   if (role === "auditor") return "/denetci";
-  if (role === "brand")   return "/marka/operasyon";
+  if (role === "brand")   return "/marka/anasayfa";
   return "/yayinci/maas";
 }
 

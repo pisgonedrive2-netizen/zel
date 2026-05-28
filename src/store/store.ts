@@ -481,6 +481,232 @@ export interface WeekBrandReel {
   createdAt: string;
 }
 
+/**
+ * Self-serve marka kayıt başvurusu (Faz A).
+ * Dışarıdan gelen kayıt formunu temsil eder; admin onayı sonrası `brands` ve
+ * `app_users` satırları otomatik üretilir. ID prefix'i: `req-`.
+ */
+export interface BrandRegistrationRequest {
+  id: string;
+  brandName: string;
+  shortName?: string;
+  category: string;
+  website?: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone?: string;
+  telegram?: string;
+  /** Aralık ifadesi: "1M-5M", "5M+" vb. */
+  monthlyVolume?: string;
+  preferredUsername?: string;
+  notes: string;
+  status: "pending" | "approved" | "rejected" | "duplicate";
+  rejectionReason?: string;
+  /** İnceleyen admin (app_users.id). */
+  reviewedBy?: string;
+  reviewedAt?: string;
+  /** Onaylandıysa oluşturulan marka. */
+  createdBrandId?: string;
+  /** Onaylandıysa oluşturulan marka kullanıcısı. */
+  createdUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Faz C — Affiliate Tracking MVP
+ *
+ * Marka başına affiliate / partner kaydı. UI ileride; backend tüm CRUD + CSV import'u
+ * destekler. ID prefix önerisi: `ap-` (partner), `ads-` (daily stat), `apo-` (payout).
+ */
+export interface AffiliatePartner {
+  id: string;
+  brandId: string;
+  name: string;
+  /** Operatör tarafındaki aff_id; CSV importunda eşleştirme anahtarı. */
+  externalRef?: string;
+  partnerType: "streamer" | "external" | "agency" | "social";
+  commissionModel: "cpa" | "revshare" | "hybrid" | "flat";
+  cpaAmount: number;
+  /** Yüzde (0-100). */
+  revsharePct: number;
+  currency: "USD" | "EUR" | "TRY";
+  status: "active" | "paused" | "closed";
+  /** Foxstream yayıncı eşleştirmesi (varsa). */
+  employeeId?: string;
+  contact?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partner × gün performans satırı. UNIQUE (partnerId, statDate). */
+export interface AffiliateDailyStat {
+  id: string;
+  partnerId: string;
+  brandId: string;
+  /** YYYY-MM-DD */
+  statDate: string;
+  clicks: number;
+  registrations: number;
+  ftdCount: number;
+  ftdAmount: number;
+  depositAmount: number;
+  withdrawalAmount: number;
+  netRevenue: number;
+  commissionDue: number;
+  currency: "USD" | "EUR" | "TRY";
+  source: "manual" | "csv" | "api" | "webhook";
+  /** Otomatik veya CSV import zaman damgası (ISO). */
+  importedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Partner ödeme dönemi (komisyon ödemesi). */
+export interface AffiliatePayout {
+  id: string;
+  partnerId: string;
+  brandId: string;
+  /** YYYY-MM-DD */
+  periodStart: string;
+  /** YYYY-MM-DD */
+  periodEnd: string;
+  amount: number;
+  currency: "USD" | "EUR" | "TRY";
+  status: "pending" | "approved" | "paid" | "cancelled";
+  /** YYYY-MM-DD; status === 'paid' ise dolu olmalı (uygulama doğrulaması). */
+  paidDate?: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Faz G — Yayıncı Havuzu + Teklif Sistemi
+ *
+ * `streamer_pool_profiles` 1:1 employees.id — yayıncının halka açık profili.
+ * `brand_offers` marka↔yayıncı teklif başlığı; `brand_offer_messages` sohbeti.
+ * ID prefix önerisi: `spp-` profile, `bo-` offer, `bom-` message.
+ */
+export interface StreamerPoolProfile {
+  id: string;
+  employeeId: string;
+  displayName: string;
+  headline: string;
+  bio: string;
+  categories: string[];
+  languages: string[];
+  countries: string[];
+  rateMinUsd?: number;
+  rateMaxUsd?: number;
+  rateCurrency: string;
+  followersTotal: number;
+  avgViews: number;
+  avatarUrl?: string;
+  coverUrl?: string;
+  status: "draft" | "published" | "paused" | "closed";
+  visibility: "public" | "brand_only" | "invite_only";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrandOfferDeliverable {
+  type: string;
+  count: number;
+  platform?: string;
+  notes?: string;
+}
+
+export interface BrandOffer {
+  id: string;
+  brandId: string;
+  employeeId: string;
+  initiator: "brand" | "streamer";
+  title: string;
+  description: string;
+  offerType: "campaign" | "single_post" | "long_term" | "affiliate";
+  budgetUsd?: number;
+  status: "pending" | "negotiating" | "accepted" | "rejected" | "withdrawn" | "expired";
+  deliverables: BrandOfferDeliverable[];
+  startDate?: string;
+  endDate?: string;
+  notes: string;
+  expiresAt?: string;
+  createdBy?: string;
+  respondedBy?: string;
+  respondedAt?: string;
+  /** Accept ile oluşturulan brand_deals.id. */
+  createdDealId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrandOfferMessage {
+  id: string;
+  offerId: string;
+  authorId: string;
+  authorRole: "brand" | "streamer" | "admin";
+  body: string;
+  counterBudgetUsd?: number;
+  createdAt: string;
+}
+
+/**
+ * Faz H — Aktif Anlaşma + İçerik Post Takibi
+ *
+ * `brand_deals` kabul edilmiş teklif sonrası yaşam döngüsü;
+ * `brand_posts` yayıncının attığı içerik URL'leri.
+ * ID prefix: `bd-` deal, `bp-` post.
+ */
+export interface BrandDealDeliverable {
+  type: string;
+  count: number;
+  platform?: string;
+}
+
+export interface BrandDeal {
+  id: string;
+  brandId: string;
+  employeeId: string;
+  originOfferId?: string;
+  title: string;
+  dealType: "campaign" | "single_post" | "long_term" | "affiliate";
+  status: "active" | "completed" | "cancelled" | "disputed";
+  budgetUsd: number;
+  paidUsd: number;
+  startDate?: string;
+  endDate?: string;
+  deliverables: BrandDealDeliverable[];
+  /** Trigger ile güncellenir — istemcide elle değişmemeli. */
+  postsCount: number;
+  /** Trigger ile güncellenir — istemcide elle değişmemeli. */
+  totalViews: number;
+  notes: string;
+  contractUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrandPost {
+  id: string;
+  brandId: string;
+  employeeId?: string;
+  dealId?: string;
+  platform: "instagram" | "tiktok" | "youtube" | "kick" | "twitter" | "telegram" | "other";
+  postType: "post" | "reel" | "story" | "vlog" | "stream" | "vod" | "tweet" | "other";
+  url: string;
+  caption: string;
+  postedAt?: string;
+  screenshotUrl?: string;
+  views: number;
+  likes: number;
+  comments: number;
+  status: "draft" | "live" | "removed" | "expired";
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Yöneticiye veya denetçiye gönderilen bildirim. */
 export interface AppNotification {
   id: string;
@@ -542,6 +768,20 @@ interface AppStore {
   linkSnapshots: LinkSnapshot[];
   brandViewership: BrandViewership[];
   brandMonthlyStats: BrandMonthlyStats[];
+
+  // Affiliate Tracking (Faz C)
+  affiliatePartners: AffiliatePartner[];
+  affiliateDailyStats: AffiliateDailyStat[];
+  affiliatePayouts: AffiliatePayout[];
+
+  // Yayıncı havuzu + teklif (Faz G)
+  streamerPoolProfiles: StreamerPoolProfile[];
+  brandOffers: BrandOffer[];
+  brandOfferMessages: BrandOfferMessage[];
+
+  // Anlaşma + post takibi (Faz H)
+  brandDeals: BrandDeal[];
+  brandPosts: BrandPost[];
 
   // Kasa & İçerik harcamaları
   kasas: Kasa[];
@@ -762,6 +1002,14 @@ export const APP_SNAPSHOT_KEYS = [
   "linkSnapshots",
   "brandViewership",
   "brandMonthlyStats",
+  "affiliatePartners",
+  "affiliateDailyStats",
+  "affiliatePayouts",
+  "streamerPoolProfiles",
+  "brandOffers",
+  "brandOfferMessages",
+  "brandDeals",
+  "brandPosts",
   "kasas",
   "kasaTransactions",
   "contentExpenses",
@@ -1167,6 +1415,14 @@ const initialStreamerAccounts: StreamerAccount[] = [
 const initialBrandViewership: BrandViewership[] = [];
 const initialBrandMonthlyStats: BrandMonthlyStats[] = [];
 const initialScheduleSlots: ScheduleSlot[] = [];
+const initialAffiliatePartners: AffiliatePartner[] = [];
+const initialAffiliateDailyStats: AffiliateDailyStat[] = [];
+const initialAffiliatePayouts: AffiliatePayout[] = [];
+const initialStreamerPoolProfiles: StreamerPoolProfile[] = [];
+const initialBrandOffers: BrandOffer[] = [];
+const initialBrandOfferMessages: BrandOfferMessage[] = [];
+const initialBrandDeals: BrandDeal[] = [];
+const initialBrandPosts: BrandPost[] = [];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Markalar — şu an aktif olarak tanıtımı yapılan 5 marka
@@ -1504,6 +1760,14 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       linkSnapshots:       initialLinkSnapshots,
       brandViewership:     initialBrandViewership,
       brandMonthlyStats:   initialBrandMonthlyStats,
+      affiliatePartners:   initialAffiliatePartners,
+      affiliateDailyStats: initialAffiliateDailyStats,
+      affiliatePayouts:    initialAffiliatePayouts,
+      streamerPoolProfiles: initialStreamerPoolProfiles,
+      brandOffers:         initialBrandOffers,
+      brandOfferMessages:  initialBrandOfferMessages,
+      brandDeals:          initialBrandDeals,
+      brandPosts:          initialBrandPosts,
       kasas:               initialKasas,
       kasaTransactions:    initialKasaTransactions,
       contentExpenses:     initialContentExpenses,
@@ -2544,6 +2808,14 @@ const storePersistConfig = {
           kasaTransactions: migrateKasaTransactions(kasaSrc),
           weekBrandReels: Array.isArray(p.weekBrandReels) ? p.weekBrandReels : [],
           brandMonthlyStats: Array.isArray(p.brandMonthlyStats) ? p.brandMonthlyStats : [],
+          affiliatePartners: Array.isArray(p.affiliatePartners) ? p.affiliatePartners : [],
+          affiliateDailyStats: Array.isArray(p.affiliateDailyStats) ? p.affiliateDailyStats : [],
+          affiliatePayouts: Array.isArray(p.affiliatePayouts) ? p.affiliatePayouts : [],
+          streamerPoolProfiles: Array.isArray(p.streamerPoolProfiles) ? p.streamerPoolProfiles : [],
+          brandOffers: Array.isArray(p.brandOffers) ? p.brandOffers : [],
+          brandOfferMessages: Array.isArray(p.brandOfferMessages) ? p.brandOfferMessages : [],
+          brandDeals: Array.isArray(p.brandDeals) ? p.brandDeals : [],
+          brandPosts: Array.isArray(p.brandPosts) ? p.brandPosts : [],
         };
       },
     } as const;

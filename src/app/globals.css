@@ -41,6 +41,16 @@
   --color-sidebar-ring:           var(--sidebar-ring);
 }
 
+/* ─── Foxstream brand palette (login-bg-dash4 ile uyumlu) ────────────────── */
+:root {
+  --fs-orange: #FF6B00;   /* Yayıncı / primary action */
+  --fs-green:  #22C55E;   /* Marka / başarı */
+  --fs-blue:   #3B82F6;   /* Denetim / info */
+  --fs-pink:   #EC4899;   /* Destek / vurgu */
+  --fs-bg:     #0A0A0A;   /* Arkaplan (referans, gerçek tema --background) */
+  --fs-bg-soft:#161616;   /* Kart yüzey (referans) */
+}
+
 /* ─── Light theme (default) ─────────────────────────────────────────────── */
 :root {
   --radius: 0.625rem;
@@ -170,32 +180,16 @@
 .dark .recharts-cartesian-grid line { stroke: oklch(0.32 0.02 260) !important; }
 
 /* ─── Login brand marquee (iki eş grup, -50% = bir grup) ─────────── */
-@keyframes brand-marquee-scroll {
-  0% {
-    transform: translate3d(0, 0, 0);
-  }
-  100% {
-    transform: translate3d(-50%, 0, 0);
-  }
-}
-
 .brand-marquee-window {
   -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0%, black 8%, black 92%, transparent 100%);
 }
 
 .brand-marquee-track {
-  animation: brand-marquee-scroll 34s linear infinite;
-  will-change: transform;
+  animation: none;
+  transform: translate3d(0, 0, 0);
 }
 
 .brand-marquee-track--reverse {
-  animation-direction: reverse;
-  animation-duration: 30s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand-marquee-track {
-    animation-duration: 80s;
-  }
+  animation: none;
 }

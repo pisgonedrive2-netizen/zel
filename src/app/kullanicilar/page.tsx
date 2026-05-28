@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, Trash2, KeyRound, Copy, Check, Eye, EyeOff,
   ShieldCheck, Crown, Headphones, User as UserIcon, Power, PowerOff, Sparkles,
@@ -15,6 +15,7 @@ import {
   Search,
   X as XIcon,
   Users as UsersIcon,
+  Inbox,
 } from "lucide-react";
 import { useAuth, generatePin, type AppUser, type Role } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -38,6 +39,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, FormGrid, FormActions } from "@/components/ui/field";
 import { FilterChipBar } from "@/components/filter-chip-bar";
+import { BrandRegistrationsPanel } from "@/components/brand-registrations-panel";
+import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<Role, string> = {
   admin:    "Yönetici",
@@ -543,8 +546,22 @@ function AuditLogPanel({
 }
 
 // ── Page ────────────────────────────────────────────────────────────────
+type KullanicilarTab = "users" | "brand-registrations";
+
+const TAB_PARAM_TO_ID: Record<string, KullanicilarTab> = {
+  "marka-basvurulari": "brand-registrations",
+  "users": "users",
+  "kullanicilar": "users",
+};
+
+const TAB_ID_TO_PARAM: Record<KullanicilarTab, string> = {
+  users: "users",
+  "brand-registrations": "marka-basvurulari",
+};
+
 export default function UsersPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
   const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
   const { users, user: currentUser, addUser, updateUser, resetPin, deleteUser } = useAuth();
@@ -552,6 +569,30 @@ export default function UsersPage() {
   const auditEntries = useAuditLog((s) => s.entries);
   const { employees, brands } = useStore();
   const supabaseMode = isSupabaseClientMode();
+
+  const initialTabParam = searchParams?.get("tab") ?? "";
+  const [tab, setTab] = useState<KullanicilarTab>(
+    TAB_PARAM_TO_ID[initialTabParam] ?? "users"
+  );
+
+  // URL'i sekme değişiminde güncelle (notification deep-link uyumlu)
+  useEffect(() => {
+    const current = searchParams?.get("tab") ?? "";
+    const want = tab === "users" ? "" : TAB_ID_TO_PARAM[tab];
+    if (current === want) return;
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (want) params.set("tab", want);
+    else params.delete("tab");
+    const qs = params.toString();
+    router.replace(qs ? `/kullanicilar?${qs}` : "/kullanicilar", { scroll: false });
+  }, [tab, router, searchParams]);
+
+  // Geriye dönük: URL dışarıdan değişirse state'i senkronize et
+  useEffect(() => {
+    const param = searchParams?.get("tab") ?? "";
+    const next = TAB_PARAM_TO_ID[param] ?? "users";
+    setTab((cur) => (cur === next ? cur : next));
+  }, [searchParams]);
 
   const refreshUsers = useCallback(async () => {
     if (!supabaseMode) return;
@@ -855,31 +896,81 @@ export default function UsersPage() {
       )}
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold text-foreground">Kullanıcılar</h1>
+          <h1 className="text-2xl font-bold text-foreground">
+            {tab === "brand-registrations" ? "Marka Başvuruları" : "Kullanıcılar"}
+          </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın
+            {tab === "brand-registrations"
+              ? "B2B marka self-servis kayıt başvurularını inceleyin, onaylayın veya reddedin"
+              : "Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 sm:justify-end shrink-0">
-          <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
-            <Plus size={14} /> Yeni Kullanıcı
-          </Button>
-          <Button size="sm" variant="outline" onClick={runExportBackup} className="gap-1.5">
-            <Download size={13} /> Yedek indir
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="gap-1.5">
-            <Upload size={13} /> Yedek yükle
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void requestDesktopNotify()} className="gap-1.5">
-            <Bell size={13} /> Bildirim izni
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setShowPins(s => !s)} className="gap-1.5">
-            {showPins ? <EyeOff size={13} /> : <Eye size={13} />}
-            {showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
-          </Button>
-        </div>
+        {tab === "users" && (
+          <div className="flex flex-wrap gap-2 sm:justify-end shrink-0">
+            <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
+              <Plus size={14} /> Yeni Kullanıcı
+            </Button>
+            <Button size="sm" variant="outline" onClick={runExportBackup} className="gap-1.5">
+              <Download size={13} /> Yedek indir
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="gap-1.5">
+              <Upload size={13} /> Yedek yükle
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void requestDesktopNotify()} className="gap-1.5">
+              <Bell size={13} /> Bildirim izni
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowPins(s => !s)} className="gap-1.5">
+              {showPins ? <EyeOff size={13} /> : <Eye size={13} />}
+              {showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Sekme barı — Kullanıcılar / Marka Başvuruları */}
+      {currentUser?.role === "admin" && (
+        <div
+          role="tablist"
+          aria-label="Kullanıcılar sayfası sekmeleri"
+          className="mb-4 flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted/30 p-1"
+        >
+          {(
+            [
+              { id: "users", label: "Kullanıcılar", icon: UsersIcon },
+              { id: "brand-registrations", label: "Marka Başvuruları", icon: Inbox },
+            ] as ReadonlyArray<{
+              id: KullanicilarTab;
+              label: string;
+              icon: React.ComponentType<{ size?: number; className?: string }>;
+            }>
+          ).map(({ id, label, icon: Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                )}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "brand-registrations" ? (
+        <BrandRegistrationsPanel />
+      ) : (
+      <>
       {/* Kayıtlı kullanıcılar — kart filtre + tablo (tüm kolonlar korunur) */}
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap border-b border-border/60 pb-4">
@@ -1186,6 +1277,8 @@ export default function UsersPage() {
           sadece sıfırlama anında gösterilir.
         </p>
       </div>
+      </>
+      )}
 
       {/* Modals */}
       <Modal open={modal !== null} onClose={() => setModal(null)}

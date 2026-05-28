@@ -13,7 +13,13 @@ export async function POST(req: Request) {
   if (!username || !pin) {
     return NextResponse.json({ error: "Kullanıcı adı ve şifre gerekli" }, { status: 400 });
   }
-  const session = await loginUser(username, pin);
+  let session;
+  try {
+    session = await loginUser(username, pin);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Giriş hatası";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
   if (!session) {
     return NextResponse.json({ error: "Kullanıcı adı veya şifre hatalı" }, { status: 401 });
   }

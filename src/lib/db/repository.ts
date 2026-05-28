@@ -3,7 +3,21 @@ import { verifyPin } from "@/lib/password";
 import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
-import type { AppHydratePayload, Brand, BrandLink, WeeklyPlan } from "@/store/store";
+import type {
+  AppHydratePayload,
+  Brand,
+  BrandLink,
+  BrandRegistrationRequest,
+  WeeklyPlan,
+  AffiliatePartner,
+  AffiliateDailyStat,
+  AffiliatePayout,
+  StreamerPoolProfile,
+  BrandOffer,
+  BrandOfferMessage,
+  BrandDeal,
+  BrandPost,
+} from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { syncContentExpensesAndSalaryExtras } from "@/lib/content-expense-sync";
@@ -28,6 +42,15 @@ import {
   contentExpenseFromRow, contentExpenseToRow, weeklyPlanFromRow, weeklyPlanToRow,
   weekBrandReelFromRow, weekBrandReelToRow, notificationFromRow, notificationToRow,
   appUserFromRow, appUserToRow,
+  brandRegistrationRequestFromRow, brandRegistrationRequestToRow,
+  affiliatePartnerFromRow, affiliatePartnerToRow,
+  affiliateDailyStatFromRow, affiliateDailyStatToRow,
+  affiliatePayoutFromRow, affiliatePayoutToRow,
+  streamerPoolProfileFromRow, streamerPoolProfileToRow,
+  brandOfferFromRow, brandOfferToRow,
+  brandOfferMessageFromRow, brandOfferMessageToRow,
+  brandDealFromRow, brandDealToRow,
+  brandPostFromRow, brandPostToRow,
 } from "@/lib/db/mappers";
 
 type Rows = Record<string, unknown>[];
@@ -180,7 +203,10 @@ export async function loginUser(username: string, pin: string): Promise<SessionP
     .eq("username", un)
     .eq("active", true)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    throw new Error(`app_users: ${error.message}`);
+  }
+  if (!data) return null;
   const row = data as Record<string, unknown>;
   const ok = await verifyPin(pin, String(row.pin_hash));
   if (!ok) return null;
@@ -206,7 +232,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     employees, advances, salaryExtras, paymentStatuses, companies, sponsorTransactions,
     projects, projectPayments, expenses, plannedItems, plannedItemPayments, streamerAccounts, scheduleSlots, brands, brandLinks,
     linkSnapshots, brandViewership, brandMonthlyStats, kasas, kasaTransactions, contentExpenses, weeklyPlans,
-    weekBrandReels, notifications,
+    weekBrandReels, notifications, affiliate, deals,
   ] = await Promise.all([
     selectAll("employees", employeeFromRow),
     selectAll("advances", advanceFromRow),
@@ -232,6 +258,27 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     selectAll("weekly_plans", weeklyPlanFromRow),
     selectAll("week_brand_reels", weekBrandReelFromRow),
     selectAll("app_notifications", notificationFromRow),
+    // Yeni tablolar (Faz C affiliate, Faz G/H deals) — schema cache veya RLS
+    // bir nedenle fail edersek tüm bootstrap'i yıkmayalım; eski veriler
+    // (kasa, link, snapshot, vs.) korunsun. Boş diziye düşüp UI banner gösterir.
+    fetchAffiliateBootstrap(session).catch((e) => {
+      console.warn("[bootstrap] affiliate fetch failed (returning empty)", e);
+      return {
+        affiliatePartners: [],
+        affiliateDailyStats: [],
+        affiliatePayouts: [],
+      };
+    }),
+    fetchDealsBootstrap(session).catch((e) => {
+      console.warn("[bootstrap] deals/pool fetch failed (returning empty)", e);
+      return {
+        streamerPoolProfiles: [],
+        brandOffers: [],
+        brandOfferMessages: [],
+        brandDeals: [],
+        brandPosts: [],
+      };
+    }),
   ]);
 
   const payload: AppHydratePayload & { users?: AppUser[] } = {
@@ -253,6 +300,14 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     linkSnapshots,
     brandViewership,
     brandMonthlyStats,
+    affiliatePartners: affiliate.affiliatePartners,
+    affiliateDailyStats: affiliate.affiliateDailyStats,
+    affiliatePayouts: affiliate.affiliatePayouts,
+    streamerPoolProfiles: deals.streamerPoolProfiles,
+    brandOffers: deals.brandOffers,
+    brandOfferMessages: deals.brandOfferMessages,
+    brandDeals: deals.brandDeals,
+    brandPosts: deals.brandPosts,
     kasas,
     kasaTransactions,
     contentExpenses,
@@ -316,6 +371,14 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       brandLinks: myLinks,
       linkSnapshots: linkSnapshots.filter((s) => myLinkIds.has(s.linkId)),
       brandViewership: brandViewership.filter((v) => v.employeeId === eid),
+      affiliatePartners: affiliate.affiliatePartners,
+      affiliateDailyStats: affiliate.affiliateDailyStats,
+      affiliatePayouts: affiliate.affiliatePayouts,
+      streamerPoolProfiles: deals.streamerPoolProfiles,
+      brandOffers: deals.brandOffers,
+      brandOfferMessages: deals.brandOfferMessages,
+      brandDeals: deals.brandDeals,
+      brandPosts: deals.brandPosts,
       kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.employeeId === eid),
@@ -368,6 +431,14 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       ),
       brandViewership: brandViewership.filter((v) => v.brandId === bid),
       brandMonthlyStats: brandMonthlyStats.filter((s) => s.brandId === bid),
+      affiliatePartners: affiliate.affiliatePartners,
+      affiliateDailyStats: affiliate.affiliateDailyStats,
+      affiliatePayouts: affiliate.affiliatePayouts,
+      streamerPoolProfiles: deals.streamerPoolProfiles,
+      brandOffers: deals.brandOffers,
+      brandOfferMessages: deals.brandOfferMessages,
+      brandDeals: deals.brandDeals,
+      brandPosts: deals.brandPosts,
       kasas: [],
       kasaTransactions: [],
       contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
@@ -674,6 +745,107 @@ export async function countAppUsers(): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Marka kayıt başvuruları (Faz A).
+ * `status` verilirse yalnızca o statüdeki kayıtlar döner; aksi halde hepsi
+ * en yeni en üstte.
+ */
+export async function fetchBrandRegistrationRequests(
+  status?: BrandRegistrationRequest["status"]
+): Promise<BrandRegistrationRequest[]> {
+  let q = getSupabaseAdmin()
+    .from("brand_registration_requests")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) throw new Error(`brand_registration_requests: ${error.message}`);
+  return (data ?? []).map((r) =>
+    brandRegistrationRequestFromRow(r as Record<string, unknown>)
+  );
+}
+
+export async function findBrandRegistrationRequestById(
+  id: string
+): Promise<BrandRegistrationRequest | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_registration_requests")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_registration_requests: ${error.message}`);
+  return data
+    ? brandRegistrationRequestFromRow(data as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Aynı email + brand_name + gün kombinasyonu için son 24 saatte mevcut bir
+ * `pending` başvuru varsa onu döndürür (duplicate kontrolü için).
+ */
+export async function findRecentPendingRegistration(
+  contactEmail: string,
+  brandName: string
+): Promise<BrandRegistrationRequest | null> {
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_registration_requests")
+    .select("*")
+    .eq("contact_email", contactEmail.toLowerCase().trim())
+    .eq("brand_name", brandName.trim())
+    .eq("status", "pending")
+    .gte("created_at", oneDayAgo)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`brand_registration_requests: ${error.message}`);
+  const rows = data ?? [];
+  return rows.length > 0
+    ? brandRegistrationRequestFromRow(rows[0] as Record<string, unknown>)
+    : null;
+}
+
+export async function createBrandRegistrationRequest(
+  r: BrandRegistrationRequest
+): Promise<BrandRegistrationRequest> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_registration_requests")
+    .insert(brandRegistrationRequestToRow(r))
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_registration_requests: ${error.message}`);
+  if (!data) throw new Error("brand_registration_requests: insert sonuç dönmedi.");
+  return brandRegistrationRequestFromRow(data as Record<string, unknown>);
+}
+
+export async function updateBrandRegistrationRequest(
+  id: string,
+  patch: Partial<{
+    status: BrandRegistrationRequest["status"];
+    rejectionReason: string | null;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+    createdBrandId: string | null;
+    createdUserId: string | null;
+  }>
+): Promise<BrandRegistrationRequest> {
+  const row: Record<string, unknown> = {};
+  if (patch.status !== undefined) row.status = patch.status;
+  if (patch.rejectionReason !== undefined) row.rejection_reason = patch.rejectionReason;
+  if (patch.reviewedBy !== undefined) row.reviewed_by = patch.reviewedBy;
+  if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
+  if (patch.createdBrandId !== undefined) row.created_brand_id = patch.createdBrandId;
+  if (patch.createdUserId !== undefined) row.created_user_id = patch.createdUserId;
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_registration_requests")
+    .update(row)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_registration_requests: ${error.message}`);
+  if (!data) throw new Error("brand_registration_requests: güncellenmek istenen kayıt bulunamadı.");
+  return brandRegistrationRequestFromRow(data as Record<string, unknown>);
+}
+
 export function pickSnapshot(state: Record<string, unknown>): AppHydratePayload {
   const out: AppHydratePayload = {};
   for (const k of [
@@ -686,4 +858,612 @@ export function pickSnapshot(state: Record<string, unknown>): AppHydratePayload 
     if (state[k] !== undefined) (out as Record<string, unknown>)[k] = state[k];
   }
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Affiliate Tracking (Faz C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Tüm partner'ları döner; `brandId` verilirse o markaya filtreler. */
+export async function fetchAffiliatePartners(
+  brandId?: string
+): Promise<AffiliatePartner[]> {
+  let q = getSupabaseAdmin()
+    .from("affiliate_partners")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (brandId) q = q.eq("brand_id", brandId);
+  const { data, error } = await q;
+  if (error) throw new Error(`affiliate_partners: ${error.message}`);
+  return (data ?? []).map((r) => affiliatePartnerFromRow(r as Record<string, unknown>));
+}
+
+export async function findAffiliatePartnerById(
+  id: string
+): Promise<AffiliatePartner | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("affiliate_partners")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`affiliate_partners: ${error.message}`);
+  return data ? affiliatePartnerFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function findAffiliatePartnersByExternalRefs(
+  brandId: string,
+  externalRefs: string[]
+): Promise<AffiliatePartner[]> {
+  const refs = externalRefs.map((r) => r.trim()).filter(Boolean);
+  if (refs.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("affiliate_partners")
+    .select("*")
+    .eq("brand_id", brandId)
+    .in("external_ref", refs);
+  if (error) throw new Error(`affiliate_partners: ${error.message}`);
+  return (data ?? []).map((r) => affiliatePartnerFromRow(r as Record<string, unknown>));
+}
+
+export async function upsertAffiliatePartner(
+  partner: AffiliatePartner
+): Promise<AffiliatePartner> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("affiliate_partners")
+    .upsert(affiliatePartnerToRow(partner), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`affiliate_partners: ${error.message}`);
+  if (!data) throw new Error("affiliate_partners: upsert sonuç dönmedi.");
+  return affiliatePartnerFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteAffiliatePartner(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin()
+    .from("affiliate_partners")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(`affiliate_partners: ${error.message}`);
+}
+
+export interface AffiliateStatsFilter {
+  brandId?: string;
+  partnerId?: string;
+  /** YYYY-MM-DD (inclusive). */
+  from?: string;
+  /** YYYY-MM-DD (inclusive). */
+  to?: string;
+  /** Default 5000 — bir batch için yeterli (90 gün × ~50 partner). */
+  limit?: number;
+}
+
+/** Günlük istatistik satırları. Filtre yoksa default son 5000 satırı döner. */
+export async function fetchAffiliateDailyStats(
+  filter: AffiliateStatsFilter = {}
+): Promise<AffiliateDailyStat[]> {
+  const limit = Math.max(1, Math.min(20000, filter.limit ?? 5000));
+  let q = getSupabaseAdmin()
+    .from("affiliate_daily_stats")
+    .select("*")
+    .order("stat_date", { ascending: false })
+    .limit(limit);
+  if (filter.brandId) q = q.eq("brand_id", filter.brandId);
+  if (filter.partnerId) q = q.eq("partner_id", filter.partnerId);
+  if (filter.from) q = q.gte("stat_date", filter.from);
+  if (filter.to) q = q.lte("stat_date", filter.to);
+  const { data, error } = await q;
+  if (error) throw new Error(`affiliate_daily_stats: ${error.message}`);
+  return (data ?? []).map((r) => affiliateDailyStatFromRow(r as Record<string, unknown>));
+}
+
+/**
+ * Bulk upsert — UNIQUE (partner_id, stat_date) çakışmasında günceller.
+ * Tek transaction içinde tüm satırlar gönderilir.
+ */
+export async function bulkUpsertAffiliateDailyStats(
+  rows: AffiliateDailyStat[]
+): Promise<{ count: number }> {
+  if (rows.length === 0) return { count: 0 };
+  const payload = rows.map(affiliateDailyStatToRow);
+  const { error } = await getSupabaseAdmin()
+    .from("affiliate_daily_stats")
+    .upsert(payload, { onConflict: "partner_id,stat_date" });
+  if (error) throw new Error(`affiliate_daily_stats: ${error.message}`);
+  return { count: payload.length };
+}
+
+export async function fetchAffiliatePayouts(
+  brandId?: string
+): Promise<AffiliatePayout[]> {
+  let q = getSupabaseAdmin()
+    .from("affiliate_payouts")
+    .select("*")
+    .order("period_end", { ascending: false });
+  if (brandId) q = q.eq("brand_id", brandId);
+  const { data, error } = await q;
+  if (error) throw new Error(`affiliate_payouts: ${error.message}`);
+  return (data ?? []).map((r) => affiliatePayoutFromRow(r as Record<string, unknown>));
+}
+
+/** Açık ödemeler (pending + approved) — bootstrap için. */
+export async function fetchOpenAffiliatePayouts(
+  brandId?: string
+): Promise<AffiliatePayout[]> {
+  let q = getSupabaseAdmin()
+    .from("affiliate_payouts")
+    .select("*")
+    .in("status", ["pending", "approved"])
+    .order("period_end", { ascending: false });
+  if (brandId) q = q.eq("brand_id", brandId);
+  const { data, error } = await q;
+  if (error) throw new Error(`affiliate_payouts: ${error.message}`);
+  return (data ?? []).map((r) => affiliatePayoutFromRow(r as Record<string, unknown>));
+}
+
+export async function findAffiliatePayoutById(
+  id: string
+): Promise<AffiliatePayout | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("affiliate_payouts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`affiliate_payouts: ${error.message}`);
+  return data ? affiliatePayoutFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertAffiliatePayout(
+  payout: AffiliatePayout
+): Promise<AffiliatePayout> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("affiliate_payouts")
+    .upsert(affiliatePayoutToRow(payout), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`affiliate_payouts: ${error.message}`);
+  if (!data) throw new Error("affiliate_payouts: upsert sonuç dönmedi.");
+  return affiliatePayoutFromRow(data as Record<string, unknown>);
+}
+
+/**
+ * Bootstrap için affiliate alt-payload'u. Brand kullanıcıda dailyStats son 90
+ * günle sınırlı; admin'de tümü (CSV import / global view için).
+ */
+export async function fetchAffiliateBootstrap(session: SessionPayload): Promise<{
+  affiliatePartners: AffiliatePartner[];
+  affiliateDailyStats: AffiliateDailyStat[];
+  affiliatePayouts: AffiliatePayout[];
+}> {
+  if (session.role === "brand" && session.brandId) {
+    const bid = session.brandId;
+    const ninetyDaysAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const [partners, stats, payouts] = await Promise.all([
+      fetchAffiliatePartners(bid),
+      fetchAffiliateDailyStats({ brandId: bid, from: ninetyDaysAgoIso, limit: 20000 }),
+      fetchOpenAffiliatePayouts(bid),
+    ]);
+    return {
+      affiliatePartners: partners,
+      affiliateDailyStats: stats,
+      affiliatePayouts: payouts,
+    };
+  }
+
+  if (session.role === "admin" || session.role === "auditor") {
+    const [partners, stats, payouts] = await Promise.all([
+      fetchAffiliatePartners(),
+      fetchAffiliateDailyStats({ limit: 20000 }),
+      fetchAffiliatePayouts(),
+    ]);
+    return {
+      affiliatePartners: partners,
+      affiliateDailyStats: stats,
+      affiliatePayouts: payouts,
+    };
+  }
+
+  // Yayıncı (streamer) — kendi employeeId'sine bağlı partner'ları görsün.
+  if (session.role === "streamer" && session.employeeId) {
+    const eid = session.employeeId;
+    const { data, error } = await getSupabaseAdmin()
+      .from("affiliate_partners")
+      .select("*")
+      .eq("employee_id", eid);
+    if (error) throw new Error(`affiliate_partners: ${error.message}`);
+    const partners = (data ?? []).map((r) =>
+      affiliatePartnerFromRow(r as Record<string, unknown>)
+    );
+    const partnerIds = partners.map((p) => p.id);
+    if (partnerIds.length === 0) {
+      return { affiliatePartners: [], affiliateDailyStats: [], affiliatePayouts: [] };
+    }
+    const { data: statRows, error: statErr } = await getSupabaseAdmin()
+      .from("affiliate_daily_stats")
+      .select("*")
+      .in("partner_id", partnerIds)
+      .order("stat_date", { ascending: false })
+      .limit(20000);
+    if (statErr) throw new Error(`affiliate_daily_stats: ${statErr.message}`);
+    return {
+      affiliatePartners: partners,
+      affiliateDailyStats: (statRows ?? []).map((r) =>
+        affiliateDailyStatFromRow(r as Record<string, unknown>)
+      ),
+      affiliatePayouts: [],
+    };
+  }
+
+  return { affiliatePartners: [], affiliateDailyStats: [], affiliatePayouts: [] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Yayıncı Havuzu + Teklif (Faz G)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface StreamerPoolFilter {
+  status?: StreamerPoolProfile["status"];
+  /**
+   * `brandView=true` → marka kullanıcısının görebileceği profiller (status=published
+   * + visibility in ('public','brand_only')). Admin/streamer için kapalı.
+   */
+  brandView?: boolean;
+  employeeIds?: string[];
+}
+
+export async function fetchStreamerPoolProfiles(
+  filter: StreamerPoolFilter = {}
+): Promise<StreamerPoolProfile[]> {
+  let q = getSupabaseAdmin()
+    .from("streamer_pool_profiles")
+    .select("*")
+    .order("updated_at", { ascending: false });
+  if (filter.status) q = q.eq("status", filter.status);
+  if (filter.brandView) {
+    q = q.eq("status", "published").in("visibility", ["public", "brand_only"]);
+  }
+  if (filter.employeeIds && filter.employeeIds.length > 0) {
+    q = q.in("employee_id", filter.employeeIds);
+  }
+  const { data, error } = await q;
+  if (error) throw new Error(`streamer_pool_profiles: ${error.message}`);
+  return (data ?? []).map((r) =>
+    streamerPoolProfileFromRow(r as Record<string, unknown>)
+  );
+}
+
+export async function findStreamerPoolProfileByEmployee(
+  employeeId: string
+): Promise<StreamerPoolProfile | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_pool_profiles")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .maybeSingle();
+  if (error) throw new Error(`streamer_pool_profiles: ${error.message}`);
+  return data ? streamerPoolProfileFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertStreamerPoolProfile(
+  profile: StreamerPoolProfile
+): Promise<StreamerPoolProfile> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_pool_profiles")
+    .upsert(streamerPoolProfileToRow(profile), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`streamer_pool_profiles: ${error.message}`);
+  if (!data) throw new Error("streamer_pool_profiles: upsert sonuç dönmedi.");
+  return streamerPoolProfileFromRow(data as Record<string, unknown>);
+}
+
+export interface BrandOfferFilter {
+  brandId?: string;
+  employeeId?: string;
+  status?: BrandOffer["status"];
+}
+
+export async function fetchBrandOffers(
+  filter: BrandOfferFilter = {}
+): Promise<BrandOffer[]> {
+  let q = getSupabaseAdmin()
+    .from("brand_offers")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (filter.brandId) q = q.eq("brand_id", filter.brandId);
+  if (filter.employeeId) q = q.eq("employee_id", filter.employeeId);
+  if (filter.status) q = q.eq("status", filter.status);
+  const { data, error } = await q;
+  if (error) throw new Error(`brand_offers: ${error.message}`);
+  return (data ?? []).map((r) => brandOfferFromRow(r as Record<string, unknown>));
+}
+
+export async function findBrandOfferById(id: string): Promise<BrandOffer | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_offers")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_offers: ${error.message}`);
+  return data ? brandOfferFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertBrandOffer(offer: BrandOffer): Promise<BrandOffer> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_offers")
+    .upsert(brandOfferToRow(offer), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_offers: ${error.message}`);
+  if (!data) throw new Error("brand_offers: upsert sonuç dönmedi.");
+  return brandOfferFromRow(data as Record<string, unknown>);
+}
+
+export async function appendBrandOfferMessage(
+  message: BrandOfferMessage
+): Promise<BrandOfferMessage> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_offer_messages")
+    .insert(brandOfferMessageToRow(message))
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_offer_messages: ${error.message}`);
+  if (!data) throw new Error("brand_offer_messages: insert sonuç dönmedi.");
+  return brandOfferMessageFromRow(data as Record<string, unknown>);
+}
+
+export async function fetchBrandOfferMessages(
+  offerId: string
+): Promise<BrandOfferMessage[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_offer_messages")
+    .select("*")
+    .eq("offer_id", offerId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`brand_offer_messages: ${error.message}`);
+  return (data ?? []).map((r) =>
+    brandOfferMessageFromRow(r as Record<string, unknown>)
+  );
+}
+
+export async function fetchBrandOfferMessagesByOfferIds(
+  offerIds: string[]
+): Promise<BrandOfferMessage[]> {
+  if (offerIds.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_offer_messages")
+    .select("*")
+    .in("offer_id", offerIds)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`brand_offer_messages: ${error.message}`);
+  return (data ?? []).map((r) =>
+    brandOfferMessageFromRow(r as Record<string, unknown>)
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anlaşma + Post Takibi (Faz H)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BrandDealFilter {
+  brandId?: string;
+  employeeId?: string;
+  status?: BrandDeal["status"];
+}
+
+export async function fetchBrandDeals(filter: BrandDealFilter = {}): Promise<BrandDeal[]> {
+  let q = getSupabaseAdmin()
+    .from("brand_deals")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (filter.brandId) q = q.eq("brand_id", filter.brandId);
+  if (filter.employeeId) q = q.eq("employee_id", filter.employeeId);
+  if (filter.status) q = q.eq("status", filter.status);
+  const { data, error } = await q;
+  if (error) throw new Error(`brand_deals: ${error.message}`);
+  return (data ?? []).map((r) => brandDealFromRow(r as Record<string, unknown>));
+}
+
+export async function findBrandDealById(id: string): Promise<BrandDeal | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_deals")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_deals: ${error.message}`);
+  return data ? brandDealFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertBrandDeal(deal: BrandDeal): Promise<BrandDeal> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_deals")
+    .upsert(brandDealToRow(deal), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_deals: ${error.message}`);
+  if (!data) throw new Error("brand_deals: upsert sonuç dönmedi.");
+  return brandDealFromRow(data as Record<string, unknown>);
+}
+
+/**
+ * Faz G accept akışı: bir offer + opsiyonel ek alanlardan yeni bir deal satırı
+ * üretir. `posts_count` / `total_views` denormalize alanlarına dokunmaz (trigger
+ * yönetir).
+ */
+export async function createBrandDealFromOffer(
+  offer: BrandOffer,
+  additional: Partial<
+    Pick<BrandDeal, "id" | "title" | "budgetUsd" | "startDate" | "endDate" | "notes" | "contractUrl">
+  > = {}
+): Promise<BrandDeal> {
+  const id =
+    additional.id ?? `bd-${crypto.randomUUID().slice(0, 10)}`;
+  const deal: BrandDeal = {
+    id,
+    brandId: offer.brandId,
+    employeeId: offer.employeeId,
+    originOfferId: offer.id,
+    title: additional.title ?? offer.title,
+    dealType: offer.offerType,
+    status: "active",
+    budgetUsd: additional.budgetUsd ?? offer.budgetUsd ?? 0,
+    paidUsd: 0,
+    startDate: additional.startDate ?? offer.startDate,
+    endDate: additional.endDate ?? offer.endDate,
+    deliverables: (offer.deliverables ?? []).map((d) => ({
+      type: d.type,
+      count: d.count,
+      platform: d.platform,
+    })),
+    postsCount: 0,
+    totalViews: 0,
+    notes: additional.notes ?? offer.notes ?? "",
+    contractUrl: additional.contractUrl,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  return upsertBrandDeal(deal);
+}
+
+export interface BrandPostFilter {
+  brandId?: string;
+  dealId?: string;
+  employeeId?: string;
+  platform?: BrandPost["platform"];
+  status?: BrandPost["status"];
+  limit?: number;
+}
+
+export async function fetchBrandPosts(filter: BrandPostFilter = {}): Promise<BrandPost[]> {
+  const limit = Math.max(1, Math.min(5000, filter.limit ?? 1000));
+  let q = getSupabaseAdmin()
+    .from("brand_posts")
+    .select("*")
+    .order("posted_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (filter.brandId) q = q.eq("brand_id", filter.brandId);
+  if (filter.dealId) q = q.eq("deal_id", filter.dealId);
+  if (filter.employeeId) q = q.eq("employee_id", filter.employeeId);
+  if (filter.platform) q = q.eq("platform", filter.platform);
+  if (filter.status) q = q.eq("status", filter.status);
+  const { data, error } = await q;
+  if (error) throw new Error(`brand_posts: ${error.message}`);
+  return (data ?? []).map((r) => brandPostFromRow(r as Record<string, unknown>));
+}
+
+export async function findBrandPostById(id: string): Promise<BrandPost | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_posts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_posts: ${error.message}`);
+  return data ? brandPostFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function findBrandPostByUrl(
+  brandId: string,
+  url: string
+): Promise<BrandPost | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_posts")
+    .select("*")
+    .eq("brand_id", brandId)
+    .eq("url", url)
+    .maybeSingle();
+  if (error) throw new Error(`brand_posts: ${error.message}`);
+  return data ? brandPostFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertBrandPost(post: BrandPost): Promise<BrandPost> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_posts")
+    .upsert(brandPostToRow(post), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_posts: ${error.message}`);
+  if (!data) throw new Error("brand_posts: upsert sonuç dönmedi.");
+  return brandPostFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandPost(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_posts").delete().eq("id", id);
+  if (error) throw new Error(`brand_posts: ${error.message}`);
+}
+
+/**
+ * Bootstrap için Faz G + H alt-payload'u. Scope rolüne göre filtrelenir.
+ *
+ * - admin / auditor: tümü
+ * - brand: kendi brand_id'sine bağlı offer / deal / post + published+visible pool
+ * - streamer: kendi employee_id'sine bağlı offer / deal / post + kendi pool profili
+ */
+export async function fetchDealsBootstrap(session: SessionPayload): Promise<{
+  streamerPoolProfiles: StreamerPoolProfile[];
+  brandOffers: BrandOffer[];
+  brandOfferMessages: BrandOfferMessage[];
+  brandDeals: BrandDeal[];
+  brandPosts: BrandPost[];
+}> {
+  if (session.role === "admin" || session.role === "auditor") {
+    const [profiles, offers, deals, posts] = await Promise.all([
+      fetchStreamerPoolProfiles(),
+      fetchBrandOffers(),
+      fetchBrandDeals(),
+      fetchBrandPosts({ limit: 5000 }),
+    ]);
+    const messages = await fetchBrandOfferMessagesByOfferIds(offers.map((o) => o.id));
+    return {
+      streamerPoolProfiles: profiles,
+      brandOffers: offers,
+      brandOfferMessages: messages,
+      brandDeals: deals,
+      brandPosts: posts,
+    };
+  }
+
+  if (session.role === "brand" && session.brandId) {
+    const bid = session.brandId;
+    const [profiles, offers, deals, posts] = await Promise.all([
+      fetchStreamerPoolProfiles({ brandView: true }),
+      fetchBrandOffers({ brandId: bid }),
+      fetchBrandDeals({ brandId: bid }),
+      fetchBrandPosts({ brandId: bid, limit: 2000 }),
+    ]);
+    const messages = await fetchBrandOfferMessagesByOfferIds(offers.map((o) => o.id));
+    return {
+      streamerPoolProfiles: profiles,
+      brandOffers: offers,
+      brandOfferMessages: messages,
+      brandDeals: deals,
+      brandPosts: posts,
+    };
+  }
+
+  if (session.role === "streamer" && session.employeeId) {
+    const eid = session.employeeId;
+    const [own, offers, deals, posts] = await Promise.all([
+      findStreamerPoolProfileByEmployee(eid),
+      fetchBrandOffers({ employeeId: eid }),
+      fetchBrandDeals({ employeeId: eid }),
+      fetchBrandPosts({ employeeId: eid, limit: 2000 }),
+    ]);
+    const messages = await fetchBrandOfferMessagesByOfferIds(offers.map((o) => o.id));
+    return {
+      streamerPoolProfiles: own ? [own] : [],
+      brandOffers: offers,
+      brandOfferMessages: messages,
+      brandDeals: deals,
+      brandPosts: posts,
+    };
+  }
+
+  return {
+    streamerPoolProfiles: [],
+    brandOffers: [],
+    brandOfferMessages: [],
+    brandDeals: [],
+    brandPosts: [],
+  };
 }

@@ -5,9 +5,15 @@ import {
   Wallet, Receipt, Users as UsersIcon, ShieldCheck, AlertCircle, CheckCircle2,
   Clock, ArrowRight, FileSpreadsheet, Eye, Target,
 } from "lucide-react";
+import { useMemo } from "react";
 import {
-  useStore, calcKasaBalance, calcOpenAdvanceBalance,
-  isPayrollActive, unreadNotificationCount,
+  useStore,
+  calcKasaBalance,
+  calcOpenAdvanceBalance,
+  isPayrollActive,
+  unreadNotificationCount,
+  DEFAULT_KASA_ID,
+  type KasaTransaction,
 } from "@/store/store";
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
@@ -20,12 +26,40 @@ import { Button } from "@/components/ui/button";
 export default function DenetciPage() {
   const { user } = useAuth();
   const {
-    kasaTransactions, contentExpenses, employees, salaryExtras, paymentStatuses,
+    kasas,
+    kasaTransactions,
+    contentExpenses,
+    employees,
+    salaryExtras,
+    paymentStatuses,
     notifications,
   } = useStore();
 
   const currentMonth = toYearMonthLocal(new Date());
-  const kasa         = calcKasaBalance(kasaTransactions);
+  const kasaOzeti = useMemo(() => {
+    const balanceFor = (rows: KasaTransaction[]) =>
+      rows.reduce(
+        (b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd),
+        0
+      );
+    const genelKasa =
+      kasas.find((k) => k.id === DEFAULT_KASA_ID) ??
+      kasas.find((k) => k.isDefault && !k.tronAddress);
+    const tronKasa = kasas.find((k) => Boolean(k.tronAddress) && !k.archived);
+    const genelRows = genelKasa
+      ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
+      : [];
+    const tronRows = tronKasa
+      ? kasaTransactions.filter((t) => t.kasaId === tronKasa.id)
+      : [];
+    return {
+      genel: balanceFor(genelRows),
+      tronToplam: balanceFor(tronRows),
+      tronOps: balanceFor(tronRows.filter((t) => t.autoImported)),
+      tronLokal: balanceFor(tronRows.filter((t) => !t.autoImported)),
+      tum: calcKasaBalance(kasaTransactions),
+    };
+  }, [kasas, kasaTransactions]);
   const activeExpenses = contentExpenses.filter(isActiveContentExpense);
   const pending      = contentExpenses.filter(e => e.reviewStatus === "pending");
   const approved     = contentExpenses.filter(e => e.reviewStatus === "approved");
@@ -67,12 +101,17 @@ export default function DenetciPage() {
         <Card className="gap-2 py-5">
           <CardHeader className="pb-0">
             <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-              <Wallet size={11} /> Kasa Bakiyesi
+              <Wallet size={11} /> Genel Kasa
             </CardTitle>
           </CardHeader>
           <CardContent className="pb-0">
-            <p className="text-2xl font-bold tabular-nums">{fmt(kasa)}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">{kasaTransactions.length} işlem</p>
+            <p className="text-2xl font-bold tabular-nums">{fmt(kasaOzeti.genel)}</p>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+              TRON iş {fmt(kasaOzeti.tronOps)} · lokal {fmt(kasaOzeti.tronLokal)}
+            </p>
+            <p className="text-[10px] text-muted-foreground/80 mt-0.5">
+              Tüm kasalar: {fmt(kasaOzeti.tum)}
+            </p>
           </CardContent>
         </Card>
         <Card className={`gap-2 py-5 ${pending.length > 0 ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/40 dark:bg-amber-950/30" : ""}`}>

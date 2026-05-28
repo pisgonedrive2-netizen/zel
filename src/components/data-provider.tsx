@@ -25,6 +25,8 @@ import { RELOAD_VIEWERSHIP_EVENT } from "@/lib/viewership-reload";
 
 const SYNC_MS = 900;
 const BOOTSTRAP_RETRIES = 3;
+const FETCH_TIMEOUT_MS = 8000;
+const BOOTSTRAP_STALL_TIMEOUT_MS = 15000;
 
 async function fetchJsonWithRetry(
   url: string,
@@ -32,14 +34,26 @@ async function fetchJsonWithRetry(
 ): Promise<Response> {
   let last: Response | null = null;
   for (let i = 0; i < BOOTSTRAP_RETRIES; i++) {
-    const res = await fetch(url, { cache: "no-store", ...opts });
-    last = res;
-    if (res.ok || res.status === 401) return res;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const res = await fetch(url, {
+        cache: "no-store",
+        ...opts,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      last = res;
+      if (res.ok || res.status === 401) return res;
+    } catch {
+      // ağ/time-out: retry dene
+    }
     if (i < BOOTSTRAP_RETRIES - 1) {
       await new Promise((r) => setTimeout(r, 350 * (i + 1)));
     }
   }
-  return last!;
+  if (last) return last;
+  throw new Error("İstek zaman aşımı");
 }
 
 function applyViewershipToPatch(
@@ -183,12 +197,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
     setBootstrapOk(false);
     skipSync.current = true;
     setReady(false);
 
     (async () => {
       try {
+        stallTimer = setTimeout(() => {
+          if (cancelled) return;
+          setReady(true);
+          setBootstrapOk(false);
+          setSyncError("İlk yükleme zaman aşımına uğradı. Ağ bağlantısını kontrol edip tekrar deneyin.");
+        }, BOOTSTRAP_STALL_TIMEOUT_MS);
+
         const res = await fetchJsonWithRetry("/api/bootstrap", {
           credentials: "include",
         });
@@ -273,10 +295,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
               : `İlk yükleme başarısız: ${msg}. Sayfayı yenileyin veya tekrar giriş yapın.`
           );
         }
+      } finally {
+        if (stallTimer) {
+          clearTimeout(stallTimer);
+          stallTimer = null;
+        }
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (stallTimer) clearTimeout(stallTimer);
+    };
   }, [supabaseMode, sessionReady, user?.id]);
 
   useEffect(() => {

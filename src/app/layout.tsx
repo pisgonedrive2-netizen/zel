@@ -52,7 +52,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="tr" suppressHydrationWarning>
-      <body className="flex h-screen min-h-0 overflow-hidden bg-background text-foreground antialiased">
+      <body
+        suppressHydrationWarning
+        className="flex h-screen min-h-0 overflow-hidden bg-background text-foreground antialiased"
+      >
         <ThemeScript />
         <TooltipProvider>
           <div className="flex min-h-0 min-w-0 flex-1 flex-row">

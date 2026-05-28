@@ -8,10 +8,16 @@ import { markaHref } from "@/lib/use-marka-view-month";
 import { ArrowUpRight } from "lucide-react";
 
 const NAV = [
+  { href: "/marka/anasayfa", label: "Anasayfa" },
   { href: "/marka/operasyon", label: "Operasyon özeti" },
   { href: "/marka/izlenmeler", label: "İzlenmeler" },
+  { href: "/marka/havuz", label: "Yayıncı havuzu" },
+  { href: "/marka/teklifler", label: "Teklifler" },
   { href: "/marka/takvim", label: "Yayıncı takvimi" },
+  { href: "/marka/anlasmalar", label: "Anlaşmalar" },
+  { href: "/marka/postlar", label: "Postlar" },
   { href: "/marka/odemeler", label: "Ödeme planı" },
+  { href: "/marka/affiliate", label: "Affiliate" },
   { href: "/marka/bildirimler", label: "Bildirimler" },
 ] as const;
 

@@ -1,6 +1,17 @@
 "use client";
 
-import { useStore, calcNetPayable, calcOpenAdvanceBalance, isPayrollActive, calcKasaBalance, unreadNotificationCount, plannedPayrollPlusApprovedContent, totalCashOutPaidForMonth } from "@/store/store";
+import { useMemo } from "react";
+import {
+  useStore,
+  calcNetPayable,
+  calcOpenAdvanceBalance,
+  isPayrollActive,
+  calcKasaBalance,
+  unreadNotificationCount,
+  plannedPayrollPlusApprovedContent,
+  totalCashOutPaidForMonth,
+} from "@/store/store";
+import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
@@ -14,7 +25,7 @@ import { motion } from "framer-motion";
 import {
   DollarSign, TrendingUp, TrendingDown, Users,
   ArrowUpRight, CheckCircle2, AlertCircle, FileText,
-  Wallet, Clapperboard, Eye, Receipt,
+  Wallet, Clapperboard, Eye, Receipt, Link2,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar,
@@ -49,7 +60,7 @@ export default function OzetPage() {
   const {
     companies, projects, expenses, employees,
     salaryExtras, advances, paymentStatuses,
-    kasaTransactions, contentExpenses, brandLinks, brands, notifications,
+    kasas, kasaTransactions, contentExpenses, brandLinks, brands, notifications,
     brandViewership, linkSnapshots,
   } = useStore();
   const { user } = useAuth();
@@ -107,8 +118,26 @@ export default function OzetPage() {
   const bekleyenTutar = bekleyenler.reduce((s, e) => s + calcNetPayable(e, currentMonth, advances, salaryExtras, paymentStatuses), 0);
   const acikAvansToplam = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, currentMonth, salaryExtras), 0);
 
-  // Kasa bakiyesi
-  const kasaBakiye = calcKasaBalance(kasaTransactions);
+  const kasaOzeti = useMemo(() => {
+    const tronPanel = computeTronPanelMetrics(kasas, kasaTransactions);
+    const genelKasa = tronPanel?.genelKasa;
+    const genelRows = genelKasa
+      ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
+      : [];
+    const genelBakiye = tronPanel?.harcamaKasa ?? 0;
+
+    return {
+      genelBakiye,
+      tronToplam: tronPanel?.tronTotal ?? 0,
+      tronOps: tronPanel?.ramizWallet ?? 0,
+      tronLokal: genelBakiye,
+      tumKasalar: calcKasaBalance(kasaTransactions),
+      genelKasaAdi: genelKasa?.name ?? "Genel Kasa",
+      tronKasaAdi: tronPanel?.tronKasa.name ?? "TRON Cüzdan",
+      genelIslem: genelRows.length,
+      tronIslem: tronPanel?.autoTxCount ?? 0,
+    };
+  }, [kasas, kasaTransactions]);
   // Bu ay içerik harcamaları (geri çekilen / reddedilen kayıtlar hariç)
   const icerikHarcAylik = contentExpenses
     .filter((c) => c.month === currentMonth && isActiveContentExpense(c))
@@ -169,13 +198,23 @@ export default function OzetPage() {
 
   const kpis: Array<import("@/components/ui/statistics-card-2").StatisticsCard2Props & { key: string }> = [
     {
-      key: "kasa",
-      title: "Kasa Bakiyesi",
-      value: fmt(kasaBakiye),
-      trend: kasaBakiye > 500 ? "up" : "down",
-      trendLabel: kasaBakiye > 500 ? "Normal" : "Düşük",
-      description: "Anlık bakiye · son işlemler baz alınmıştır",
+      key: "kasa-genel",
+      title: `${kasaOzeti.genelKasaAdi} (işletme)`,
+      value: fmt(kasaOzeti.genelBakiye),
+      trend: kasaOzeti.genelBakiye > 500 ? "up" : "down",
+      trendLabel: kasaOzeti.genelBakiye > 500 ? "Normal" : "Düşük",
+      description: `Maaş/gider için kullanılan ana kasa · ${kasaOzeti.genelIslem} işlem`,
       icon: Wallet,
+      href: "/kasa",
+    },
+    {
+      key: "kasa-tron-ops",
+      title: "Ramiz cüzdanı",
+      value: fmt(kasaOzeti.tronOps),
+      trend: "neutral",
+      trendLabel: "Otomatik",
+      description: `${kasaOzeti.tronKasaAdi} · ${kasaOzeti.tronIslem} otomatik işlem`,
+      icon: Link2,
       href: "/kasa",
     },
     {
@@ -299,9 +338,21 @@ export default function OzetPage() {
           href: "/maaslar" as const,
         }
       : { icon: CheckCircle2, title: "Tüm maaş ödemeleri tamam", sub: "Bu ay için bekleyen yok", color: "text-green-600 dark:text-green-400", href: "/maaslar" as const },
-    kasaBakiye < 500
-      ? { icon: AlertCircle, title: "Kasa bakiyesi düşük", sub: `${fmt(kasaBakiye)} · acil takviye gerekebilir`, color: "text-red-600 dark:text-red-400", href: "/kasa" as const }
-      : { icon: Wallet,      title: "Kasa durumu",         sub: `${fmt(kasaBakiye)} · ${kasaTransactions.length} işlem`,    color: "text-blue-600 dark:text-blue-400", href: "/kasa" as const },
+    kasaOzeti.genelBakiye < 500
+      ? {
+          icon: AlertCircle,
+          title: "Genel kasa bakiyesi düşük",
+          sub: `${fmt(kasaOzeti.genelBakiye)} · acil takviye gerekebilir`,
+          color: "text-red-600 dark:text-red-400",
+          href: "/kasa" as const,
+        }
+      : {
+          icon: Wallet,
+          title: "Genel kasa durumu",
+          sub: `TRON cüzdan ayrı · toplam tüm kasalar ${fmt(kasaOzeti.tumKasalar)}`,
+          color: "text-blue-600 dark:text-blue-400",
+          href: "/kasa" as const,
+        },
     icerikHarcBekleyen > 0
       ? { icon: Clapperboard, title: `${fmt(icerikHarcBekleyen)} ödenmemiş içerik harcaması`, sub: "İçerik Harcamaları sayfasında detay", color: "text-amber-600 dark:text-amber-400", href: "/icerik-harcamalari" as const }
       : { icon: CheckCircle2, title: "Tüm içerik harcamaları kapalı", sub: "Bekleyen rapor yok", color: "text-green-600 dark:text-green-400", href: "/icerik-harcamalari" as const },
@@ -393,8 +444,55 @@ export default function OzetPage() {
         </div>
       )}
 
+      <Card className="mb-4 border-blue-200/70 bg-blue-50/40 dark:border-blue-500/35 dark:bg-blue-950/25">
+        <CardContent className="py-4 px-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Kasa bakiyesi nasıl okunur?</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                Toplam bakiye {fmt(kasaOzeti.tumKasalar)}. Bu rakam {kasaOzeti.genelKasaAdi} +{" "}
+                {kasaOzeti.tronKasaAdi} toplamıdır. <strong>Ramiz cüzdanı</strong> otomatik TRON hareketleridir;{" "}
+                <strong>{kasaOzeti.genelKasaAdi}</strong> harcama kasasıdır.
+              </p>
+            </div>
+            <Link
+              href="/kasa"
+              className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0"
+            >
+              Kasa detayı →
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+            <div className="rounded-lg border border-border bg-card px-3 py-2.5">
+              <p className="text-muted-foreground">{kasaOzeti.genelKasaAdi}</p>
+              <p className="text-lg font-bold tabular-nums text-blue-800 dark:text-blue-200">
+                {fmt(kasaOzeti.genelBakiye)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-emerald-300/50 bg-emerald-500/5 px-3 py-2.5">
+              <p className="text-muted-foreground">Ramiz cüzdan toplam</p>
+              <p className="text-lg font-bold tabular-nums text-emerald-800 dark:text-emerald-200">
+                {fmt(kasaOzeti.tronToplam)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-violet-300/50 bg-violet-500/5 px-3 py-2.5">
+              <p className="text-muted-foreground">Ramiz cüzdan (otomatik)</p>
+              <p className="text-lg font-bold tabular-nums text-violet-800 dark:text-violet-200">
+                {fmt(kasaOzeti.tronOps)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-300/50 bg-amber-500/5 px-3 py-2.5">
+              <p className="text-muted-foreground">{kasaOzeti.genelKasaAdi} harcama</p>
+              <p className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-200">
+                {fmt(kasaOzeti.tronLokal)}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* KPI row 1 — finansal */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-3">
+      <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3 mb-3">
         {kpis.map(({ key, ...k }, i) => <StatisticsCard2 key={key} {...k} delay={i * 0.05} />)}
       </div>
 

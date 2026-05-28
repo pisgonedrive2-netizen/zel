@@ -4,7 +4,10 @@ import type {
   PlannedItem, PlannedItemPayment,
   StreamerAccount, ScheduleSlot, Brand, BrandLink, LinkSnapshot,
   BrandViewership, BrandMonthlyStats, Kasa, KasaTransaction, ContentExpense, WeeklyPlan,
-  WeekBrandReel, AppNotification,
+  WeekBrandReel, AppNotification, BrandRegistrationRequest,
+  AffiliatePartner, AffiliateDailyStat, AffiliatePayout,
+  StreamerPoolProfile, BrandOffer, BrandOfferDeliverable, BrandOfferMessage,
+  BrandDeal, BrandDealDeliverable, BrandPost,
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
 import { pgDate, pgTime, pgTimestamptz } from "@/lib/db/pg-value";
@@ -830,6 +833,67 @@ export function appUserFromRow(r: Record<string, unknown>): AppUser {
   };
 }
 
+export function brandRegistrationRequestFromRow(
+  r: Record<string, unknown>
+): BrandRegistrationRequest {
+  const status = str(r.status, "pending");
+  const allowed: BrandRegistrationRequest["status"][] = [
+    "pending",
+    "approved",
+    "rejected",
+    "duplicate",
+  ];
+  return {
+    id: str(r.id),
+    brandName: str(r.brand_name),
+    shortName: r.short_name ? str(r.short_name) : undefined,
+    category: str(r.category, "Bahis"),
+    website: r.website ? str(r.website) : undefined,
+    contactName: str(r.contact_name),
+    contactEmail: str(r.contact_email),
+    contactPhone: r.contact_phone ? str(r.contact_phone) : undefined,
+    telegram: r.telegram ? str(r.telegram) : undefined,
+    monthlyVolume: r.monthly_volume ? str(r.monthly_volume) : undefined,
+    preferredUsername: r.preferred_username ? str(r.preferred_username) : undefined,
+    notes: str(r.notes),
+    status: (allowed.includes(status as BrandRegistrationRequest["status"])
+      ? status
+      : "pending") as BrandRegistrationRequest["status"],
+    rejectionReason: r.rejection_reason ? str(r.rejection_reason) : undefined,
+    reviewedBy: r.reviewed_by ? str(r.reviewed_by) : undefined,
+    reviewedAt: r.reviewed_at ? str(r.reviewed_at) : undefined,
+    createdBrandId: r.created_brand_id ? str(r.created_brand_id) : undefined,
+    createdUserId: r.created_user_id ? str(r.created_user_id) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function brandRegistrationRequestToRow(r: BrandRegistrationRequest) {
+  return {
+    id: r.id,
+    brand_name: r.brandName,
+    short_name: r.shortName ?? null,
+    category: r.category,
+    website: r.website ?? null,
+    contact_name: r.contactName,
+    contact_email: r.contactEmail.toLowerCase().trim(),
+    contact_phone: r.contactPhone ?? null,
+    telegram: r.telegram ?? null,
+    monthly_volume: r.monthlyVolume ?? null,
+    preferred_username: r.preferredUsername ?? null,
+    notes: r.notes,
+    status: r.status,
+    rejection_reason: r.rejectionReason ?? null,
+    reviewed_by: r.reviewedBy ?? null,
+    reviewed_at: r.reviewedAt ?? null,
+    created_brand_id: r.createdBrandId ?? null,
+    created_user_id: r.createdUserId ?? null,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
 export function appUserToRow(u: AppUser, pinHash: string) {
   return {
     id: u.id,
@@ -842,5 +906,460 @@ export function appUserToRow(u: AppUser, pinHash: string) {
     avatar: u.avatar,
     active: u.active,
     last_login_at: u.lastLoginAt ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Affiliate Tracking (Faz C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ALLOWED_AFFILIATE_CURRENCIES: AffiliatePartner["currency"][] = ["USD", "EUR", "TRY"];
+const ALLOWED_PARTNER_TYPES: AffiliatePartner["partnerType"][] = [
+  "streamer",
+  "external",
+  "agency",
+  "social",
+];
+const ALLOWED_COMMISSION_MODELS: AffiliatePartner["commissionModel"][] = [
+  "cpa",
+  "revshare",
+  "hybrid",
+  "flat",
+];
+const ALLOWED_PARTNER_STATUS: AffiliatePartner["status"][] = ["active", "paused", "closed"];
+const ALLOWED_STAT_SOURCES: AffiliateDailyStat["source"][] = ["manual", "csv", "api", "webhook"];
+const ALLOWED_PAYOUT_STATUS: AffiliatePayout["status"][] = [
+  "pending",
+  "approved",
+  "paid",
+  "cancelled",
+];
+
+function pickEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  const s = String(value ?? "");
+  return (allowed as readonly string[]).includes(s) ? (s as T) : fallback;
+}
+
+export function affiliatePartnerFromRow(r: Record<string, unknown>): AffiliatePartner {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    name: str(r.name),
+    externalRef: r.external_ref ? str(r.external_ref) : undefined,
+    partnerType: pickEnum(r.partner_type, ALLOWED_PARTNER_TYPES, "streamer"),
+    commissionModel: pickEnum(r.commission_model, ALLOWED_COMMISSION_MODELS, "cpa"),
+    cpaAmount: num(r.cpa_amount),
+    revsharePct: num(r.revshare_pct),
+    currency: pickEnum(r.currency, ALLOWED_AFFILIATE_CURRENCIES, "USD"),
+    status: pickEnum(r.status, ALLOWED_PARTNER_STATUS, "active"),
+    employeeId: r.employee_id ? str(r.employee_id) : undefined,
+    contact: r.contact ? str(r.contact) : undefined,
+    notes: str(r.notes),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function affiliatePartnerToRow(p: AffiliatePartner) {
+  return {
+    id: p.id,
+    brand_id: p.brandId,
+    name: p.name,
+    external_ref: p.externalRef ?? null,
+    partner_type: p.partnerType,
+    commission_model: p.commissionModel,
+    cpa_amount: p.cpaAmount,
+    revshare_pct: p.revsharePct,
+    currency: p.currency,
+    status: p.status,
+    employee_id: p.employeeId ?? null,
+    contact: p.contact ?? null,
+    notes: p.notes,
+  };
+}
+
+export function affiliateDailyStatFromRow(r: Record<string, unknown>): AffiliateDailyStat {
+  return {
+    id: str(r.id),
+    partnerId: str(r.partner_id),
+    brandId: str(r.brand_id),
+    statDate: str(r.stat_date).slice(0, 10),
+    clicks: Number(r.clicks ?? 0),
+    registrations: Number(r.registrations ?? 0),
+    ftdCount: Number(r.ftd_count ?? 0),
+    ftdAmount: num(r.ftd_amount),
+    depositAmount: num(r.deposit_amount),
+    withdrawalAmount: num(r.withdrawal_amount),
+    netRevenue: num(r.net_revenue),
+    commissionDue: num(r.commission_due),
+    currency: pickEnum(r.currency, ALLOWED_AFFILIATE_CURRENCIES, "USD"),
+    source: pickEnum(r.source, ALLOWED_STAT_SOURCES, "manual"),
+    importedAt: r.imported_at ? str(r.imported_at) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function affiliateDailyStatToRow(s: AffiliateDailyStat) {
+  return {
+    id: s.id,
+    partner_id: s.partnerId,
+    brand_id: s.brandId,
+    stat_date: s.statDate,
+    clicks: Math.max(0, Math.floor(s.clicks || 0)),
+    registrations: Math.max(0, Math.floor(s.registrations || 0)),
+    ftd_count: Math.max(0, Math.floor(s.ftdCount || 0)),
+    ftd_amount: s.ftdAmount ?? 0,
+    deposit_amount: s.depositAmount ?? 0,
+    withdrawal_amount: s.withdrawalAmount ?? 0,
+    net_revenue: s.netRevenue ?? 0,
+    commission_due: s.commissionDue ?? 0,
+    currency: s.currency,
+    source: s.source,
+    imported_at: s.importedAt ?? null,
+  };
+}
+
+export function affiliatePayoutFromRow(r: Record<string, unknown>): AffiliatePayout {
+  return {
+    id: str(r.id),
+    partnerId: str(r.partner_id),
+    brandId: str(r.brand_id),
+    periodStart: str(r.period_start).slice(0, 10),
+    periodEnd: str(r.period_end).slice(0, 10),
+    amount: num(r.amount),
+    currency: pickEnum(r.currency, ALLOWED_AFFILIATE_CURRENCIES, "USD"),
+    status: pickEnum(r.status, ALLOWED_PAYOUT_STATUS, "pending"),
+    paidDate: r.paid_date ? str(r.paid_date).slice(0, 10) : undefined,
+    notes: str(r.notes),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function affiliatePayoutToRow(p: AffiliatePayout) {
+  return {
+    id: p.id,
+    partner_id: p.partnerId,
+    brand_id: p.brandId,
+    period_start: p.periodStart,
+    period_end: p.periodEnd,
+    amount: p.amount,
+    currency: p.currency,
+    status: p.status,
+    paid_date: p.paidDate ?? null,
+    notes: p.notes,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Yayıncı havuzu + teklif (Faz G)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ALLOWED_POOL_STATUS: StreamerPoolProfile["status"][] = [
+  "draft",
+  "published",
+  "paused",
+  "closed",
+];
+const ALLOWED_POOL_VISIBILITY: StreamerPoolProfile["visibility"][] = [
+  "public",
+  "brand_only",
+  "invite_only",
+];
+const ALLOWED_OFFER_INITIATOR: BrandOffer["initiator"][] = ["brand", "streamer"];
+const ALLOWED_OFFER_TYPE: BrandOffer["offerType"][] = [
+  "campaign",
+  "single_post",
+  "long_term",
+  "affiliate",
+];
+const ALLOWED_OFFER_STATUS: BrandOffer["status"][] = [
+  "pending",
+  "negotiating",
+  "accepted",
+  "rejected",
+  "withdrawn",
+  "expired",
+];
+const ALLOWED_MESSAGE_ROLE: BrandOfferMessage["authorRole"][] = ["brand", "streamer", "admin"];
+
+function toStringArray(v: unknown, fallback: string[] = []): string[] {
+  if (!Array.isArray(v)) return fallback;
+  return (v as unknown[]).map((x) => String(x)).filter(Boolean);
+}
+
+function parseOfferDeliverables(v: unknown): BrandOfferDeliverable[] {
+  if (!Array.isArray(v)) return [];
+  const out: BrandOfferDeliverable[] = [];
+  for (const raw of v as unknown[]) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const type = String(r.type ?? "").trim();
+    const count = Math.max(0, Math.floor(Number(r.count) || 0));
+    if (!type) continue;
+    out.push({
+      type,
+      count,
+      platform: r.platform ? String(r.platform) : undefined,
+      notes: r.notes ? String(r.notes) : undefined,
+    });
+  }
+  return out;
+}
+
+function parseDealDeliverables(v: unknown): BrandDealDeliverable[] {
+  if (!Array.isArray(v)) return [];
+  const out: BrandDealDeliverable[] = [];
+  for (const raw of v as unknown[]) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const type = String(r.type ?? "").trim();
+    const count = Math.max(0, Math.floor(Number(r.count) || 0));
+    if (!type) continue;
+    out.push({
+      type,
+      count,
+      platform: r.platform ? String(r.platform) : undefined,
+    });
+  }
+  return out;
+}
+
+export function streamerPoolProfileFromRow(r: Record<string, unknown>): StreamerPoolProfile {
+  return {
+    id: str(r.id),
+    employeeId: str(r.employee_id),
+    displayName: str(r.display_name),
+    headline: str(r.headline),
+    bio: str(r.bio),
+    categories: toStringArray(r.categories),
+    languages: toStringArray(r.languages, ["tr"]),
+    countries: toStringArray(r.countries, ["TR"]),
+    rateMinUsd: r.rate_min_usd == null ? undefined : Number(r.rate_min_usd),
+    rateMaxUsd: r.rate_max_usd == null ? undefined : Number(r.rate_max_usd),
+    rateCurrency: str(r.rate_currency, "USD"),
+    followersTotal: Number(r.followers_total ?? 0),
+    avgViews: Number(r.avg_views ?? 0),
+    avatarUrl: r.avatar_url ? str(r.avatar_url) : undefined,
+    coverUrl: r.cover_url ? str(r.cover_url) : undefined,
+    status: pickEnum(r.status, ALLOWED_POOL_STATUS, "draft"),
+    visibility: pickEnum(r.visibility, ALLOWED_POOL_VISIBILITY, "public"),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function streamerPoolProfileToRow(p: StreamerPoolProfile) {
+  return {
+    id: p.id,
+    employee_id: p.employeeId,
+    display_name: p.displayName,
+    headline: p.headline,
+    bio: p.bio,
+    categories: p.categories ?? [],
+    languages: p.languages?.length ? p.languages : ["tr"],
+    countries: p.countries?.length ? p.countries : ["TR"],
+    rate_min_usd: p.rateMinUsd ?? null,
+    rate_max_usd: p.rateMaxUsd ?? null,
+    rate_currency: p.rateCurrency || "USD",
+    followers_total: Math.max(0, Math.floor(p.followersTotal || 0)),
+    avg_views: Math.max(0, Math.floor(p.avgViews || 0)),
+    avatar_url: p.avatarUrl ?? null,
+    cover_url: p.coverUrl ?? null,
+    status: p.status,
+    visibility: p.visibility,
+  };
+}
+
+export function brandOfferFromRow(r: Record<string, unknown>): BrandOffer {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    employeeId: str(r.employee_id),
+    initiator: pickEnum(r.initiator, ALLOWED_OFFER_INITIATOR, "brand"),
+    title: str(r.title),
+    description: str(r.description),
+    offerType: pickEnum(r.offer_type, ALLOWED_OFFER_TYPE, "campaign"),
+    budgetUsd: r.budget_usd == null ? undefined : Number(r.budget_usd),
+    status: pickEnum(r.status, ALLOWED_OFFER_STATUS, "pending"),
+    deliverables: parseOfferDeliverables(r.deliverables),
+    startDate: r.start_date ? str(r.start_date).slice(0, 10) : undefined,
+    endDate: r.end_date ? str(r.end_date).slice(0, 10) : undefined,
+    notes: str(r.notes),
+    expiresAt: r.expires_at ? str(r.expires_at) : undefined,
+    createdBy: r.created_by ? str(r.created_by) : undefined,
+    respondedBy: r.responded_by ? str(r.responded_by) : undefined,
+    respondedAt: r.responded_at ? str(r.responded_at) : undefined,
+    createdDealId: r.created_deal_id ? str(r.created_deal_id) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function brandOfferToRow(o: BrandOffer) {
+  return {
+    id: o.id,
+    brand_id: o.brandId,
+    employee_id: o.employeeId,
+    initiator: o.initiator,
+    title: o.title,
+    description: o.description,
+    offer_type: o.offerType,
+    budget_usd: o.budgetUsd ?? null,
+    status: o.status,
+    deliverables: o.deliverables ?? [],
+    start_date: o.startDate ?? null,
+    end_date: o.endDate ?? null,
+    notes: o.notes ?? "",
+    expires_at: o.expiresAt ?? null,
+    created_by: o.createdBy ?? null,
+    responded_by: o.respondedBy ?? null,
+    responded_at: o.respondedAt ?? null,
+    created_deal_id: o.createdDealId ?? null,
+  };
+}
+
+export function brandOfferMessageFromRow(r: Record<string, unknown>): BrandOfferMessage {
+  return {
+    id: str(r.id),
+    offerId: str(r.offer_id),
+    authorId: str(r.author_id),
+    authorRole: pickEnum(r.author_role, ALLOWED_MESSAGE_ROLE, "admin"),
+    body: str(r.body),
+    counterBudgetUsd:
+      r.counter_budget_usd == null ? undefined : Number(r.counter_budget_usd),
+    createdAt: str(r.created_at),
+  };
+}
+
+export function brandOfferMessageToRow(m: BrandOfferMessage) {
+  return {
+    id: m.id,
+    offer_id: m.offerId,
+    author_id: m.authorId,
+    author_role: m.authorRole,
+    body: m.body,
+    counter_budget_usd: m.counterBudgetUsd ?? null,
+    created_at: m.createdAt,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anlaşma + post takibi (Faz H)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ALLOWED_DEAL_TYPE: BrandDeal["dealType"][] = [
+  "campaign",
+  "single_post",
+  "long_term",
+  "affiliate",
+];
+const ALLOWED_DEAL_STATUS: BrandDeal["status"][] = [
+  "active",
+  "completed",
+  "cancelled",
+  "disputed",
+];
+const ALLOWED_POST_PLATFORM: BrandPost["platform"][] = [
+  "instagram",
+  "tiktok",
+  "youtube",
+  "kick",
+  "twitter",
+  "telegram",
+  "other",
+];
+const ALLOWED_POST_TYPE: BrandPost["postType"][] = [
+  "post",
+  "reel",
+  "story",
+  "vlog",
+  "stream",
+  "vod",
+  "tweet",
+  "other",
+];
+const ALLOWED_POST_STATUS: BrandPost["status"][] = ["draft", "live", "removed", "expired"];
+
+export function brandDealFromRow(r: Record<string, unknown>): BrandDeal {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    employeeId: str(r.employee_id),
+    originOfferId: r.origin_offer_id ? str(r.origin_offer_id) : undefined,
+    title: str(r.title),
+    dealType: pickEnum(r.deal_type, ALLOWED_DEAL_TYPE, "campaign"),
+    status: pickEnum(r.status, ALLOWED_DEAL_STATUS, "active"),
+    budgetUsd: num(r.budget_usd),
+    paidUsd: num(r.paid_usd),
+    startDate: r.start_date ? str(r.start_date).slice(0, 10) : undefined,
+    endDate: r.end_date ? str(r.end_date).slice(0, 10) : undefined,
+    deliverables: parseDealDeliverables(r.deliverables),
+    postsCount: Number(r.posts_count ?? 0),
+    totalViews: Number(r.total_views ?? 0),
+    notes: str(r.notes),
+    contractUrl: r.contract_url ? str(r.contract_url) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function brandDealToRow(d: BrandDeal) {
+  return {
+    id: d.id,
+    brand_id: d.brandId,
+    employee_id: d.employeeId,
+    origin_offer_id: d.originOfferId ?? null,
+    title: d.title,
+    deal_type: d.dealType,
+    status: d.status,
+    budget_usd: d.budgetUsd ?? 0,
+    paid_usd: d.paidUsd ?? 0,
+    start_date: d.startDate ?? null,
+    end_date: d.endDate ?? null,
+    deliverables: d.deliverables ?? [],
+    notes: d.notes ?? "",
+    contract_url: d.contractUrl ?? null,
+  };
+}
+
+export function brandPostFromRow(r: Record<string, unknown>): BrandPost {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    employeeId: r.employee_id ? str(r.employee_id) : undefined,
+    dealId: r.deal_id ? str(r.deal_id) : undefined,
+    platform: pickEnum(r.platform, ALLOWED_POST_PLATFORM, "other"),
+    postType: pickEnum(r.post_type, ALLOWED_POST_TYPE, "post"),
+    url: str(r.url),
+    caption: str(r.caption),
+    postedAt: r.posted_at ? str(r.posted_at) : undefined,
+    screenshotUrl: r.screenshot_url ? str(r.screenshot_url) : undefined,
+    views: Number(r.views ?? 0),
+    likes: Number(r.likes ?? 0),
+    comments: Number(r.comments ?? 0),
+    status: pickEnum(r.status, ALLOWED_POST_STATUS, "live"),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function brandPostToRow(p: BrandPost) {
+  return {
+    id: p.id,
+    brand_id: p.brandId,
+    employee_id: p.employeeId ?? null,
+    deal_id: p.dealId ?? null,
+    platform: p.platform,
+    post_type: p.postType,
+    url: p.url,
+    caption: p.caption ?? "",
+    posted_at: p.postedAt ?? null,
+    screenshot_url: p.screenshotUrl ?? null,
+    views: Math.max(0, Math.floor(p.views || 0)),
+    likes: Math.max(0, Math.floor(p.likes || 0)),
+    comments: Math.max(0, Math.floor(p.comments || 0)),
+    status: p.status,
   };
 }

@@ -10,6 +10,7 @@ import {
   useStore, calcKasaBalance,
   type Kasa, type KasaTransaction, DEFAULT_KASA_ID,
 } from "@/store/store";
+import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
 import { fmt } from "@/lib/data";
@@ -107,7 +108,11 @@ function KasaAccountForm({
           </Field>
         </FormGrid>
         <Field label="Notlar">
-          <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Bu kasanın amacı, sahibi vb." />
+          <Textarea
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            placeholder="Bu kasanın amacı, sahibi vb."
+          />
         </Field>
         <FormGrid>
           <Field label="TRON adresi (TRC20)" hint="USDT cüzdan adresi — otomatik hareket çekimi">
@@ -247,8 +252,10 @@ export default function KasaPage() {
   const [kasaModal, setKasaModal]       = useState<"new" | Kasa | null>(null);
   const [search, setSearch]             = useState("");
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "tron-auto" | "manual">("all");
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
+  const [tronTxView, setTronTxView] = useState<"all" | "ops" | "local">("all");
   const [tronResyncFrom, setTronResyncFrom] = useState("");
   const [tronInfo, setTronInfo] = useState<{
     apiKeySet: boolean;
@@ -400,16 +407,6 @@ export default function KasaPage() {
     });
   }, [sorted]);
 
-  const filteredRows = useMemo(() => {
-    return [...withBalance].reverse().filter(t =>
-      (filter === "all" || t.direction === filter) &&
-      (search === "" ||
-        t.purpose.toLowerCase().includes(search.toLowerCase()) ||
-        t.counterparty.toLowerCase().includes(search.toLowerCase()) ||
-        t.notes.toLowerCase().includes(search.toLowerCase()))
-    );
-  }, [withBalance, filter, search]);
-
   const currentBalance = useMemo(
     () => selectedKasaId === "all"
       ? calcKasaBalance(kasaTransactions)
@@ -439,6 +436,31 @@ export default function KasaPage() {
     [visibleKasas, kasaTransactions]
   );
 
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions]
+  );
+  const tronKasa = tronPanel?.tronKasa ?? null;
+
+  const filteredRows = useMemo(() => {
+    const isTronAuto = (t: KasaTransaction) => Boolean(t.autoImported);
+    const sourceMatches = (t: KasaTransaction) => {
+      if (sourceFilter === "all") return true;
+      if (sourceFilter === "tron-auto") return isTronAuto(t);
+      return !isTronAuto(t);
+    };
+    return [...withBalance].reverse().filter(t =>
+      (filter === "all" || t.direction === filter) &&
+      sourceMatches(t) &&
+      (!(selectedKasaId === tronPanel?.tronKasa.id && tronTxView !== "all") ||
+        (tronTxView === "ops" ? Boolean(t.autoImported) : !t.autoImported)) &&
+      (search === "" ||
+        t.purpose.toLowerCase().includes(search.toLowerCase()) ||
+        t.counterparty.toLowerCase().includes(search.toLowerCase()) ||
+        t.notes.toLowerCase().includes(search.toLowerCase()))
+    );
+  }, [withBalance, filter, sourceFilter, search, selectedKasaId, tronPanel?.tronKasa.id, tronTxView]);
+
   const kasaNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const k of kasas) m.set(k.id, k.name);
@@ -446,7 +468,7 @@ export default function KasaPage() {
   }, [kasas]);
 
   return (
-    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
+    <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1720px]">
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Kasa Hareketleri</h1>
@@ -522,6 +544,12 @@ export default function KasaPage() {
               {isTron && <Link2 size={11} className="shrink-0 opacity-80" />}
               {kasa.name}
               <span className="opacity-70 tabular-nums">· {fmtUsdt(balance)}</span>
+              {isTron && tronPanel && tronPanel.tronKasa.id === kasa.id && (
+                <span className="opacity-70 text-[10px]">
+                  (Ramiz {fmtUsdt(tronPanel.ramizWallet)} / Harcama{" "}
+                  {fmtUsdt(tronPanel.harcamaKasa)})
+                </span>
+              )}
               <span className="opacity-50 text-[10px]">({count})</span>
             </button>
           );
@@ -535,11 +563,9 @@ export default function KasaPage() {
 
       {/* TRON USDT cüzdan — manuel kasadan ayrı çalışır */}
       {(() => {
-        const tronKasa = visibleKasas.find((k) => k.tronAddress && !k.archived);
-        if (!tronKasa) return null;
-        const tronBalance = calcKasaBalance(kasaTransactions, undefined, tronKasa.id);
-        const tronCount = kasaTransactions.filter((t) => t.kasaId === tronKasa.id).length;
+        if (!tronPanel || !tronKasa) return null;
         const isActive = selectedKasaId === tronKasa.id;
+        const genelName = tronPanel.genelKasa?.name ?? "Genel Kasa";
         return (
           <Card className="mb-5 border-emerald-200/60 bg-emerald-50/30 dark:border-emerald-500/40 dark:bg-emerald-950/25">
             <CardHeader className="py-3 px-4">
@@ -547,23 +573,66 @@ export default function KasaPage() {
                 <div className="min-w-0">
                   <CardTitle className="text-sm flex items-center gap-2 text-emerald-900 dark:text-emerald-200">
                     <Link2 size={14} />
-                    TRON USDT cüzdan — otomatik senkron
+                    <span>{tronKasa.name}</span>
+                    <span className="text-muted-foreground font-normal">— otomatik senkron</span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setKasaModal(tronKasa)}
+                        className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 hover:bg-card"
+                        title="Kasa adını düzenle"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
                   </CardTitle>
                   <CardDescription className="text-xs mt-1">
-                    Manuel kasa bakiyesinden ayrı çalışır. TronGrid hareketleri yalnızca bu kasaya
-                    yazılır; <strong>Genel Kasa</strong> bu işlemlerden etkilenmez.
+                    Ramiz TRON cüzdanından gelen/giden hareketler otomatik yazılır. Harcamalar{" "}
+                    <strong>{genelName}</strong> üzerinden takip edilir.
                   </CardDescription>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3 text-xs">
+                    <div className="rounded-md border border-emerald-300/40 bg-emerald-500/5 px-2.5 py-2">
+                      <p className="text-muted-foreground">Toplam cüzdan (Ramiz)</p>
+                      <p className="font-semibold tabular-nums text-emerald-900 dark:text-emerald-100">
+                        {fmtUsdt(tronPanel.tronTotal)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">{tronPanel.tronTxCount} işlem</p>
+                    </div>
+                    <div className="rounded-md border border-blue-300/40 bg-blue-500/5 px-2.5 py-2">
+                      <p className="text-muted-foreground">Ramiz cüzdan adresi</p>
+                      <p className="font-semibold tabular-nums text-blue-800 dark:text-blue-200">
+                        {fmtUsdt(tronPanel.ramizWallet)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {tronPanel.autoTxCount} otomatik işlem
+                      </p>
+                      {tronPanel.tronAddress ? (
+                        <p className="mt-1">
+                          <Copyable text={tronPanel.tronAddress} />
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-md border border-amber-300/40 bg-amber-500/5 px-2.5 py-2">
+                      <p className="text-muted-foreground">{genelName} · harcama kasası</p>
+                      <p className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                        {fmtUsdt(tronPanel.harcamaKasa)}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {tronPanel.harcamaTxCount} harcama işlemi
+                      </p>
+                    </div>
+                  </div>
                   <p className="text-xs mt-2 flex flex-wrap items-center gap-3">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Wallet size={11} className="text-emerald-700 dark:text-emerald-400" />
-                      <span className="font-semibold tabular-nums text-emerald-900 dark:text-emerald-100">
-                        {fmtUsdt(tronBalance)}
+                    {tronInfo?.watchAddress && tronInfo.watchAddress !== tronPanel.tronAddress && (
+                      <span className="text-muted-foreground">
+                        Bildirim izleme:
+                        {" "}
+                        <Copyable text={tronInfo.watchAddress} />
                       </span>
-                      <span className="text-muted-foreground">· {tronCount} işlem</span>
-                    </span>
-                    {tronKasa.tronAddress && (
-                      <Copyable text={tronKasa.tronAddress} />
                     )}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Cüzdandan yeni çıkış/giriş olduğunda kasa hareketleri arka planda otomatik güncellenir.
                   </p>
                 </div>
                 {!readOnly && (
@@ -603,11 +672,47 @@ export default function KasaPage() {
                     >
                       Tüm geçmiş
                     </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => setKasaModal(tronKasa)}
+                    >
+                      Cuzdan ayarini duzenle
+                    </Button>
                   </div>
                 )}
               </div>
-              {!readOnly && isActive && (
+              {!readOnly && (
                 <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <div className="inline-flex items-center gap-1 border border-border rounded-md p-0.5 bg-card">
+                    {(["all", "ops", "local"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setTronTxView(mode)}
+                        className={`px-2 py-1 text-[10px] rounded ${
+                          tronTxView === mode
+                            ? "bg-emerald-600 text-white"
+                            : "text-muted-foreground hover:bg-accent"
+                        }`}
+                      >
+                        {mode === "all" ? "Tümü" : mode === "ops" ? "Otomatik (Ramiz)" : "Manuel"}
+                      </button>
+                    ))}
+                  </div>
+                  {!isActive && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => setSelectedKasaId(tronKasa.id)}
+                    >
+                      Once TRON kasasini sec
+                    </Button>
+                  )}
                   <span className="text-[11px] text-muted-foreground">Geçmişten doldur:</span>
                   <input
                     type="date"
@@ -642,8 +747,8 @@ export default function KasaPage() {
               TRON / TronGrid
             </CardTitle>
             <CardDescription className="text-xs">
-              İş kasasından ayrı cüzdan — yalnızca giriş/çıkış bildirimi (TRON_WATCH_ADDRESS).
-              Manuel &quot;TRON hareketlerini çek&quot; ise seçili kasaya yazar.
+              İzleme cüzdanı ve çekim cüzdanı ayrı okunur. Giriş/çıkış bildirimleri sadece
+              izleme adresi için üretilir; manuel çekim seçili TRON kasaya yazar.
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 pb-4 pt-0">
@@ -776,6 +881,23 @@ export default function KasaPage() {
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-card">
+          {([
+            { value: "all", label: "Tüm kaynak" },
+            { value: "tron-auto", label: "TRON otomatik" },
+            { value: "manual", label: "Manuel" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setSourceFilter(opt.value)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                sourceFilter === opt.value ? "bg-emerald-600 text-white" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <UInput aria-label="Kasa işlemi ara" placeholder="İşlem ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
@@ -788,10 +910,10 @@ export default function KasaPage() {
       {/* Tablo */}
       <div className="border border-border rounded-xl overflow-hidden bg-card">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {["Tarih","Kasa","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Bakiye",""].map((h) => (
+                {["Tarih","Kasa","Kaynak","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Bakiye",""].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -805,6 +927,17 @@ export default function KasaPage() {
                   </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {kasaNameById.get(t.kasaId) ?? t.kasaId}
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {tronPanel?.tronKasa.id === t.kasaId && t.autoImported ? (
+                      <Badge variant="outline" className="text-[10px] border-violet-300 text-violet-700 bg-violet-50 dark:border-violet-500/45 dark:text-violet-300 dark:bg-violet-950/40">
+                        Ramiz cüzdan
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] border-border text-muted-foreground">
+                        Manuel
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {t.direction === "in" ? (
@@ -865,7 +998,7 @@ export default function KasaPage() {
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Filtreyle eşleşen işlem yok.
                   </td>
                 </tr>

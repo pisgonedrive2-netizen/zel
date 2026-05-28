@@ -22,6 +22,7 @@ import {
   markNotificationReadPersisted,
   markAllNotificationsReadPersisted,
   deleteNotificationPersisted,
+  deleteNotificationsPersisted,
 } from "@/lib/notification-actions";
 import { fmtDateShort } from "@/lib/fmt-date";
 
@@ -383,6 +384,16 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
 
   if (!user) return null;
   const my = visibleNotificationsForRole(notifications, user.role, user.id).slice(0, 30);
+  const clearAllInPopup = async () => {
+    if (my.length === 0) return;
+    if (!window.confirm(`${my.length} bildirimi temizlemek istiyor musun?`)) return;
+    const { deleted, failed } = await deleteNotificationsPersisted(my.map((n) => n.id));
+    if (failed > 0) {
+      window.alert(`${deleted} silindi, ${failed} bildirim silinemedi.`);
+      return;
+    }
+    setOpen(false);
+  };
 
   return (
     <div className="relative">
@@ -419,14 +430,24 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
               <p className="text-xs font-semibold text-foreground">Son Bildirimler</p>
-              {unreadCount > 0 && (
-                <button
-                  onClick={() => void markAllNotificationsReadPersisted(user.role, user.id)}
-                  className="text-[10px] text-primary hover:underline"
-                >
-                  Tümünü okundu işaretle
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {my.length > 0 && (
+                  <button
+                    onClick={() => void clearAllInPopup()}
+                    className="text-[10px] text-destructive hover:underline"
+                  >
+                    Temizle
+                  </button>
+                )}
+                {unreadCount > 0 && (
+                  <button
+                    onClick={() => void markAllNotificationsReadPersisted(user.role, user.id)}
+                    className="text-[10px] text-primary hover:underline"
+                  >
+                    Okundu
+                  </button>
+                )}
+              </div>
             </div>
             <div className="max-h-96 overflow-y-auto">
               {my.length === 0 ? (

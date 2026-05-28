@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
 import { useStore, initialBrands } from "@/store/store";
 import { BrandMarquee } from "@/components/brand-marquee";
@@ -11,6 +12,106 @@ import {
   DialogContent,
 } from "@/components/ui/dialog";
 import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
+
+// ── Landing yardımcı bileşenler ─────────────────────────────────────────────
+
+function RoleCard({
+  color,
+  title,
+  tag,
+  description,
+  ctaLabel,
+  onCtaClick,
+}: {
+  color: string;
+  title: string;
+  tag: string;
+  description: string;
+  ctaLabel: string;
+  onCtaClick: () => void;
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]">
+      <div
+        aria-hidden
+        className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-20 blur-2xl transition group-hover:opacity-40"
+        style={{ background: color }}
+      />
+      <div className="flex items-center justify-between">
+        <span
+          className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+          style={{ background: `${color}22`, color }}
+        >
+          {tag}
+        </span>
+        <span className="h-1.5 w-10 rounded-full" style={{ background: color }} />
+      </div>
+      <h3 className="mt-3 text-xl font-bold text-white">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-white/60">{description}</p>
+      <button
+        type="button"
+        onClick={onCtaClick}
+        className="mt-4 inline-flex h-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3.5 text-xs font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+      >
+        {ctaLabel} →
+      </button>
+    </div>
+  );
+}
+
+function StepCard({
+  step,
+  color,
+  title,
+  description,
+}: {
+  step: string;
+  color: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <li className="relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-5">
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-10 w-10 items-center justify-center rounded-full text-base font-bold text-white"
+          style={{ background: color }}
+        >
+          {step}
+        </span>
+        <h3 className="text-lg font-semibold text-white">{title}</h3>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-white/60">{description}</p>
+    </li>
+  );
+}
+
+function FeatureCard({
+  color,
+  title,
+  description,
+}: {
+  color: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+        <h3 className="text-base font-semibold text-white">{title}</h3>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-white/60">{description}</p>
+    </div>
+  );
+}
+import {
+  BRAND_REGISTRATION_CATEGORIES,
+  BRAND_REGISTRATION_VOLUMES,
+  type BrandRegistrationCategory,
+  type BrandRegistrationCreateBody,
+  type BrandRegistrationVolume,
+} from "@/types/brand-registration";
 
 const ORANGE = "#FF6B00";
 
@@ -36,6 +137,21 @@ async function postSupportRequest(body: Record<string, string | undefined>) {
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
   if (!res.ok) throw new Error(data.error ?? "İstek gönderilemedi");
   return data.message ?? "Talebiniz alındı.";
+}
+
+/** B2B marka başvurusu — backend agent: POST /api/brand-registrations */
+async function postBrandRegistration(body: BrandRegistrationCreateBody) {
+  const res = await fetch("/api/brand-registrations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Başvurunuz gönderilemedi");
+  return (
+    data.message ??
+    "Kayıt talebiniz alındı. Onay sonrası giriş bilgileri size iletilecektir."
+  );
 }
 
 // ── Giriş formu ─────────────────────────────────────────────────────────────
@@ -230,6 +346,8 @@ function ForgotPasswordForm({
 
 // ── Kayıt talebi ────────────────────────────────────────────────────────────
 
+type AccountType = "streamer" | "brand" | "auditor" | "other";
+
 function RegisterForm({
   onBack,
   onSuccess,
@@ -239,26 +357,60 @@ function RegisterForm({
 }) {
   const [fullName, setFullName] = useState("");
   const [preferredUsername, setPreferredUsername] = useState("");
-  const [accountType, setAccountType] = useState("streamer");
+  const [accountType, setAccountType] = useState<AccountType>("streamer");
   const [contact, setContact] = useState("");
   const [note, setNote] = useState("");
+
+  // Marka başvurusu için ek alanlar
+  const [brandName, setBrandName] = useState("");
+  const [brandShortName, setBrandShortName] = useState("");
+  const [brandCategory, setBrandCategory] = useState<BrandRegistrationCategory>("Bahis");
+  const [brandWebsite, setBrandWebsite] = useState("");
+  const [brandEmail, setBrandEmail] = useState("");
+  const [brandPhone, setBrandPhone] = useState("");
+  const [brandTelegram, setBrandTelegram] = useState("");
+  const [brandVolume, setBrandVolume] = useState<BrandRegistrationVolume | "">("");
+
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const isBrand = accountType === "brand";
+
+  const canSubmit = isBrand
+    ? Boolean(brandName.trim() && fullName.trim() && brandEmail.trim())
+    : Boolean(fullName.trim() && contact.trim());
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
-      const msg = await postSupportRequest({
-        type: "registration",
-        fullName,
-        preferredUsername: preferredUsername || undefined,
-        accountType,
-        contact: contact || undefined,
-        note: note || undefined,
-      });
-      onSuccess(msg);
+      if (isBrand) {
+        const msg = await postBrandRegistration({
+          brandName: brandName.trim(),
+          shortName: brandShortName.trim() || undefined,
+          category: brandCategory,
+          website: brandWebsite.trim() || undefined,
+          contactName: fullName.trim(),
+          contactEmail: brandEmail.trim(),
+          contactPhone: brandPhone.trim() || undefined,
+          telegram: brandTelegram.trim() || undefined,
+          monthlyVolume: brandVolume || undefined,
+          preferredUsername: preferredUsername.trim() || undefined,
+          notes: note.trim() || undefined,
+        });
+        onSuccess(msg);
+      } else {
+        const msg = await postSupportRequest({
+          type: "registration",
+          fullName,
+          preferredUsername: preferredUsername || undefined,
+          accountType,
+          contact: contact || undefined,
+          note: note || undefined,
+        });
+        onSuccess(msg);
+      }
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : "Talep gönderilemedi");
     } finally {
@@ -267,18 +419,42 @@ function RegisterForm({
   };
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
+    <form onSubmit={submit} className="flex max-h-[80vh] flex-col gap-3 overflow-y-auto pr-1">
       <div className="space-y-1">
         <h2 className="text-xl font-bold text-white">Kayıt Talebi</h2>
         <p className="text-xs leading-relaxed text-white/60">
-          Foxstream hesapları yönetici onayıyla açılır. Bilgilerinizi gönderin; onay sonrası giriş bilgileriniz
-          size iletilir.
+          {isBrand
+            ? "Foxstream'de markanızı açmak için aşağıdaki bilgileri gönderin. Yönetici onayından sonra giriş bilgileriniz iletilir."
+            : "Foxstream hesapları yönetici onayıyla açılır. Bilgilerinizi gönderin; onay sonrası giriş bilgileriniz size iletilir."}
         </p>
       </div>
 
       <label className="block">
-        <span className={labelCls}>Ad soyad *</span>
-        <input value={fullName} onChange={(e) => setFullName(e.target.value)} required disabled={busy} className={inputCls} autoFocus />
+        <span className={labelCls}>Hesap türü</span>
+        <select
+          value={accountType}
+          onChange={(e) => setAccountType(e.target.value as AccountType)}
+          disabled={busy}
+          className={inputCls}
+        >
+          <option value="streamer">Yayıncı</option>
+          <option value="brand">Marka (B2B)</option>
+          <option value="auditor">Denetçi</option>
+          <option value="other">Diğer</option>
+        </select>
+      </label>
+
+      <label className="block">
+        <span className={labelCls}>{isBrand ? "Yetkili ad soyad *" : "Ad soyad *"}</span>
+        <input
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          required
+          disabled={busy}
+          className={inputCls}
+          autoFocus
+          placeholder={isBrand ? "Ör. Ahmet Yıldız" : undefined}
+        />
       </label>
 
       <label className="block">
@@ -286,47 +462,159 @@ function RegisterForm({
         <input
           value={preferredUsername}
           onChange={(e) => setPreferredUsername(e.target.value)}
-          placeholder="ornek: ahmet_yayin"
+          placeholder={isBrand ? "ornek: galabet" : "ornek: ahmet_yayin"}
           disabled={busy}
           className={inputCls}
         />
       </label>
 
-      <label className="block">
-        <span className={labelCls}>Hesap türü</span>
-        <select
-          value={accountType}
-          onChange={(e) => setAccountType(e.target.value)}
-          disabled={busy}
-          className={inputCls}
-        >
-          <option value="streamer">Yayıncı</option>
-          <option value="brand">Marka</option>
-          <option value="auditor">Denetçi</option>
-          <option value="other">Diğer</option>
-        </select>
-      </label>
+      {isBrand ? (
+        <>
+          <div className="mt-1 rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-300/90">
+              Marka bilgileri
+            </p>
+          </div>
+
+          <label className="block">
+            <span className={labelCls}>Marka adı *</span>
+            <input
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              required
+              disabled={busy}
+              className={inputCls}
+              placeholder="Ör. Galabet"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className={labelCls}>Kısa ad</span>
+              <input
+                value={brandShortName}
+                onChange={(e) => setBrandShortName(e.target.value)}
+                disabled={busy}
+                className={inputCls}
+                placeholder="GLB"
+                maxLength={12}
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Kategori</span>
+              <select
+                value={brandCategory}
+                onChange={(e) => setBrandCategory(e.target.value as BrandRegistrationCategory)}
+                disabled={busy}
+                className={inputCls}
+              >
+                {BRAND_REGISTRATION_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className={labelCls}>Website</span>
+            <input
+              value={brandWebsite}
+              onChange={(e) => setBrandWebsite(e.target.value)}
+              disabled={busy}
+              className={inputCls}
+              placeholder="https://markaniz.com"
+              inputMode="url"
+              autoComplete="url"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className={labelCls}>İletişim e-postası *</span>
+              <input
+                type="email"
+                value={brandEmail}
+                onChange={(e) => setBrandEmail(e.target.value)}
+                required
+                disabled={busy}
+                className={inputCls}
+                placeholder="iletisim@markaniz.com"
+                autoComplete="email"
+                inputMode="email"
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Telefon</span>
+              <input
+                type="tel"
+                value={brandPhone}
+                onChange={(e) => setBrandPhone(e.target.value)}
+                disabled={busy}
+                className={inputCls}
+                placeholder="+90 …"
+                autoComplete="tel"
+                inputMode="tel"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className={labelCls}>Telegram</span>
+              <input
+                value={brandTelegram}
+                onChange={(e) => setBrandTelegram(e.target.value)}
+                disabled={busy}
+                className={inputCls}
+                placeholder="@kullanici"
+              />
+            </label>
+            <label className="block">
+              <span className={labelCls}>Aylık hacim</span>
+              <select
+                value={brandVolume}
+                onChange={(e) => setBrandVolume(e.target.value as BrandRegistrationVolume | "")}
+                disabled={busy}
+                className={inputCls}
+              >
+                <option value="">— Belirtilmedi —</option>
+                {BRAND_REGISTRATION_VOLUMES.map((v) => (
+                  <option key={v} value={v}>
+                    {v} USD
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </>
+      ) : (
+        <label className="block">
+          <span className={labelCls}>İletişim *</span>
+          <input
+            value={contact}
+            onChange={(e) => setContact(e.target.value)}
+            placeholder="E-posta, Telegram veya telefon"
+            required
+            disabled={busy}
+            className={inputCls}
+          />
+        </label>
+      )}
 
       <label className="block">
-        <span className={labelCls}>İletişim *</span>
-        <input
-          value={contact}
-          onChange={(e) => setContact(e.target.value)}
-          placeholder="E-posta, Telegram veya telefon"
-          required
-          disabled={busy}
-          className={inputCls}
-        />
-      </label>
-
-      <label className="block">
-        <span className={labelCls}>Kısa mesaj</span>
+        <span className={labelCls}>{isBrand ? "Ek not" : "Kısa mesaj"}</span>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={2}
           disabled={busy}
-          placeholder="Kendinizi veya ihtiyacınızı kısaca anlatın"
+          placeholder={
+            isBrand
+              ? "Beklentileriniz, operatör platformunuz, hedef pazarlar…"
+              : "Kendinizi veya ihtiyacınızı kısaca anlatın"
+          }
           className={`${inputCls} min-h-[72px] resize-none py-2`}
         />
       </label>
@@ -337,8 +625,13 @@ function RegisterForm({
         </div>
       )}
 
-      <button type="submit" disabled={busy || !fullName.trim() || !contact.trim()} style={{ backgroundColor: ORANGE }} className={btnPrimary}>
-        {busy ? "Gönderiliyor..." : "Kayıt talebi gönder"}
+      <button
+        type="submit"
+        disabled={busy || !canSubmit}
+        style={{ backgroundColor: ORANGE }}
+        className={btnPrimary}
+      >
+        {busy ? "Gönderiliyor..." : isBrand ? "Marka başvurusu gönder" : "Kayıt talebi gönder"}
       </button>
 
       <button type="button" onClick={onBack} className={btnGhost}>
@@ -389,9 +682,9 @@ export default function LoginPage() {
     setSuccessMsg(null);
     setBusy(true);
     await new Promise((r) => setTimeout(r, 120));
-    const ok = await login(u, p);
-    if (!ok) {
-      setErr("Kullanıcı adı veya şifre hatalı.");
+    const result = await login(u, p);
+    if (!result.ok) {
+      setErr(result.error);
       setP("");
     } else {
       closeModal();
@@ -402,75 +695,247 @@ export default function LoginPage() {
   const headerBtn =
     "h-9 rounded-lg px-3.5 text-sm font-semibold transition active:scale-[0.98] shadow-lg";
 
+  const openRegister = () => {
+    setSuccessMsg(null);
+    setErr(null);
+    setModal("register");
+  };
+  const openLogin = () => {
+    setSuccessMsg(null);
+    setErr(null);
+    setModal("login");
+  };
+
   return (
-    <div className="relative isolate flex h-full min-h-[100dvh] w-full flex-col overflow-hidden bg-black">
-      {/* Mobil görsel */}
-      <div className="pointer-events-none absolute inset-0 z-0 md:hidden">
-        <Image
-          src="/moblogin.png"
-          alt="Fox Streaming"
-          fill
-          priority
-          sizes="100vw"
-          className="object-contain object-center"
-        />
-      </div>
-
-      {/* Masaüstü görsel */}
-      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
-        <Image
-          src="/login-bg-dash4.png"
-          alt=""
-          fill
-          priority
-          unoptimized
-          sizes="100vw"
-          className="scale-110 object-cover object-center blur-2xl brightness-75"
-        />
-        <Image
-          src="/login-bg-dash4.png"
-          alt="Fox Streaming"
-          fill
-          priority
-          unoptimized
-          sizes="100vw"
-          className="object-contain object-center"
-        />
-      </div>
-
-      {/* Köşe butonları — mobil + web */}
-      <header className="absolute top-0 right-0 z-20 flex items-center gap-2 p-3 pt-[max(env(safe-area-inset-top),12px)] pr-[max(env(safe-area-inset-right),12px)]">
-        {REGISTRATION_ENABLED && (
+    <div className="relative isolate w-full bg-black text-white">
+      {/* Sticky header — scroll boyunca görünür */}
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/5 bg-black/70 px-4 py-2.5 backdrop-blur-md sm:px-6">
+        <a href="#hero" className="flex items-center gap-2">
+          <Image src="/foxlogo.png" alt="Foxstream" width={28} height={28} className="rounded-md" priority />
+          <span className="text-sm font-bold tracking-wide">Foxstream</span>
+        </a>
+        <nav className="hidden gap-5 text-xs font-medium text-white/70 md:flex">
+          <a href="#roller" className="hover:text-white">Roller</a>
+          <a href="#nasil" className="hover:text-white">Nasıl çalışır</a>
+          <a href="#ozellikler" className="hover:text-white">Özellikler</a>
+          <a href="#partnerler" className="hover:text-white">Partnerler</a>
+        </nav>
+        <div className="flex items-center gap-2">
+          {REGISTRATION_ENABLED && (
+            <button
+              type="button"
+              onClick={openRegister}
+              className={`${headerBtn} border border-white/25 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70`}
+            >
+              Kayıt Ol
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => {
-              setSuccessMsg(null);
-              setErr(null);
-              setModal("register");
-            }}
-            className={`${headerBtn} border border-white/25 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70`}
+            onClick={openLogin}
+            style={{ backgroundColor: ORANGE }}
+            className={`${headerBtn} text-white shadow-orange-900/40 ring-1 ring-orange-600/40 hover:brightness-110`}
           >
-            Kayıt Ol
+            Giriş Yap
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            setSuccessMsg(null);
-            setErr(null);
-            setModal("login");
-          }}
-          style={{ backgroundColor: ORANGE }}
-          className={`${headerBtn} text-white shadow-orange-900/40 ring-1 ring-orange-600/40 hover:brightness-110`}
-        >
-          Giriş Yap
-        </button>
+        </div>
       </header>
 
-      {/* Marka marquee — Padisah 1. sırada, edge-to-edge */}
-      <div className="relative z-10 mt-auto w-full shrink-0 pb-[max(env(safe-area-inset-bottom),16px)] pt-10 bg-gradient-to-t from-black via-black/90 to-transparent">
+      {/* HERO — mevcut görsel + scroll ipucu */}
+      <section id="hero" className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col overflow-hidden">
+        {/* Mobil görsel */}
+        <div className="pointer-events-none absolute inset-0 z-0 md:hidden">
+          <Image
+            src="/moblogin.png"
+            alt="Fox Streaming"
+            fill
+            priority
+            sizes="(max-width: 767px) 100vw, 0px"
+            className="object-contain object-center"
+          />
+        </div>
+
+        {/* Masaüstü görsel */}
+        <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
+          <Image
+            src="/login-bg-dash4.png"
+            alt=""
+            fill
+            priority
+            unoptimized
+            sizes="(min-width: 768px) 100vw, 0px"
+            className="scale-110 object-cover object-center blur-2xl brightness-75"
+          />
+          <Image
+            src="/login-bg-dash4.png"
+            alt="Fox Streaming"
+            fill
+            priority
+            unoptimized
+            sizes="(min-width: 768px) 100vw, 0px"
+            className="object-contain object-center"
+          />
+        </div>
+
+        {/* Scroll ipucu */}
+        <a
+          href="#roller"
+          aria-label="Aşağı kaydır"
+          className="absolute bottom-[calc(env(safe-area-inset-bottom)+72px)] left-1/2 z-10 hidden -translate-x-1/2 flex-col items-center gap-1 text-white/60 transition hover:text-white md:flex"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-[0.25em]">Keşfet</span>
+          <ChevronDown size={18} className="animate-bounce" />
+        </a>
+      </section>
+
+      {/* ROLLER — login bg'sindeki 4 rol */}
+      <section id="roller" className="relative w-full border-y border-white/5 bg-gradient-to-b from-black via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
+        <div className="mx-auto max-w-[1180px]">
+          <div className="mb-10 text-center">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Foxstream platformu</span>
+            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">
+              Yayıncı – Marka iş birliğinin <span className="text-orange-400">tek yeri</span>.
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+              Yayıncı havuzu, teklif/anlaşma akışı, affiliate ve içerik post takibi — hepsi bir panelde.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <RoleCard
+              color="#FF6B00"
+              title="Yayıncılar"
+              tag="Streamer"
+              description="Yayınlarını yönet ve kitleni büyüt. Profilini havuza koy, markalardan teklif al."
+              ctaLabel={REGISTRATION_ENABLED ? "Yayıncı kaydı" : "Giriş yap"}
+              onCtaClick={REGISTRATION_ENABLED ? openRegister : openLogin}
+            />
+            <RoleCard
+              color="#22C55E"
+              title="Markalar"
+              tag="Brand"
+              description="Doğru yayıncılarla iş birliği yap. Teklif gönder, anlaşmayı yönet, postları takip et."
+              ctaLabel={REGISTRATION_ENABLED ? "Marka kaydı" : "Giriş yap"}
+              onCtaClick={REGISTRATION_ENABLED ? openRegister : openLogin}
+            />
+            <RoleCard
+              color="#3B82F6"
+              title="Denetim Ekibi"
+              tag="Auditor"
+              description="Raporları incele, şeffaflığı sağla. Kasa & içerik harcamalarını denetle."
+              ctaLabel="Giriş yap"
+              onCtaClick={openLogin}
+            />
+            <RoleCard
+              color="#EC4899"
+              title="Destek Ekibi"
+              tag="Support"
+              description="Sorulara hızlı çözümler sun. Marka ve yayıncı taleplerini koordine et."
+              ctaLabel="Giriş yap"
+              onCtaClick={openLogin}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* NASIL ÇALIŞIR — 4 adım */}
+      <section id="nasil" className="relative w-full bg-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
+        <div className="mx-auto max-w-[1180px]">
+          <div className="mb-10 text-center">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Süreç</span>
+            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Nasıl çalışır?</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+              Kayıttan ilk anlaşmaya kadar 4 adımda Foxstream akışı.
+            </p>
+          </div>
+          <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StepCard
+              step="1"
+              color="#FF6B00"
+              title="Kayıt"
+              description="Marka veya yayıncı olarak başvuru gönder. Yönetici onayı ile hesabın açılır."
+            />
+            <StepCard
+              step="2"
+              color="#22C55E"
+              title="Havuz / Profil"
+              description="Yayıncılar havuz profilini doldurur. Markalar filtreli grid'de yayıncıları görür."
+            />
+            <StepCard
+              step="3"
+              color="#3B82F6"
+              title="Teklif"
+              description="Marka teklif gönderir, mesajlaşma + karşı teklif akışı çalışır. Kabul → anlaşma."
+            />
+            <StepCard
+              step="4"
+              color="#EC4899"
+              title="Anlaşma + Post"
+              description="Yayıncı post URL ekler; marka panelinde anında görünür. Affiliate ile ölçümle."
+            />
+          </ol>
+        </div>
+      </section>
+
+      {/* ÖZELLİKLER — kart grid */}
+      <section id="ozellikler" className="relative w-full border-y border-white/5 bg-gradient-to-b from-zinc-950 via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
+        <div className="mx-auto max-w-[1180px]">
+          <div className="mb-10 text-center">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Modüller</span>
+            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Platform özellikleri</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+              Operasyondan ödemeye, partnerden affiliate'e — gerekli her şey hazır.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FeatureCard color="#FF6B00" title="Yayıncı Havuzu" description="Kategorize edilmiş yayıncı profilleri. Fiyat aralığı, dil, ülke, kitle filtreleri." />
+            <FeatureCard color="#22C55E" title="Marka Teklifleri" description="Teklif gönder / karşı teklif / kabul akışı. Sohbet ile şartları netleştir." />
+            <FeatureCard color="#3B82F6" title="Anlaşma Yönetimi" description="Bütçe / ödeme / deliverable takibi. Anlaşma ömrü boyunca tek panel." />
+            <FeatureCard color="#EC4899" title="Post Takibi" description="Instagram, TikTok, YouTube, Kick post URL'leri. Görüntülenme + beğeni metriği." />
+            <FeatureCard color="#FF6B00" title="Affiliate Tracking" description="Partner / günlük metrik / komisyon. CSV import ile manuel veya API ile otomatik." />
+            <FeatureCard color="#22C55E" title="Aylık KPI + Rapor" description="Kayıt, FTD, deposit, çekim. PDF ve CSV ile dışa aktarım." />
+          </div>
+        </div>
+      </section>
+
+      {/* CTA — Markaysan / Yayıncıysan */}
+      <section className="relative w-full bg-black px-4 py-16 sm:px-6 sm:py-20">
+        <div className="mx-auto max-w-[1180px] text-center">
+          <h2 className="text-3xl font-bold leading-tight sm:text-4xl">
+            Hemen başla — <span className="text-orange-400">2 dakikada</span> aktif ol.
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm text-white/60 sm:text-base">
+            Mevcut hesabınla giriş yap veya yeni bir marka/yayıncı kaydı oluştur.
+          </p>
+          <div className="mx-auto mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={openLogin}
+              style={{ backgroundColor: ORANGE }}
+              className="h-11 rounded-lg px-6 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 ring-1 ring-orange-600/40 transition hover:brightness-110 active:scale-[0.98]"
+            >
+              Giriş yap
+            </button>
+            {REGISTRATION_ENABLED && (
+              <button
+                type="button"
+                onClick={openRegister}
+                className="h-11 rounded-lg border border-white/20 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+              >
+                Marka / Yayıncı kaydı
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* PARTNERLER + footer marquee */}
+      <section id="partnerler" className="relative w-full shrink-0 border-t border-white/5 bg-gradient-to-t from-black via-black/90 to-transparent pb-[max(env(safe-area-inset-bottom),24px)] pt-10">
         <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" dualRow={false} />
-      </div>
+        <div className="mx-auto mt-8 flex max-w-[1180px] flex-col items-center justify-between gap-2 px-4 text-[11px] text-white/40 sm:flex-row sm:px-6">
+          <span>© {new Date().getFullYear()} Foxstream · Yayıncı – marka iş birliği platformu</span>
+          <span>İletişim için yöneticinizle bağlantıya geçin.</span>
+        </div>
+      </section>
 
       {/* Giriş popup */}
       <Dialog open={modal === "login"} onOpenChange={(open) => !open && closeModal()}>
