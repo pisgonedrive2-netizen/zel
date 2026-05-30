@@ -2,7 +2,7 @@ import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { requestSyncFlush } from "@/lib/sync-client";
-import { persistKasaTransaction, removeKasaTransaction } from "@/lib/kasa-persist";
+import { persistKasaTransaction, removeKasaTransaction, bulkUpdateKasaCountInGenel } from "@/lib/kasa-persist";
 import {
   persistRowImmediate,
   removeRowImmediate,
@@ -1029,6 +1029,8 @@ interface AppStore {
   // Kasa
   addKasaTransaction: (t: Omit<KasaTransaction, "id">) => void;
   updateKasaTransaction: (id: string, t: Partial<KasaTransaction>) => void;
+  /** Birden çok kasa hareketinin Genel Kasa dahil bayrağını tek istekte günceller. */
+  bulkSetKasaCountInGenel: (ids: string[], include: boolean) => void;
   deleteKasaTransaction: (id: string) => void;
 
   // Content expense
@@ -2597,6 +2599,19 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         const kasaTransactions = s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x));
         const row = kasaTransactions.find((x) => x.id === id);
         if (row) persistKasaTxImmediate(row);
+        flushKasaData();
+        return { kasaTransactions };
+      }),
+      bulkSetKasaCountInGenel: (ids, include) => set((s) => {
+        const idSet = new Set(ids);
+        if (idSet.size === 0) return {};
+        const kasaTransactions = s.kasaTransactions.map((x) =>
+          idSet.has(x.id) ? { ...x, countInGenel: include } : x
+        );
+        if (isSupabaseClientMode()) {
+          const list = Array.from(idSet);
+          queueMicrotask(() => void bulkUpdateKasaCountInGenel(list, include));
+        }
         flushKasaData();
         return { kasaTransactions };
       }),

@@ -80,7 +80,9 @@ describe("platform-detect", () => {
     expect(d?.externalRef).toBe("brandname");
   });
 
-  it("falls back to stored external_ref for TikTok", () => {
+  it("treats TikTok short link as a video (resolved via redirect), not the user handle", () => {
+    // Kısa link + handle gibi (sayısal olmayan) saklı ref → kısa kodu video say.
+    // Aksi halde tüm kısa linkler aynı kullanıcının toplam izlenmesini gösterirdi.
     const d = resolveLinkDetection({
       url: "https://vm.tiktok.com/ZZZ/",
       platform: "TikTok",
@@ -88,7 +90,21 @@ describe("platform-detect", () => {
       externalRef: "lucy",
     });
     expect(d?.platform).toBe("tiktok");
-    expect(d?.externalRef).toBe("lucy");
+    expect(d?.kind).toBe("video");
+    expect(d?.externalRef).toBe("ZZZ");
+    expect(d?.sourceUrl).toContain("vm.tiktok.com/ZZZ");
+  });
+
+  it("prefers a stored numeric video id for TikTok short links", () => {
+    const d = resolveLinkDetection({
+      url: "https://vt.tiktok.com/ABC123/",
+      platform: "TikTok",
+      handle: "",
+      externalRef: "7412345678901234567",
+    });
+    expect(d?.platform).toBe("tiktok");
+    expect(d?.kind).toBe("video");
+    expect(d?.externalRef).toBe("7412345678901234567");
   });
 
   it("isAutoTrackable for placeholder tiktok url + handle", () => {

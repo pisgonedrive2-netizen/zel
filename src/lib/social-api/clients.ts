@@ -44,6 +44,33 @@ export async function rapidApiGet(platform: SocialPlatform, path: string, search
   return (await res.json()) as unknown;
 }
 
+/**
+ * TikTok kısa/paylaşım linklerini (vt.tiktok.com/CODE, vm.tiktok.com/CODE,
+ * tiktok.com/t/CODE) yönlendirmeyi takip ederek kanonik
+ * `https://www.tiktok.com/@user/video/<id>` URL'sine çözer. Böylece her link
+ * KENDİ videosunun izlenmesini alır (aksi halde bazı sağlayıcılar kısa linki
+ * çözemeyip profil/varsayılan değer döndürür → hep aynı "4M" sorunu).
+ * Çözülemezse orijinal URL döner (RapidAPI yine de deneyebilir).
+ */
+async function resolveTikTokShortUrl(url: string): Promise<string> {
+  try {
+    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
+    const host = u.hostname.replace(/^www\./, "").toLowerCase();
+    const isShort =
+      host === "vm.tiktok.com" || host === "vt.tiktok.com" || /^\/t\//.test(u.pathname);
+    if (!isShort) return url;
+    const res = await fetch(u.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(8_000),
+    });
+    const finalUrl = res.url || url;
+    return finalUrl.includes("tiktok.com") && /\/video\/\d+/.test(finalUrl) ? finalUrl : url;
+  } catch {
+    return url;
+  }
+}
+
 /** Esnek sayı çıkarımı: API'ler ya `views: 123` ya `play_count: "12.3K"` ya da
  *  derin yuvalanmış alanlar dönebiliyor. */
 function toNumber(value: unknown): number | null {
@@ -301,14 +328,15 @@ async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> 
       raw,
     };
   }
-  const videoUrl =
+  const rawUrl =
     detected.sourceUrl?.trim() ||
     (detected.externalRef.match(/^\d+$/)
       ? `https://www.tiktok.com/video/${detected.externalRef}`
       : "");
-  if (!videoUrl) {
+  if (!rawUrl) {
     throw new RapidApiError("tiktok", 0, "TikTok video URL gerekli");
   }
+  const videoUrl = await resolveTikTokShortUrl(rawUrl);
   const raw = await rapidApiGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const data = (raw as { data?: unknown })?.data ?? raw;
   const item = (data as { itemInfo?: { itemStruct?: unknown } })?.itemInfo?.itemStruct;
@@ -595,14 +623,15 @@ async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> 
       raw,
     };
   }
-  const videoUrl =
+  const rawUrl =
     detected.sourceUrl?.trim() ||
     (detected.externalRef.match(/^\d+$/)
       ? `https://www.tiktok.com/video/${detected.externalRef}`
       : "");
-  if (!videoUrl) {
+  if (!rawUrl) {
     throw new RapidApiError("tiktok", 0, "TikTok video URL gerekli");
   }
+  const videoUrl = await resolveTikTokShortUrl(rawUrl);
   const raw = await rapidApiGet("tiktok", "/", { url: videoUrl, hd: "1" });
   const r = raw as Record<string, unknown>;
   const data = ((r.data ?? r) as Record<string, unknown>);

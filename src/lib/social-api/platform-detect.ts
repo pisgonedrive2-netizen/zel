@@ -332,6 +332,31 @@ export function detectPlatform(
         sourceUrl: effectiveUrl,
       };
     }
+    // Kısa/paylaşım linkleri: vt.tiktok.com/CODE, vm.tiktok.com/CODE, tiktok.com/t/CODE
+    // Bunlar video id'sine doğrudan çözülemez ama RapidAPI `/` endpoint'i tam kısa
+    // URL'yi takip edip DOĞRU videoyu döndürür. Bunları VIDEO say — aksi halde
+    // kullanıcı profiline düşüp aynı yayıncının tüm linkleri profil toplam
+    // izlenmesini (ör. hep "4.0M") gösterir ve veriyi yanıltır.
+    const shortHost = host === "vm.tiktok.com" || host === "vt.tiktok.com";
+    const tShare = path.match(/^\/t\/([A-Za-z0-9]+)/);
+    const shortCode = shortHost ? path.match(/^\/([A-Za-z0-9._-]+)/) : null;
+    if (tShare || (shortHost && shortCode && !path.startsWith("/@"))) {
+      // Saklı external_ref SAYISAL bir video id ise (önceden çözülmüş kanonik
+      // değer) onu kullan; değilse (handle vb.) kısa kodu kullan ve sunucu
+      // tarafı redirect ile gerçek videoya çöz.
+      const storedRef = (externalRef ?? "").trim();
+      const code = /^\d+$/.test(storedRef)
+        ? storedRef
+        : tShare
+          ? tShare[1]
+          : (shortCode as RegExpMatchArray)[1];
+      return {
+        platform: "tiktok",
+        externalRef: code,
+        kind: "video",
+        sourceUrl: effectiveUrl,
+      };
+    }
     const userMatch = path.match(/^\/@([^/?#]+)/);
     if (userMatch) {
       return {

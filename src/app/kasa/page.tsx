@@ -260,6 +260,7 @@ export default function KasaPage() {
     kasas, kasaTransactions,
     addKasa, updateKasa, deleteKasa,
     addKasaTransaction, updateKasaTransaction, deleteKasaTransaction,
+    bulkSetKasaCountInGenel,
   } = useStore();
   const { user } = useAuth();
   const readOnly = useIsReadOnly();
@@ -475,7 +476,7 @@ export default function KasaPage() {
     }
     const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
     if (!window.confirm(`${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
-    for (const t of targets) updateKasaTransaction(t.id, { countInGenel: include });
+    bulkSetKasaCountInGenel(targets.map((t) => t.id), include);
   };
 
   /**
@@ -507,7 +508,7 @@ export default function KasaPage() {
     const labelDt = new Date(tronGenelCutoff).toLocaleString("tr-TR");
     const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
     if (!window.confirm(`${labelDt} sonrasındaki ${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
-    for (const t of targets) updateKasaTransaction(t.id, { countInGenel: include });
+    bulkSetKasaCountInGenel(targets.map((t) => t.id), include);
   };
 
   const filteredRows = useMemo(() => {
