@@ -35,6 +35,7 @@ interface PlatformStatus {
     connectivityStatus: "ok" | "warn" | "error" | "unknown";
     lastPingAt: string | null;
     linksWithError: number;
+    throttledLinks: number;
     staleTrackedLinks: number;
     lastSuccessAt: string | null;
     lastErrorAt: string | null;
@@ -127,6 +128,7 @@ export async function GET(_req: NextRequest) {
             connectivityStatus: platformHealth.connectivityStatus,
             lastPingAt: platformHealth.lastPingAt,
             linksWithError: platformHealth.linksWithError,
+            throttledLinks: platformHealth.throttledLinks,
             staleTrackedLinks: platformHealth.staleTrackedLinks,
             lastSuccessAt: platformHealth.lastSuccessAt,
             lastErrorAt: platformHealth.lastErrorAt,

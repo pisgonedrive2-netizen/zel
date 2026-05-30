@@ -10,6 +10,7 @@ import { ArrowUpRight } from "lucide-react";
 
 type NavItem = { href: string; label: string; cap?: OrgCapability };
 
+// Sıralama src/components/sidebar.tsx içindeki BRAND_NAV ile BİREBİR aynıdır.
 const NAV: readonly NavItem[] = [
   // Genel
   { href: "/marka/anasayfa", label: "Anasayfa" },
@@ -22,17 +23,18 @@ const NAV: readonly NavItem[] = [
   // Performans & içerik
   { href: "/marka/izlenmeler", label: "İzlenmeler" },
   { href: "/marka/postlar", label: "Postlar" },
+  // Büyüme & CRM
   { href: "/marka/affiliate", label: "Affiliate" },
-  // Ekip & personel
+  { href: "/marka/crm", label: "CRM", cap: "crm" },
+  // Ekip & İK
   { href: "/marka/personel", label: "Personel", cap: "hr" },
   { href: "/marka/takip", label: "Görev & Takip", cap: "hr" },
-  { href: "/marka/crm", label: "CRM", cap: "crm" },
-  // Finans & hesap
+  { href: "/marka/ekip", label: "Ekip & yetkiler", cap: "team" },
+  // Finans
   { href: "/marka/muhasebe", label: "Muhasebe", cap: "finance" },
   { href: "/marka/faturalar", label: "Faturalar", cap: "finance" },
   { href: "/marka/odemeler", label: "Ödeme planı" },
-  // Yönetim & hesap
-  { href: "/marka/ekip", label: "Ekip & yetkiler", cap: "team" },
+  // Hesap
   { href: "/marka/profil", label: "Marka profili" },
   { href: "/marka/bildirimler", label: "Bildirimler" },
 ];

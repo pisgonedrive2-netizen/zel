@@ -21,27 +21,109 @@ class RapidApiError extends Error {
   }
 }
 
-/** RapidAPI GET — feature probe ve diğer modüller için dışa açık. */
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Aynı RapidAPI host'una yapılan ardışık isteklerin saniye-başına hız limitini
+ * (429 "rate limit per second") tetiklememesi için minimum boşluk (ms).
+ * Cron batch'i linkleri sırayla işlerken bu boşluk burst'leri yumuşatır.
+ * Env ile ayarlanabilir: RAPIDAPI_MIN_REQUEST_GAP_MS (varsayılan 300ms ≈ ≤3 req/sn).
+ */
+function minRequestGapMs(): number {
+  const raw = process.env.RAPIDAPI_MIN_REQUEST_GAP_MS?.trim();
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 300;
+}
+
+/** 429 / 503 sonrası yeniden deneme sayısı. Env: RAPIDAPI_MAX_RETRIES (varsayılan 3). */
+function maxRetries(): number {
+  const raw = process.env.RAPIDAPI_MAX_RETRIES?.trim();
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 3;
+}
+
+/** Host bazlı son istek zamanı — instance içi pacing (cron sıralı çalışır). */
+const lastRequestAtByHost: Record<string, number> = {};
+
+async function paceHost(host: string): Promise<void> {
+  const gap = minRequestGapMs();
+  if (gap <= 0) return;
+  const last = lastRequestAtByHost[host] ?? 0;
+  const wait = last + gap - Date.now();
+  if (wait > 0) await sleep(wait);
+  lastRequestAtByHost[host] = Date.now();
+}
+
+/** Retry-After başlığı (saniye veya HTTP-date) → ms. */
+function retryAfterMs(res: Response): number | null {
+  const h = res.headers.get("retry-after");
+  if (!h) return null;
+  const secs = Number(h);
+  if (Number.isFinite(secs)) return Math.min(secs * 1000, 10_000);
+  const date = Date.parse(h);
+  if (Number.isFinite(date)) return Math.max(0, Math.min(date - Date.now(), 10_000));
+  return null;
+}
+
+/**
+ * RapidAPI GET — feature probe ve diğer modüller için dışa açık.
+ *
+ * Saniye-başına hız limitini (429) absorbe etmek için: istekler host bazında
+ * paced edilir ve 429/503 yanıtında üstel backoff ile yeniden denenir. Böylece
+ * cron batch'i sırasında oluşan GEÇİCİ throttle hataları kalıcı "link hatası"na
+ * dönüşmez.
+ */
 export async function rapidApiGet(platform: SocialPlatform, path: string, search: Record<string, string>) {
   const plan = SOCIAL_PLANS[platform];
   const url = new URL(`https://${plan.apiHost}${path}`);
   for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
 
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "x-rapidapi-host": plan.apiHost,
-      "x-rapidapi-key": getRapidApiKey(),
-      accept: "application/json",
-    },
-    // Sandbox / Vercel Edge için kısa timeout — bekleyen istek bloklamasın.
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new RapidApiError(platform, res.status, text.slice(0, 240) || res.statusText);
+  const retries = maxRetries();
+  let lastStatus = 0;
+  let lastText = "";
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    await paceHost(plan.apiHost);
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          "x-rapidapi-host": plan.apiHost,
+          "x-rapidapi-key": getRapidApiKey(),
+          accept: "application/json",
+        },
+        // Sandbox / Vercel Edge için kısa timeout — bekleyen istek bloklamasın.
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      // Ağ/timeout — birkaç kez yeniden dene, sonra yükselt.
+      if (attempt < retries) {
+        await sleep(Math.min(600 * 2 ** attempt, 4_000));
+        continue;
+      }
+      throw err;
+    }
+
+    if (res.ok) {
+      return (await res.json()) as unknown;
+    }
+
+    lastStatus = res.status;
+    lastText = (await res.text().catch(() => "")) || res.statusText;
+
+    // Yalnızca geçici durumlar (hız limiti / geçici sunucu hatası) yeniden denenir.
+    const retriable = res.status === 429 || res.status === 503 || res.status === 502;
+    if (retriable && attempt < retries) {
+      const backoff = retryAfterMs(res) ?? Math.min(800 * 2 ** attempt, 6_000);
+      await sleep(backoff);
+      continue;
+    }
+
+    throw new RapidApiError(platform, res.status, lastText.slice(0, 240));
   }
-  return (await res.json()) as unknown;
+
+  throw new RapidApiError(platform, lastStatus, lastText.slice(0, 240) || "RapidAPI isteği başarısız");
 }
 
 /**
@@ -206,11 +288,10 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
 
 // ───────────────────────── Instagram ────────────────────────────────────────
 async function fetchInstagramProfile(username: string): Promise<unknown> {
-  try {
-    return await rapidApiGet("instagram", "/profile", { username });
-  } catch {
-    return rapidApiGet("instagram", "/user_info_by_username", { username });
-  }
+  // NOT: Eski `/user_info_by_username` fallback'i kaldırıldı — mevcut host
+  // (instagram-api-fast-reliable-data-scraper) bu endpoint'i desteklemiyor ve
+  // 404 "Endpoint does not exist" dönerek gerçek /profile hatasını maskeliyordu.
+  return rapidApiGet("instagram", "/profile", { username });
 }
 
 /** Gönderi / reel — önce shortcode; olmazsa tam URL (paylaşım linkleri). */

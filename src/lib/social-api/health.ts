@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { SOCIAL_PLANS, type SocialPlatform } from "./config";
+import { isTransientApiError } from "./error-classify";
 
 /** brand_links.platform değerleri (Türkçe / slug karışık). */
 export function platformLinkLabels(platform: SocialPlatform): string[] {
@@ -15,8 +16,10 @@ export interface PlatformHealth {
   /** RapidAPI probe / ping — API erişilebilir mi? */
   connectivityStatus: "ok" | "warn" | "error" | "unknown";
   lastPingAt: string | null;
-  /** Son 24 saatte last_check_error dolu aktif link sayısı. */
+  /** Kalıcı (gerçek) link hatası olan aktif takip linki sayısı — geçici throttle hariç. */
   linksWithError: number;
+  /** RapidAPI hız limiti (429 vb.) nedeniyle GEÇİCİ başarısız olan link sayısı. */
+  throttledLinks: number;
   /** 24 saatten eski veya hiç kontrol edilmemiş otomatik takip linkleri. */
   staleTrackedLinks: number;
   lastSuccessAt: string | null;
@@ -37,12 +40,15 @@ function matchPlatform(platformLabel: string, p: SocialPlatform): boolean {
 }
 
 async function countLinkIssues(): Promise<
-  Record<SocialPlatform, { withError: number; stale: number; tracked: number }>
+  Record<SocialPlatform, { withError: number; throttled: number; stale: number; tracked: number }>
 > {
-  const out: Record<SocialPlatform, { withError: number; stale: number; tracked: number }> = {
-    youtube: { withError: 0, stale: 0, tracked: 0 },
-    instagram: { withError: 0, stale: 0, tracked: 0 },
-    tiktok: { withError: 0, stale: 0, tracked: 0 },
+  const out: Record<
+    SocialPlatform,
+    { withError: number; throttled: number; stale: number; tracked: number }
+  > = {
+    youtube: { withError: 0, throttled: 0, stale: 0, tracked: 0 },
+    instagram: { withError: 0, throttled: 0, stale: 0, tracked: 0 },
+    tiktok: { withError: 0, throttled: 0, stale: 0, tracked: 0 },
   };
   const db = getSupabaseAdmin();
   const { data: links } = await db
@@ -57,8 +63,12 @@ async function countLinkIssues(): Promise<
     const p = PLATFORMS.find((x) => matchPlatform(platStr, x));
     if (!p) continue;
     out[p].tracked++;
-    if ((row as { last_check_error?: string }).last_check_error) {
-      out[p].withError++;
+    const err = (row as { last_check_error?: string }).last_check_error;
+    if (err) {
+      // Geçici hız limiti (429) link bozukluğu DEĞİL — ayrı say, "link hatası"
+      // uyarısını şişirme. Bir sonraki başarılı yenilemede temizlenir.
+      if (isTransientApiError(err)) out[p].throttled++;
+      else out[p].withError++;
     }
     const checked = (row as { last_checked_at?: string }).last_checked_at;
     if (!checked || now - new Date(checked).getTime() > 24 * 3_600_000) {
@@ -136,14 +146,17 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
 
     const issues = linkIssues[p];
     const linksWithError = issues.withError;
+    const throttledLinks = issues.throttled;
     const staleTrackedLinks = issues.stale;
 
     const lastError =
       linksWithError > 0
         ? `${linksWithError} link son yenilemede hata`
-        : lastFailRun?.error_summary?.trim()
-          ? lastFailRun.error_summary.slice(0, 160)
-          : null;
+        : throttledLinks > 0
+          ? `${throttledLinks} link geçici hız limiti (429) — otomatik tekrar denenecek`
+          : lastFailRun?.error_summary?.trim()
+            ? lastFailRun.error_summary.slice(0, 160)
+            : null;
 
     const staleHours = lastSuccessAt
       ? (now - new Date(lastSuccessAt).getTime()) / 3_600_000
@@ -152,7 +165,7 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
     let status: PlatformHealth["status"] = "unknown";
 
     if (connectivityStatus === "ok") {
-      if (linksWithError > 0 || staleTrackedLinks > 3) status = "warn";
+      if (linksWithError > 0 || throttledLinks > 0 || staleTrackedLinks > 3) status = "warn";
       else status = "ok";
     } else if (connectivityStatus === "warn") {
       status = "warn";
@@ -172,6 +185,7 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
       connectivityStatus,
       lastPingAt,
       linksWithError,
+      throttledLinks,
       staleTrackedLinks,
       lastSuccessAt,
       lastErrorAt,

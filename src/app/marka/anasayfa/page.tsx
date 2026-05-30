@@ -25,6 +25,7 @@ import { BrandActivityFeed } from "@/components/marka-home/brand-activity-feed";
 import { BrandQuickActions } from "@/components/marka-home/brand-quick-actions";
 import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
 import { BrandGettingStarted, type GettingStartedStep } from "@/components/marka-home/brand-getting-started";
+import { BrandModuleGrid } from "@/components/marka-home/brand-module-grid";
 import { clientHasOrgCapability } from "@/lib/org-capability";
 import {
   findBrandMonthlyStats,
@@ -475,6 +476,8 @@ export default function MarkaAnasayfaPage() {
           {!gettingStartedDone && (
             <BrandGettingStarted brandName={brand.name} steps={gettingStartedSteps} />
           )}
+
+          <BrandModuleGrid orgRole={orgRole} month={month} />
         </div>
       )}
     </MarkaPageGuard>

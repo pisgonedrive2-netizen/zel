@@ -73,12 +73,52 @@ export async function deleteLedgerEntry(id: string): Promise<void> {
   if (error) throw new Error(`brand_ledger_entries: ${error.message}`);
 }
 
-/** Otomatik kaynak girişlerini ekler; (brand,source,ref) tekil olduğu için tekrarlar yoksayılır. */
+/**
+ * Otomatik kaynak girişlerini ekler; (brand_id, source, ref_id) tekildir.
+ *
+ * Not: Tekillik kısmi (partial) bir unique index ile sağlanıyor
+ * (`uq_brand_ledger_source_ref … WHERE ref_id IS NOT NULL AND source <> 'manual'`).
+ * PostgREST upsert'i bu kısmi index'i `ON CONFLICT` ile çıkarsayamadığı için
+ * (Postgres hata 42P10) tekrar koruması kod tarafında yapılır: mevcut
+ * (source, ref_id) kombinasyonları çekilir ve yalnızca yeni olanlar eklenir.
+ */
 export async function insertAutoLedgerEntries(entries: BrandLedgerEntry[]): Promise<number> {
-  if (entries.length === 0) return 0;
-  const { data, error } = await getSupabaseAdmin()
+  const candidates = entries.filter((e) => e.source !== "manual" && (e.refId ?? "") !== "");
+  if (candidates.length === 0) return 0;
+
+  const admin = getSupabaseAdmin();
+  const brandIds = [...new Set(candidates.map((e) => e.brandId))];
+
+  // Mevcut otomatik kayıtların (brand_id, source, ref_id) anahtarlarını çek.
+  const { data: existingRows, error: fetchErr } = await admin
     .from("brand_ledger_entries")
-    .upsert(entries.map(ledgerToRow), { onConflict: "brand_id,source,ref_id", ignoreDuplicates: true })
+    .select("brand_id, source, ref_id")
+    .in("brand_id", brandIds)
+    .neq("source", "manual")
+    .not("ref_id", "is", null);
+  if (fetchErr) throw new Error(`brand_ledger_entries(auto): ${fetchErr.message}`);
+
+  const key = (brandId: string, source: string, refId: string) => `${brandId}\u0000${source}\u0000${refId}`;
+  const existing = new Set(
+    (existingRows ?? []).map((r) => {
+      const row = r as Record<string, unknown>;
+      return key(String(row.brand_id), String(row.source), String(row.ref_id));
+    })
+  );
+
+  // Hem mevcut kayıtlara hem de aynı çağrıdaki tekrarlara karşı koru.
+  const seen = new Set<string>();
+  const fresh = candidates.filter((e) => {
+    const k = key(e.brandId, e.source, e.refId!);
+    if (existing.has(k) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (fresh.length === 0) return 0;
+
+  const { data, error } = await admin
+    .from("brand_ledger_entries")
+    .insert(fresh.map(ledgerToRow))
     .select("id");
   if (error) throw new Error(`brand_ledger_entries(auto): ${error.message}`);
   return (data ?? []).length;

@@ -21,6 +21,7 @@ import { totalLinkViewsForMonth, linkViewsForMonth } from "@/lib/brand-month-met
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
 import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
 import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
+import { isTransientApiError } from "@/lib/social-api/error-classify";
 import {
   isSupportedApiPlatform,
   splitActiveLinksByApiSupport,
@@ -56,6 +57,7 @@ interface RefreshStatusPayload {
       connectivityStatus: string;
       lastPingAt: string | null;
       linksWithError: number;
+      throttledLinks?: number;
       staleTrackedLinks?: number;
     };
   }>;
@@ -142,7 +144,8 @@ export default function IzlenmeApiPage() {
     const allOk = plats.length > 0 && plats.every((p) => p.health?.connectivityStatus === "ok");
     const anyDown = plats.some((p) => p.health?.connectivityStatus === "error");
     const linkErrors = plats.reduce((s, p) => s + (p.health?.linksWithError ?? 0), 0);
-    return { allOk, anyDown, linkErrors, plats };
+    const throttled = plats.reduce((s, p) => s + (p.health?.throttledLinks ?? 0), 0);
+    return { allOk, anyDown, linkErrors, throttled, plats };
   }, [apiStatus]);
 
   const { apiLinks, otherLinks } = useMemo(
@@ -156,7 +159,11 @@ export default function IzlenmeApiPage() {
       if (!l.lastCheckedAt) return true;
       return now - new Date(l.lastCheckedAt).getTime() > 24 * 3_600_000;
     });
-    const errors = apiLinks.filter((l) => !!l.lastCheckError);
+    // Geçici hız limiti (429) link bozukluğu değil — "hata" sayımından ayır.
+    const throttledLinks = apiLinks.filter((l) => isTransientApiError(l.lastCheckError));
+    const errors = apiLinks.filter(
+      (l) => !!l.lastCheckError && !isTransientApiError(l.lastCheckError)
+    );
     const autoTrack = apiLinks.filter((l) => l.autoTrack !== false);
     const quotaByKey: Record<string, NonNullable<RefreshStatusPayload["platforms"]>[number]> = {};
     for (const p of apiStatus?.platforms ?? []) {
@@ -171,7 +178,9 @@ export default function IzlenmeApiPage() {
           : "instagram";
       const quota = quotaByKey[platKey];
       const links = apiLinks.filter((l) => isSupportedApiPlatform(l.platform) && l.platform.toLowerCase().includes(key));
-      const platformErrors = links.filter((l) => !!l.lastCheckError).length;
+      const platformErrors = links.filter(
+        (l) => !!l.lastCheckError && !isTransientApiError(l.lastCheckError)
+      ).length;
       const platformStale = links.filter((l) => {
         if (!l.lastCheckedAt) return true;
         return now - new Date(l.lastCheckedAt).getTime() > 24 * 3_600_000;
@@ -199,9 +208,9 @@ export default function IzlenmeApiPage() {
       .map((l) => l.lastCheckedAt)
       .filter((v): v is string => !!v)
       .sort((a, b) => b.localeCompare(a))[0];
-    // Bekleyen + hatalı linkler — tek tablo
+    // Bekleyen + hatalı + geçici limitli linkler — tek tablo
     const seen = new Set<string>();
-    const staleAndErrorLinks = [...errors, ...stale].filter((l) => {
+    const staleAndErrorLinks = [...errors, ...throttledLinks, ...stale].filter((l) => {
       if (seen.has(l.id)) return false;
       seen.add(l.id);
       return true;
@@ -213,6 +222,7 @@ export default function IzlenmeApiPage() {
       autoTrack,
       stale,
       errors,
+      throttledLinks,
       platforms,
       lastChecked,
       staleAndErrorLinks,
@@ -226,8 +236,10 @@ export default function IzlenmeApiPage() {
       if (pendingPlatform !== "all" && !l.platform.toLowerCase().includes(pendingPlatform)) {
         return false;
       }
+      const transient = isTransientApiError(l.lastCheckError);
+      const genuineError = !!l.lastCheckError && !transient;
       if (pendingFilter === "stale" && l.lastCheckError) return false;
-      if (pendingFilter === "error" && !l.lastCheckError) return false;
+      if (pendingFilter === "error" && !genuineError) return false;
       if (pendingFilter === "gone" && !isPostOrLinkGoneError(l.lastCheckError)) return false;
       if (q) {
         const brand = brands.find((b) => b.id === l.brandId);
@@ -276,7 +288,9 @@ export default function IzlenmeApiPage() {
                 ? "border-red-300 bg-red-50/40 text-red-900 dark:border-red-500/45 dark:bg-red-950/30 dark:text-red-100"
                 : apiConnectivity.linkErrors > 0
                   ? "border-amber-300 bg-amber-50/40 text-amber-900 dark:border-amber-500/45 dark:bg-amber-950/30 dark:text-amber-100"
-                  : "border-emerald-300 bg-emerald-50/40 text-emerald-900 dark:border-emerald-500/45 dark:bg-emerald-950/30 dark:text-emerald-100"
+                  : apiConnectivity.throttled > 0
+                    ? "border-sky-300 bg-sky-50/40 text-sky-900 dark:border-sky-500/45 dark:bg-sky-950/30 dark:text-sky-100"
+                    : "border-emerald-300 bg-emerald-50/40 text-emerald-900 dark:border-emerald-500/45 dark:bg-emerald-950/30 dark:text-emerald-100"
           }`}
         >
           {!apiStatus.rapidApiEnabled ? (
@@ -290,6 +304,12 @@ export default function IzlenmeApiPage() {
             <p>
               <strong>RapidAPI erişilebilir</strong> ({apiConnectivity.linkErrors} link son yenilemede hata).
               Bu link hataları API&apos;nin kapalı olduğu anlamına gelmez — bekleyen linkleri tek tek veya toplu yenileyin.
+            </p>
+          ) : apiConnectivity.throttled > 0 ? (
+            <p>
+              <strong>RapidAPI erişilebilir.</strong> {apiConnectivity.throttled} link, sağlayıcının anlık hız
+              limiti (429) nedeniyle son yenilemede geçici olarak güncellenemedi. Bu bir arıza değildir —
+              bir sonraki otomatik yenilemede tekrar denenir.
             </p>
           ) : (
             <p><strong>Tüm platformlarda API bağlantısı sağlıklı.</strong> Otomatik yenileme ve manuel ping kayıtları güncel.</p>
@@ -346,6 +366,11 @@ export default function IzlenmeApiPage() {
               {apiSummary.errors.length > 0
                 ? "API ayakta olabilir — link yenilemesi başarısız"
                 : "Son yenilemede link hatası yok"}
+              {apiSummary.throttledLinks.length > 0 && (
+                <span className="block text-sky-700 dark:text-sky-300">
+                  +{apiSummary.throttledLinks.length} link geçici hız limiti (otomatik tekrar denenecek)
+                </span>
+              )}
             </p>
           </CardContent>
         </Card>
@@ -674,6 +699,7 @@ export default function IzlenmeApiPage() {
                       ? Math.floor((Date.now() - new Date(l.lastCheckedAt).getTime()) / 86_400_000)
                       : null;
                     const postGone = isPostOrLinkGoneError(l.lastCheckError);
+                    const throttled = isTransientApiError(l.lastCheckError);
                     return (
                       <tr key={l.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-1.5 pr-2 font-medium truncate max-w-[140px]">
@@ -706,6 +732,10 @@ export default function IzlenmeApiPage() {
                           {postGone ? (
                             <Badge variant="outline" className="text-[9px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
                               <AlertTriangle size={9} /> Gönderi yok
+                            </Badge>
+                          ) : throttled ? (
+                            <Badge variant="outline" className="text-[9px] gap-1 border-sky-300 text-sky-700 dark:border-sky-500/45 dark:text-sky-300">
+                              <Clock size={9} /> Geçici limit
                             </Badge>
                           ) : l.lastCheckError ? (
                             <Badge variant="outline" className="text-[9px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
