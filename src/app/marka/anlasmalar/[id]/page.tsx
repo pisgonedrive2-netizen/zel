@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   CalendarRange,
@@ -60,10 +61,6 @@ import {
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
 
-type PageProps = {
-  params: Promise<{ id: string }>;
-};
-
 /** `GET /api/marka/anlasmalar/[id]/posts` yanıtındaki deliverable ilerleme satırı. */
 type DeliverableProgress = {
   type: string;
@@ -95,8 +92,9 @@ async function fetchDealDeliverableMatch(
   return Array.isArray(data.deliverables) ? data.deliverables : [];
 }
 
-export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
-  const { id: dealId } = use(params);
+export default function MarkaAnlasmaDetayPage() {
+  const params = useParams();
+  const dealId = String(params?.id ?? "");
   const portal = useMarkaPortal();
   const { user, brandId, brand, canViewBrand } = portal;
   const employees = useStore((s) => s.employees);

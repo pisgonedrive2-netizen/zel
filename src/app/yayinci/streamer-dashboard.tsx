@@ -2394,6 +2394,9 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               <div className="flex flex-col items-center gap-0.5 min-w-0">
                 <span className="text-xs font-semibold text-foreground">{weekViewLabel}</span>
                 <span className="text-[10px] text-muted-foreground">{weekRangeLabel(weekView)}</span>
+                <span className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
+                  🇹🇷 Tüm saatler Türkiye saatidir (TR)
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 {weekView !== thisWeek && (

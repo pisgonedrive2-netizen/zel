@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Radio, Building2, ShieldCheck, HelpCircle, type LucideIcon } from "lucide-react";
+import { ChevronDown, Radio, Building2, HelpCircle, Eye, EyeOff, type LucideIcon } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
 import { useStore, initialBrands } from "@/store/store";
 import { BrandMarquee } from "@/components/brand-marquee";
@@ -196,6 +196,7 @@ function LoginForm({
   onForgot: () => void;
   onRegister?: () => void;
 }) {
+  const [showPass, setShowPass] = useState(false);
   return (
     <form onSubmit={onSubmit} autoComplete="on" className="flex flex-col gap-3">
       <div className="space-y-1">
@@ -224,18 +225,30 @@ function LoginForm({
 
       <label className="block">
         <span className={labelCls}>Şifre (PIN)</span>
-        <input
-          id={`${idPrefix}-pass`}
-          name="password"
-          type="password"
-          value={p}
-          onChange={(e) => setP(e.target.value)}
-          placeholder="••••••••"
-          autoComplete="current-password"
-          required
-          disabled={busy}
-          className={inputCls}
-        />
+        <div className="relative">
+          <input
+            id={`${idPrefix}-pass`}
+            name="password"
+            type={showPass ? "text" : "password"}
+            value={p}
+            onChange={(e) => setP(e.target.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+            disabled={busy}
+            className={`${inputCls} pr-10`}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPass((v) => !v)}
+            tabIndex={-1}
+            aria-label={showPass ? "Şifreyi gizle" : "Şifreyi göster"}
+            title={showPass ? "Şifreyi gizle" : "Şifreyi göster"}
+            className="absolute right-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition hover:bg-white/10 hover:text-white/80"
+          >
+            {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
       </label>
 
       {err && (
@@ -361,7 +374,7 @@ function ForgotPasswordForm({
 
 // ── Kayıt talebi ────────────────────────────────────────────────────────────
 
-type AccountType = "streamer" | "brand" | "auditor" | "other";
+type AccountType = "streamer" | "brand" | "other";
 
 const ACCOUNT_TYPES: {
   value: AccountType;
@@ -371,7 +384,6 @@ const ACCOUNT_TYPES: {
 }[] = [
   { value: "streamer", label: "Yayıncı", desc: "Havuza katıl, teklif al", icon: Radio },
   { value: "brand", label: "Marka", desc: "B2B panel & affiliate", icon: Building2 },
-  { value: "auditor", label: "Denetçi", desc: "Rapor & denetim", icon: ShieldCheck },
   { value: "other", label: "Diğer", desc: "Destek / iş birliği", icon: HelpCircle },
 ];
 
@@ -889,17 +901,29 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* HERO — landing.jpg arka planı + okunabilirlik için karartma */}
-      <section id="hero" className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden px-4 text-center sm:px-6">
-        {/* Arka plan görseli — tam ekrana sığar, saydamlık yok (tam opak) */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+      {/* HERO — landing.jpg arka planı (siyah zemin görselle kusursuz harmanlanır) */}
+      <section id="hero" className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6">
+        {/* Arka plan görseli — mobilde tüm banner görünür (contain), masaüstünde tam doldurur (cover) */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+          {/* Ambient: ölçeklenmiş + bulanık kopya, contain modundaki boşlukları ışıkla doldurur */}
           <Image
             src="/landing.jpg"
             alt=""
             fill
             priority
+            quality={100}
             sizes="100vw"
-            className="object-contain object-center opacity-100"
+            className="scale-125 object-cover object-center opacity-70 blur-3xl sm:opacity-100"
+          />
+          {/* Ana görsel: mobil contain → masaüstü cover (tam sığar, boşluk yok) */}
+          <Image
+            src="/landing.jpg"
+            alt=""
+            fill
+            priority
+            quality={100}
+            sizes="100vw"
+            className="object-contain object-center sm:object-cover"
           />
         </div>
 

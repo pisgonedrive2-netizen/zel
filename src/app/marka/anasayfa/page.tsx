@@ -26,6 +26,7 @@ import { BrandQuickActions } from "@/components/marka-home/brand-quick-actions";
 import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
 import { BrandGettingStarted, type GettingStartedStep } from "@/components/marka-home/brand-getting-started";
 import { BrandModuleGrid } from "@/components/marka-home/brand-module-grid";
+import { BrandAuditorWelcome } from "@/components/marka-home/brand-auditor-welcome";
 import { clientHasOrgCapability } from "@/lib/org-capability";
 import {
   findBrandMonthlyStats,
@@ -264,6 +265,13 @@ export default function MarkaAnasayfaPage() {
     >
       {brand && brandId && (
         <div className="mx-auto max-w-[1280px] space-y-5 pb-10">
+          {user?.orgRole === "auditor" && (
+            <BrandAuditorWelcome
+              brandName={brand.name}
+              brandId={brandId}
+              month={month}
+            />
+          )}
           <BrandHomeHero
             brandId={brand.id}
             brandName={brand.name}

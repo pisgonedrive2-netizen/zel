@@ -21,6 +21,13 @@ import { createNotificationPersisted } from "@/lib/notification-actions";
 import { weekDayIsosFromStart, shiftWeekStartIso, planDateInWeek, weekStartFromDateIso } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { logAudit } from "@/store/audit-log";
+import {
+  BASE_TIMEZONE,
+  CALENDAR_TIMEZONES,
+  convertFromBase,
+  formatConverted,
+  offsetLabelFromBase,
+} from "@/lib/timezones";
 
 // ── Platform icon helper ──────────────────────────────────────────────────
 function platformIcon(platform: string) {
@@ -267,6 +274,9 @@ export default function TakvimPage() {
   const [planModal, setPlanModal] = useState<{ mode: "new" | WeeklyPlan; weekStart: string; employeeId: string } | null>(null);
   // Üst grid haftalık planları da göstersin
   const [overlayPlans, setOverlayPlans] = useState(true);
+  // Takvim saat dilimi — saatler Türkiye saatinde saklanır, seçilen ülkeye çevrilir.
+  const [tz, setTz] = useState(BASE_TIMEZONE);
+  const tt = (hhmm: string) => formatConverted(convertFromBase(hhmm, tz));
 
   // Bildirimden gelen yönlendirme: /takvim?employee=ID&week=YYYY-MM-DD
   const searchParams = useSearchParams();
@@ -338,15 +348,36 @@ export default function TakvimPage() {
                 Rutin yayın slotları + yayıncıların eklediği haftalık planlar. Slot eklemek için boş hücreye tıklayın.
               </CardDescription>
             </div>
-            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={overlayPlans}
-                onChange={(e) => setOverlayPlans(e.target.checked)}
-                className="rounded"
-              />
-              <CalendarDays size={11} /> Yayıncı planlarını göster ({weekRangeLabel(planWeek)})
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <Globe size={12} className="text-muted-foreground" />
+                <span className="hidden sm:inline">Saat dilimi:</span>
+                <select
+                  value={tz}
+                  onChange={(e) => setTz(e.target.value)}
+                  className="h-7 rounded-md border border-border bg-card px-1.5 text-[11px] text-foreground outline-none focus:border-primary/50"
+                  aria-label="Takvim saat dilimi"
+                >
+                  {CALENDAR_TIMEZONES.map((z) => (
+                    <option key={z.tz} value={z.tz}>
+                      {z.flag} {z.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  {offsetLabelFromBase(tz)}
+                </span>
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={overlayPlans}
+                  onChange={(e) => setOverlayPlans(e.target.checked)}
+                  className="rounded"
+                />
+                <CalendarDays size={11} /> Yayıncı planlarını göster ({weekRangeLabel(planWeek)})
+              </label>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -389,7 +420,7 @@ export default function TakvimPage() {
                               onClick={(ev) => { ev.stopPropagation(); setSlotModal({ mode: s }); }}
                               className={`block w-full text-left text-[10.5px] px-1.5 py-1 rounded border ${empColor(emp.id)} hover:opacity-80 transition-opacity`}
                             >
-                              <p className="font-semibold tabular-nums">{s.startTime}–{s.endTime}</p>
+                              <p className="font-semibold tabular-nums">{tt(s.startTime)}–{tt(s.endTime)}</p>
                               <p className="opacity-70 truncate">{s.platform}{s.notes ? ` · ${s.notes}` : ""}</p>
                             </button>
                           ))}
@@ -407,7 +438,7 @@ export default function TakvimPage() {
                               title="Yayıncı planı"
                             >
                               <p className="font-semibold">
-                                {p.startTime ? `${p.startTime}${p.endTime ? "–" + p.endTime : ""} · ` : ""}
+                                {p.startTime ? `${tt(p.startTime)}${p.endTime ? "–" + tt(p.endTime) : ""} · ` : ""}
                                 {p.activity}
                               </p>
                               {p.brandName && (

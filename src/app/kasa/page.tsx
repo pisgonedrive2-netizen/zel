@@ -270,6 +270,8 @@ export default function KasaPage() {
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "tron-auto" | "manual">("all");
   const [genelFilter, setGenelFilter] = useState<"all" | "included" | "excluded">("all");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [tronGenelCutoff, setTronGenelCutoff] = useState("");
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
@@ -541,6 +543,17 @@ export default function KasaPage() {
     for (const k of kasas) m.set(k.id, k.name);
     return m;
   }, [kasas]);
+
+  // Sayfalama — 50'şer kayıt. Filtre/arama değişince ilk sayfaya dön.
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pagedRows = useMemo(
+    () => filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredRows, safePage]
+  );
+  useEffect(() => {
+    setPage(1);
+  }, [filter, sourceFilter, genelFilter, search, selectedKasaId, tronTxView]);
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1720px]">
@@ -1086,7 +1099,7 @@ export default function KasaPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map(t => (
+              {pagedRows.map(t => (
                 <tr key={t.id} className="border-b border-border/60 hover:bg-accent/20 transition-colors">
                   <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                     {t.date.slice(0, 10)}<br />
@@ -1197,6 +1210,50 @@ export default function KasaPage() {
             </tbody>
           </table>
         </div>
+        {filteredRows.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2.5 text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredRows.length)} / {filteredRows.length} işlem
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPage(1)}
+                disabled={safePage <= 1}
+                className="rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-40"
+              >
+                « İlk
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-40"
+              >
+                ‹ Önceki
+              </button>
+              <span className="px-2 tabular-nums">
+                Sayfa {safePage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                disabled={safePage >= pageCount}
+                className="rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-40"
+              >
+                Sonraki ›
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage(pageCount)}
+                disabled={safePage >= pageCount}
+                className="rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-40"
+              >
+                Son »
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <Modal open={modal !== null} onClose={() => setModal(null)}
