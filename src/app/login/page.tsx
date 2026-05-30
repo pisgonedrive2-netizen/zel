@@ -891,7 +891,7 @@ export default function LoginPage() {
 
       {/* HERO — landing.jpg arka planı + okunabilirlik için karartma */}
       <section id="hero" className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden px-4 text-center sm:px-6">
-        {/* Arka plan görseli + dekoratif gradyanlar */}
+        {/* Arka plan görseli — tam ekrana sığar, saydamlık yok (tam opak) */}
         <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
           <Image
             src="/landing.jpg"
@@ -899,13 +899,7 @@ export default function LoginPage() {
             fill
             priority
             sizes="100vw"
-            className="object-cover object-center opacity-60"
-          />
-          {/* Metin okunabilirliği için karartma katmanı */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/75 via-black/55 to-black" />
-          <div
-            className="absolute -top-1/3 left-1/2 h-[60vh] w-[60vh] -translate-x-1/2 rounded-full opacity-20 blur-[120px]"
-            style={{ background: ORANGE }}
+            className="object-contain object-center opacity-100"
           />
         </div>
 
