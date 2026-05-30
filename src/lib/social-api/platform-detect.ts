@@ -158,7 +158,11 @@ export function isPlaceholderUrl(url: string, manualPlatform?: string): boolean 
     return true;
   }
   if (m.includes("youtube") && (host.endsWith("youtube.com") || host === "youtu.be")) {
-    if (path === "/" || path === "/@" || path === "/watch") return true;
+    if (path === "/" || path === "/@") return true;
+    // /watch yalnızca `v` parametresi YOKSA placeholder sayılır. `?v=<id>` içeren
+    // gerçek video linki placeholder DEĞİLDİR — aksi halde handle ile kanal URL'sine
+    // dönüştürülüp her video kanal toplam izlenmesini çeker (yanıltıcı tekrar).
+    if (path === "/watch" && !u.searchParams.get("v")) return true;
   }
   return false;
 }

@@ -95,6 +95,20 @@ describe("platform-detect", () => {
     expect(d?.sourceUrl).toContain("vm.tiktok.com/ZZZ");
   });
 
+  it("detects YouTube watch?v= as the video even with a stored channel handle + timestamp", () => {
+    // Regresyon: /watch placeholder sayılıp handle ile kanala dönüşüyordu →
+    // her video kanal toplam izlenmesini çekiyordu.
+    const d = resolveLinkDetection({
+      url: "https://www.youtube.com/watch?v=gs3J65eUWfU&t=21s",
+      platform: "YouTube",
+      handle: "@lanetkeltur",
+      externalRef: "@lanetkeltur",
+    });
+    expect(d?.platform).toBe("youtube");
+    expect(d?.kind).toBe("video");
+    expect(d?.externalRef).toBe("gs3J65eUWfU");
+  });
+
   it("prefers a stored numeric video id for TikTok short links", () => {
     const d = resolveLinkDetection({
       url: "https://vt.tiktok.com/ABC123/",
