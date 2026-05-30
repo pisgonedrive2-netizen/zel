@@ -29,6 +29,7 @@ import {
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
+import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
 import {
   BRAND_POST_PLATFORM_LABELS,
   BRAND_POST_STATUS_BADGE_CLS,
@@ -42,6 +43,8 @@ export default function YayinciPostlarPage() {
   const { user } = useAuth();
   const brands = useStore((s) => s.brands);
   const weekBrandReels = useStore((s) => s.weekBrandReels);
+  const addWeekBrandReel = useStore((s) => s.addWeekBrandReel);
+  const deleteWeekBrandReel = useStore((s) => s.deleteWeekBrandReel);
   const employeeId = user?.employeeId;
 
   const [posts, setPosts] = useState<BrandPost[]>([]);
@@ -199,6 +202,16 @@ export default function YayinciPostlarPage() {
           </div>
         </CardContent>
       </Card>
+
+      {employeeId && (
+        <DailyContentCheckin
+          employeeId={employeeId}
+          brands={brands}
+          reels={weekBrandReels}
+          onAdd={addWeekBrandReel}
+          onDelete={deleteWeekBrandReel}
+        />
+      )}
 
       <PostActivityCalendar activityDates={activityDates} />
 

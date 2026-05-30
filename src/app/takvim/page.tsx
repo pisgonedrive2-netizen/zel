@@ -12,6 +12,7 @@ import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
+import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -182,10 +183,11 @@ function SlotForm({
 export default function TakvimPage() {
   const { user, users } = useAuth();
   const {
-    employees, streamerAccounts, scheduleSlots, weeklyPlans, weekBrandReels,
+    employees, brands, streamerAccounts, scheduleSlots, weeklyPlans, weekBrandReels,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
+    addWeekBrandReel, deleteWeekBrandReel,
   } = useStore();
 
   const DAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
@@ -711,6 +713,14 @@ export default function TakvimPage() {
               activityDates={activityDates}
               title={`${yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"} · paylaşım achievement'ı`}
               description="Seçili yayıncının reel/post paylaşım günleri (API tarihleriyle) — seri ve toplam içerik takibi"
+            />
+            <DailyContentCheckin
+              key={planEmployeeId}
+              employeeId={planEmployeeId}
+              brands={brands}
+              reels={weekBrandReels}
+              onAdd={addWeekBrandReel}
+              onDelete={deleteWeekBrandReel}
             />
             <ShiftTemplateCard
               weekStart={planWeek}
