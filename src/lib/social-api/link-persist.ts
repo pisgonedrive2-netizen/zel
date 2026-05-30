@@ -31,6 +31,29 @@ export async function recordLinkSnapshot(
   return id;
 }
 
+/**
+ * `brand_link_id` bu linke işaret eden haftalık reel/gönderi kayıtlarını,
+ * linkin son metrikleriyle günceller. Açelya gibi haftalık panodan eklenen
+ * içeriklerin izlenmeleri marka linki yenilendiğinde otomatik yansır.
+ */
+async function syncLinkedWeekReels(
+  linkId: string,
+  metrics: FetchedMetrics,
+  externalRef: string,
+  now: string
+): Promise<void> {
+  const patch: Record<string, unknown> = {
+    last_checked_at: now,
+    last_check_error: null,
+    external_ref: externalRef,
+  };
+  if (metrics.views != null) patch.last_views = metrics.views;
+  if (metrics.likes != null) patch.last_likes = metrics.likes;
+  if (metrics.comments != null) patch.last_comments = metrics.comments;
+  if (metrics.shares != null) patch.last_shares = metrics.shares;
+  await getSupabaseAdmin().from("week_brand_reels").update(patch).eq("brand_link_id", linkId);
+}
+
 export interface PersistedLinkMetrics {
   linkId: string;
   snapshotId?: string;
@@ -98,6 +121,12 @@ export async function persistLinkMetricsUpdate(opts: {
     .update(updates)
     .eq("id", opts.linkId);
   if (error) throw new Error(`brand_links update: ${error.message}`);
+
+  // Bu linke bağlı haftalık reel/gönderi kayıtlarını da senkronla (varsa).
+  // Best-effort: hata olsa bile link refresh'i başarılı sayılır.
+  await syncLinkedWeekReels(opts.linkId, opts.metrics, opts.externalRef, now).catch(
+    () => undefined
+  );
 
   return {
     linkId: opts.linkId,
