@@ -6,7 +6,7 @@ import {
   FileText, Plus, Loader2, RefreshCcw, Trash2, Pencil, Wallet,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
-import { useStore } from "@/store/store";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +40,8 @@ const emptyInvoice = {
 };
 
 export default function MarkaFaturalarPage() {
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [invoices, setInvoices] = useState<BrandInvoice[]>([]);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,7 +146,9 @@ export default function MarkaFaturalarPage() {
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={openNew}><Plus size={14} /> Fatura oluştur</Button>
+            {!readOnly && (
+              <Button size="sm" className="gap-1.5" onClick={openNew}><Plus size={14} /> Fatura oluştur</Button>
+            )}
           </div>
         </div>
 
@@ -170,14 +173,16 @@ export default function MarkaFaturalarPage() {
               <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
                 <FileText size={28} className="opacity-30" />
                 <p className="text-sm">Henüz fatura yok.</p>
-                <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}><Plus size={14} /> İlk faturayı oluştur</Button>
+                {!readOnly && (
+                  <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}><Plus size={14} /> İlk faturayı oluştur</Button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-border bg-muted/30">
-                    {["No", "Başlık", "Kontak", "Tarih", "Tutar", "Durum", ""].map((h) => (
-                      <th key={h} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
+                    {["No", "Başlık", "Kontak", "Tarih", "Tutar", "Durum", ...(readOnly ? [] : [""])].map((h, idx) => (
+                      <th key={h || `act-${idx}`} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
@@ -192,19 +197,25 @@ export default function MarkaFaturalarPage() {
                           {i.taxPct > 0 && <span className="ml-1 text-[10px] text-muted-foreground">(KDV %{i.taxPct})</span>}
                         </td>
                         <td className="px-3 py-3">
-                          <Select
-                            value={i.status}
-                            onChange={(e) => void setStatus(i, e.target.value as InvoiceStatus)}
-                            className={`!py-1 text-[11px] ${STATUS_CLS[i.status]}`}
-                            options={(Object.keys(INVOICE_STATUS_LABELS) as InvoiceStatus[]).map((s) => ({ value: s, label: INVOICE_STATUS_LABELS[s] }))}
-                          />
+                          {readOnly ? (
+                            <Badge variant="outline" className={`text-[10px] ${STATUS_CLS[i.status]}`}>{INVOICE_STATUS_LABELS[i.status]}</Badge>
+                          ) : (
+                            <Select
+                              value={i.status}
+                              onChange={(e) => void setStatus(i, e.target.value as InvoiceStatus)}
+                              className={`!py-1 text-[11px] ${STATUS_CLS[i.status]}`}
+                              options={(Object.keys(INVOICE_STATUS_LABELS) as InvoiceStatus[]).map((s) => ({ value: s, label: INVOICE_STATUS_LABELS[s] }))}
+                            />
+                          )}
                         </td>
-                        <td className="px-3 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(i)} aria-label="Düzenle"><Pencil size={14} /></Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(i)} aria-label="Sil"><Trash2 size={14} /></Button>
-                          </div>
-                        </td>
+                        {!readOnly && (
+                          <td className="px-3 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(i)} aria-label="Düzenle"><Pencil size={14} /></Button>
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(i)} aria-label="Sil"><Trash2 size={14} /></Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

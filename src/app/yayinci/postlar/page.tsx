@@ -28,6 +28,7 @@ import {
 } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
+import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import {
   BRAND_POST_PLATFORM_LABELS,
   BRAND_POST_STATUS_BADGE_CLS,
@@ -40,6 +41,7 @@ import type { BrandDeal, BrandPost } from "@/store/store";
 export default function YayinciPostlarPage() {
   const { user } = useAuth();
   const brands = useStore((s) => s.brands);
+  const weekBrandReels = useStore((s) => s.weekBrandReels);
   const employeeId = user?.employeeId;
 
   const [posts, setPosts] = useState<BrandPost[]>([]);
@@ -95,6 +97,17 @@ export default function YayinciPostlarPage() {
         (b.postedAt ?? b.createdAt).localeCompare(a.postedAt ?? a.createdAt)
       );
   }, [posts, platformFilter, dealFilter]);
+
+  // Paylaşım takvimi (achievement) için tarihler: postlar + bu yayıncının hafta reel'leri.
+  const activityDates = useMemo(() => {
+    const dates: string[] = [];
+    for (const p of posts) dates.push(p.postedAt ?? p.createdAt);
+    for (const r of weekBrandReels) {
+      if (r.employeeId !== employeeId) continue;
+      dates.push(r.publishedAt ?? r.createdAt ?? r.weekStart);
+    }
+    return dates.filter(Boolean);
+  }, [posts, weekBrandReels, employeeId]);
 
   const brandLabel = useCallback(
     (id: string) => brands.find((b) => b.id === id)?.name ?? id,
@@ -186,6 +199,8 @@ export default function YayinciPostlarPage() {
           </div>
         </CardContent>
       </Card>
+
+      <PostActivityCalendar activityDates={activityDates} />
 
       <div className="flex items-start gap-3 rounded-xl border border-blue-300/60 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-100">
         <Info size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />

@@ -8,6 +8,7 @@ import {
   CalendarDays, Activity, Trash2,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +36,8 @@ export default function MarkaPersonelDetayPage() {
   const params = useParams();
   const router = useRouter();
   const id = String(params?.id ?? "");
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
   const [detail, setDetail] = useState<StaffDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -178,7 +180,9 @@ export default function MarkaPersonelDetayPage() {
                   <CardTitle className="flex items-center gap-2"><ListTodo size={16} /> Görevler</CardTitle>
                   <CardDescription>{detail.tasks.length} görev</CardDescription>
                 </div>
-                <Button size="sm" className="gap-1.5" onClick={() => setTaskOpen(true)}><Plus size={14} /> Görev</Button>
+                {!readOnly && (
+                  <Button size="sm" className="gap-1.5" onClick={() => setTaskOpen(true)}><Plus size={14} /> Görev</Button>
+                )}
               </CardHeader>
               <CardContent className="space-y-2 pt-4">
                 {detail.tasks.length === 0 ? (
@@ -188,9 +192,15 @@ export default function MarkaPersonelDetayPage() {
                     <div key={t.id} className="flex items-start justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <button onClick={() => void cycleTaskStatus(t.id, t.status)} className="shrink-0" aria-label="Durumu değiştir">
-                            {t.status === "done" ? <CheckCircle2 size={16} className="text-green-600" /> : <Clock size={16} className="text-muted-foreground" />}
-                          </button>
+                          {readOnly ? (
+                            <span className="shrink-0">
+                              {t.status === "done" ? <CheckCircle2 size={16} className="text-green-600" /> : <Clock size={16} className="text-muted-foreground" />}
+                            </span>
+                          ) : (
+                            <button onClick={() => void cycleTaskStatus(t.id, t.status)} className="shrink-0" aria-label="Durumu değiştir">
+                              {t.status === "done" ? <CheckCircle2 size={16} className="text-green-600" /> : <Clock size={16} className="text-muted-foreground" />}
+                            </button>
+                          )}
                           <span className={`font-medium ${t.status === "done" ? "text-muted-foreground line-through" : "text-foreground"}`}>{t.title}</span>
                           <Badge variant="outline" className={`text-[10px] ${TASK_STATUS_CLS[t.status]}`}>{TASK_STATUS_LABELS[t.status]}</Badge>
                           <Badge variant="outline" className="text-[10px]">{TASK_PRIORITY_LABELS[t.priority]}</Badge>
@@ -198,9 +208,11 @@ export default function MarkaPersonelDetayPage() {
                         {t.description && <p className="mt-1 pl-6 text-xs text-muted-foreground">{t.description}</p>}
                         {t.dueDate && <p className="mt-0.5 pl-6 text-[11px] text-muted-foreground">Son tarih: {t.dueDate}</p>}
                       </div>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeTracking("task", t.id)} aria-label="Sil">
-                        <Trash2 size={13} />
-                      </Button>
+                      {!readOnly && (
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeTracking("task", t.id)} aria-label="Sil">
+                          <Trash2 size={13} />
+                        </Button>
+                      )}
                     </div>
                   ))
                 )}
@@ -214,7 +226,9 @@ export default function MarkaPersonelDetayPage() {
                   <CardTitle className="flex items-center gap-2"><CalendarDays size={16} /> Vardiyalar</CardTitle>
                   <CardDescription>{detail.shifts.length} kayıt</CardDescription>
                 </div>
-                <Button size="sm" className="gap-1.5" onClick={() => setShiftOpen(true)}><Plus size={14} /> Vardiya</Button>
+                {!readOnly && (
+                  <Button size="sm" className="gap-1.5" onClick={() => setShiftOpen(true)}><Plus size={14} /> Vardiya</Button>
+                )}
               </CardHeader>
               <CardContent className="space-y-2 pt-4">
                 {detail.shifts.length === 0 ? (
@@ -227,9 +241,11 @@ export default function MarkaPersonelDetayPage() {
                         <span className="text-muted-foreground tabular-nums">{s.startTime}–{s.endTime}</span>
                         {s.note && <span className="text-xs text-muted-foreground">· {s.note}</span>}
                       </div>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeTracking("shift", s.id)} aria-label="Sil">
-                        <Trash2 size={13} />
-                      </Button>
+                      {!readOnly && (
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeTracking("shift", s.id)} aria-label="Sil">
+                          <Trash2 size={13} />
+                        </Button>
+                      )}
                     </div>
                   ))
                 )}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
+import { isBrandReadOnly } from "@/lib/org-access";
 import { syncAppData, pickSnapshot } from "@/lib/db/repository";
 import type { AppHydratePayload } from "@/store/store";
 
@@ -11,6 +12,14 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  }
+  // Salt-okunur marka rolleri (denetçi/görüntüleyici) brand_monthly_stats yazamaz.
+  // Brand sync yalnızca bu tabloyu hedeflediğinden girişte engelliyoruz.
+  if (isBrandReadOnly(session)) {
+    return NextResponse.json(
+      { error: "Bu hesap salt-okunur — değişiklik kaydedilemez." },
+      { status: 403 }
+    );
   }
   const body = (await req.json()) as AppHydratePayload;
   try {

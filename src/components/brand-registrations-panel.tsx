@@ -16,18 +16,21 @@ import {
   Loader2,
   KeyRound,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
-import { Field, Input, Textarea, FormActions } from "@/components/ui/field";
+import { Field, Input, Textarea, Select, FormActions, FormGrid } from "@/components/ui/field";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { generatePin } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import {
+  BRAND_REGISTRATION_CATEGORIES,
   BRAND_REGISTRATION_STATUS_LABELS,
+  BRAND_REGISTRATION_VOLUMES,
   type BrandRegistrationApproveResponse,
   type BrandRegistrationRequest,
   type BrandRegistrationStatus,
@@ -101,6 +104,174 @@ async function rejectRequest(id: string, reason: string): Promise<void> {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error ?? `Reddetme başarısız (${res.status})`);
   }
+}
+
+type BrandEditableFields = Pick<
+  BrandRegistrationRequest,
+  | "brandName"
+  | "shortName"
+  | "category"
+  | "website"
+  | "contactName"
+  | "contactEmail"
+  | "contactPhone"
+  | "telegram"
+  | "monthlyVolume"
+  | "preferredUsername"
+  | "notes"
+>;
+
+async function editRequest(id: string, patch: BrandEditableFields): Promise<void> {
+  const res = await fetch(`/api/brand-registrations/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Kaydetme başarısız (${res.status})`);
+  }
+}
+
+// ── Edit Dialog ────────────────────────────────────────────────────────────
+
+function EditDialog({
+  request,
+  onClose,
+  onSaved,
+}: {
+  request: BrandRegistrationRequest;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [brandName, setBrandName] = useState(request.brandName);
+  const [shortName, setShortName] = useState(request.shortName ?? "");
+  const [category, setCategory] = useState(request.category);
+  const [website, setWebsite] = useState(request.website ?? "");
+  const [contactName, setContactName] = useState(request.contactName);
+  const [contactEmail, setContactEmail] = useState(request.contactEmail);
+  const [contactPhone, setContactPhone] = useState(request.contactPhone ?? "");
+  const [telegram, setTelegram] = useState(request.telegram ?? "");
+  const [monthlyVolume, setMonthlyVolume] = useState(request.monthlyVolume ?? "");
+  const [preferredUsername, setPreferredUsername] = useState(request.preferredUsername ?? "");
+  const [notes, setNotes] = useState(request.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const categoryOptions: { value: string; label: string }[] = BRAND_REGISTRATION_CATEGORIES.map(
+    (c) => ({ value: c, label: c })
+  );
+  // Saklanan değer dropdown'da yoksa kaybetmemek için ekle.
+  if (category && !BRAND_REGISTRATION_CATEGORIES.includes(category as (typeof BRAND_REGISTRATION_CATEGORIES)[number])) {
+    categoryOptions.unshift({ value: category, label: category });
+  }
+  const volumeOptions = [
+    { value: "", label: "—" },
+    ...BRAND_REGISTRATION_VOLUMES.map((v) => ({ value: v, label: v })),
+  ];
+  if (monthlyVolume && !BRAND_REGISTRATION_VOLUMES.includes(monthlyVolume as (typeof BRAND_REGISTRATION_VOLUMES)[number])) {
+    volumeOptions.push({ value: monthlyVolume, label: monthlyVolume });
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!brandName.trim()) {
+      setErr("Marka adı zorunlu.");
+      return;
+    }
+    if (!contactName.trim()) {
+      setErr("İletişim kişisi zorunlu.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await editRequest(request.id, {
+        brandName: brandName.trim(),
+        shortName: shortName.trim(),
+        category,
+        website: website.trim(),
+        contactName: contactName.trim(),
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
+        telegram: telegram.trim(),
+        monthlyVolume: monthlyVolume.trim(),
+        preferredUsername: preferredUsername.trim(),
+        notes: notes.trim(),
+      });
+      onSaved();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Kaydetme başarısız");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <FormGrid>
+        <Field label="Marka adı" required>
+          <Input value={brandName} onChange={(e) => setBrandName(e.target.value)} required />
+        </Field>
+        <Field label="Kısa ad">
+          <Input value={shortName} onChange={(e) => setShortName(e.target.value)} />
+        </Field>
+        <Field label="Kategori">
+          <Select
+            options={categoryOptions}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          />
+        </Field>
+        <Field label="Aylık hacim">
+          <Select
+            options={volumeOptions}
+            value={monthlyVolume}
+            onChange={(e) => setMonthlyVolume(e.target.value)}
+          />
+        </Field>
+        <Field label="Website">
+          <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
+        </Field>
+        <Field label="Kullanıcı adı (tercih)">
+          <Input
+            value={preferredUsername}
+            onChange={(e) => setPreferredUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+            placeholder="ornek: galabet"
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="İletişim kişisi" required>
+          <Input value={contactName} onChange={(e) => setContactName(e.target.value)} required />
+        </Field>
+        <Field label="E-posta">
+          <Input
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+          />
+        </Field>
+        <Field label="Telefon">
+          <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+        </Field>
+        <Field label="Telegram">
+          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="@kullanici" />
+        </Field>
+      </FormGrid>
+      <Field label="Not">
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+      </Field>
+
+      {err && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {err}
+        </div>
+      )}
+
+      <FormActions onCancel={onClose} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
+    </form>
+  );
 }
 
 // ── Approve Dialog ─────────────────────────────────────────────────────────
@@ -391,6 +562,7 @@ export function BrandRegistrationsPanel({
 
   const [approveTarget, setApproveTarget] = useState<BrandRegistrationRequest | null>(null);
   const [rejectTarget, setRejectTarget] = useState<BrandRegistrationRequest | null>(null);
+  const [editTarget, setEditTarget] = useState<BrandRegistrationRequest | null>(null);
   const [approveResp, setApproveResp] = useState<BrandRegistrationApproveResponse | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -658,6 +830,14 @@ export function BrandRegistrationsPanel({
                         </Button>
                         <Button
                           size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={() => setEditTarget(r)}
+                        >
+                          <Pencil size={13} /> Düzenle
+                        </Button>
+                        <Button
+                          size="sm"
                           variant="ghost"
                           className="gap-1.5 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400"
                           onClick={() => setRejectTarget(r)}
@@ -706,6 +886,26 @@ export function BrandRegistrationsPanel({
       >
         {approveResp && (
           <ApproveSuccessDialog resp={approveResp} onClose={() => setApproveResp(null)} />
+        )}
+      </Modal>
+
+      {/* Düzenleme diyaloğu */}
+      <Modal
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="Marka başvurusunu düzenle"
+        size="lg"
+      >
+        {editTarget && (
+          <EditDialog
+            request={editTarget}
+            onClose={() => setEditTarget(null)}
+            onSaved={() => {
+              setToast(`✓ ${editTarget.brandName} başvurusu güncellendi.`);
+              setEditTarget(null);
+              void load(false);
+            }}
+          />
         )}
       </Modal>
 

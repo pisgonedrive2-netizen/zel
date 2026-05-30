@@ -18,6 +18,7 @@ import {
   Video,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +97,8 @@ export default function MarkaAnlasmaDetayPage() {
   const params = useParams();
   const dealId = String(params?.id ?? "");
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand } = portal;
+  const { user, brandId, brand, canViewBrand, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const employees = useStore((s) => s.employees);
 
   const [deal, setDeal] = useState<BrandDeal | null>(null);
@@ -230,6 +232,7 @@ export default function MarkaAnlasmaDetayPage() {
                 deal={deal}
                 streamerLabel={streamerLabel}
                 onEdit={() => setEditOpen(true)}
+                readOnly={readOnly}
               />
 
               <DeliverableChecklist
@@ -250,13 +253,15 @@ export default function MarkaAnlasmaDetayPage() {
                       Bu anlaşma için yüklenmiş içerik URL'leri.
                     </CardDescription>
                   </div>
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => setPostModalOpen(true)}
-                  >
-                    <Plus size={12} /> Post ekle
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => setPostModalOpen(true)}
+                    >
+                      <Plus size={12} /> Post ekle
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {posts.length === 0 ? (
@@ -279,6 +284,7 @@ export default function MarkaAnlasmaDetayPage() {
                             refreshing={refreshingId === post.id}
                             onRefresh={() => handleRefreshMetric(post.id)}
                             onDelete={() => handleDeletePost(post.id)}
+                            readOnly={readOnly}
                           />
                         ))}
                     </ul>
@@ -320,10 +326,12 @@ function DealSummary({
   deal,
   streamerLabel,
   onEdit,
+  readOnly,
 }: {
   deal: BrandDeal;
   streamerLabel: string;
   onEdit: () => void;
+  readOnly?: boolean;
 }) {
   const pct =
     deal.budgetUsd > 0
@@ -365,9 +373,11 @@ function DealSummary({
             )}
           </CardDescription>
         </div>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
-          <Pencil size={12} /> Düzenle
-        </Button>
+        {!readOnly && (
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={onEdit}>
+            <Pencil size={12} /> Düzenle
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="relative space-y-4">
         <div className="space-y-1.5">
@@ -571,11 +581,13 @@ function PostRow({
   refreshing,
   onRefresh,
   onDelete,
+  readOnly,
 }: {
   post: BrandPost;
   refreshing: boolean;
   onRefresh: () => void;
   onDelete: () => void;
+  readOnly?: boolean;
 }) {
   return (
     <li className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-border bg-card p-3">
@@ -626,25 +638,27 @@ function PostRow({
         >
           Aç →
         </a>
-        <div className="flex gap-1">
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={refreshing}
-            className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-            title="Metriği yenile"
-          >
-            <RefreshCcw size={11} className={refreshing ? "animate-spin" : undefined} />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            title="Sil"
-          >
-            <Trash2 size={11} />
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              title="Metriği yenile"
+            >
+              <RefreshCcw size={11} className={refreshing ? "animate-spin" : undefined} />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="Sil"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        )}
       </div>
     </li>
   );

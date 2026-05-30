@@ -952,6 +952,18 @@ export async function updateBrandRegistrationRequest(
     reviewedAt: string | null;
     createdBrandId: string | null;
     createdUserId: string | null;
+    // Onay öncesi düzenlenebilir başvuru alanları
+    brandName: string;
+    shortName: string | null;
+    category: string;
+    website: string | null;
+    contactName: string;
+    contactEmail: string;
+    contactPhone: string | null;
+    telegram: string | null;
+    monthlyVolume: string | null;
+    preferredUsername: string | null;
+    notes: string;
   }>
 ): Promise<BrandRegistrationRequest> {
   const row: Record<string, unknown> = {};
@@ -961,6 +973,18 @@ export async function updateBrandRegistrationRequest(
   if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
   if (patch.createdBrandId !== undefined) row.created_brand_id = patch.createdBrandId;
   if (patch.createdUserId !== undefined) row.created_user_id = patch.createdUserId;
+  if (patch.brandName !== undefined) row.brand_name = patch.brandName;
+  if (patch.shortName !== undefined) row.short_name = patch.shortName;
+  if (patch.category !== undefined) row.category = patch.category;
+  if (patch.website !== undefined) row.website = patch.website;
+  if (patch.contactName !== undefined) row.contact_name = patch.contactName;
+  if (patch.contactEmail !== undefined) row.contact_email = patch.contactEmail.toLowerCase().trim();
+  if (patch.contactPhone !== undefined) row.contact_phone = patch.contactPhone;
+  if (patch.telegram !== undefined) row.telegram = patch.telegram;
+  if (patch.monthlyVolume !== undefined) row.monthly_volume = patch.monthlyVolume;
+  if (patch.preferredUsername !== undefined) row.preferred_username = patch.preferredUsername;
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  row.updated_at = new Date().toISOString();
   const { data, error } = await getSupabaseAdmin()
     .from("brand_registration_requests")
     .update(row)
@@ -1045,6 +1069,17 @@ export async function updateStreamerRegistrationRequest(
     reviewedAt: string | null;
     createdEmployeeId: string | null;
     createdUserId: string | null;
+    // Onay öncesi düzenlenebilir başvuru alanları
+    displayName: string;
+    realName: string | null;
+    contactEmail: string;
+    contactPhone: string | null;
+    telegram: string | null;
+    platforms: string;
+    categories: string;
+    audienceSize: string | null;
+    preferredUsername: string | null;
+    notes: string;
   }>
 ): Promise<StreamerRegistrationRequest> {
   const row: Record<string, unknown> = {};
@@ -1054,6 +1089,17 @@ export async function updateStreamerRegistrationRequest(
   if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
   if (patch.createdEmployeeId !== undefined) row.created_employee_id = patch.createdEmployeeId;
   if (patch.createdUserId !== undefined) row.created_user_id = patch.createdUserId;
+  if (patch.displayName !== undefined) row.display_name = patch.displayName;
+  if (patch.realName !== undefined) row.real_name = patch.realName;
+  if (patch.contactEmail !== undefined) row.contact_email = patch.contactEmail.toLowerCase().trim();
+  if (patch.contactPhone !== undefined) row.contact_phone = patch.contactPhone;
+  if (patch.telegram !== undefined) row.telegram = patch.telegram;
+  if (patch.platforms !== undefined) row.platforms = patch.platforms;
+  if (patch.categories !== undefined) row.categories = patch.categories;
+  if (patch.audienceSize !== undefined) row.audience_size = patch.audienceSize;
+  if (patch.preferredUsername !== undefined) row.preferred_username = patch.preferredUsername;
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  row.updated_at = new Date().toISOString();
   const { data, error } = await getSupabaseAdmin()
     .from("streamer_registration_requests")
     .update(row)

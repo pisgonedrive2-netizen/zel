@@ -6,6 +6,7 @@ import {
   Users, Plus, Loader2, RefreshCcw, Pencil, Trash2, Mail, Phone, ArrowUpRight, Wallet,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,8 @@ const emptyForm = {
 };
 
 export default function MarkaPersonelPage() {
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [staff, setStaff] = useState<BrandStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,9 +156,11 @@ export default function MarkaPersonelPage() {
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={openNew}>
-              <Plus size={14} /> Personel ekle
-            </Button>
+            {!readOnly && (
+              <Button size="sm" className="gap-1.5" onClick={openNew}>
+                <Plus size={14} /> Personel ekle
+              </Button>
+            )}
           </div>
         </div>
 
@@ -203,17 +207,19 @@ export default function MarkaPersonelPage() {
               <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
                 <Users size={28} className="opacity-30" />
                 <p className="text-sm">Henüz personel eklenmemiş.</p>
-                <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}>
-                  <Plus size={14} /> İlk personeli ekle
-                </Button>
+                {!readOnly && (
+                  <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}>
+                    <Plus size={14} /> İlk personeli ekle
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      {["Personel", "İletişim", "Aylık maliyet", "Durum", ""].map((h) => (
-                        <th key={h} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
+                      {["Personel", "İletişim", "Aylık maliyet", "Durum", ...(readOnly ? [] : [""])].map((h, idx) => (
+                        <th key={h || `act-${idx}`} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -248,16 +254,18 @@ export default function MarkaPersonelPage() {
                             {STAFF_STATUS_LABELS[s.status]}
                           </Badge>
                         </td>
-                        <td className="px-3 py-3">
-                          <div className="flex justify-end gap-1">
-                            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(s)} aria-label="Düzenle">
-                              <Pencil size={14} />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(s)} aria-label="Sil">
-                              <Trash2 size={14} />
-                            </Button>
-                          </div>
-                        </td>
+                        {!readOnly && (
+                          <td className="px-3 py-3">
+                            <div className="flex justify-end gap-1">
+                              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(s)} aria-label="Düzenle">
+                                <Pencil size={14} />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(s)} aria-label="Sil">
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

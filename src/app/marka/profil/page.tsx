@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Building2, Check, Eye, Loader2, Save, Target } from "lucide-react";
 import { useStore } from "@/store/store";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { BrandLogo } from "@/components/brand-logo";
 import { markaHref } from "@/lib/use-marka-view-month";
@@ -22,7 +23,8 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default function MarkaProfilPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, month, canViewBrand } = portal;
+  const { user, brandId, brand, month, canViewBrand, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const updateBrand = useStore((s) => s.updateBrand);
 
   const [form, setForm] = useState({ name: "", shortName: "", category: "", notes: "" });
@@ -175,6 +177,7 @@ export default function MarkaProfilPage() {
                     onChange={(e) => set("name", e.target.value)}
                     placeholder="Örn. Galabet"
                     required
+                    disabled={readOnly}
                   />
                 </Field>
                 <Field label="Kısa kod" hint="Raporlarda/grafiklerde görünen kısaltma.">
@@ -182,6 +185,7 @@ export default function MarkaProfilPage() {
                     value={form.shortName}
                     onChange={(e) => set("shortName", e.target.value)}
                     placeholder="Örn. Gala"
+                    disabled={readOnly}
                   />
                 </Field>
               </FormGrid>
@@ -190,6 +194,7 @@ export default function MarkaProfilPage() {
                   value={form.category}
                   onChange={(e) => set("category", e.target.value)}
                   placeholder="Sektör / kategori"
+                  disabled={readOnly}
                 />
               </Field>
               <Field label="Notlar" hint="Ekip içi notlar — yalnızca panelde görünür.">
@@ -198,8 +203,15 @@ export default function MarkaProfilPage() {
                   onChange={(e) => set("notes", e.target.value)}
                   placeholder="Markaya dair iç notlar..."
                   rows={4}
+                  disabled={readOnly}
                 />
               </Field>
+
+              {readOnly && (
+                <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Hesabınız salt-okunur — değişiklik kaydedemezsiniz.
+                </p>
+              )}
 
               {error && (
                 <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/45 dark:bg-red-950/40 dark:text-red-300">
@@ -207,17 +219,19 @@ export default function MarkaProfilPage() {
                 </p>
               )}
 
-              <div className="flex items-center justify-end gap-2">
-                {saved && !dirty && (
-                  <span className="inline-flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
-                    <Check size={14} /> Kaydedildi
-                  </span>
-                )}
-                <Button type="button" onClick={() => void save()} disabled={busy || !dirty} className="gap-1.5">
-                  {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  Kaydet
-                </Button>
-              </div>
+              {!readOnly && (
+                <div className="flex items-center justify-end gap-2">
+                  {saved && !dirty && (
+                    <span className="inline-flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+                      <Check size={14} /> Kaydedildi
+                    </span>
+                  )}
+                  <Button type="button" onClick={() => void save()} disabled={busy || !dirty} className="gap-1.5">
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                    Kaydet
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

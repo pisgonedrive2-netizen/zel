@@ -44,8 +44,10 @@ async function insertAuditLog(
   if (error) throw new Error(`audit_logs: ${error.message}`);
 }
 
+type ApproveBody = { usernameOverride?: string; customPin?: string };
+
 export async function POST(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!isSupabaseEnabled()) {
@@ -63,6 +65,11 @@ export async function POST(
   if (!id) {
     return NextResponse.json({ error: "Başvuru id zorunlu." }, { status: 400 });
   }
+
+  // Gövde opsiyonel: boş gövde / geçersiz JSON tolere edilir.
+  const body = (await req.json().catch(() => ({}))) as ApproveBody;
+  const usernameOverride = body.usernameOverride?.trim().toLowerCase() || undefined;
+  const customPin = body.customPin?.trim() || undefined;
 
   try {
     const reqRow = await findBrandRegistrationRequestById(id);
@@ -88,8 +95,9 @@ export async function POST(
       category: reqRow.category,
       contactName: reqRow.contactName,
       contactEmail: reqRow.contactEmail,
-      preferredUsername: reqRow.preferredUsername || undefined,
+      preferredUsername: usernameOverride || reqRow.preferredUsername || undefined,
       notes: reqRow.notes,
+      customPin,
       createdFromRequestId: reqRow.id,
     });
 

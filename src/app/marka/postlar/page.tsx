@@ -11,6 +11,7 @@ import {
   Video,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,8 @@ import type { BrandDeal, BrandPost } from "@/store/store";
 
 export default function MarkaPostlarPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand } = portal;
+  const { user, brandId, brand, canViewBrand, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const employees = useStore((s) => s.employees);
 
   const [posts, setPosts] = useState<BrandPost[]>([]);
@@ -168,13 +170,15 @@ export default function MarkaPostlarPage() {
                   <RefreshCcw size={12} className={loading ? "animate-spin" : undefined} />
                   Yenile
                 </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => setCreateOpen(true)}
-                >
-                  <Plus size={12} /> Post ekle
-                </Button>
+                {!readOnly && (
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Plus size={12} /> Post ekle
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
@@ -319,26 +323,30 @@ export default function MarkaPostlarPage() {
                             >
                               <Eye size={11} />
                             </a>
-                            <button
-                              type="button"
-                              onClick={() => handleRefresh(post.id)}
-                              disabled={refreshingId === post.id}
-                              className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                              title="Metriği yenile"
-                            >
-                              <RefreshCcw
-                                size={11}
-                                className={refreshingId === post.id ? "animate-spin" : undefined}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(post.id)}
-                              className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              title="Sil"
-                            >
-                              <Trash2 size={11} />
-                            </button>
+                            {!readOnly && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRefresh(post.id)}
+                                  disabled={refreshingId === post.id}
+                                  className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                                  title="Metriği yenile"
+                                >
+                                  <RefreshCcw
+                                    size={11}
+                                    className={refreshingId === post.id ? "animate-spin" : undefined}
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(post.id)}
+                                  className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  title="Sil"
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

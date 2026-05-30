@@ -6,6 +6,7 @@ import {
   ArrowLeft, Loader2, Mail, Phone, Send, Plus, MessageSquare, TrendingUp,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,8 @@ export default function MarkaCrmKontakPage() {
   const params = useParams();
   const router = useRouter();
   const id = String(params?.id ?? "");
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,22 +138,24 @@ export default function MarkaCrmKontakPage() {
                 <CardDescription>Görüşme, not ve iletişim geçmişi</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
-                <form onSubmit={submitInteraction} className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
-                    <Field label="Tür">
-                      <Select value={type} onChange={(e) => setType(e.target.value as InteractionType)}
-                        options={(Object.keys(INTERACTION_TYPE_LABELS) as InteractionType[]).map((t) => ({ value: t, label: INTERACTION_TYPE_LABELS[t] }))} />
-                    </Field>
-                    <Field label="Özet">
-                      <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={2} placeholder="Ne konuşuldu?" />
-                    </Field>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button type="submit" size="sm" className="gap-1.5" disabled={busy || !summary.trim()}>
-                      {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Etkileşim ekle
-                    </Button>
-                  </div>
-                </form>
+                {!readOnly && (
+                  <form onSubmit={submitInteraction} className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_1fr]">
+                      <Field label="Tür">
+                        <Select value={type} onChange={(e) => setType(e.target.value as InteractionType)}
+                          options={(Object.keys(INTERACTION_TYPE_LABELS) as InteractionType[]).map((t) => ({ value: t, label: INTERACTION_TYPE_LABELS[t] }))} />
+                      </Field>
+                      <Field label="Özet">
+                        <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={2} placeholder="Ne konuşuldu?" />
+                      </Field>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="submit" size="sm" className="gap-1.5" disabled={busy || !summary.trim()}>
+                        {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Etkileşim ekle
+                      </Button>
+                    </div>
+                  </form>
+                )}
 
                 {detail.interactions.length === 0 ? (
                   <p className="py-4 text-center text-sm text-muted-foreground">Henüz etkileşim yok.</p>

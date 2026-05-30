@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
+import { isBrandReadOnly } from "@/lib/org-access";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -17,6 +18,12 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  }
+  if (isBrandReadOnly(session)) {
+    return NextResponse.json(
+      { error: "Bu hesap salt-okunur — değişiklik kaydedilemez." },
+      { status: 403 }
+    );
   }
 
   const body = (await req.json().catch(() => null)) as

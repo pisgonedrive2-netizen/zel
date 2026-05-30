@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   RefreshCcw, CheckCircle2, XCircle, Copy, Check, Inbox, Mail, Phone, Send,
-  Loader2, KeyRound, AlertTriangle,
+  Loader2, KeyRound, AlertTriangle, Pencil, Sparkles,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
-import { Field, Textarea, FormActions } from "@/components/ui/field";
+import { Field, Input, Textarea, FormActions, FormGrid } from "@/components/ui/field";
 import { fmtDateTime } from "@/lib/fmt-date";
+import { generatePin } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import type { StreamerRegistrationRequest } from "@/store/store";
 
@@ -58,12 +59,15 @@ async function fetchRequests(status: StatusFilter): Promise<StreamerRegistration
   return Array.isArray(data.requests) ? data.requests : [];
 }
 
-async function approveRequest(id: string): Promise<ApproveResponse> {
+async function approveRequest(
+  id: string,
+  body: { usernameOverride?: string; customPin?: string }
+): Promise<ApproveResponse> {
   const res = await fetch(`/api/streamer-registrations/${id}/approve`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => ({}))) as ApproveResponse | { error?: string };
   if (!res.ok || !("ok" in data) || data.ok !== true) {
@@ -84,6 +88,236 @@ async function rejectRequest(id: string, reason: string): Promise<void> {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error ?? `Reddetme başarısız (${res.status})`);
   }
+}
+
+type StreamerEditableFields = Pick<
+  StreamerRegistrationRequest,
+  | "displayName"
+  | "realName"
+  | "contactEmail"
+  | "contactPhone"
+  | "telegram"
+  | "platforms"
+  | "categories"
+  | "audienceSize"
+  | "preferredUsername"
+  | "notes"
+>;
+
+async function editRequest(id: string, patch: StreamerEditableFields): Promise<void> {
+  const res = await fetch(`/api/streamer-registrations/${id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Kaydetme başarısız (${res.status})`);
+  }
+}
+
+// ── Approve Dialog (opsiyonel kullanıcı adı / PIN) ──────────────────────────
+
+function ApproveDialog({
+  request,
+  onClose,
+  onApproved,
+}: {
+  request: StreamerRegistrationRequest;
+  onClose: () => void;
+  onApproved: (resp: ApproveResponse) => void;
+}) {
+  const [usernameOverride, setUsernameOverride] = useState(request.preferredUsername ?? "");
+  const [customPin, setCustomPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const resp = await approveRequest(request.id, {
+        usernameOverride: usernameOverride.trim() || undefined,
+        customPin: customPin.trim() || undefined,
+      });
+      onApproved(resp);
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Onaylama başarısız");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed">
+        <p className="text-sm font-semibold text-foreground">
+          {request.displayName}
+          {request.realName ? (
+            <span className="ml-2 font-normal text-muted-foreground">({request.realName})</span>
+          ) : null}
+        </p>
+        <p className="text-muted-foreground mt-0.5">{request.contactEmail}</p>
+      </div>
+
+      <p className="text-sm text-foreground">
+        Bu başvuruyu onaylayınca yayıncı, kullanıcı, havuz profili ve ilk PIN oluşturulur. Devam
+        etmek istiyor musun?
+      </p>
+
+      <div className="grid gap-3">
+        <Field
+          label="Kullanıcı adı (opsiyonel override)"
+          hint="Boş bırakılırsa tercih edilen kullanıcı adı veya görünen addan otomatik üretilir."
+        >
+          <Input
+            value={usernameOverride}
+            onChange={(e) => setUsernameOverride(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+            placeholder={request.preferredUsername ?? "ornek: yayinci"}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="Özel PIN (opsiyonel)" hint="Boş bırakılırsa güvenli 8 karakterli PIN otomatik üretilir.">
+          <div className="flex gap-2">
+            <Input
+              value={customPin}
+              onChange={(e) => setCustomPin(e.target.value)}
+              placeholder="Otomatik üretilecek"
+              className="font-mono"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setCustomPin(generatePin())}
+            >
+              <Sparkles size={13} /> Üret
+            </Button>
+          </div>
+        </Field>
+      </div>
+
+      {err && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {err}
+        </div>
+      )}
+
+      <FormActions onCancel={onClose} submitLabel={busy ? "Onaylanıyor..." : "Onayla & oluştur"} />
+      {busy && (
+        <p className="-mt-3 flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+          <Loader2 size={11} className="animate-spin" /> Yayıncı hesabı oluşturuluyor…
+        </p>
+      )}
+    </form>
+  );
+}
+
+// ── Edit Dialog ────────────────────────────────────────────────────────────
+
+function EditDialog({
+  request,
+  onClose,
+  onSaved,
+}: {
+  request: StreamerRegistrationRequest;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [displayName, setDisplayName] = useState(request.displayName);
+  const [realName, setRealName] = useState(request.realName ?? "");
+  const [contactEmail, setContactEmail] = useState(request.contactEmail);
+  const [contactPhone, setContactPhone] = useState(request.contactPhone ?? "");
+  const [telegram, setTelegram] = useState(request.telegram ?? "");
+  const [platforms, setPlatforms] = useState(request.platforms ?? "");
+  const [categories, setCategories] = useState(request.categories ?? "");
+  const [audienceSize, setAudienceSize] = useState(request.audienceSize ?? "");
+  const [preferredUsername, setPreferredUsername] = useState(request.preferredUsername ?? "");
+  const [notes, setNotes] = useState(request.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayName.trim()) {
+      setErr("Görünen ad zorunlu.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await editRequest(request.id, {
+        displayName: displayName.trim(),
+        realName: realName.trim(),
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
+        telegram: telegram.trim(),
+        platforms: platforms.trim(),
+        categories: categories.trim(),
+        audienceSize: audienceSize.trim(),
+        preferredUsername: preferredUsername.trim(),
+        notes: notes.trim(),
+      });
+      onSaved();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "Kaydetme başarısız");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <FormGrid>
+        <Field label="Görünen ad" required>
+          <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+        </Field>
+        <Field label="Gerçek ad">
+          <Input value={realName} onChange={(e) => setRealName(e.target.value)} />
+        </Field>
+        <Field label="E-posta">
+          <Input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+        </Field>
+        <Field label="Telefon">
+          <Input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} />
+        </Field>
+        <Field label="Telegram">
+          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="@kullanici" />
+        </Field>
+        <Field label="Kullanıcı adı (tercih)">
+          <Input
+            value={preferredUsername}
+            onChange={(e) => setPreferredUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+            placeholder="ornek: yayinci"
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="Platformlar">
+          <Input value={platforms} onChange={(e) => setPlatforms(e.target.value)} placeholder="Kick, YouTube..." />
+        </Field>
+        <Field label="Kategoriler">
+          <Input value={categories} onChange={(e) => setCategories(e.target.value)} placeholder="Slot, Casino..." />
+        </Field>
+        <Field label="Kitle büyüklüğü">
+          <Input value={audienceSize} onChange={(e) => setAudienceSize(e.target.value)} />
+        </Field>
+      </FormGrid>
+      <Field label="Not">
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
+      </Field>
+
+      {err && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {err}
+        </div>
+      )}
+
+      <FormActions onCancel={onClose} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
+    </form>
+  );
 }
 
 function RejectDialog({
@@ -221,7 +455,8 @@ export function StreamerRegistrationsPanel({
   const [status, setStatus] = useState<StatusFilter>("pending");
 
   const [rejectTarget, setRejectTarget] = useState<StreamerRegistrationRequest | null>(null);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<StreamerRegistrationRequest | null>(null);
+  const [editTarget, setEditTarget] = useState<StreamerRegistrationRequest | null>(null);
   const [approveResp, setApproveResp] = useState<ApproveResponse | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -253,21 +488,6 @@ export function StreamerRegistrationsPanel({
     const t = setTimeout(() => setToast(null), 5000);
     return () => clearTimeout(t);
   }, [toast]);
-
-  const handleApprove = async (r: StreamerRegistrationRequest) => {
-    if (approvingId) return;
-    setApprovingId(r.id);
-    try {
-      const resp = await approveRequest(r.id);
-      setApproveResp(resp);
-      setToast(`✓ ${resp.request.displayName} onaylandı ve hesap oluşturuldu.`);
-      void load(false);
-    } catch (ex) {
-      setToast(ex instanceof Error ? ex.message : "Onaylama başarısız");
-    } finally {
-      setApprovingId(null);
-    }
-  };
 
   return (
     <Card>
@@ -395,8 +615,11 @@ export function StreamerRegistrationsPanel({
                   <td className="px-3 py-3">
                     {r.status === "pending" ? (
                       <div className="flex flex-col gap-1.5 sm:flex-row">
-                        <Button size="sm" className="gap-1.5" onClick={() => void handleApprove(r)} disabled={approvingId === r.id}>
-                          {approvingId === r.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Onayla
+                        <Button size="sm" className="gap-1.5" onClick={() => setApproveTarget(r)}>
+                          <CheckCircle2 size={13} /> Onayla
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditTarget(r)}>
+                          <Pencil size={13} /> Düzenle
                         </Button>
                         <Button size="sm" variant="ghost" className="gap-1.5 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400" onClick={() => setRejectTarget(r)}>
                           <XCircle size={13} /> Reddet
@@ -412,6 +635,37 @@ export function StreamerRegistrationsPanel({
           </table>
         </div>
       </CardContent>
+
+      {/* Onay diyaloğu */}
+      <Modal open={approveTarget !== null} onClose={() => setApproveTarget(null)} title="Yayıncı başvurusunu onayla" size="md">
+        {approveTarget && (
+          <ApproveDialog
+            request={approveTarget}
+            onClose={() => setApproveTarget(null)}
+            onApproved={(resp) => {
+              setApproveTarget(null);
+              setApproveResp(resp);
+              setToast(`✓ ${resp.request.displayName} onaylandı ve hesap oluşturuldu.`);
+              void load(false);
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* Düzenleme diyaloğu */}
+      <Modal open={editTarget !== null} onClose={() => setEditTarget(null)} title="Yayıncı başvurusunu düzenle" size="lg">
+        {editTarget && (
+          <EditDialog
+            request={editTarget}
+            onClose={() => setEditTarget(null)}
+            onSaved={() => {
+              setToast(`✓ ${editTarget.displayName} başvurusu güncellendi.`);
+              setEditTarget(null);
+              void load(false);
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal open={approveResp !== null} onClose={() => setApproveResp(null)} title="" size="md">
         {approveResp && <ApproveSuccessDialog resp={approveResp} onClose={() => setApproveResp(null)} />}

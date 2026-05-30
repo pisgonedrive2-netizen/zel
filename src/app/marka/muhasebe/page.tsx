@@ -6,6 +6,7 @@ import {
   Wallet, Plus, Loader2, RefreshCcw, Trash2, ArrowDownCircle, ArrowUpCircle, Zap, FileText,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,8 @@ const emptyEntry = {
 };
 
 export default function MarkaMuhasebePage() {
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [ledger, setLedger] = useState<BrandLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -135,15 +137,19 @@ export default function MarkaMuhasebePage() {
             >
               <FileText size={14} /> Faturalar
             </Link>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void runSync()} disabled={syncing}>
-              {syncing ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />} Otomatik içe aktar
-            </Button>
+            {!readOnly && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void runSync()} disabled={syncing}>
+                {syncing ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />} Otomatik içe aktar
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => { setForm(emptyEntry); setOpen(true); }}>
-              <Plus size={14} /> Kayıt ekle
-            </Button>
+            {!readOnly && (
+              <Button size="sm" className="gap-1.5" onClick={() => { setForm(emptyEntry); setOpen(true); }}>
+                <Plus size={14} /> Kayıt ekle
+              </Button>
+            )}
           </div>
         </div>
 
@@ -196,8 +202,8 @@ export default function MarkaMuhasebePage() {
               <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-border bg-muted/30">
-                    {["Tarih", "Açıklama", "Kategori", "Kaynak", "Tutar", ""].map((h) => (
-                      <th key={h} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
+                    {["Tarih", "Açıklama", "Kategori", "Kaynak", "Tutar", ...(readOnly ? [] : [""])].map((h, idx) => (
+                      <th key={h || `act-${idx}`} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
@@ -210,11 +216,13 @@ export default function MarkaMuhasebePage() {
                         <td className={`px-3 py-3 font-semibold tabular-nums whitespace-nowrap ${e.direction === "income" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                           {e.direction === "income" ? "+" : "−"}{CUR_SYMBOL[e.currency]}{e.amount.toLocaleString("tr-TR")}
                         </td>
-                        <td className="px-3 py-3 text-right">
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(e)} aria-label="Sil">
-                            <Trash2 size={14} />
-                          </Button>
-                        </td>
+                        {!readOnly && (
+                          <td className="px-3 py-3 text-right">
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(e)} aria-label="Sil">
+                              <Trash2 size={14} />
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

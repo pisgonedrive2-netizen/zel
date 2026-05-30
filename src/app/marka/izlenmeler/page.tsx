@@ -10,6 +10,7 @@ import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { MarkaViewershipCharts } from "@/components/marka-viewership-charts";
 import { MarkaLinksPreviewModal } from "@/components/marka-links-preview-modal";
 import { useMarkaPortal, monthLabelTr } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { markaHref } from "@/lib/use-marka-view-month";
 import { toYearMonthLocal } from "@/lib/data";
 import { buildBrandMonthExportPayload } from "@/lib/izlenme-brand-export";
@@ -56,7 +57,8 @@ const fmtViews = (n: number) => {
 
 export default function MarkaIzlenmelerPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
+  const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const operasyonHref = markaHref("/marka/operasyon", month);
   const {
     brands,
@@ -175,8 +177,9 @@ export default function MarkaIzlenmelerPage() {
       : null;
 
   const canEditTarget =
-    user?.role === "admin" ||
-    (user?.role === "brand" && user.brandId === brandId);
+    !readOnly &&
+    (user?.role === "admin" ||
+      (user?.role === "brand" && user.brandId === brandId));
   const [targetEditing, setTargetEditing] = useState(false);
   const [targetInput, setTargetInput] = useState<string>(
     brand?.monthlyTarget != null ? String(brand.monthlyTarget) : ""

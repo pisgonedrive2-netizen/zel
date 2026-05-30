@@ -64,7 +64,9 @@ async function insertNotification(notif: AppNotification): Promise<void> {
   throw new Error(error.message);
 }
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+type ApproveBody = { usernameOverride?: string; customPin?: string };
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ error: "Supabase yapılandırılmamış." }, { status: 503 });
   }
@@ -76,6 +78,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   if (!id) {
     return NextResponse.json({ error: "Başvuru id zorunlu." }, { status: 400 });
   }
+
+  // Gövde opsiyonel: boş gövde / geçersiz JSON tolere edilir.
+  const body = (await req.json().catch(() => ({}))) as ApproveBody;
+  const usernameOverride = body.usernameOverride?.trim().toLowerCase() || undefined;
+  const customPin = body.customPin?.trim() || undefined;
 
   try {
     const reqRow = await findStreamerRegistrationRequestById(id);
@@ -91,10 +98,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
     const slugBase = toSlug(reqRow.displayName);
     const employeeId = await uniqueEmployeeId(slugBase);
-    const usernameBase = reqRow.preferredUsername?.replace(/[^a-z0-9]+/g, "") || slugBase;
+    const usernameBase =
+      usernameOverride?.replace(/[^a-z0-9]+/g, "") ||
+      reqRow.preferredUsername?.replace(/[^a-z0-9]+/g, "") ||
+      slugBase;
     const username = await uniqueUsername(usernameBase);
     const userId = `u-streamer-${slugBase}`.slice(0, 48);
-    const plainPin = generateServerPin();
+    const plainPin = customPin || generateServerPin();
     const now = new Date().toISOString();
     const todayYm = now.slice(0, 7);
     const todayDate = now.slice(0, 10);

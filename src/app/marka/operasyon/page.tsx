@@ -10,6 +10,7 @@ import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { markaHref } from "@/lib/use-marka-view-month";
 import {
   findBrandMonthlyStats,
@@ -28,7 +29,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export default function MarkaOperasyonPage() {
   const { brandMonthlyStats, brands, contentExpenses } = useStore();
   const portal = useMarkaPortal();
-  const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
+  const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const izlenmeHref = markaHref("/marka/izlenmeler", month);
 
   const statsRow = brandId
@@ -134,7 +136,7 @@ export default function MarkaOperasyonPage() {
             </Card>
           )}
 
-          {!hasStats && (
+          {!hasStats && !readOnly && (
             <Card className="border-violet-200/60 bg-violet-50/20 dark:border-violet-500/40 dark:bg-violet-950/25">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -148,7 +150,7 @@ export default function MarkaOperasyonPage() {
             </Card>
           )}
 
-          <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} />
+          <BrandMonthlyStatsPanel brandId={brandId} monthYm={month} readOnly={readOnly} />
 
           <BrandMonthlyTrend brandId={brandId} monthYm={month} months={6} />
 

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Contact, Plus, Loader2, RefreshCcw, Trash2, ArrowUpRight, Building2, TrendingUp, Link2,
+  Contact, Plus, Loader2, RefreshCcw, Trash2, ArrowUpRight, Building2, TrendingUp, Link2, Pencil,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { useStore } from "@/store/store";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,8 @@ const emptyDeal = {
 };
 
 export default function MarkaCrmPage() {
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const affiliatePartners = useStore((s) => s.affiliatePartners);
   const brandDeals = useStore((s) => s.brandDeals);
 
@@ -193,6 +195,25 @@ export default function MarkaCrmPage() {
     setDealOpen(true);
   };
 
+  const openEditContact = (c: CrmContact) => {
+    setContactForm({
+      id: c.id, name: c.name, company: c.company ?? "", email: c.email ?? "",
+      phone: c.phone ?? "", telegram: c.telegram ?? "", source: c.source ?? "manual",
+      status: c.status, owner: c.owner ?? "", tags: c.tags.join(", "), notes: c.notes ?? "",
+    });
+    setContactOpen(true);
+  };
+
+  const removeContact = async (c: CrmContact) => {
+    if (!window.confirm(`"${c.name}" kontağını silmek istediğinize emin misiniz?`)) return;
+    try {
+      await deleteCrm("contact", c.id);
+      void load();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Silinemedi");
+    }
+  };
+
   return (
     <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
       <div className="mx-auto max-w-[1280px] space-y-5 pb-10">
@@ -207,12 +228,16 @@ export default function MarkaCrmPage() {
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setContactForm(emptyContact); setContactOpen(true); }}>
-              <Plus size={14} /> Kontak
-            </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => { setDealForm(emptyDeal); setDealOpen(true); }}>
-              <Plus size={14} /> Anlaşma
-            </Button>
+            {!readOnly && (
+              <>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setContactForm(emptyContact); setContactOpen(true); }}>
+                  <Plus size={14} /> Kontak
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={() => { setDealForm(emptyDeal); setDealOpen(true); }}>
+                  <Plus size={14} /> Anlaşma
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -250,7 +275,11 @@ export default function MarkaCrmPage() {
                 ) : (
                   byStage[col.id].map((d) => (
                     <div key={d.id} className="rounded-lg border border-border bg-background px-2.5 py-2">
-                      <button onClick={() => openEditDeal(d)} className="block w-full text-left text-sm font-medium text-foreground hover:underline">{d.title}</button>
+                      {readOnly ? (
+                        <p className="block w-full text-left text-sm font-medium text-foreground">{d.title}</p>
+                      ) : (
+                        <button onClick={() => openEditDeal(d)} className="block w-full text-left text-sm font-medium text-foreground hover:underline">{d.title}</button>
+                      )}
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{contactName(d.contactId)}</p>
                       <div className="mt-1.5 flex items-center justify-between">
                         <span className="text-xs font-semibold tabular-nums">{CUR_SYMBOL[d.currency]}{d.value.toLocaleString("tr-TR")}</span>
@@ -259,16 +288,18 @@ export default function MarkaCrmPage() {
                       {(d.affiliatePartnerId || d.brandDealId) && (
                         <p className="mt-1 flex items-center gap-1 text-[10px] text-violet-600 dark:text-violet-300"><Link2 size={10} /> bağlı</p>
                       )}
-                      <div className="mt-1.5 flex items-center gap-1">
-                        {col.id !== "won" && col.id !== "lost" && (
-                          <Button size="sm" variant="ghost" className="h-6 flex-1 gap-1 text-[10px]" onClick={() => void advanceDeal(d)}>
-                            İlerlet <ArrowUpRight size={11} />
+                      {!readOnly && (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          {col.id !== "won" && col.id !== "lost" && (
+                            <Button size="sm" variant="ghost" className="h-6 flex-1 gap-1 text-[10px]" onClick={() => void advanceDeal(d)}>
+                              İlerlet <ArrowUpRight size={11} />
+                            </Button>
+                          )}
+                          <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeDeal(d)} aria-label="Sil">
+                            <Trash2 size={11} />
                           </Button>
-                        )}
-                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeDeal(d)} aria-label="Sil">
-                          <Trash2 size={11} />
-                        </Button>
-                      </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -295,6 +326,9 @@ export default function MarkaCrmPage() {
                     {["Kontak", "Şirket", "İletişim", "Durum", "Etiketler"].map((h) => (
                       <th key={h} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
                     ))}
+                    {!readOnly && (
+                      <th className="px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">İşlem</th>
+                    )}
                   </tr></thead>
                   <tbody>
                     {contacts.map((c) => (
@@ -315,6 +349,18 @@ export default function MarkaCrmPage() {
                             ))}
                           </div>
                         </td>
+                        {!readOnly && (
+                          <td className="px-3 py-3">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditContact(c)} aria-label="Düzenle" title="Düzenle">
+                                <Pencil size={13} />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void removeContact(c)} aria-label="Sil" title="Sil">
+                                <Trash2 size={13} />
+                              </Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

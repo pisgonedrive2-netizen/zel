@@ -5,6 +5,7 @@ import {
   ClipboardList, Plus, Loader2, RefreshCcw, CalendarDays, Trash2, CheckCircle2, Clock,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +33,8 @@ const PRIORITY_CLS: Record<TaskPriority, string> = {
 };
 
 export default function MarkaTakipPage() {
-  const { user, brandId, brand, canViewBrand } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [tasks, setTasks] = useState<BrandStaffTask[]>([]);
   const [shifts, setShifts] = useState<BrandStaffShift[]>([]);
   const [staff, setStaff] = useState<BrandStaff[]>([]);
@@ -136,7 +138,9 @@ export default function MarkaTakipPage() {
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}><Plus size={14} /> Görev ekle</Button>
+            {!readOnly && (
+              <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}><Plus size={14} /> Görev ekle</Button>
+            )}
           </div>
         </div>
 
@@ -158,13 +162,21 @@ export default function MarkaTakipPage() {
                   byStatus[col.id].map((t) => (
                     <div key={t.id} className="rounded-lg border border-border bg-background px-3 py-2.5">
                       <div className="flex items-start justify-between gap-2">
-                        <button onClick={() => void advance(t)} className="mt-0.5 shrink-0" aria-label="İlerlet">
-                          {t.status === "done" ? <CheckCircle2 size={15} className="text-green-600" /> : <Clock size={15} className="text-muted-foreground" />}
-                        </button>
+                        {readOnly ? (
+                          <span className="mt-0.5 shrink-0">
+                            {t.status === "done" ? <CheckCircle2 size={15} className="text-green-600" /> : <Clock size={15} className="text-muted-foreground" />}
+                          </span>
+                        ) : (
+                          <button onClick={() => void advance(t)} className="mt-0.5 shrink-0" aria-label="İlerlet">
+                            {t.status === "done" ? <CheckCircle2 size={15} className="text-green-600" /> : <Clock size={15} className="text-muted-foreground" />}
+                          </button>
+                        )}
                         <span className={`flex-1 text-sm font-medium ${t.status === "done" ? "text-muted-foreground line-through" : "text-foreground"}`}>{t.title}</span>
-                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(t)} aria-label="Sil">
-                          <Trash2 size={12} />
-                        </Button>
+                        {!readOnly && (
+                          <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(t)} aria-label="Sil">
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
                       </div>
                       {t.description && <p className="mt-1 pl-6 text-xs text-muted-foreground line-clamp-2">{t.description}</p>}
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-6">
