@@ -48,6 +48,7 @@ import {
 } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { PlanWeekBoard, PlanHistoryPanel } from "@/components/streamer/weekly-plan-calendar";
+import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { payrollDueShort, payrollDueCaption } from "@/lib/payroll-dates";
 import { reloadStreamerExpensesFromServer } from "@/lib/reload-streamer-expenses";
 import {
@@ -2409,6 +2410,17 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 </Button>
               </div>
             </div>
+
+            <ShiftTemplateCard
+              weekStart={weekView}
+              weekDays={weekDayIsosFromStart(weekView)}
+              employeeId={me.id}
+              userId={user.id}
+              existingPlans={weekViewPlans}
+              onApply={(plans) => {
+                for (const p of plans) addWeeklyPlan(p);
+              }}
+            />
 
             <PlanWeekBoard
               weekStart={weekView}

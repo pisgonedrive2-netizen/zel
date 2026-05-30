@@ -10,6 +10,7 @@ import {
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
+import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -667,19 +668,31 @@ export default function TakvimPage() {
           </Button>
         </div>
         {yayincilar.length > 0 && planEmployeeId && (
-          <WeeklyPlanGrid
-            weekStart={planWeek}
-            label={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Plan"}
-            plans={plansForWeek}
-            onAdd={() => setPlanModal({ mode: "new", weekStart: planWeek, employeeId: planEmployeeId })}
-            onEdit={(p) =>
-              setPlanModal({
-                mode: p,
-                weekStart: weekStartFromDateIso(p.date) || planWeek,
-                employeeId: p.employeeId,
-              })
-            }
-          />
+          <div className="mt-4 space-y-4">
+            <ShiftTemplateCard
+              weekStart={planWeek}
+              weekDays={currentWeekDays}
+              employeeId={planEmployeeId}
+              userId={user?.id ?? ""}
+              existingPlans={plansForWeek}
+              onApply={(plans) => {
+                for (const p of plans) addWeeklyPlan(p);
+              }}
+            />
+            <WeeklyPlanGrid
+              weekStart={planWeek}
+              label={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Plan"}
+              plans={plansForWeek}
+              onAdd={() => setPlanModal({ mode: "new", weekStart: planWeek, employeeId: planEmployeeId })}
+              onEdit={(p) =>
+                setPlanModal({
+                  mode: p,
+                  weekStart: weekStartFromDateIso(p.date) || planWeek,
+                  employeeId: p.employeeId,
+                })
+              }
+            />
+          </div>
         )}
       </div>
 
