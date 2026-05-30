@@ -561,3 +561,93 @@ Marka, kendi operatör platformundan Foxstream'e webhook/REST ile veri akıtsın
 
 > **Not:** Bu doküman her PR'de güncellenir. Bir fazı tamamlayan PR aynı zamanda
 > bu dosyada ilgili check-list'i de işaretlemelidir.
+
+---
+
+## ✅ Multi-Tenant B2B Uygulaması (Faz 0–6) — TAMAMLANDI
+
+Aşağıdaki fazlar `b2b_multi-tenant_platform` planına göre uygulandı. Her marka/yayıncı
+artık birbirinden bağımsız bir kiracı (organization) olarak ele alınır; yeni kayıt
+olan markalar/yayıncılar mevcut 5 marka & yayıncılardan izole çalışır.
+
+### Faz 0 — Kiracı temeli
+- Migration: `20260531120000_organizations.sql` (`organizations`, `organization_members`,
+  `organization_member_brands`, `brands.organization_id`). Mevcut veri `org-foxstream`
+  (type=agency) altında backfill edildi.
+- `SessionPayload` + `AppUser` genişletildi: `organizationId`, `orgRole`, `brandIds[]`.
+- `fetchBootstrap` org-scope'lu; çok markalı marka kullanıcısı için sidebar **marka
+  değiştirici** (`BrandSwitcher`).
+- `src/lib/org-access.ts` — sunucu yetki sözleşmesi (`ensureBrandAccess`,
+  `resolveBrandId`, `hasOrgCapability`, `writeAudit`); `src/lib/org-capability.ts` —
+  istemci eşi (UI gizleme).
+
+### Faz 1 — Onboarding + ilk giriş
+- `/api/org/onboarding` (GET/POST), `MarkaOnboardingGate`, `/marka/onboarding` ve
+  `/yayinci/onboarding` sihirbazları.
+- Anlamlı boş dashboard: `BrandGettingStarted` checklist.
+
+### Faz 2 — Self-serve yayıncı kaydı
+- Migration: `20260531130000_streamer_registration_requests.sql`.
+- API: `/api/streamer-registrations` (public POST + admin GET),
+  `[id]/approve` (employee + app_user + draft havuz profili + tek seferlik PIN),
+  `[id]/reject`.
+- Login formuna **Yayıncı** başvuru dalı; admin **Yayıncı Başvuruları** sekmesi
+  (`/kullanicilar?tab=yayinci-basvurulari`).
+
+### Faz 3 — Marka personel & takip (HR-lite)
+- Migration: `20260531140000_brand_personnel.sql` (`brand_staff`, `brand_staff_tasks`,
+  `brand_staff_shifts`, `brand_staff_activity`).
+- API: `/api/marka/personel` (+`[id]`), `/api/marka/takip`.
+- Sayfalar: `/marka/personel`, `/marka/personel/[id]` (görev+vardiya+aktivite),
+  `/marka/takip` (kanban + vardiya takvimi). Yetki: `hr`.
+
+### Faz 4 — CRM
+- Migration: `20260531150000_crm_module.sql` (`crm_contacts`, `crm_deals`,
+  `crm_interactions`).
+- API: `/api/marka/crm` (+`[id]`). Sayfalar: `/marka/crm` (pipeline kanban + kontak
+  listesi), `/marka/crm/[id]` (kontak detay + etkileşim zaman çizelgesi).
+- Anlaşmalar affiliate partner & marka anlaşmasına (gevşek) bağlanabilir. Yetki: `crm`.
+
+### Faz 5 — Marka-kapsamlı muhasebe
+- Migration: `20260531160000_brand_accounting.sql` (`brand_ledger_entries`,
+  `brand_invoices`).
+- API: `/api/marka/muhasebe` (+`/sync`). Sayfalar: `/marka/muhasebe` (defter + bakiye),
+  `/marka/faturalar`.
+- **Otomatik besleme** (`/sync`): ödenen affiliate payout → gider, kazanılan CRM
+  anlaşması → gelir, aktif personel aylık maliyeti → gider; `(brand, source, ref_id)`
+  tekil indeksiyle tekrarsız. Yetki: `finance`.
+
+### Faz 6 — Doğrulama & sıkılaştırma
+- `org_role` bazlı subnav gizleme (hr/crm/finance modülleri rolüne göre).
+- Tüm yeni tablolar RLS-enabled (servis-rol erişimi; proje konvansiyonuyla uyumlu —
+  advisor yalnızca INFO seviyesinde, tüm DB ile tutarlı).
+- `tsc --noEmit` ✅, `next build` ✅. Tüm sensitive aksiyonlar `audit_logs`'a yazılır.
+
+> Marka subnav grupları: Genel · İş birliği · Performans · **Ekip & personel
+> (Personel/Görev&Takip/CRM)** · **Finans (Muhasebe/Faturalar/Ödeme planı)** · Hesap.
+
+---
+
+## ✅ Marka ekip yönetimi & yetki hiyerarşisi (eklenti)
+
+Marka kendi organizasyonu içinde ekip kurabilir; **Foxstream platform yöneticisi
+(admin)** en üst yetki olarak kalır.
+
+- Migration: `20260531170000_org_member_auditor_role.sql` — `organization_members.org_role`
+  CHECK'ine **`auditor`** (marka denetçisi) eklendi.
+- **Roller:** `owner` (marka sahibi), `admin` (marka yöneticisi), `finance`, `marketing`,
+  `hr`, `viewer`, **`auditor`** (salt-okunur denetim).
+- **Yetki ayrımı:**
+  - `org-access.ts` → `canWriteBrandData` artık `auditor`/`viewer` org rollerini
+    yazmadan men eder (tüm marka write API'leri için geçerli). `canManageOrgTeam`
+    (owner/admin) ve `isBrandReadOnly` eklendi.
+  - `org-capability.ts` (client) → görünürlük: owner/admin + denetçi/görüntüleyici tüm
+    modülleri **görür** (salt-okunur); işlevsel roller yalnız kendi modülünü görür.
+    `team` capability yalnız owner/admin.
+- **API:** `/api/marka/ekip` (GET/POST/PATCH/DELETE) — owner/admin (veya platform admini)
+  org içi üye oluşturur (app_user role=brand + organization_member + scope markaları),
+  rol/başlık/durum günceller, PIN sıfırlar, üye kaldırır. Platform admini `?brandId=` ile
+  markanın org'unu çözer. `src/lib/db/org-team-repo.ts` + `src/lib/brand-team-api.ts`.
+- **UI:** `/marka/ekip` — ekip listesi (rol rozeti, erişim kapsamı, durum, son giriş),
+  rol kartlı oluştur/düzenle modalı, tek seferlik PIN gösterimi, yetki hiyerarşisi notu.
+  Subnav'a `Ekip & yetkiler` (team cap) eklendi.

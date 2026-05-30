@@ -16,10 +16,13 @@ export interface BrandViewAs {
 interface PanelViewState {
   panelViewAs: PanelViewAs | null;
   brandViewAs: BrandViewAs | null;
+  /** Çok markalı bir marka kullanıcısının aktif markası (kendi oturumu için). */
+  activeBrandId: string | null;
   enterStreamerPanel: (employeeId: string, employeeName: string) => void;
   exitStreamerPanel: () => void;
   enterBrandPanel: (brandId: string, brandName: string) => void;
   exitBrandPanel: () => void;
+  setActiveBrand: (brandId: string | null) => void;
 }
 
 export const usePanelView = create<PanelViewState>()(
@@ -27,6 +30,7 @@ export const usePanelView = create<PanelViewState>()(
     (set) => ({
       panelViewAs: null,
       brandViewAs: null,
+      activeBrandId: null,
       enterStreamerPanel: (employeeId, employeeName) =>
         set({
           panelViewAs: { employeeId, employeeName },
@@ -39,6 +43,7 @@ export const usePanelView = create<PanelViewState>()(
           panelViewAs: null,
         }),
       exitBrandPanel: () => set({ brandViewAs: null }),
+      setActiveBrand: (brandId) => set({ activeBrandId: brandId }),
     }),
     {
       name: "foxstream-panel-view-v1",

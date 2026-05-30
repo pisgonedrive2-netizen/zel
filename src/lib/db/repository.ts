@@ -8,6 +8,9 @@ import type {
   Brand,
   BrandLink,
   BrandRegistrationRequest,
+  StreamerRegistrationRequest,
+  Organization,
+  OrganizationMember,
   WeeklyPlan,
   AffiliatePartner,
   AffiliateDailyStat,
@@ -42,7 +45,9 @@ import {
   contentExpenseFromRow, contentExpenseToRow, weeklyPlanFromRow, weeklyPlanToRow,
   weekBrandReelFromRow, weekBrandReelToRow, notificationFromRow, notificationToRow,
   appUserFromRow, appUserToRow,
+  organizationFromRow, organizationMemberFromRow,
   brandRegistrationRequestFromRow, brandRegistrationRequestToRow,
+  streamerRegistrationRequestFromRow, streamerRegistrationRequestToRow,
   affiliatePartnerFromRow, affiliatePartnerToRow,
   affiliateDailyStatFromRow, affiliateDailyStatToRow,
   affiliatePayoutFromRow, affiliatePayoutToRow,
@@ -195,6 +200,94 @@ async function deleteNotIn(table: string, ids: string[], extraFilter?: { column:
 }
 
 /** Login — returns session payload or null. */
+/** Tüm organizasyonlar. */
+export async function fetchOrganizations(): Promise<Organization[]> {
+  return selectAll("organizations", organizationFromRow);
+}
+
+/** Tek organizasyon (id). */
+export async function findOrganizationById(id: string): Promise<Organization | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("organizations")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`organizations: ${error.message}`);
+  return data ? organizationFromRow(data as Record<string, unknown>) : null;
+}
+
+/** Organizasyon kısmi güncelleme (snake_case alanlar). */
+export async function updateOrganization(
+  id: string,
+  patch: Record<string, unknown>
+): Promise<Organization> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("organizations")
+    .update(patch)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`organizations: ${error.message}`);
+  if (!data) throw new Error("organizations: güncelleme sonuç dönmedi.");
+  return organizationFromRow(data as Record<string, unknown>);
+}
+
+/** Üyelikler + erişilen marka id'leri (organization_member_brands join). */
+export async function fetchOrganizationMembers(): Promise<OrganizationMember[]> {
+  const [members, brandLinks] = await Promise.all([
+    selectAll("organization_members", (r) => r as Record<string, unknown>),
+    selectAll("organization_member_brands", (r) => r as Record<string, unknown>),
+  ]);
+  const byMember = new Map<string, string[]>();
+  for (const mb of brandLinks) {
+    const mid = String(mb.member_id);
+    const arr = byMember.get(mid) ?? [];
+    arr.push(String(mb.brand_id));
+    byMember.set(mid, arr);
+  }
+  return members.map((r) =>
+    organizationMemberFromRow(r, byMember.get(String(r.id)))
+  );
+}
+
+/**
+ * Bir kullanıcı için organizasyon bağlamını çözer: organizationId, orgRole ve
+ * erişebildiği tüm brandIds. scope_all_brands ise org'un tüm markaları döner.
+ */
+async function resolveSessionOrgContext(userId: string): Promise<{
+  organizationId?: string;
+  orgRole?: string;
+  brandIds?: string[];
+}> {
+  const admin = getSupabaseAdmin();
+  const { data: memberRow } = await admin
+    .from("organization_members")
+    .select("*")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (!memberRow) return {};
+  const m = memberRow as Record<string, unknown>;
+  const orgId = String(m.organization_id);
+  const orgRole = String(m.org_role);
+  const scopeAll = Boolean(m.scope_all_brands);
+  let brandIds: string[] = [];
+  if (scopeAll) {
+    const { data: brandRows } = await admin
+      .from("brands")
+      .select("id")
+      .eq("organization_id", orgId);
+    brandIds = (brandRows ?? []).map((b) => String((b as Record<string, unknown>).id));
+  } else {
+    const { data: mbRows } = await admin
+      .from("organization_member_brands")
+      .select("brand_id")
+      .eq("member_id", String(m.id));
+    brandIds = (mbRows ?? []).map((b) => String((b as Record<string, unknown>).brand_id));
+  }
+  return { organizationId: orgId, orgRole, brandIds };
+}
+
 export async function loginUser(username: string, pin: string): Promise<SessionPayload | null> {
   const un = username.toLowerCase().trim();
   const { data, error } = await getSupabaseAdmin()
@@ -212,14 +305,25 @@ export async function loginUser(username: string, pin: string): Promise<SessionP
   if (!ok) return null;
   const now = new Date().toISOString();
   await getSupabaseAdmin().from("app_users").update({ last_login_at: now }).eq("id", row.id);
+  const org = await resolveSessionOrgContext(String(row.id)).catch(
+    (): { organizationId?: string; orgRole?: string; brandIds?: string[] } => ({})
+  );
+  const brandId = row.brand_id
+    ? String(row.brand_id)
+    : org.brandIds && org.brandIds.length > 0
+      ? org.brandIds[0]
+      : undefined;
   return {
     userId: String(row.id),
     username: String(row.username),
     name: String(row.name),
     role: row.role as SessionPayload["role"],
     employeeId: row.employee_id ? String(row.employee_id) : undefined,
-    brandId: row.brand_id ? String(row.brand_id) : undefined,
+    brandId,
     avatar: String(row.avatar ?? ""),
+    organizationId: org.organizationId,
+    orgRole: org.orgRole,
+    brandIds: org.brandIds && org.brandIds.length > 0 ? org.brandIds : brandId ? [brandId] : undefined,
   };
 }
 
@@ -232,7 +336,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     employees, advances, salaryExtras, paymentStatuses, companies, sponsorTransactions,
     projects, projectPayments, expenses, plannedItems, plannedItemPayments, streamerAccounts, scheduleSlots, brands, brandLinks,
     linkSnapshots, brandViewership, brandMonthlyStats, kasas, kasaTransactions, contentExpenses, weeklyPlans,
-    weekBrandReels, notifications, affiliate, deals,
+    weekBrandReels, notifications, organizations, organizationMembers, affiliate, deals,
   ] = await Promise.all([
     selectAll("employees", employeeFromRow),
     selectAll("advances", advanceFromRow),
@@ -258,6 +362,15 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     selectAll("weekly_plans", weeklyPlanFromRow),
     selectAll("week_brand_reels", weekBrandReelFromRow),
     selectAll("app_notifications", notificationFromRow),
+    // Organizasyon (Faz 0) — fail olursa bootstrap'i yıkmayalım.
+    fetchOrganizations().catch((e) => {
+      console.warn("[bootstrap] organizations fetch failed (returning empty)", e);
+      return [] as Organization[];
+    }),
+    fetchOrganizationMembers().catch((e) => {
+      console.warn("[bootstrap] organization_members fetch failed (returning empty)", e);
+      return [] as OrganizationMember[];
+    }),
     // Yeni tablolar (Faz C affiliate, Faz G/H deals) — schema cache veya RLS
     // bir nedenle fail edersek tüm bootstrap'i yıkmayalım; eski veriler
     // (kasa, link, snapshot, vs.) korunsun. Boş diziye düşüp UI banner gösterir.
@@ -282,6 +395,8 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
   ]);
 
   const payload: AppHydratePayload & { users?: AppUser[] } = {
+    organizations,
+    organizationMembers,
     employees,
     advances,
     salaryExtras,
@@ -392,10 +507,16 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     };
   }
 
-  if (session.role === "brand" && session.brandId) {
-    const bid = session.brandId;
+  if (session.role === "brand" && (session.brandId || (session.brandIds && session.brandIds.length > 0))) {
+    const bidList = session.brandIds && session.brandIds.length > 0
+      ? session.brandIds
+      : session.brandId
+        ? [session.brandId]
+        : [];
+    const bidSet = new Set(bidList);
+    const inScope = (id: string | undefined | null) => !!id && bidSet.has(id);
     // Markaya ait planlı kalemler ve onların taksitleri
-    const myPlannedItems = plannedItems.filter((p) => p.brandId === bid);
+    const myPlannedItems = plannedItems.filter((p) => inScope(p.brandId));
     const myPlannedItemIds = new Set(myPlannedItems.map((p) => p.id));
     const myPlannedItemPayments = plannedItemPayments.filter((pp) =>
       myPlannedItemIds.has(pp.plannedItemId)
@@ -404,11 +525,16 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     const visibleEmployees = employees.filter(
       (e) => e.kind === "streamer" || e.kind === "moderator"
     );
-    const brandRow = brands.find((b) => b.id === bid);
-    const myWeeklyPlans = brandRow
-      ? filterWeeklyPlansForBrand(weeklyPlans, brandRow)
-      : [];
+    const scopedBrandRows = brands.filter((b) => bidSet.has(b.id));
+    const myWeeklyPlans = scopedBrandRows.flatMap((brandRow) =>
+      filterWeeklyPlansForBrand(weeklyPlans, brandRow)
+    );
+    const myOrgId = session.organizationId;
     return {
+      organizations: myOrgId ? organizations.filter((o) => o.id === myOrgId) : organizations,
+      organizationMembers: myOrgId
+        ? organizationMembers.filter((m) => m.organizationId === myOrgId)
+        : organizationMembers,
       employees: visibleEmployees,
       advances: [],
       salaryExtras: [],
@@ -417,20 +543,20 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       sponsorTransactions: [],
       projects: [],
       projectPayments: [],
-      expenses: expenses.filter((e) => e.brandId === bid),
+      expenses: expenses.filter((e) => inScope(e.brandId)),
       plannedItems: myPlannedItems,
       plannedItemPayments: myPlannedItemPayments,
       streamerAccounts: streamerAccounts.filter((a) =>
         visibleEmployees.some((e) => e.id === a.employeeId)
       ),
       scheduleSlots,
-      brands: brands.filter((b) => b.id === bid),
-      brandLinks: brandLinks.filter((l) => l.brandId === bid),
+      brands: scopedBrandRows,
+      brandLinks: brandLinks.filter((l) => inScope(l.brandId)),
       linkSnapshots: linkSnapshots.filter((s) =>
-        brandLinks.some((l) => l.id === s.linkId && l.brandId === bid)
+        brandLinks.some((l) => l.id === s.linkId && inScope(l.brandId))
       ),
-      brandViewership: brandViewership.filter((v) => v.brandId === bid),
-      brandMonthlyStats: brandMonthlyStats.filter((s) => s.brandId === bid),
+      brandViewership: brandViewership.filter((v) => inScope(v.brandId)),
+      brandMonthlyStats: brandMonthlyStats.filter((s) => inScope(s.brandId)),
       affiliatePartners: affiliate.affiliatePartners,
       affiliateDailyStats: affiliate.affiliateDailyStats,
       affiliatePayouts: affiliate.affiliatePayouts,
@@ -441,9 +567,9 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       brandPosts: deals.brandPosts,
       kasas: [],
       kasaTransactions: [],
-      contentExpenses: contentExpenses.filter((c) => c.brandId === bid),
+      contentExpenses: contentExpenses.filter((c) => inScope(c.brandId)),
       weeklyPlans: myWeeklyPlans,
-      weekBrandReels: weekBrandReels.filter((r) => r.brandId === bid),
+      weekBrandReels: weekBrandReels.filter((r) => inScope(r.brandId)),
       notifications: notifications.filter(
         (n) => n.forRole === "brand" && (!n.forUserId || n.forUserId === session.userId)
       ),
@@ -846,6 +972,99 @@ export async function updateBrandRegistrationRequest(
   return brandRegistrationRequestFromRow(data as Record<string, unknown>);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Yayıncı kayıt başvuruları (Faz 2)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function fetchStreamerRegistrationRequests(
+  status?: StreamerRegistrationRequest["status"]
+): Promise<StreamerRegistrationRequest[]> {
+  let q = getSupabaseAdmin()
+    .from("streamer_registration_requests")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) throw new Error(`streamer_registration_requests: ${error.message}`);
+  return (data ?? []).map((r) =>
+    streamerRegistrationRequestFromRow(r as Record<string, unknown>)
+  );
+}
+
+export async function findStreamerRegistrationRequestById(
+  id: string
+): Promise<StreamerRegistrationRequest | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_registration_requests")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`streamer_registration_requests: ${error.message}`);
+  return data
+    ? streamerRegistrationRequestFromRow(data as Record<string, unknown>)
+    : null;
+}
+
+export async function findRecentPendingStreamerRegistration(
+  contactEmail: string,
+  displayName: string
+): Promise<StreamerRegistrationRequest | null> {
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_registration_requests")
+    .select("*")
+    .eq("contact_email", contactEmail.toLowerCase().trim())
+    .eq("display_name", displayName.trim())
+    .eq("status", "pending")
+    .gte("created_at", oneDayAgo)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`streamer_registration_requests: ${error.message}`);
+  const row = (data ?? [])[0];
+  return row ? streamerRegistrationRequestFromRow(row as Record<string, unknown>) : null;
+}
+
+export async function createStreamerRegistrationRequest(
+  r: StreamerRegistrationRequest
+): Promise<StreamerRegistrationRequest> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_registration_requests")
+    .insert(streamerRegistrationRequestToRow(r))
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`streamer_registration_requests: ${error.message}`);
+  if (!data) throw new Error("streamer_registration_requests: insert sonuç dönmedi.");
+  return streamerRegistrationRequestFromRow(data as Record<string, unknown>);
+}
+
+export async function updateStreamerRegistrationRequest(
+  id: string,
+  patch: Partial<{
+    status: StreamerRegistrationRequest["status"];
+    rejectionReason: string | null;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+    createdEmployeeId: string | null;
+    createdUserId: string | null;
+  }>
+): Promise<StreamerRegistrationRequest> {
+  const row: Record<string, unknown> = {};
+  if (patch.status !== undefined) row.status = patch.status;
+  if (patch.rejectionReason !== undefined) row.rejection_reason = patch.rejectionReason;
+  if (patch.reviewedBy !== undefined) row.reviewed_by = patch.reviewedBy;
+  if (patch.reviewedAt !== undefined) row.reviewed_at = patch.reviewedAt;
+  if (patch.createdEmployeeId !== undefined) row.created_employee_id = patch.createdEmployeeId;
+  if (patch.createdUserId !== undefined) row.created_user_id = patch.createdUserId;
+  const { data, error } = await getSupabaseAdmin()
+    .from("streamer_registration_requests")
+    .update(row)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`streamer_registration_requests: ${error.message}`);
+  if (!data) throw new Error("streamer_registration_requests: güncellenmek istenen kayıt bulunamadı.");
+  return streamerRegistrationRequestFromRow(data as Record<string, unknown>);
+}
+
 export function pickSnapshot(state: Record<string, unknown>): AppHydratePayload {
   const out: AppHydratePayload = {};
   for (const k of [
@@ -1023,6 +1242,14 @@ export async function upsertAffiliatePayout(
   if (error) throw new Error(`affiliate_payouts: ${error.message}`);
   if (!data) throw new Error("affiliate_payouts: upsert sonuç dönmedi.");
   return affiliatePayoutFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteAffiliatePayout(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin()
+    .from("affiliate_payouts")
+    .delete()
+    .eq("id", id);
+  if (error) throw new Error(`affiliate_payouts: ${error.message}`);
 }
 
 /**

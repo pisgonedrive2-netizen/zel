@@ -12,15 +12,32 @@ export const monthLabelTr = (ym: string) =>
 export function useMarkaPortal() {
   const { user } = useAuth();
   const brandViewAs = usePanelView((s) => s.brandViewAs);
+  const activeBrandId = usePanelView((s) => s.activeBrandId);
   const { brands } = useStore();
   const { viewMonth: month, setViewMonth: setMonth, shiftMonth, todayYm } =
     useMarkaViewMonth();
 
-  const brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
-  const brand = brands.find((b) => b.id === brandId);
-  const isAdminView = user?.role === "admin" && !!brandViewAs;
   const isBrandUser = user?.role === "brand";
+  const isAdminView = user?.role === "admin" && !!brandViewAs;
+
+  // Çok markalı marka kullanıcısı: erişilebilir markalar (bootstrap zaten scope'ladı).
+  // Aktif marka = panel-view seçimi (geçerliyse) → user.brandId → ilk marka.
+  let brandId = resolveBrandViewId(user?.role, user?.brandId, brandViewAs);
+  if (isBrandUser) {
+    const accessible = brands;
+    const picked =
+      (activeBrandId && accessible.some((b) => b.id === activeBrandId) && activeBrandId) ||
+      (user?.brandId && accessible.some((b) => b.id === user.brandId) && user.brandId) ||
+      accessible[0]?.id ||
+      user?.brandId ||
+      "";
+    brandId = picked;
+  }
+
+  const brand = brands.find((b) => b.id === brandId);
   const canViewBrand = isBrandUser || isAdminView;
+  /** Marka kullanıcısının erişebildiği tüm markalar (switcher için). */
+  const accessibleBrands = isBrandUser ? brands : [];
 
   const navMonth = (dir: 1 | -1) => shiftMonth(dir);
 
@@ -29,6 +46,7 @@ export function useMarkaPortal() {
       user,
       brandId,
       brand,
+      accessibleBrands,
       month,
       setMonth,
       navMonth,
@@ -38,6 +56,6 @@ export function useMarkaPortal() {
       todayYm,
       monthTitle: monthLabelTr(month),
     }),
-    [user, brandId, brand, month, setMonth, canViewBrand, isAdminView, isBrandUser, todayYm]
+    [user, brandId, brand, accessibleBrands, month, setMonth, canViewBrand, isAdminView, isBrandUser, todayYm]
   );
 }

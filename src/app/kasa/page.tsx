@@ -181,6 +181,10 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
     counterparty: initial?.counterparty ?? "",
     proof:        initial?.proof        ?? "",
     notes:        initial?.notes        ?? "",
+    autoImported: initial?.autoImported,
+    tronTxId:     initial?.tronTxId,
+    plannedItemId: initial?.plannedItemId,
+    countInGenel: initial?.countInGenel ?? false,
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
@@ -233,6 +237,17 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
         <Field label="Notlar">
           <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Ek bilgi..." />
         </Field>
+        {form.direction === "out" && (
+          <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border"
+              checked={Boolean(form.countInGenel)}
+              onChange={(e) => set("countInGenel", e.target.checked)}
+            />
+            Genel Kasa / işletme giderine de dahil et
+          </label>
+        )}
       </div>
       <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : "İşlem Ekle"} />
     </form>
@@ -253,6 +268,8 @@ export default function KasaPage() {
   const [search, setSearch]             = useState("");
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "tron-auto" | "manual">("all");
+  const [genelFilter, setGenelFilter] = useState<"all" | "included" | "excluded">("all");
+  const [tronGenelCutoff, setTronGenelCutoff] = useState("");
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
   const [tronTxView, setTronTxView] = useState<"all" | "ops" | "local">("all");
@@ -442,6 +459,57 @@ export default function KasaPage() {
   );
   const tronKasa = tronPanel?.tronKasa ?? null;
 
+  // TRON harcamalarını topluca Genel Kasa giderine dahil et / hariç tut.
+  const setAllTronGenelInclusion = (include: boolean) => {
+    if (!tronKasa) return;
+    const targets = kasaTransactions.filter(
+      (t) => t.kasaId === tronKasa.id && t.direction === "out" && Boolean(t.countInGenel) !== include
+    );
+    if (targets.length === 0) {
+      window.alert(
+        include
+          ? "Dahil edilecek yeni TRON harcaması yok."
+          : "Hariç tutulacak dahil edilmiş TRON harcaması yok."
+      );
+      return;
+    }
+    const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
+    if (!window.confirm(`${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
+    for (const t of targets) updateKasaTransaction(t.id, { countInGenel: include });
+  };
+
+  /**
+   * Seçilen tarih-saatten SONRAKİ tüm TRON harcamalarını topluca Genel Kasa
+   * giderine dahil et / çıkar. Cutoff dahil değildir (kesin olarak sonrası).
+   */
+  const setTronGenelFromCutoff = (include: boolean) => {
+    if (!tronKasa) return;
+    if (!tronGenelCutoff) {
+      window.alert("Önce bir tarih ve saat seçin.");
+      return;
+    }
+    const cutoffMs = new Date(tronGenelCutoff).getTime();
+    if (Number.isNaN(cutoffMs)) {
+      window.alert("Geçersiz tarih/saat.");
+      return;
+    }
+    const targets = kasaTransactions.filter(
+      (t) =>
+        t.kasaId === tronKasa.id &&
+        t.direction === "out" &&
+        new Date(t.date).getTime() > cutoffMs &&
+        Boolean(t.countInGenel) !== include
+    );
+    if (targets.length === 0) {
+      window.alert("Bu tarihten sonra güncellenecek TRON harcaması yok.");
+      return;
+    }
+    const labelDt = new Date(tronGenelCutoff).toLocaleString("tr-TR");
+    const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
+    if (!window.confirm(`${labelDt} sonrasındaki ${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
+    for (const t of targets) updateKasaTransaction(t.id, { countInGenel: include });
+  };
+
   const filteredRows = useMemo(() => {
     const isTronAuto = (t: KasaTransaction) => Boolean(t.autoImported);
     const sourceMatches = (t: KasaTransaction) => {
@@ -449,9 +517,15 @@ export default function KasaPage() {
       if (sourceFilter === "tron-auto") return isTronAuto(t);
       return !isTronAuto(t);
     };
+    const genelMatches = (t: KasaTransaction) => {
+      if (genelFilter === "all") return true;
+      if (t.direction !== "out") return false;
+      return genelFilter === "included" ? Boolean(t.countInGenel) : !t.countInGenel;
+    };
     return [...withBalance].reverse().filter(t =>
       (filter === "all" || t.direction === filter) &&
       sourceMatches(t) &&
+      genelMatches(t) &&
       (!(selectedKasaId === tronPanel?.tronKasa.id && tronTxView !== "all") ||
         (tronTxView === "ops" ? Boolean(t.autoImported) : !t.autoImported)) &&
       (search === "" ||
@@ -459,7 +533,7 @@ export default function KasaPage() {
         t.counterparty.toLowerCase().includes(search.toLowerCase()) ||
         t.notes.toLowerCase().includes(search.toLowerCase()))
     );
-  }, [withBalance, filter, sourceFilter, search, selectedKasaId, tronPanel?.tronKasa.id, tronTxView]);
+  }, [withBalance, filter, sourceFilter, genelFilter, search, selectedKasaId, tronPanel?.tronKasa.id, tronTxView]);
 
   const kasaNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -617,9 +691,24 @@ export default function KasaPage() {
                       <p className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
                         {fmtUsdt(tronPanel.harcamaKasa)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {tronPanel.harcamaTxCount} harcama işlemi
-                      </p>
+                      {tronPanel.includedTronOut > 0 ? (
+                        <>
+                          <p className="text-[11px] text-amber-700/90 dark:text-amber-300/90 tabular-nums mt-0.5">
+                            TRON dahil: <strong>{fmtUsdt(tronPanel.harcamaKasaWithTron)}</strong>
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {tronPanel.harcamaTxCount} işlem · {tronPanel.includedTronCount} TRON harcaması
+                            dahil (−{fmtUsdt(tronPanel.includedTronOut)})
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">
+                          {tronPanel.harcamaTxCount} harcama işlemi
+                          {tronPanel.tronOutCount > 0
+                            ? ` · ${tronPanel.tronOutCount} TRON harcaması dahil değil`
+                            : ""}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <p className="text-xs mt-2 flex flex-wrap items-center gap-3">
@@ -732,6 +821,66 @@ export default function KasaPage() {
                   >
                     Tarihten itibaren çek
                   </Button>
+                </div>
+              )}
+              {!readOnly && tronPanel && tronPanel.tronOutCount > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-500/5 px-3 py-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    TRON harcamaları Genel Kasa giderine:
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => setAllTronGenelInclusion(true)}
+                  >
+                    <ArrowDownRight size={12} /> Tümünü dahil et
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => setAllTronGenelInclusion(false)}
+                  >
+                    <ArrowUpRight size={12} /> Tümünü çıkar
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground">
+                    {tronPanel.includedTronCount}/{tronPanel.tronOutCount} dahil
+                  </span>
+                  <div className="mt-1 flex w-full flex-wrap items-center gap-2 border-t border-amber-300/30 pt-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      Tarih/saat sonrası:
+                    </span>
+                    <input
+                      type="datetime-local"
+                      value={tronGenelCutoff}
+                      onChange={(e) => setTronGenelCutoff(e.target.value)}
+                      className="h-7 rounded-md border border-border bg-card px-2 text-xs"
+                      aria-label="TRON Genel Kasa eşik tarihi"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 text-xs"
+                      disabled={!tronGenelCutoff}
+                      onClick={() => setTronGenelFromCutoff(true)}
+                    >
+                      <ArrowDownRight size={12} /> Sonrasını dahil et
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 gap-1 text-xs"
+                      disabled={!tronGenelCutoff}
+                      onClick={() => setTronGenelFromCutoff(false)}
+                    >
+                      <ArrowUpRight size={12} /> Sonrasını çıkar
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardHeader>
@@ -898,6 +1047,23 @@ export default function KasaPage() {
             </button>
           ))}
         </div>
+        <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-card" title="Genel Kasa giderine dahil edilen harcamalar">
+          {([
+            { value: "all", label: "Genel: tümü" },
+            { value: "included", label: "Dahil" },
+            { value: "excluded", label: "Hariç" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setGenelFilter(opt.value)}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                genelFilter === opt.value ? "bg-amber-600 text-white" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <UInput aria-label="Kasa işlemi ara" placeholder="İşlem ara..." value={search} onChange={e => setSearch(e.target.value)} className="w-64 h-8 text-sm pl-8" />
@@ -913,7 +1079,7 @@ export default function KasaPage() {
           <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {["Tarih","Kasa","Kaynak","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Bakiye",""].map((h) => (
+                {["Tarih","Kasa","Kaynak","Yön","Tutar","Fee","Amaç","Karşı Taraf","Kanıt","Genel","Bakiye",""].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -984,6 +1150,30 @@ export default function KasaPage() {
                       )
                     ) : <span className="text-muted-foreground text-xs">—</span>}
                   </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {t.direction === "out" ? (
+                      <button
+                        type="button"
+                        disabled={readOnly}
+                        onClick={() => updateKasaTransaction(t.id, { countInGenel: !t.countInGenel })}
+                        title={
+                          t.countInGenel
+                            ? "Genel Kasa giderine dahil — çıkarmak için tıkla"
+                            : "Genel Kasa giderine dahil değil — eklemek için tıkla"
+                        }
+                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                          t.countInGenel
+                            ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-200"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        } ${readOnly ? "cursor-default opacity-60" : ""}`}
+                      >
+                        {t.countInGenel ? <Check size={10} /> : <Plus size={10} />}
+                        {t.countInGenel ? "Dahil" : "Hariç"}
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5 tabular-nums font-bold whitespace-nowrap text-foreground">
                     {fmt(t.balanceAfter)}
                   </td>
@@ -998,7 +1188,7 @@ export default function KasaPage() {
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  <td colSpan={12} className="px-4 py-8 text-center text-sm text-muted-foreground">
                     Filtreyle eşleşen işlem yok.
                   </td>
                 </tr>

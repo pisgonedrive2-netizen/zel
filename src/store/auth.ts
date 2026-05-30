@@ -19,8 +19,14 @@ export interface AppUser {
   role: Role;
   /** Yayıncılar için Employee tablosundaki id. */
   employeeId?: string;
-  /** Marka hesapları için hangi markaya bağlı (Brand.id). */
+  /** Marka hesapları için aktif/birincil marka (Brand.id). */
   brandId?: string;
+  /** Multi-tenant: bağlı organizasyon. */
+  organizationId?: string;
+  /** Org içi rol. */
+  orgRole?: string;
+  /** Erişilen tüm marka id'leri. */
+  brandIds?: string[];
   avatar: string;
   /** Hesap aktif mi? (admin pasifleştirebilir) */
   active: boolean;
@@ -99,6 +105,11 @@ function syncSessionUser(session: AppUser, row: AppUser): AppUser {
     active: row.active,
     lastLoginAt: row.lastLoginAt,
     pin: session.pin || row.pin,
+    // Org bağlamı yalnızca oturum (session) üzerinden gelir; /api/users satırında
+    // bulunmadığından mevcut session değerlerini koruyoruz.
+    organizationId: session.organizationId,
+    orgRole: session.orgRole,
+    brandIds: session.brandIds,
   };
 }
 

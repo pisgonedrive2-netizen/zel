@@ -38,6 +38,7 @@ import { fmtBrandMoney } from "@/lib/brand-monthly-stats";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { fmtDateOnly, fmtDateTime } from "@/lib/fmt-date";
 import {
+  ApiError,
   deletePost,
   fetchDealDetail,
   fetchPosts,
@@ -63,6 +64,37 @@ type PageProps = {
   params: Promise<{ id: string }>;
 };
 
+/** `GET /api/marka/anlasmalar/[id]/posts` yanıtındaki deliverable ilerleme satırı. */
+type DeliverableProgress = {
+  type: string;
+  platform: string | null;
+  target: number;
+  matched: number;
+  posts: BrandPost[];
+};
+
+/** Yeni eşleştirme endpoint'inden deliverable bazlı ilerlemeyi çeker. */
+async function fetchDealDeliverableMatch(
+  dealId: string
+): Promise<DeliverableProgress[]> {
+  const res = await fetch(`/api/marka/anlasmalar/${dealId}/posts`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let msg = `Sunucu hatası (${res.status})`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data?.error) msg = data.error;
+    } catch {
+      /* json parse opsiyonel */
+    }
+    throw new ApiError(msg, res.status);
+  }
+  const data = (await res.json()) as { deliverables?: DeliverableProgress[] };
+  return Array.isArray(data.deliverables) ? data.deliverables : [];
+}
+
 export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
   const { id: dealId } = use(params);
   const portal = useMarkaPortal();
@@ -71,6 +103,9 @@ export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
 
   const [deal, setDeal] = useState<BrandDeal | null>(null);
   const [posts, setPosts] = useState<BrandPost[]>([]);
+  const [deliverableMatch, setDeliverableMatch] = useState<DeliverableProgress[] | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [notReady, setNotReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,12 +119,14 @@ export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
     setError(null);
     setNotReady(false);
     try {
-      const [d, p] = await Promise.all([
+      const [d, p, match] = await Promise.all([
         fetchDealDetail(dealId),
         fetchPosts({ dealId }),
+        fetchDealDeliverableMatch(dealId).catch(() => null),
       ]);
       setDeal(d);
       setPosts(p);
+      setDeliverableMatch(match);
     } catch (err) {
       if (isPoolNotReadyError(err)) {
         setNotReady(true);
@@ -110,6 +147,14 @@ export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
     const e = employees.find((emp) => emp.id === deal.employeeId);
     return e?.name ?? deal.employeeId;
   }, [employees, deal]);
+
+  const resolveEmployeeName = useCallback(
+    (employeeId?: string) => {
+      if (!employeeId) return "Bilinmiyor";
+      return employees.find((emp) => emp.id === employeeId)?.name ?? employeeId;
+    },
+    [employees]
+  );
 
   async function handleRefreshMetric(postId: string) {
     setRefreshingId(postId);
@@ -189,7 +234,12 @@ export default function MarkaAnlasmaDetayPage({ params }: PageProps) {
                 onEdit={() => setEditOpen(true)}
               />
 
-              <DeliverableChecklist deal={deal} postCount={posts.length} />
+              <DeliverableChecklist
+                deal={deal}
+                postCount={posts.length}
+                match={deliverableMatch}
+                resolveEmployeeName={resolveEmployeeName}
+              />
 
               <Card>
                 <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -399,27 +449,48 @@ function SmallStat({
 function DeliverableChecklist({
   deal,
   postCount,
+  match,
+  resolveEmployeeName,
 }: {
   deal: BrandDeal;
   postCount: number;
+  match: DeliverableProgress[] | null;
+  resolveEmployeeName: (employeeId?: string) => string;
 }) {
   if (deal.deliverables.length === 0) return null;
+
+  // Eşleştirme endpoint'i yanıt verdiyse onu kullan; aksi halde basit toplam-post
+  // ilerlemesine düş (sunucu henüz hazır değilse).
+  const rows: DeliverableProgress[] =
+    match ??
+    deal.deliverables.map((d) => ({
+      type: d.type,
+      platform: d.platform ?? null,
+      target: d.count,
+      matched: Math.min(postCount, d.count),
+      posts: [],
+    }));
+  const hasMatch = match != null;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <CheckCircle2 size={14} className="text-[#22C55E]" />
-          Deliverable check-list
+          Deliverable eşleştirme
         </CardTitle>
         <CardDescription>
-          Toplam yüklenen post sayısına göre ilerleme. Detaylı eşleştirme yakında.
+          {hasMatch
+            ? "Her teslimat için hedef vs gerçekleşen post sayısı ve eşleşen içerikler."
+            : "Toplam yüklenen post sayısına göre ilerleme."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {deal.deliverables.map((d, i) => {
-          // postCount global; tek bir deliverable için ayrı sayım API'dan henüz
-          // gelmiyor. Basit ilerleme: postCount / count.
-          const pct = d.count > 0 ? Math.min(100, (postCount / d.count) * 100) : 0;
+      <CardContent className="space-y-3">
+        {rows.map((d, i) => {
+          const target = d.target;
+          const matched = d.matched;
+          const pct = target > 0 ? Math.min(100, (matched / target) * 100) : matched > 0 ? 100 : 0;
+          const complete = target > 0 && matched >= target;
           return (
             <div
               key={`${d.type}-${d.platform ?? ""}-${i}`}
@@ -437,17 +508,58 @@ function DeliverableChecklist({
                       ] ?? d.platform}
                     </Badge>
                   )}
+                  {complete && (
+                    <CheckCircle2 size={13} className="text-[#22C55E]" />
+                  )}
                 </div>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {Math.min(postCount, d.count)} / {d.count}
+                  {matched} / {target}
                 </span>
               </div>
               <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
                 <div
-                  className="h-full rounded-full bg-[#22C55E]"
+                  className={cn(
+                    "h-full rounded-full",
+                    complete ? "bg-[#22C55E]" : "bg-[#FF6B00]"
+                  )}
                   style={{ width: `${pct}%` }}
                 />
               </div>
+
+              {hasMatch && d.posts.length > 0 && (
+                <ul className="mt-2.5 space-y-1.5 border-t border-border/60 pt-2.5">
+                  {d.posts.map((post) => (
+                    <li
+                      key={post.id}
+                      className="flex items-center gap-2 text-xs"
+                    >
+                      <PlatformGlyph platform={post.platform} size={14} />
+                      <a
+                        href={post.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="min-w-0 flex-1 truncate font-medium text-[#3B82F6] hover:underline"
+                        title={post.url}
+                      >
+                        {post.caption || post.url}
+                      </a>
+                      <span className="hidden shrink-0 text-muted-foreground sm:inline">
+                        {resolveEmployeeName(post.employeeId)}
+                      </span>
+                      {(post.postedAt || post.createdAt) && (
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {fmtDateOnly(post.postedAt ?? post.createdAt)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {hasMatch && d.posts.length === 0 && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Bu teslimat için henüz eşleşen post yok.
+                </p>
+              )}
             </div>
           );
         })}

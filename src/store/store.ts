@@ -291,6 +291,48 @@ export interface Brand {
   notes: string;
   /** Aylık hedef izlenme (opsiyonel). */
   monthlyTarget?: number;
+  /** Bağlı olduğu organizasyon (kiracı). Faz 0 multi-tenant. */
+  organizationId?: string;
+}
+
+export type OrgType = "agency" | "brand" | "network";
+export type OrgRole = "owner" | "admin" | "finance" | "marketing" | "hr" | "viewer" | "auditor";
+
+/** Kiracı (tenant) sınırı. Dahili ajans + dışarıdan kayıt olan markalar. */
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  type: OrgType;
+  status: "active" | "suspended" | "closed";
+  plan: "starter" | "growth" | "enterprise" | "agency";
+  logoUrl?: string;
+  primaryColor: string;
+  locale: string;
+  timezone: string;
+  defaultCurrency: "USD" | "EUR" | "TRY";
+  contactName?: string;
+  contactEmail?: string;
+  /** İlk-giriş onboarding sihirbazı tamamlandı mı? */
+  onboardingCompleted: boolean;
+  createdFromRequestId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Bir organizasyondaki kullanıcı + rolü. */
+export interface OrganizationMember {
+  id: string;
+  organizationId: string;
+  userId: string;
+  orgRole: OrgRole;
+  /** Tüm markalara mı, yoksa member_brands ile sınırlı markalara mı erişir? */
+  scopeAllBrands: boolean;
+  title: string;
+  /** scopeAllBrands=false ise erişilen marka id'leri. */
+  brandIds?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Markanın takip edilen sosyal medya / yayın platformu linki. */
@@ -382,6 +424,11 @@ export interface KasaTransaction {
   tronTxId?: string;
   /** Zincirden otomatik oluşturuldu. */
   autoImported?: boolean;
+  /**
+   * TRON cüzdanından çıkan harcama, Genel Kasa / işletme giderine de dahil
+   * edilsin mi? true ise işletme bakiyesinden de düşülmüş sayılır.
+   */
+  countInGenel?: boolean;
   /** TXID / dekont / kanıt link. */
   proof: string;
   notes: string;
@@ -479,6 +526,20 @@ export interface WeekBrandReel {
   publishedAt?: string;
   notes: string;
   createdAt: string;
+  // --- İzlenme (RapidAPI) metrikleri — sunucu/refresh tarafından yönetilir ----
+  /** Platform-spesifik external ID (shortcode / video id). */
+  externalRef?: string;
+  /** Son ölçülen izlenme. */
+  lastViews?: number;
+  lastLikes?: number;
+  lastComments?: number;
+  lastShares?: number;
+  /** Son API kontrol zaman damgası (ISO). */
+  lastCheckedAt?: string;
+  /** Son hata mesajı — başarılıysa boş. */
+  lastCheckError?: string;
+  /** Toplam başarılı kontrol sayısı. */
+  checkCount?: number;
 }
 
 /**
@@ -508,6 +569,32 @@ export interface BrandRegistrationRequest {
   /** Onaylandıysa oluşturulan marka. */
   createdBrandId?: string;
   /** Onaylandıysa oluşturulan marka kullanıcısı. */
+  createdUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Dışarıdan gelen yayıncı self-serve başvurusu (Faz 2). */
+export interface StreamerRegistrationRequest {
+  id: string;
+  displayName: string;
+  realName?: string;
+  contactEmail: string;
+  contactPhone?: string;
+  telegram?: string;
+  /** Serbest metin: platform + handle (virgülle ayrılmış). */
+  platforms: string;
+  categories: string;
+  audienceSize?: string;
+  preferredUsername?: string;
+  notes: string;
+  status: "pending" | "approved" | "rejected" | "duplicate";
+  rejectionReason?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  /** Onaylandıysa oluşturulan employee. */
+  createdEmployeeId?: string;
+  /** Onaylandıysa oluşturulan kullanıcı. */
   createdUserId?: string;
   createdAt: string;
   updatedAt: string;
@@ -746,6 +833,10 @@ export interface AppNotification {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AppStore {
+  // Organizasyon / multi-tenant (Faz 0)
+  organizations: Organization[];
+  organizationMembers: OrganizationMember[];
+
   employees: Employee[];
   advances: Advance[];
   salaryExtras: SalaryExtra[];
@@ -972,6 +1063,8 @@ interface AppStore {
   addWeekBrandReel: (r: Omit<WeekBrandReel, "id" | "createdAt">) => void;
   updateWeekBrandReel: (id: string, r: Partial<WeekBrandReel>) => void;
   deleteWeekBrandReel: (id: string) => void;
+  /** Sunucu refresh sonucu izlenme metriklerini yerel state'e uygular (DB'ye tekrar yazmaz). */
+  applyWeekReelMetrics: (id: string, patch: Partial<WeekBrandReel>) => void;
 
   // Notifications
   pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
@@ -984,6 +1077,8 @@ interface AppStore {
 }
 
 export const APP_SNAPSHOT_KEYS = [
+  "organizations",
+  "organizationMembers",
   "employees",
   "advances",
   "salaryExtras",
@@ -1425,14 +1520,46 @@ const initialBrandDeals: BrandDeal[] = [];
 const initialBrandPosts: BrandPost[] = [];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Organizasyon (multi-tenant) — dahili "Foxstream Ajansı"
+// ─────────────────────────────────────────────────────────────────────────────
+const AGENCY_ORG_ID = "org-foxstream";
+
+export const initialOrganizations: Organization[] = [
+  {
+    id: AGENCY_ORG_ID,
+    name: "Foxstream Ajansı",
+    slug: "foxstream",
+    type: "agency",
+    status: "active",
+    plan: "agency",
+    primaryColor: "#FF6B00",
+    locale: "tr",
+    timezone: "Europe/Istanbul",
+    defaultCurrency: "USD",
+    onboardingCompleted: true,
+    createdAt: "2026-05-15T00:00:00.000Z",
+    updatedAt: "2026-05-15T00:00:00.000Z",
+  },
+];
+
+export const initialOrganizationMembers: OrganizationMember[] = [
+  { id: "om-u-admin", organizationId: AGENCY_ORG_ID, userId: "u-admin", orgRole: "owner", scopeAllBrands: true, title: "Yönetici", createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+  { id: "om-u-brand-gala",    organizationId: AGENCY_ORG_ID, userId: "u-brand-gala",    orgRole: "admin", scopeAllBrands: false, title: "Marka", brandIds: ["br-gala"],    createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+  { id: "om-u-brand-boffice", organizationId: AGENCY_ORG_ID, userId: "u-brand-boffice", orgRole: "admin", scopeAllBrands: false, title: "Marka", brandIds: ["br-boffice"], createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+  { id: "om-u-brand-pipo",    organizationId: AGENCY_ORG_ID, userId: "u-brand-pipo",    orgRole: "admin", scopeAllBrands: false, title: "Marka", brandIds: ["br-pipo"],    createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+  { id: "om-u-brand-hit",     organizationId: AGENCY_ORG_ID, userId: "u-brand-hit",     orgRole: "admin", scopeAllBrands: false, title: "Marka", brandIds: ["br-hit"],     createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+  { id: "om-u-brand-padi",    organizationId: AGENCY_ORG_ID, userId: "u-brand-padi",    orgRole: "admin", scopeAllBrands: false, title: "Marka", brandIds: ["br-padi"],    createdAt: "2026-05-15T00:00:00.000Z", updatedAt: "2026-05-15T00:00:00.000Z" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Markalar — şu an aktif olarak tanıtımı yapılan 5 marka
 // ─────────────────────────────────────────────────────────────────────────────
 export const initialBrands: Brand[] = [
-  { id: "br-gala",    name: "Galabet",    shortName: "Gala",    category: "Bahis",  status: "active", notes: "Aktif marka · Galagrup tişört baskısı vs.", monthlyTarget: 500_000 },
-  { id: "br-boffice", name: "Betoffice",  shortName: "Boffice", category: "Bahis",  status: "active", notes: "Aktif marka · Trans kadın vlog vb. içerikler",        monthlyTarget: 400_000 },
-  { id: "br-pipo",    name: "Betpipo",    shortName: "Pipo",    category: "Bahis",  status: "active", notes: "Aktif marka · Vlog ve yetişkin içerik bölümleri",     monthlyTarget: 500_000 },
-  { id: "br-hit",     name: "Hitbet",     shortName: "Hit",     category: "Bahis",  status: "active", notes: "Aktif marka · Hayvanat bahçesi vlogu, yetişkin içerik", monthlyTarget: 400_000 },
-  { id: "br-padi",    name: "Padişahbet", shortName: "Padi",    category: "Bahis",  status: "active", notes: "Aktif marka · Muay thai, ocakbaşı, yetişkin içerik",   monthlyTarget: 500_000 },
+  { id: "br-gala",    name: "Galabet",    shortName: "Gala",    category: "Bahis",  status: "active", notes: "Aktif marka · Galagrup tişört baskısı vs.", monthlyTarget: 500_000, organizationId: AGENCY_ORG_ID },
+  { id: "br-boffice", name: "Betoffice",  shortName: "Boffice", category: "Bahis",  status: "active", notes: "Aktif marka · Trans kadın vlog vb. içerikler",        monthlyTarget: 400_000, organizationId: AGENCY_ORG_ID },
+  { id: "br-pipo",    name: "Betpipo",    shortName: "Pipo",    category: "Bahis",  status: "active", notes: "Aktif marka · Vlog ve yetişkin içerik bölümleri",     monthlyTarget: 500_000, organizationId: AGENCY_ORG_ID },
+  { id: "br-hit",     name: "Hitbet",     shortName: "Hit",     category: "Bahis",  status: "active", notes: "Aktif marka · Hayvanat bahçesi vlogu, yetişkin içerik", monthlyTarget: 400_000, organizationId: AGENCY_ORG_ID },
+  { id: "br-padi",    name: "Padişahbet", shortName: "Padi",    category: "Bahis",  status: "active", notes: "Aktif marka · Muay thai, ocakbaşı, yetişkin içerik",   monthlyTarget: 500_000, organizationId: AGENCY_ORG_ID },
 ];
 
 /**
@@ -1746,6 +1873,8 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       advances:            initialAdvances,
       salaryExtras:        initialSalaryExtras,
       paymentStatuses:     initialPaymentStatuses,
+      organizations:       initialOrganizations,
+      organizationMembers: initialOrganizationMembers,
       companies:           initialCompanies,
       sponsorTransactions: initialSponsorTransactions,
       projects:            initialProjects,
@@ -2732,6 +2861,9 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         weekBrandReels: s.weekBrandReels.filter((x) => x.id !== id),
       }));
       },
+      applyWeekReelMetrics: (id, patch) => set((s) => ({
+        weekBrandReels: s.weekBrandReels.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      })),
 
       // Notifications
       pushNotification: (n) => set((s) => ({
@@ -2816,6 +2948,8 @@ const storePersistConfig = {
           brandOfferMessages: Array.isArray(p.brandOfferMessages) ? p.brandOfferMessages : [],
           brandDeals: Array.isArray(p.brandDeals) ? p.brandDeals : [],
           brandPosts: Array.isArray(p.brandPosts) ? p.brandPosts : [],
+          organizations: Array.isArray(p.organizations) && p.organizations.length > 0 ? p.organizations : initialOrganizations,
+          organizationMembers: Array.isArray(p.organizationMembers) && p.organizationMembers.length > 0 ? p.organizationMembers : initialOrganizationMembers,
         };
       },
     } as const;

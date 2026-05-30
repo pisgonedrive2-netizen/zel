@@ -9,6 +9,50 @@ hayata geçirilmesi ile sonuçlanmıştır.
 
 ---
 
+## Multi-Tenant B2B Platformu — Faz 0–6 (30 Mayıs 2026)
+
+Foxstream, sabit 5 marka × yayıncı modelinden **çok kiracılı (multi-tenant) B2B
+platforma** dönüştürüldü. Her marka/yayıncı bağımsız bir kiracıdır; yeni kayıt
+olanlar mevcut kayıtlardan izoledir. Detay: [`docs/B2B_ROADMAP.md`](docs/B2B_ROADMAP.md).
+
+### Yeni migrationlar
+* `20260531120000_organizations.sql` — `organizations`, `organization_members`,
+  `organization_member_brands`, `brands.organization_id`; mevcut veri `org-foxstream` backfill.
+* `20260531130000_streamer_registration_requests.sql` — self-serve yayıncı başvuruları.
+* `20260531140000_brand_personnel.sql` — `brand_staff`, `brand_staff_tasks`, `brand_staff_shifts`, `brand_staff_activity`.
+* `20260531150000_crm_module.sql` — `crm_contacts`, `crm_deals`, `crm_interactions`.
+* `20260531160000_brand_accounting.sql` — `brand_ledger_entries`, `brand_invoices` (otomatik kaynak tekilleştirme indeksli).
+
+### Oturum & erişim
+* `SessionPayload` / `AppUser`: `organizationId`, `orgRole`, `brandIds[]`. Çok markalı
+  marka kullanıcısı için sidebar **marka değiştirici**.
+* `src/lib/org-access.ts` (sunucu) + `src/lib/org-capability.ts` (istemci) — org-rol
+  bazlı yetki (finance/hr/crm/admin); subnav modülleri role göre gizlenir.
+
+### Yeni API'ler
+* `/api/org/onboarding`, `/api/streamer-registrations` (+`[id]/approve`, `[id]/reject`).
+* `/api/marka/personel` (+`[id]`), `/api/marka/takip`.
+* `/api/marka/crm` (+`[id]`).
+* `/api/marka/muhasebe` (+`/sync` otomatik besleme).
+
+### Yeni sayfalar
+* `/marka/onboarding`, `/yayinci/onboarding` (ilk giriş sihirbazları).
+* `/marka/personel`, `/marka/personel/[id]`, `/marka/takip` (HR-lite).
+* `/marka/crm`, `/marka/crm/[id]` (pipeline + kontak detay).
+* `/marka/muhasebe`, `/marka/faturalar` (defter + bakiye + faturalar).
+* Admin: `/kullanicilar?tab=yayinci-basvurulari` (Yayıncı Başvuruları).
+* Login formu: yapılandırılmış **Yayıncı** başvuru dalı.
+
+### Otomatik muhasebe beslemesi
+* Ödenen affiliate payout → gider; kazanılan CRM anlaşması → gelir; aktif personel
+  aylık maliyeti → gider. `(brand, source, ref_id)` tekil indeksiyle tekrarsız.
+
+### Doğrulama
+* `tsc --noEmit` ✅, `next build` ✅. Yeni tablolar RLS-enabled (servis-rol erişimi,
+  proje konvansiyonuyla uyumlu). Tüm sensitive aksiyonlar `audit_logs`'a yazılır.
+
+---
+
 ## 0b. API sağlık ayrımı — izlenme/api (22 Mayıs 2026)
 
 Ping başarılıyken sayfanın kırmızı görünmesi giderildi: **API bağlantısı** ile **link yenileme hataları** artık ayrı metrikler.

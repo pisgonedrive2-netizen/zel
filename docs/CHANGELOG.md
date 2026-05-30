@@ -1,5 +1,39 @@
 # CHANGELOG
 
+## 2026-05-30 — TRON↔Genel Kasa dahil etme · Landing sadeleştirme · Marka/Yayıncı navigasyon revizyonu
+
+### Kasa — TRON harcamalarının Genel Kasa'ya dahil edilmesi
+- **Yeni alan** `KasaTransaction.countInGenel` (DB: `kasa_transactions.count_in_genel boolean NOT NULL DEFAULT false`).
+  - Migration: `supabase/migrations/20260530120000_kasa_tron_genel_inclusion.sql` (kısmi index + `NOTIFY pgrst`). Uzak `lanetkel` projesine uygulandı.
+  - Mappers (`kasaFromRow`/`kasaToRow`) ve `/api/kasa/transaction` upsert'i alanı taşır.
+- **Mantık** (`src/lib/kasa-tron-metrics.ts`): `computeTronPanelMetrics` artık TRON çıkış (harcama) hareketlerinden Genel Kasa'ya dahil edilenleri hesaplar:
+  - `harcamaKasaWithTron` (TRON dahil işletme bakiyesi), `includedTronOut`, `includedTronCount`, `tronOutCount`.
+  - `isTronGenelEligible(t)` yardımcısı (yalnızca `direction === "out"`).
+- **UI** (`src/app/kasa/page.tsx`):
+  - TRON panelindeki "Genel Kasa · harcama kasası" kartı artık "TRON dahil" bakiyeyi ve kaç harcamanın dahil olduğunu gösterir.
+  - **Toplu eylemler**: TRON harcamalarının tümünü Genel Kasa giderine *dahil et* / *çıkar* (onay diyaloglu).
+  - **Satır toggle**: her çıkış hareketinde yeni **Genel** sütunu — "Dahil / Hariç" anahtarı (tek tıkla ekleme/çıkarma).
+  - **Filtre**: "Genel: tümü / Dahil / Hariç" filtre grubu.
+  - İşlem formuna "Genel Kasa / işletme giderine de dahil et" onay kutusu (yalnızca çıkış yönü). Düzenlemede `autoImported`/`tronTxId`/`plannedItemId` artık korunuyor.
+
+### Landing / Login sayfası
+- **Hero görseli geçici olarak kaldırıldı** (`login-bg-dash4.png`, `moblogin.png`). Yerine gradyan + başlık + CTA (Giriş yap / Kayıt ol) içeren metin tabanlı hero geldi. Header logosu (`foxlogo.png`) korunuyor.
+
+### Navigasyon — Sidebar yeni B2B özellikleriyle hizalandı
+- **Marka (`BRAND_NAV`)** tek "Marka" grubundan dört gruba çıkarıldı:
+  - **Genel**: Anasayfa, Operasyon özeti
+  - **İş Birliği**: Yayıncı havuzu, Teklifler, Anlaşmalar, Yayıncı takvimi
+  - **Performans**: İzlenmeler, Postlar, Affiliate
+  - **Finans**: Ödeme planı · **Hesap**: Marka profili, Bildirimler
+- **Yayıncı (`STREAMER_NAV`)** — daha önce erişilemeyen sayfalar menüye eklendi: **İş Birliği** (Tekliflerim, Postlarım), **Hesap** (Havuz Profilim, Bildirimlerim).
+- `marka-subnav.tsx` aynı sıralamaya göre düzenlendi; **Marka profili** sekmesi eklendi.
+
+### Yeni: Marka Profili
+- **Sayfa** `src/app/marka/profil/page.tsx` — marka adı, kısa kod, kategori ve notların düzenlenmesi; durum & aylık hedef özet kartları (hedef düzenleme İzlenmeler'e yönlendirir).
+- **API** `src/app/api/marka/profile/route.ts` — `POST`; admin veya markaya bağlı `brand` rolü güncelleyebilir (durum/hedef bu uçtan değişmez).
+
+---
+
 ## v7 — 2026-05-15 (Foxstream rebrand · Supabase üretim · denetim & bildirim merkezi)
 
 ### Marka & Dağıtım

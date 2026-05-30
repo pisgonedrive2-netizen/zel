@@ -1228,7 +1228,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     salaryExtras, advances, paymentStatuses,
     contentExpenses, addContentExpense, updateContentExpense, deleteContentExpense,
     weeklyPlans, addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
-    weekBrandReels, addWeekBrandReel, deleteWeekBrandReel,
+    weekBrandReels, addWeekBrandReel, deleteWeekBrandReel, applyWeekReelMetrics,
     scheduleSlots, streamerAccounts, brandLinks, brands, linkSnapshots, brandViewership,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addBrandLink, updateBrandLink, deleteBrandLink, addLinkSnapshot,
@@ -1621,6 +1621,36 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     }
     return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [myReels]);
+
+  // Haftalık reel izlenme (RapidAPI) yenileme
+  const [refreshingReelId, setRefreshingReelId] = useState<string | null>(null);
+  const handleRefreshReel = async (reel: WeekBrandReel) => {
+    if (refreshingReelId) return;
+    if (!isAutoTrackable(reel.contentUrl, reel.platform, undefined, reel.externalRef)) {
+      alert("Bu link için izlenme çekilemiyor (yalnızca Instagram / TikTok / YouTube içerik linkleri desteklenir).");
+      return;
+    }
+    setRefreshingReelId(reel.id);
+    try {
+      const res = await fetch(`/api/yayinci/week-reel/${reel.id}/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        result?: { ok?: boolean; error?: string; views?: number | null; patch?: Partial<WeekBrandReel> };
+      };
+      const result = json.result;
+      if (result?.patch) applyWeekReelMetrics(reel.id, result.patch);
+      if (!json.ok || !result?.ok) {
+        alert(result?.error ?? "İzlenme çekilemedi.");
+      }
+    } catch {
+      alert("İzlenme çekilirken bir hata oluştu.");
+    } finally {
+      setRefreshingReelId(null);
+    }
+  };
 
   const activeBrands = useMemo(
     () => [...brands].filter((b) => b.status === "active").sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")),
@@ -2572,12 +2602,24 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                               className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
                             >
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium">{b?.shortName ?? "—"}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-medium">{b?.shortName ?? "—"}</p>
+                                  {r.lastViews != null ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300 tabular-nums">
+                                      <Eye size={11} /> {fmtViews(r.lastViews)}
+                                    </span>
+                                  ) : null}
+                                </div>
                                 <p className="text-[11px] text-muted-foreground">
                                   {r.platform}
                                   {r.publishedAt && (
                                     <span className="ml-1 text-violet-700 dark:text-violet-300">
                                       · yayın {fmtDateTime(r.publishedAt)}
+                                    </span>
+                                  )}
+                                  {r.lastCheckedAt && (
+                                    <span className="ml-1 text-muted-foreground/80">
+                                      · ölçüm {fmtDateTime(r.lastCheckedAt)}
                                     </span>
                                   )}
                                 </p>
@@ -2589,18 +2631,32 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                                 >
                                   {r.contentUrl} <ExternalLink size={10} />
                                 </a>
+                                {r.lastCheckError ? (
+                                  <p className="text-[11px] text-red-600 dark:text-red-400 mt-1">İzlenme hatası: {r.lastCheckError}</p>
+                                ) : null}
                                 {r.notes ? <p className="text-[11px] text-muted-foreground mt-1">{r.notes}</p> : null}
                               </div>
-                              <button
-                                type="button"
-                                className="inline-flex items-center justify-center rounded-lg p-2 text-red-600 dark:text-red-400 hover:bg-red-500/10 shrink-0 self-end sm:self-center"
-                                title="Sil"
-                                onClick={() => {
-                                  if (confirm("Bu kaydı silmek istiyor musun?")) deleteWeekBrandReel(r.id);
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center justify-center rounded-lg p-2 text-violet-600 dark:text-violet-300 hover:bg-violet-500/10 disabled:opacity-50"
+                                  title="İzlenmeyi API ile çek"
+                                  disabled={refreshingReelId === r.id}
+                                  onClick={() => void handleRefreshReel(r)}
+                                >
+                                  <RefreshCw size={14} className={refreshingReelId === r.id ? "animate-spin" : ""} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center justify-center rounded-lg p-2 text-red-600 dark:text-red-400 hover:bg-red-500/10"
+                                  title="Sil"
+                                  onClick={() => {
+                                    if (confirm("Bu kaydı silmek istiyor musun?")) deleteWeekBrandReel(r.id);
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -3071,6 +3127,108 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                                   }
                                 }}
                               />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Haftalık yayınlanan içerik linkleri — API izlenme çekilebilir */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                <Video size={14} className="text-violet-600 dark:text-violet-400" />
+                Haftalık içerik linkleri
+              </CardTitle>
+              <CardDescription>
+                Profilde eklediğin reel / gönderi linkleri. Her biri için izlenmeyi{" "}
+                <strong>API ile</strong> çekebilirsin. Haftalık ekleme{" "}
+                <Link href="/yayinci/izlenmeler" className="text-primary underline-offset-2 hover:underline">
+                  izlenmeler
+                </Link>{" "}
+                sayfasında.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {reelsByWeek.length === 0 ? (
+                <div className="text-center py-8 px-4 border border-dashed border-border rounded-lg">
+                  <Video size={22} className="mx-auto text-muted-foreground/40 mb-2" />
+                  <p className="text-sm text-muted-foreground">Henüz haftalık içerik linki yok.</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">
+                    <Link href="/yayinci/izlenmeler" className="text-primary underline-offset-2 hover:underline">
+                      İzlenmeler
+                    </Link>{" "}
+                    sayfasından reel / gönderi ekle.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-5 max-h-[min(70vh,720px)] overflow-y-auto pr-1">
+                  {reelsByWeek.map(([wk, items]) => {
+                    const weekViews = items.reduce((s, r) => s + (r.lastViews ?? 0), 0);
+                    return (
+                      <div key={wk}>
+                        <div className="flex items-center gap-2 border-b border-border pb-2 mb-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {weekRangeLabel(wk)}
+                          </p>
+                          <Badge variant="secondary" className="text-[10px]">{items.length} içerik</Badge>
+                          {weekViews > 0 && (
+                            <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
+                              {fmtViews(weekViews)} izlenme
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {items.map((r) => {
+                            const b = brands.find((x) => x.id === r.brandId);
+                            const PlIcon = platformIcon(r.platform);
+                            return (
+                              <div
+                                key={r.id}
+                                className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <PlIcon size={13} className="text-purple-600 dark:text-purple-300 shrink-0" />
+                                    <span className="text-sm font-medium">{b?.shortName ?? "—"}</span>
+                                    {r.lastViews != null ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300 tabular-nums">
+                                        <Eye size={11} /> {fmtViews(r.lastViews)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-muted-foreground">izlenme çekilmedi</span>
+                                    )}
+                                  </div>
+                                  <a
+                                    href={r.contentUrl}
+                                    target="_blank"
+                                    rel="noopener"
+                                    className="text-[11px] text-blue-600 break-all inline-flex items-center gap-1 mt-1"
+                                  >
+                                    {r.contentUrl} <ExternalLink size={10} />
+                                  </a>
+                                  {r.lastCheckError ? (
+                                    <p className="text-[11px] text-red-600 dark:text-red-400 mt-1">Hata: {r.lastCheckError}</p>
+                                  ) : r.lastCheckedAt ? (
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">Son ölçüm: {fmtDateTime(r.lastCheckedAt)}</p>
+                                  ) : null}
+                                </div>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-violet-700 dark:text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 shrink-0 self-end sm:self-center"
+                                  title="İzlenmeyi API ile çek"
+                                  disabled={refreshingReelId === r.id}
+                                  onClick={() => void handleRefreshReel(r)}
+                                >
+                                  <RefreshCw size={13} className={refreshingReelId === r.id ? "animate-spin" : ""} />
+                                  {refreshingReelId === r.id ? "Çekiliyor…" : "İzlenme çek"}
+                                </button>
+                              </div>
                             );
                           })}
                         </div>

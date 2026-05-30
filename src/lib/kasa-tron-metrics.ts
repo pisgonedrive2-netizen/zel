@@ -32,6 +32,11 @@ export function findPrimaryTronKasa(kasas: Kasa[], kasaTransactions: KasaTransac
   return candidates[0] ?? null;
 }
 
+/** Bir TRON hareketi Genel Kasa giderine dahil edilebilir mi? (çıkış hareketi). */
+export function isTronGenelEligible(t: KasaTransaction): boolean {
+  return t.direction === "out";
+}
+
 /** TRON paneli: Ramiz cüzdanı (otomatik) + harcama kasası (Genel Kasa) ayrı gösterilir. */
 export function computeTronPanelMetrics(kasas: Kasa[], kasaTransactions: KasaTransaction[]) {
   const tronKasa = findPrimaryTronKasa(kasas, kasaTransactions);
@@ -44,12 +49,25 @@ export function computeTronPanelMetrics(kasas: Kasa[], kasaTransactions: KasaTra
     ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
     : [];
 
+  // TRON çıkış (harcama) hareketleri ve bunların Genel Kasa'ya dahil edilenleri.
+  const tronOutRows = tronRows.filter(isTronGenelEligible);
+  const includedRows = tronOutRows.filter((t) => t.countInGenel);
+  const includedTronOut = includedRows.reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
+
+  const harcamaKasa = balanceFor(genelRows);
+
   return {
     tronKasa,
     genelKasa,
     tronTotal: balanceFor(tronRows),
     ramizWallet: balanceFor(autoRows.length > 0 ? autoRows : tronRows),
-    harcamaKasa: balanceFor(genelRows),
+    harcamaKasa,
+    /** Genel Kasa bakiyesi + dahil edilen TRON harcamaları düşülmüş hali. */
+    harcamaKasaWithTron: harcamaKasa - includedTronOut,
+    /** Genel Kasa'ya dahil edilmiş TRON harcamalarının toplamı. */
+    includedTronOut,
+    includedTronCount: includedRows.length,
+    tronOutCount: tronOutRows.length,
     tronTxCount: tronRows.length,
     autoTxCount: autoRows.length,
     harcamaTxCount: genelRows.length,

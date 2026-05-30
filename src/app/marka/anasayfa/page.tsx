@@ -4,11 +4,9 @@ import { useMemo } from "react";
 import {
   Activity,
   BarChart3,
-  CalendarDays,
   Eye,
   Megaphone,
   TrendingUp,
-  Users,
   Wallet,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
@@ -26,6 +24,8 @@ import { BrandKpiCard } from "@/components/marka-home/brand-kpi-card";
 import { BrandActivityFeed } from "@/components/marka-home/brand-activity-feed";
 import { BrandQuickActions } from "@/components/marka-home/brand-quick-actions";
 import { BrandMonthlyTrend } from "@/components/brand-monthly-trend";
+import { BrandGettingStarted, type GettingStartedStep } from "@/components/marka-home/brand-getting-started";
+import { clientHasOrgCapability } from "@/lib/org-capability";
 import {
   findBrandMonthlyStats,
   fmtBrandCount,
@@ -53,7 +53,10 @@ export default function MarkaAnasayfaPage() {
     navMonth,
     canViewBrand,
     monthTitle,
+    isAdminView,
   } = portal;
+  // Admin marka görünümünde tüm modülleri görür; marka kullanıcısı org rolüne göre.
+  const orgRole = isAdminView ? "admin" : user?.orgRole;
   const { users } = useAuth();
   const {
     brandMonthlyStats,
@@ -66,6 +69,7 @@ export default function MarkaAnasayfaPage() {
     notifications,
     affiliatePartners,
     affiliateDailyStats,
+    brandOffers,
   } = useStore();
 
   const todayYm = toYearMonthLocal();
@@ -207,6 +211,43 @@ export default function MarkaAnasayfaPage() {
     );
   }, [notifications, targetUserId]);
 
+  // Başlangıç kontrol listesi adımları (yeni marka için)
+  const gettingStartedSteps: GettingStartedStep[] = useMemo(() => {
+    const hasProfile = !!(brand?.category?.trim() && (brand?.monthlyTarget ?? 0) > 0);
+    const hasKpi = statsRow != null;
+    const hasLinks = linksForBrand.length > 0;
+    const hasOffers = brandId ? brandOffers.some((o) => o.brandId === brandId) : false;
+    const hasAffiliate = brandAffiliatePartners.length > 0;
+    const steps: GettingStartedStep[] = [
+      { label: "Marka profilini tamamla", description: "Kategori ve aylık hedef belirle", href: "/marka/profil", done: hasProfile },
+      { label: "Aylık KPI gir", description: "Kayıt, FTD, yatırım — bu ay", href: markaHref("/marka/operasyon", month), done: hasKpi },
+      { label: "İzlenme linklerini ekle", description: "Sosyal/yayın platform linkleri", href: markaHref("/marka/izlenmeler", month), done: hasLinks },
+      { label: "Yayıncı havuzundan teklif gönder", description: "Doğru yayıncıyı bul ve teklif et", href: "/marka/havuz", done: hasOffers },
+      { label: "Affiliate partner ekle", description: "Partner performansını takip et", href: markaHref("/marka/affiliate", month), done: hasAffiliate },
+    ];
+
+    // Org rolüne/capability'sine göre modül kurulum adımları (isteğe bağlı CTA'lar).
+    // Veri sinyali kolayca erişilemediğinden "tamamlandı" zorlanmaz.
+    if (clientHasOrgCapability(orgRole, "hr")) {
+      steps.push({ label: "Personel ekle", description: "Ekibe ilk personeli tanımla", href: "/marka/personel", done: false, optional: true });
+    }
+    if (clientHasOrgCapability(orgRole, "crm")) {
+      steps.push({ label: "CRM'e ilk lead'i gir", description: "Potansiyel müşteri ve fırsat takibi", href: "/marka/crm", done: false, optional: true });
+    }
+    if (clientHasOrgCapability(orgRole, "finance")) {
+      steps.push({ label: "Muhasebeyi başlat", description: "Gelir/gider ve fatura takibi", href: "/marka/muhasebe", done: false, optional: true });
+    }
+    if (clientHasOrgCapability(orgRole, "team")) {
+      steps.push({ label: "Ekip üyesi davet et", description: "Rol ve yetkilerle ekip kur", href: "/marka/ekip", done: false, optional: true });
+    }
+
+    return steps;
+  }, [brand, statsRow, linksForBrand, brandId, brandOffers, brandAffiliatePartners, month, orgRole]);
+
+  const gettingStartedDone = gettingStartedSteps
+    .filter((s) => !s.optional)
+    .every((s) => s.done);
+
   const operasyonHref = markaHref("/marka/operasyon", month);
   const takvimHref = markaHref("/marka/takvim", month);
   const odemelerHref = markaHref("/marka/odemeler", month);
@@ -307,8 +348,8 @@ export default function MarkaAnasayfaPage() {
                   color="pink"
                   icon={TrendingUp}
                   title="Affiliate"
-                  subtitle={hasAffiliateData ? monthTitle : "Henüz partner yok"}
-                  locked={!hasAffiliateData}
+                  subtitle={hasAffiliateData ? monthTitle : "İlk affiliate partnerinizi ekleyin"}
+                  empty={!hasAffiliateData}
                   metrics={[
                     {
                       label: "Aktif partner",
@@ -338,9 +379,8 @@ export default function MarkaAnasayfaPage() {
                         : "—",
                     },
                   ]}
-                  href={hasAffiliateData ? markaHref("/marka/affiliate", month) : undefined}
-                  linkLabel={hasAffiliateData ? "Detay" : undefined}
-                  badge={hasAffiliateData ? undefined : "MVP"}
+                  href={markaHref("/marka/affiliate", month)}
+                  linkLabel={hasAffiliateData ? "Detay" : "Partner ekleyin"}
                 />
 
                 <BrandKpiCard
@@ -419,6 +459,7 @@ export default function MarkaAnasayfaPage() {
                 brandId={brandId}
                 monthYm={month}
                 months={6}
+                todayYm={todayYm}
               />
             </div>
 
@@ -431,35 +472,9 @@ export default function MarkaAnasayfaPage() {
             </div>
           </div>
 
-          {brandProjects.length === 0 &&
-            statsRow == null &&
-            linksForBrand.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border bg-card/60 px-6 py-8 text-center">
-                <Users
-                  size={28}
-                  className="mx-auto mb-2 text-muted-foreground/60"
-                />
-                <p className="text-sm font-medium text-foreground">
-                  Hoş geldiniz, {brand.name}!
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Operasyon özetine{" "}
-                  <a
-                    className="text-[#FF6B00] underline-offset-2 hover:underline"
-                    href={operasyonHref}
-                  >
-                    aylık KPI girerek
-                  </a>{" "}
-                  başlayabilirsiniz. Yayıncı planları, izlenme verisi ve ödeme
-                  takvimi yöneticinizle eşleştikçe burada görünür.
-                </p>
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 text-[10px] text-muted-foreground">
-                  <CalendarDays size={11} /> Takvim ·
-                  <Wallet size={11} /> Ödeme ·
-                  <Eye size={11} /> İzlenme
-                </div>
-              </div>
-            )}
+          {!gettingStartedDone && (
+            <BrandGettingStarted brandName={brand.name} steps={gettingStartedSteps} />
+          )}
         </div>
       )}
     </MarkaPageGuard>

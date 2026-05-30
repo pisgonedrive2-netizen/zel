@@ -11,8 +11,11 @@ import {
   Search, X, CalendarDays, Eye,
   Wallet, Clapperboard, LogOut, ShieldCheck,
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
+  Send, Handshake, Video, TrendingUp, UserCog,
+  Briefcase, ClipboardList, Contact, Calculator, FileText, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
@@ -30,7 +33,10 @@ type NavItem = {
   href:  string;
   label: string;
   icon:  React.ComponentType<{ className?: string }>;
-  group: "Yönetim" | "Yayın" | "Finans" | "Yayıncı" | "Denetim" | "Marka";
+  group:
+    | "Yönetim" | "Yayın" | "Finans" | "Yayıncı" | "Denetim" | "Marka"
+    | "Genel" | "İş Birliği" | "Performans" | "Ekip" | "Hesap";
+  cap?:  OrgCapability;
 };
 
 const ADMIN_NAV: NavItem[] = [
@@ -57,8 +63,13 @@ const STREAMER_NAV: NavItem[] = [
   { href: "/yayinci/hesaplar",       label: "Hesaplarım",         icon: Link2,           group: "Yayıncı" },
   { href: "/yayinci/marka-linkleri", label: "Marka Linkleri",     icon: Activity,        group: "Yayıncı" },
   { href: "/yayinci/gecmis",         label: "Geçmiş Aylar",       icon: CalendarRange,   group: "Yayıncı" },
-  { href: "/yayinci/bildirimler",    label: "Bildirimlerim",      icon: Bell,            group: "Yayıncı" },
   { href: "/yayinci/istatistikler",  label: "İstatistiklerim",    icon: BarChart3,       group: "Yayıncı" },
+  // İş birliği (yeni B2B özellikleri)
+  { href: "/yayinci/teklifler",      label: "Tekliflerim",        icon: Send,            group: "İş Birliği" },
+  { href: "/yayinci/postlar",        label: "Postlarım",          icon: Video,           group: "İş Birliği" },
+  // Hesap
+  { href: "/yayinci/profil",         label: "Havuz Profilim",     icon: UserCog,         group: "Hesap" },
+  { href: "/yayinci/bildirimler",    label: "Bildirimlerim",      icon: Bell,            group: "Hesap" },
 ];
 
 const AUDITOR_NAV: NavItem[] = [
@@ -73,11 +84,29 @@ const AUDITOR_NAV: NavItem[] = [
 ];
 
 const BRAND_NAV: NavItem[] = [
-  { href: "/marka/operasyon",    label: "Operasyon özeti",  icon: BarChart3,      group: "Marka" },
-  { href: "/marka/izlenmeler",  label: "İzlenmeler",       icon: Eye,            group: "Marka" },
-  { href: "/marka/takvim",      label: "Yayıncı takvimi",  icon: CalendarDays,   group: "Marka" },
-  { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,         group: "Marka" },
-  { href: "/marka/bildirimler", label: "Bildirimler",      icon: Bell,           group: "Marka" },
+  // Genel
+  { href: "/marka/anasayfa",    label: "Anasayfa",         icon: LayoutDashboard, group: "Genel" },
+  { href: "/marka/operasyon",   label: "Operasyon özeti",  icon: BarChart3,       group: "Genel" },
+  // İş birliği akışı
+  { href: "/marka/havuz",       label: "Yayıncı havuzu",   icon: Users,           group: "İş Birliği" },
+  { href: "/marka/teklifler",   label: "Teklifler",        icon: Send,            group: "İş Birliği" },
+  { href: "/marka/anlasmalar",  label: "Anlaşmalar",       icon: Handshake,       group: "İş Birliği" },
+  { href: "/marka/takvim",      label: "Yayıncı takvimi",  icon: CalendarDays,    group: "İş Birliği" },
+  // Performans & içerik
+  { href: "/marka/izlenmeler",  label: "İzlenmeler",       icon: Eye,             group: "Performans" },
+  { href: "/marka/postlar",     label: "Postlar",          icon: Video,           group: "Performans" },
+  { href: "/marka/affiliate",   label: "Affiliate",        icon: TrendingUp,      group: "Performans" },
+  // Ekip & personel
+  { href: "/marka/personel",    label: "Personel",         icon: Briefcase,       group: "Ekip", cap: "hr" },
+  { href: "/marka/takip",       label: "Görev & Takip",    icon: ClipboardList,   group: "Ekip", cap: "hr" },
+  { href: "/marka/crm",         label: "CRM",              icon: Contact,         group: "Ekip", cap: "crm" },
+  { href: "/marka/ekip",        label: "Ekip & yetkiler",  icon: Settings,        group: "Ekip", cap: "team" },
+  // Finans & hesap
+  { href: "/marka/muhasebe",    label: "Muhasebe",         icon: Calculator,      group: "Finans", cap: "finance" },
+  { href: "/marka/faturalar",   label: "Faturalar",        icon: FileText,        group: "Finans", cap: "finance" },
+  { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,          group: "Finans" },
+  { href: "/marka/profil",      label: "Marka profili",    icon: UserCog,         group: "Hesap" },
+  { href: "/marka/bildirimler", label: "Bildirimler",      icon: Bell,            group: "Hesap" },
 ];
 
 export default function Sidebar() {
@@ -128,13 +157,15 @@ export default function Sidebar() {
     user?.role === "auditor"  ? AUDITOR_NAV  :
     user?.role === "brand"    ? BRAND_NAV    :
     STREAMER_NAV;
+  const BRAND_GROUPS: NavItem["group"][] = ["Genel", "İş Birliği", "Performans", "Ekip", "Finans", "Hesap"];
+  const STREAMER_GROUPS: NavItem["group"][] = ["Yayıncı", "İş Birliği", "Hesap"];
   const groups: NavItem["group"][] =
-    adminViewingStreamer     ? ["Yayıncı"] :
-    adminViewingBrand        ? ["Marka"] :
+    adminViewingStreamer     ? STREAMER_GROUPS :
+    adminViewingBrand        ? BRAND_GROUPS :
     user?.role === "admin"   ? ["Yönetim", "Yayın", "Finans"] :
     user?.role === "auditor" ? ["Denetim"] :
-    user?.role === "brand"   ? ["Marka"] :
-                               ["Yayıncı"];
+    user?.role === "brand"   ? BRAND_GROUPS :
+                               STREAMER_GROUPS;
 
   // Bildirimler
   const notifications = useStore((s) => s.notifications);
@@ -142,8 +173,12 @@ export default function Sidebar() {
     ? unreadNotificationCount(notifications, user.role, user.id)
     : 0;
 
+  // Marka modüllerinde org-capability gizleme: admin marka görünümünde tümü görünür,
+  // marka kullanıcısı org rolüne göre (marka-subnav ile aynı mantık).
+  const orgRole = adminViewingBrand ? "admin" : user?.orgRole;
   const filtered = nav.filter(n =>
-    !search || n.label.toLowerCase().includes(search.toLowerCase())
+    (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
+    (!n.cap || clientHasOrgCapability(orgRole, n.cap))
   );
 
   const handleLogout = () => {
@@ -227,6 +262,9 @@ export default function Sidebar() {
             </div>
           </div>
         )}
+
+        {/* Marka değiştir (çok markalı marka kullanıcısı) */}
+        {!collapsed && user?.role === "brand" && <BrandSwitcher />}
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 overflow-y-auto space-y-4">
@@ -372,6 +410,43 @@ export default function Sidebar() {
         </div>
       </div>
     </>
+  );
+}
+
+// ── Marka değiştirici (multi-tenant marka kullanıcısı) ───────────────────
+function BrandSwitcher() {
+  const { user } = useAuth();
+  const brands = useStore((s) => s.brands);
+  const activeBrandId = usePanelView((s) => s.activeBrandId);
+  const setActiveBrand = usePanelView((s) => s.setActiveBrand);
+
+  // Marka oturumunda store.brands zaten erişilebilir markalarla scope'lanmıştır.
+  if (!user || user.role !== "brand" || brands.length <= 1) return null;
+
+  const current =
+    (activeBrandId && brands.some((b) => b.id === activeBrandId) && activeBrandId) ||
+    (user.brandId && brands.some((b) => b.id === user.brandId) && user.brandId) ||
+    brands[0]?.id ||
+    "";
+
+  return (
+    <div className="px-4 pb-2">
+      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+        Aktif marka
+      </label>
+      <select
+        value={current}
+        onChange={(e) => setActiveBrand(e.target.value)}
+        aria-label="Aktif markayı değiştir"
+        className="w-full rounded-md border border-border bg-background px-2.5 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        {brands.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ const NAV: { href: string; label: string; match: string }[] = [
   { href: "/yayinci/harcamalar",     label: "Harcamalar",      match: "harcamalar" },
   { href: "/yayinci/takvim",         label: "Haftalık plan",   match: "takvim" },
   { href: "/yayinci/izlenmeler",     label: "İzlenmeler",      match: "izlenmeler" },
+  { href: "/yayinci/istatistikler",  label: "İstatistikler",   match: "istatistikler" },
   { href: "/yayinci/hesaplar",       label: "Hesaplar",        match: "hesaplar" },
   { href: "/yayinci/marka-linkleri", label: "Marka linkleri",  match: "marka-linkleri" },
   { href: "/yayinci/profil",         label: "Havuz profili",   match: "profil" },

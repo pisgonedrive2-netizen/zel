@@ -5,25 +5,44 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { markaHref } from "@/lib/use-marka-view-month";
+import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
 import { ArrowUpRight } from "lucide-react";
 
-const NAV = [
+type NavItem = { href: string; label: string; cap?: OrgCapability };
+
+const NAV: readonly NavItem[] = [
+  // Genel
   { href: "/marka/anasayfa", label: "Anasayfa" },
   { href: "/marka/operasyon", label: "Operasyon özeti" },
-  { href: "/marka/izlenmeler", label: "İzlenmeler" },
+  // İş birliği akışı
   { href: "/marka/havuz", label: "Yayıncı havuzu" },
   { href: "/marka/teklifler", label: "Teklifler" },
-  { href: "/marka/takvim", label: "Yayıncı takvimi" },
   { href: "/marka/anlasmalar", label: "Anlaşmalar" },
+  { href: "/marka/takvim", label: "Yayıncı takvimi" },
+  // Performans & içerik
+  { href: "/marka/izlenmeler", label: "İzlenmeler" },
   { href: "/marka/postlar", label: "Postlar" },
-  { href: "/marka/odemeler", label: "Ödeme planı" },
   { href: "/marka/affiliate", label: "Affiliate" },
+  // Ekip & personel
+  { href: "/marka/personel", label: "Personel", cap: "hr" },
+  { href: "/marka/takip", label: "Görev & Takip", cap: "hr" },
+  { href: "/marka/crm", label: "CRM", cap: "crm" },
+  // Finans & hesap
+  { href: "/marka/muhasebe", label: "Muhasebe", cap: "finance" },
+  { href: "/marka/faturalar", label: "Faturalar", cap: "finance" },
+  { href: "/marka/odemeler", label: "Ödeme planı" },
+  // Yönetim & hesap
+  { href: "/marka/ekip", label: "Ekip & yetkiler", cap: "team" },
+  { href: "/marka/profil", label: "Marka profili" },
   { href: "/marka/bildirimler", label: "Bildirimler" },
-] as const;
+];
 
 export function MarkaSubnav() {
   const pathname = usePathname();
-  const { month, isAdminView, brandId, brand } = useMarkaPortal();
+  const { user, month, isAdminView, brandId, brand } = useMarkaPortal();
+  // Admin marka görünümünde tüm modülleri görür; marka kullanıcısı org rolüne göre.
+  const orgRole = isAdminView ? "admin" : user?.orgRole;
+  const navItems = NAV.filter((item) => !item.cap || clientHasOrgCapability(orgRole, item.cap));
 
   return (
     <nav
@@ -46,7 +65,7 @@ export function MarkaSubnav() {
           </div>
         )}
         <div className="flex gap-2 overflow-x-auto">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const href = markaHref(item.href, month);
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);

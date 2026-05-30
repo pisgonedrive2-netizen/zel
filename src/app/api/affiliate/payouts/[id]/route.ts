@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import {
+  deleteAffiliatePayout,
   findAffiliatePayoutById,
   upsertAffiliatePayout,
 } from "@/lib/db/repository";
@@ -119,6 +120,45 @@ export async function PATCH(
     return NextResponse.json({ payout: saved });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Güncellenemedi";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/** DELETE /api/affiliate/payouts/[id] — ödeme satırını kalıcı sil. */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  if (!isSupabaseEnabled()) {
+    return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
+  }
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  }
+  if (!canWriteAffiliate(session)) {
+    return NextResponse.json({ error: "Yazma yetkisi yok" }, { status: 403 });
+  }
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json({ error: "id gerekli" }, { status: 400 });
+  }
+  const existing = await findAffiliatePayoutById(id);
+  if (!existing) {
+    return NextResponse.json({ error: "Ödeme bulunamadı" }, { status: 404 });
+  }
+  const guard = ensureBrandScope(session, existing.brandId, "write");
+  if (guard) return guard;
+  try {
+    await deleteAffiliatePayout(id);
+    await writeAffiliateAudit(
+      session,
+      "affiliate_payout_deleted",
+      `payout=${existing.id} partner=${existing.partnerId} brand=${existing.brandId}`
+    );
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Silinemedi";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

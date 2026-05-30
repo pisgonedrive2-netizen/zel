@@ -1,65 +1,101 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  ArrowUpRight,
   Download,
-  ExternalLink,
   PlusCircle,
-  Sparkles,
   TrendingUp,
   Upload,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useStore } from "@/store/store";
+import type {
+  AffiliateDailyStat,
+  AffiliatePartner,
+  AffiliatePayout,
+} from "@/store/store";
+import { useIsReadOnly } from "@/store/auth";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
-import { markaHref } from "@/lib/use-marka-view-month";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { BrandLogo } from "@/components/brand-logo";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
+import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtBrandCount, fmtBrandMoney } from "@/lib/brand-monthly-stats";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
+import { fmtDateOnly } from "@/lib/fmt-date";
+import { ApiError, isPoolNotReadyError } from "@/lib/streamer-pool-api";
+import {
+  fetchAffiliatePartners,
+  fetchAffiliatePayouts,
+  fetchAffiliateStats,
+  updateAffiliatePayout,
+} from "@/lib/affiliate-api";
+import { PartnerFormModal } from "@/components/affiliate/partner-form-modal";
+import { CsvImportModal } from "@/components/affiliate/csv-import-modal";
+import { DailyStatModal } from "@/components/affiliate/daily-stat-modal";
+import { PayoutModal } from "@/components/affiliate/payout-modal";
+import { PartnerDetailModal } from "@/components/affiliate/partner-detail-modal";
+import {
+  commissionLabel,
+  payoutStatusBadgeClass,
+  payoutStatusLabel,
+  partnerStatusBadgeClass,
+  partnerStatusLabel,
+  partnerTypeLabel,
+  PARTNER_TYPE_OPTIONS,
+} from "@/components/affiliate/labels";
 
-function partnerTypeLabel(t: string): string {
-  switch (t) {
-    case "streamer":
-      return "Yayıncı";
-    case "external":
-      return "Dış partner";
-    case "agency":
-      return "Ajans";
-    case "social":
-      return "Sosyal";
-    default:
-      return t;
-  }
+function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, "0")}` };
 }
 
-function commissionLabel(model: string): string {
-  switch (model) {
-    case "cpa":
-      return "CPA";
-    case "revshare":
-      return "RevShare";
-    case "hybrid":
-      return "Hybrid";
-    case "flat":
-      return "Sabit";
-    default:
-      return model;
-  }
+function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const map = new Map(existing.map((x) => [x.id, x]));
+  for (const item of incoming) map.set(item.id, item);
+  return [...map.values()];
+}
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob(["\uFEFF" + content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function MarkaAffiliatePage() {
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle } = portal;
-  const { affiliatePartners, affiliateDailyStats } = useStore();
+  const readOnly = useIsReadOnly();
+  const { affiliatePartners, affiliateDailyStats, affiliatePayouts } = useStore();
+
   const [showAll, setShowAll] = useState(false);
+  const [notReady, setNotReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [partnerModal, setPartnerModal] = useState<{
+    open: boolean;
+    partner: AffiliatePartner | null;
+  }>({ open: false, partner: null });
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [statModal, setStatModal] = useState<{ open: boolean; partnerId?: string }>({
+    open: false,
+  });
+  const [payoutModal, setPayoutModal] = useState<{
+    open: boolean;
+    partnerId?: string;
+    payout: AffiliatePayout | null;
+  }>({ open: false, payout: null });
+  const [detailPartnerId, setDetailPartnerId] = useState<string | null>(null);
 
   const partners = useMemo(
     () => (brandId ? affiliatePartners.filter((p) => p.brandId === brandId) : []),
@@ -73,6 +109,59 @@ export default function MarkaAffiliatePage() {
       (s) => s.brandId === brandId && s.statDate.startsWith(prefix)
     );
   }, [affiliateDailyStats, brandId, month]);
+
+  const payouts = useMemo(
+    () => (brandId ? affiliatePayouts.filter((p) => p.brandId === brandId) : []),
+    [affiliatePayouts, brandId]
+  );
+
+  const refreshStats = useCallback(async () => {
+    if (!brandId) return;
+    const { from, to } = monthRange(month);
+    const stats = await fetchAffiliateStats({ brandId, from, to });
+    useStore.setState((s) => ({
+      affiliateDailyStats: mergeById(s.affiliateDailyStats, stats),
+    }));
+  }, [brandId, month]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    let cancelled = false;
+    const { from, to } = monthRange(month);
+    (async () => {
+      setNotReady(false);
+      setLoadError(null);
+      try {
+        const [partnersRes, statsRes, payoutsRes] = await Promise.all([
+          fetchAffiliatePartners(brandId),
+          fetchAffiliateStats({ brandId, from, to }),
+          fetchAffiliatePayouts(brandId),
+        ]);
+        if (cancelled) return;
+        useStore.setState((s) => ({
+          affiliatePartners: [
+            ...s.affiliatePartners.filter((p) => p.brandId !== brandId),
+            ...partnersRes,
+          ],
+          affiliateDailyStats: mergeById(s.affiliateDailyStats, statsRes),
+          affiliatePayouts: [
+            ...s.affiliatePayouts.filter((p) => p.brandId !== brandId),
+            ...payoutsRes,
+          ],
+        }));
+      } catch (err) {
+        if (cancelled) return;
+        if (isPoolNotReadyError(err)) {
+          setNotReady(true);
+        } else {
+          setLoadError(err instanceof ApiError ? err.message : "Veriler yüklenemedi.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, month]);
 
   const totals = useMemo(() => {
     return statsForMonth.reduce(
@@ -118,6 +207,104 @@ export default function MarkaAffiliatePage() {
 
   const displayedRows = showAll ? partnerRows : partnerRows.slice(0, 10);
 
+  const typeSummary = useMemo(() => {
+    return PARTNER_TYPE_OPTIONS.map((opt) => ({
+      type: opt.value,
+      label: opt.label,
+      count: partners.filter((p) => p.partnerType === opt.value).length,
+    })).filter((t) => t.count > 0);
+  }, [partners]);
+
+  const partnerNameById = useCallback(
+    (id: string) => partners.find((p) => p.id === id)?.name ?? id,
+    [partners]
+  );
+
+  const handlePartnerSaved = (saved: AffiliatePartner) => {
+    useStore.setState((s) => ({
+      affiliatePartners: mergeById(s.affiliatePartners, [saved]),
+    }));
+  };
+
+  const handlePartnerDeleted = (id: string) => {
+    useStore.setState((s) => ({
+      affiliatePartners: s.affiliatePartners.filter((p) => p.id !== id),
+    }));
+    if (detailPartnerId === id) setDetailPartnerId(null);
+  };
+
+  const handlePayoutSaved = (saved: AffiliatePayout) => {
+    useStore.setState((s) => ({
+      affiliatePayouts: mergeById(s.affiliatePayouts, [saved]),
+    }));
+  };
+
+  const patchPayout = async (
+    payout: AffiliatePayout,
+    body: Partial<AffiliatePayout>
+  ) => {
+    try {
+      const saved = await updateAffiliatePayout(payout.id, body);
+      handlePayoutSaved(saved);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Ödeme güncellenemedi.");
+    }
+  };
+
+  const handlePayoutDeleted = (id: string) => {
+    useStore.setState((s) => ({
+      affiliatePayouts: s.affiliatePayouts.filter((p) => p.id !== id),
+    }));
+  };
+
+  const handleReport = () => {
+    const header = [
+      "partner",
+      "tip",
+      "komisyon_modeli",
+      "durum",
+      "tiklama",
+      "kayit",
+      "ftd",
+      "komisyon",
+    ].join(",");
+    const lines = partnerRows.map((r) =>
+      [
+        `"${r.partner.name.replace(/"/g, '""')}"`,
+        partnerTypeLabel(r.partner.partnerType),
+        commissionLabel(r.partner.commissionModel),
+        partnerStatusLabel(r.partner.status),
+        r.clicks,
+        r.registrations,
+        r.ftd,
+        r.commission,
+      ].join(",")
+    );
+    const totalsLine = [
+      '"TOPLAM"',
+      "",
+      "",
+      "",
+      totals.clicks,
+      totals.registrations,
+      totals.ftd,
+      totals.commission,
+    ].join(",");
+    const csv = [header, ...lines, totalsLine].join("\n");
+    downloadCsv(`affiliate-rapor-${month}.csv`, csv);
+  };
+
+  const detailPartner = useMemo(
+    () => partners.find((p) => p.id === detailPartnerId) ?? null,
+    [partners, detailPartnerId]
+  );
+  const detailStats = useMemo(
+    () => (detailPartnerId ? statsForMonth.filter((s) => s.partnerId === detailPartnerId) : []),
+    [statsForMonth, detailPartnerId]
+  );
+
+  const canWrite = !readOnly;
+
   return (
     <MarkaPageGuard
       user={user}
@@ -127,6 +314,15 @@ export default function MarkaAffiliatePage() {
     >
       {brand && brandId && (
         <div className="mx-auto max-w-[1280px] space-y-5 pb-10">
+          {notReady && (
+            <PoolServerBanner message="Affiliate API'si henüz yayında değil. Yönetici migrasyonu uyguladıktan sonra partner ve performans verileri burada görünecek." />
+          )}
+          {loadError && !notReady && (
+            <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {loadError}
+            </div>
+          )}
+
           {/* Hero */}
           <Card className="relative overflow-hidden border-pink-200/60 dark:border-pink-500/30">
             <div
@@ -140,7 +336,7 @@ export default function MarkaAffiliatePage() {
                   <CardTitle className="text-xl flex items-center gap-2">
                     <span>{brand.name}</span>
                     <Badge variant="secondary" className="bg-pink-100 text-pink-900 dark:bg-pink-500/15 dark:text-pink-200">
-                      Affiliate MVP
+                      Affiliate
                     </Badge>
                   </CardTitle>
                   <CardDescription className="mt-1">
@@ -150,10 +346,23 @@ export default function MarkaAffiliatePage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
-                <Button variant="outline" size="sm" className="gap-1.5" disabled title="Yakında">
-                  <Upload size={14} /> CSV içe aktar
-                </Button>
-                <Button variant="outline" size="sm" className="gap-1.5" disabled title="Yakında">
+                {canWrite && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setCsvOpen(true)}
+                  >
+                    <Upload size={14} /> CSV içe aktar
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleReport}
+                  disabled={partnerRows.length === 0}
+                >
                   <Download size={14} /> Rapor
                 </Button>
               </div>
@@ -186,13 +395,33 @@ export default function MarkaAffiliatePage() {
                     : `${partners.length} partner · ${partners.filter((p) => p.status === "active").length} aktif`}
                 </CardDescription>
               </div>
-              <Button size="sm" className="gap-1.5" disabled title="Yakında">
-                <PlusCircle size={14} /> Yeni partner
-              </Button>
+              {canWrite && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setStatModal({ open: true })}
+                    disabled={partners.length === 0}
+                  >
+                    <Activity size={14} /> Günlük istatistik
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setPartnerModal({ open: true, partner: null })}
+                  >
+                    <PlusCircle size={14} /> Yeni partner
+                  </Button>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {partners.length === 0 ? (
-                <EmptyState />
+                <EmptyState
+                  canWrite={canWrite}
+                  onAdd={() => setPartnerModal({ open: true, partner: null })}
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -204,14 +433,16 @@ export default function MarkaAffiliatePage() {
                         <th className="py-2 pr-3 text-right font-medium">Tıklama</th>
                         <th className="py-2 pr-3 text-right font-medium">Kayıt</th>
                         <th className="py-2 pr-3 text-right font-medium">FTD</th>
-                        <th className="py-2 pr-1 text-right font-medium">Komisyon</th>
+                        <th className="py-2 pr-3 text-right font-medium">Komisyon</th>
+                        {canWrite && <th className="py-2 pr-1 text-right font-medium">İşlem</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {displayedRows.map((row) => (
                         <tr
                           key={row.partner.id}
-                          className="border-b last:border-0 hover:bg-muted/40"
+                          className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
+                          onClick={() => setDetailPartnerId(row.partner.id)}
                         >
                           <td className="py-2 pr-3">
                             <div className="flex items-center gap-2">
@@ -219,7 +450,17 @@ export default function MarkaAffiliatePage() {
                                 <Activity size={14} />
                               </div>
                               <div>
-                                <div className="font-medium">{row.partner.name}</div>
+                                <div className="flex items-center gap-1.5 font-medium">
+                                  {row.partner.name}
+                                  {row.partner.status !== "active" && (
+                                    <Badge
+                                      variant="secondary"
+                                      className={`text-[10px] ${partnerStatusBadgeClass(row.partner.status)}`}
+                                    >
+                                      {partnerStatusLabel(row.partner.status)}
+                                    </Badge>
+                                  )}
+                                </div>
                                 {row.partner.externalRef && (
                                   <div className="text-xs text-muted-foreground">
                                     Ref: {row.partner.externalRef}
@@ -251,9 +492,23 @@ export default function MarkaAffiliatePage() {
                           <td className="py-2 pr-3 text-right tabular-nums">
                             {fmtBrandCount(row.ftd)}
                           </td>
-                          <td className="py-2 pr-1 text-right tabular-nums font-medium">
-                            {fmtBrandMoney(row.commission, "USD")}
+                          <td className="py-2 pr-3 text-right tabular-nums font-medium">
+                            {fmtBrandMoney(row.commission, row.partner.currency)}
                           </td>
+                          {canWrite && (
+                            <td className="py-2 pr-1 text-right">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPartnerModal({ open: true, partner: row.partner });
+                                }}
+                                className="rounded-md px-2 py-1 text-xs text-pink-700 hover:bg-pink-50 dark:text-pink-300 dark:hover:bg-pink-500/10"
+                              >
+                                Düzenle
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -274,35 +529,203 @@ export default function MarkaAffiliatePage() {
             </CardContent>
           </Card>
 
-          {/* Sonraki adımlar */}
-          <Card className="border-dashed">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles size={16} className="text-pink-600 dark:text-pink-400" />
-                Sonraki adımlar (yol haritası)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>
-                Bu MVP sayfası partner listesi ve aylık özet gösterir. Veri girişi şu an
-                yöneticide; B2B fazlarına göre yakında:
-              </p>
-              <ul className="ml-4 list-disc space-y-1">
-                <li>Yeni partner ekleme + CSV içe aktar (Faz C.3)</li>
-                <li>Partner detay sayfası ve günlük grafik (Faz C.4)</li>
-                <li>Operatör webhook entegrasyonu (Faz F)</li>
-              </ul>
-              <p>
-                <Link
-                  href={markaHref("/marka/anasayfa", month)}
-                  className="inline-flex items-center gap-1 text-pink-700 hover:underline dark:text-pink-300"
+          {/* Ödemeler */}
+          <Card>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet size={16} className="text-pink-600 dark:text-pink-400" />
+                  Ödemeler
+                </CardTitle>
+                <CardDescription>
+                  {payouts.length === 0
+                    ? "Henüz ödeme kaydı yok."
+                    : `${payouts.length} ödeme · ${payouts.filter((p) => p.status === "paid").length} ödendi`}
+                </CardDescription>
+              </div>
+              {canWrite && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setPayoutModal({ open: true, payout: null })}
+                  disabled={partners.length === 0}
                 >
-                  Anasayfaya dön <ArrowUpRight size={12} />
-                </Link>
-              </p>
+                  <PlusCircle size={14} /> Ödeme ekle
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {payouts.length === 0 ? (
+                <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                  Partner komisyon ödemelerini buradan takip edin. İlk ödemeyi eklemek
+                  için “Ödeme ekle”ye dokunun.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-muted-foreground">
+                      <tr className="border-b">
+                        <th className="py-2 pr-3 font-medium">Partner</th>
+                        <th className="py-2 pr-3 font-medium">Dönem</th>
+                        <th className="py-2 pr-3 text-right font-medium">Tutar</th>
+                        <th className="py-2 pr-3 font-medium">Durum</th>
+                        <th className="py-2 pr-3 font-medium">Ödeme tarihi</th>
+                        {canWrite && <th className="py-2 pr-1 text-right font-medium">İşlem</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payouts.map((p) => (
+                        <tr key={p.id} className="border-b last:border-0 hover:bg-muted/40">
+                          <td className="py-2 pr-3 font-medium">{partnerNameById(p.partnerId)}</td>
+                          <td className="py-2 pr-3 text-xs text-muted-foreground">
+                            {fmtDateOnly(p.periodStart)} – {fmtDateOnly(p.periodEnd)}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums font-medium">
+                            {fmtBrandMoney(p.amount, p.currency)}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <Badge
+                              variant="secondary"
+                              className={payoutStatusBadgeClass(p.status)}
+                            >
+                              {payoutStatusLabel(p.status)}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-muted-foreground">
+                            {p.paidDate ? fmtDateOnly(p.paidDate) : "—"}
+                          </td>
+                          {canWrite && (
+                            <td className="py-2 pr-1">
+                              <div className="flex items-center justify-end gap-1">
+                                {p.status !== "paid" && p.status !== "cancelled" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      patchPayout(p, {
+                                        status: "paid",
+                                        paidDate: new Date().toISOString().slice(0, 10),
+                                      })
+                                    }
+                                    className="rounded-md px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+                                  >
+                                    Ödendi
+                                  </button>
+                                )}
+                                {p.status !== "cancelled" && p.status !== "paid" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => patchPayout(p, { status: "cancelled" })}
+                                    className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                                  >
+                                    İptal
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPayoutModal({ open: true, payout: p })
+                                  }
+                                  className="rounded-md px-2 py-1 text-xs text-pink-700 hover:bg-pink-50 dark:text-pink-300 dark:hover:bg-pink-500/10"
+                                >
+                                  Düzenle
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* Özet */}
+          {partners.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp size={16} className="text-pink-600 dark:text-pink-400" />
+                  Partner tipi dağılımı
+                </CardTitle>
+                <CardDescription>
+                  Net (yatırım − çekim): {fmtBrandMoney(totals.deposit - totals.withdrawal, "USD")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {typeSummary.map((t) => (
+                    <div
+                      key={t.type}
+                      className="rounded-lg border border-border/80 bg-muted/25 px-3 py-2"
+                    >
+                      <div className="text-[11px] text-muted-foreground">{t.label}</div>
+                      <div className="mt-0.5 text-lg font-semibold tabular-nums">
+                        {fmtBrandCount(t.count)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
+      )}
+
+      {brandId && (
+        <>
+          <PartnerFormModal
+            open={partnerModal.open}
+            onClose={() => setPartnerModal({ open: false, partner: null })}
+            brandId={brandId}
+            partner={partnerModal.partner}
+            onSaved={handlePartnerSaved}
+            onDeleted={handlePartnerDeleted}
+          />
+          <CsvImportModal
+            open={csvOpen}
+            onClose={() => setCsvOpen(false)}
+            brandId={brandId}
+            onImported={refreshStats}
+          />
+          <DailyStatModal
+            open={statModal.open}
+            onClose={() => setStatModal({ open: false })}
+            partners={partners}
+            presetPartnerId={statModal.partnerId}
+            onSaved={refreshStats}
+          />
+          <PayoutModal
+            open={payoutModal.open}
+            onClose={() => setPayoutModal({ open: false, payout: null })}
+            partners={partners}
+            presetPartnerId={payoutModal.partnerId}
+            payout={payoutModal.payout}
+            onSaved={handlePayoutSaved}
+            onDeleted={handlePayoutDeleted}
+          />
+          <PartnerDetailModal
+            open={!!detailPartnerId}
+            onClose={() => setDetailPartnerId(null)}
+            partner={detailPartner}
+            stats={detailStats}
+            monthTitle={monthTitle}
+            readOnly={readOnly}
+            onAddStat={() => {
+              if (!detailPartner) return;
+              const id = detailPartner.id;
+              setDetailPartnerId(null);
+              setStatModal({ open: true, partnerId: id });
+            }}
+            onAddPayout={() => {
+              if (!detailPartner) return;
+              const id = detailPartner.id;
+              setDetailPartnerId(null);
+              setPayoutModal({ open: true, partnerId: id, payout: null });
+            }}
+          />
+        </>
       )}
     </MarkaPageGuard>
   );
@@ -318,18 +741,20 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
   );
 }
 
-function EmptyState() {
+function EmptyState({ canWrite, onAdd }: { canWrite: boolean; onAdd: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-10 text-center">
       <TrendingUp size={28} className="text-muted-foreground" />
       <div className="text-sm font-medium">Henüz affiliate partner yok</div>
       <div className="max-w-sm text-xs text-muted-foreground">
-        Yönetici tarafından ilk partner eklendiğinde performans tablosu burada
-        görünecek. CSV içe aktarımı yakında aktif olacak.
+        İlk partneri ekleyerek tıklama, kayıt ve komisyon performansını takip etmeye
+        başlayın. Verileri CSV ile toplu da içe aktarabilirsiniz.
       </div>
-      <Button variant="outline" size="sm" className="mt-2 gap-1.5" disabled>
-        <ExternalLink size={14} /> Yönetici ile iletişim
-      </Button>
+      {canWrite && (
+        <Button variant="outline" size="sm" className="mt-2 gap-1.5" onClick={onAdd}>
+          <PlusCircle size={14} /> Yeni partner
+        </Button>
+      )}
     </div>
   );
 }

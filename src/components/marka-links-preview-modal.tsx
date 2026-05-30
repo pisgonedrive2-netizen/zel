@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ExternalLink, Users } from "lucide-react";
+import { ExternalLink, Pencil, Sparkles, Users } from "lucide-react";
 import Modal from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { BrandLinkListToolbar } from "@/components/brand-link-list-toolbar";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { SocialPlatformIcon, platformAccentClass } from "@/components/social-platform-icon";
+import { LinkDetailsModal } from "@/components/link-details-modal";
+import { LinkSnapshotForm } from "@/components/link-snapshot-form";
 import {
   enrichBrandLinksForMonth,
   filterBrandLinksDisplay,
@@ -14,7 +17,9 @@ import {
   sortBrandLinksDisplay,
   type BrandLinkSortKey,
 } from "@/lib/brand-link-display";
-import type { Brand, BrandLink, Employee, LinkSnapshot } from "@/store/store";
+import { useStore, type Brand, type BrandLink, type Employee, type LinkSnapshot } from "@/store/store";
+import { useAuth } from "@/store/auth";
+import { defaultSnapshotDateInMonth } from "@/lib/data";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
 
 function fmtViews(n: number) {
@@ -49,6 +54,27 @@ export function MarkaLinksPreviewModal({
   const [ownerId, setOwnerId] = useState("all");
   const [sortKey, setSortKey] = useState<BrandLinkSortKey>("views");
   const [monthOnly, setMonthOnly] = useState(true);
+
+  // Admin: tek link için API'den çek (detay) ve manuel snapshot düzenleme.
+  const role = useAuth((s) => s.user?.role);
+  const isAdmin = role === "admin";
+  const addLinkSnapshot = useStore((s) => s.addLinkSnapshot);
+  const updateLinkSnapshot = useStore((s) => s.updateLinkSnapshot);
+  const deleteLinkSnapshot = useStore((s) => s.deleteLinkSnapshot);
+  const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
+  const [snapEdit, setSnapEdit] = useState<{ link: BrandLink; snapshot?: LinkSnapshot } | null>(null);
+
+  const rawLinkById = useMemo(() => {
+    const m = new Map<string, BrandLink>();
+    for (const l of links) m.set(l.id, l);
+    return m;
+  }, [links]);
+
+  const monthSnapshotFor = (linkId: string): LinkSnapshot | undefined =>
+    linkSnapshots
+      .filter((s) => s.linkId === linkId && s.date.startsWith(monthYm))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .at(-1);
 
   const enriched = useMemo(
     () => enrichBrandLinksForMonth(links, monthYm, linkSnapshots, todayYm, employees),
@@ -169,6 +195,38 @@ export function MarkaLinksPreviewModal({
                     ) : (
                       <p className="text-[11px] italic text-muted-foreground mt-1">URL henüz yok</p>
                     )}
+
+                    {isAdmin && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 gap-1 px-2 text-[10px]"
+                          onClick={() => {
+                            const raw = rawLinkById.get(link.id);
+                            if (raw) setDetailsLink(raw);
+                          }}
+                          title="API'den detaylı veri çek (1 kota)"
+                        >
+                          <Sparkles size={10} /> Detay & API'den çek
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 gap-1 px-2 text-[10px]"
+                          onClick={() => {
+                            const raw = rawLinkById.get(link.id);
+                            if (raw) setSnapEdit({ link: raw, snapshot: monthSnapshotFor(raw.id) });
+                          }}
+                          title="Bu ayın izlenme snapshot'ını düzenle / ekle"
+                        >
+                          <Pencil size={10} />
+                          {monthSnapshotFor(link.id) ? "Snapshot düzenle" : "Snapshot ekle"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -176,6 +234,52 @@ export function MarkaLinksPreviewModal({
           </div>
         )}
       </div>
+
+      {/* Admin: tek link API detayı (yeniden çek dahil) */}
+      <LinkDetailsModal
+        link={detailsLink}
+        open={detailsLink !== null}
+        onClose={() => setDetailsLink(null)}
+      />
+
+      {/* Admin: manuel snapshot düzenleme */}
+      <Modal
+        open={snapEdit !== null}
+        onClose={() => setSnapEdit(null)}
+        size="md"
+        title={snapEdit?.snapshot ? "Snapshot'ı düzenle" : "Yeni izlenme snapshot'ı"}
+      >
+        {snapEdit && (
+          <LinkSnapshotForm
+            key={snapEdit.snapshot?.id ?? `new-${snapEdit.link.id}-${monthYm}`}
+            link={snapEdit.link}
+            initial={snapEdit.snapshot}
+            defaultDateForNew={defaultSnapshotDateInMonth(monthYm)}
+            suggestedViewsForNew={
+              snapEdit.snapshot
+                ? undefined
+                : enriched.find((e) => e.id === snapEdit.link.id)?.lastViews
+            }
+            onSave={(d) => {
+              if (snapEdit.snapshot) {
+                updateLinkSnapshot(snapEdit.snapshot.id, d);
+              } else {
+                addLinkSnapshot({ ...d, linkId: snapEdit.link.id });
+              }
+              setSnapEdit(null);
+            }}
+            onDelete={
+              snapEdit.snapshot
+                ? () => {
+                    deleteLinkSnapshot(snapEdit.snapshot!.id);
+                    setSnapEdit(null);
+                  }
+                : undefined
+            }
+            onClose={() => setSnapEdit(null)}
+          />
+        )}
+      </Modal>
     </Modal>
   );
 }

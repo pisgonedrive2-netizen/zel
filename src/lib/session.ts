@@ -12,8 +12,15 @@ export interface SessionPayload {
   name: string;
   role: Role;
   employeeId?: string;
+  /** Aktif/birincil marka (geri uyum). */
   brandId?: string;
   avatar: string;
+  /** Multi-tenant (Faz 0): bağlı olduğu organizasyon. */
+  organizationId?: string;
+  /** Org içindeki rol (owner/admin/finance/marketing/hr/viewer). */
+  orgRole?: string;
+  /** Erişebildiği tüm marka id'leri (scope_all_brands ise org'un tüm markaları). */
+  brandIds?: string[];
 }
 
 function secretKey() {
@@ -41,6 +48,9 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       employeeId: typeof p.employeeId === "string" ? p.employeeId : undefined,
       brandId: typeof p.brandId === "string" ? p.brandId : undefined,
       avatar: String(p.avatar ?? ""),
+      organizationId: typeof p.organizationId === "string" ? p.organizationId : undefined,
+      orgRole: typeof p.orgRole === "string" ? p.orgRole : undefined,
+      brandIds: Array.isArray(p.brandIds) ? (p.brandIds as unknown[]).map(String) : undefined,
     };
   } catch {
     return null;

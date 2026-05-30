@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Lock } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type BrandKpiColor = "orange" | "green" | "blue" | "pink";
@@ -23,8 +23,8 @@ interface BrandKpiCardProps {
   /** "Detay →" linki ve etiketi. */
   href?: string;
   linkLabel?: string;
-  /** Faz C için kilitli durum (placeholder). */
-  locked?: boolean;
+  /** Veri yokken boş-durum CTA görünümü (kilitli/"yakında" değil — özellik hazır). */
+  empty?: boolean;
   badge?: string;
 }
 
@@ -81,7 +81,7 @@ export function BrandKpiCard({
   metrics,
   href,
   linkLabel = "Detay",
-  locked = false,
+  empty = false,
   badge,
 }: BrandKpiCardProps) {
   const p = PALETTE[color];
@@ -89,8 +89,8 @@ export function BrandKpiCard({
     <div
       className={cn(
         "group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition-all",
-        !locked && p.glow,
-        locked && "opacity-80"
+        p.glow,
+        empty && "border-dashed"
       )}
     >
       <span
@@ -123,17 +123,16 @@ export function BrandKpiCard({
             )}
           </div>
         </div>
-        {(badge || locked) && (
+        {badge && (
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
-              locked
+              empty
                 ? "bg-muted text-muted-foreground"
                 : cn(p.chip, "border border-current/20")
             )}
           >
-            {locked && <Lock size={9} />}
-            {badge ?? "Faz C"}
+            {badge}
           </span>
         )}
       </div>
@@ -147,7 +146,7 @@ export function BrandKpiCard({
             <p
               className={cn(
                 "text-lg font-bold tabular-nums leading-tight",
-                locked ? "text-muted-foreground" : p.text
+                empty ? "text-muted-foreground" : p.text
               )}
             >
               {m.value}
@@ -161,7 +160,7 @@ export function BrandKpiCard({
         ))}
       </div>
 
-      {href && !locked && (
+      {href && (
         <Link
           href={href}
           className={cn(
@@ -172,11 +171,6 @@ export function BrandKpiCard({
           {linkLabel}
           <ArrowRight size={11} />
         </Link>
-      )}
-      {locked && (
-        <p className="mt-3 text-[11px] font-medium text-muted-foreground">
-          Yakında — Affiliate Tracking
-        </p>
       )}
     </div>
   );

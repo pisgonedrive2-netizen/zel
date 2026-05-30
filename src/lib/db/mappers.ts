@@ -5,6 +5,8 @@ import type {
   StreamerAccount, ScheduleSlot, Brand, BrandLink, LinkSnapshot,
   BrandViewership, BrandMonthlyStats, Kasa, KasaTransaction, ContentExpense, WeeklyPlan,
   WeekBrandReel, AppNotification, BrandRegistrationRequest,
+  StreamerRegistrationRequest,
+  Organization, OrganizationMember,
   AffiliatePartner, AffiliateDailyStat, AffiliatePayout,
   StreamerPoolProfile, BrandOffer, BrandOfferDeliverable, BrandOfferMessage,
   BrandDeal, BrandDealDeliverable, BrandPost,
@@ -409,6 +411,7 @@ export function brandFromRow(r: Record<string, unknown>): Brand {
     status: r.status as Brand["status"],
     notes: str(r.notes),
     monthlyTarget: r.monthly_target != null ? Number(r.monthly_target) : undefined,
+    organizationId: r.organization_id ? str(r.organization_id) : undefined,
   };
 }
 
@@ -421,6 +424,81 @@ export function brandToRow(b: Brand) {
     status: b.status,
     notes: b.notes,
     monthly_target: b.monthlyTarget ?? null,
+    organization_id: b.organizationId ?? null,
+  };
+}
+
+export function organizationFromRow(r: Record<string, unknown>): Organization {
+  return {
+    id: str(r.id),
+    name: str(r.name),
+    slug: str(r.slug),
+    type: r.type as Organization["type"],
+    status: r.status as Organization["status"],
+    plan: r.plan as Organization["plan"],
+    logoUrl: r.logo_url ? str(r.logo_url) : undefined,
+    primaryColor: str(r.primary_color, "#FF6B00"),
+    locale: str(r.locale, "tr"),
+    timezone: str(r.timezone, "Europe/Istanbul"),
+    defaultCurrency: (r.default_currency as Organization["defaultCurrency"]) ?? "USD",
+    contactName: r.contact_name ? str(r.contact_name) : undefined,
+    contactEmail: r.contact_email ? str(r.contact_email) : undefined,
+    onboardingCompleted: bool(r.onboarding_completed),
+    createdFromRequestId: r.created_from_request_id ? str(r.created_from_request_id) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function organizationToRow(o: Organization) {
+  return {
+    id: o.id,
+    name: o.name,
+    slug: o.slug,
+    type: o.type,
+    status: o.status,
+    plan: o.plan,
+    logo_url: o.logoUrl ?? null,
+    primary_color: o.primaryColor,
+    locale: o.locale,
+    timezone: o.timezone,
+    default_currency: o.defaultCurrency,
+    contact_name: o.contactName ?? null,
+    contact_email: o.contactEmail ?? null,
+    onboarding_completed: o.onboardingCompleted,
+    created_from_request_id: o.createdFromRequestId ?? null,
+  };
+}
+
+/**
+ * Üye satırı + opsiyonel brandIds. brandIds ayrı tablodan (organization_member_brands)
+ * doldurulur; repository fetch sırasında map'lenir.
+ */
+export function organizationMemberFromRow(
+  r: Record<string, unknown>,
+  brandIds?: string[]
+): OrganizationMember {
+  return {
+    id: str(r.id),
+    organizationId: str(r.organization_id),
+    userId: str(r.user_id),
+    orgRole: r.org_role as OrganizationMember["orgRole"],
+    scopeAllBrands: bool(r.scope_all_brands, true),
+    title: str(r.title),
+    brandIds: brandIds ?? undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function organizationMemberToRow(m: OrganizationMember) {
+  return {
+    id: m.id,
+    organization_id: m.organizationId,
+    user_id: m.userId,
+    org_role: m.orgRole,
+    scope_all_brands: m.scopeAllBrands,
+    title: m.title,
   };
 }
 
@@ -620,6 +698,7 @@ export function kasaFromRow(r: Record<string, unknown>): KasaTransaction {
     plannedItemId: r.planned_item_id ? str(r.planned_item_id) : undefined,
     tronTxId: r.tron_tx_id ? str(r.tron_tx_id) : undefined,
     autoImported: bool(r.auto_imported),
+    countInGenel: bool(r.count_in_genel),
   };
 }
 
@@ -638,6 +717,7 @@ export function kasaToRow(t: KasaTransaction) {
     planned_item_id: t.plannedItemId ?? null,
     tron_tx_id: t.tronTxId ?? null,
     auto_imported: t.autoImported ?? false,
+    count_in_genel: t.countInGenel ?? false,
   };
 }
 
@@ -767,12 +847,20 @@ export function weekBrandReelFromRow(r: Record<string, unknown>): WeekBrandReel 
     publishedAt: r.published_at ? str(r.published_at) : undefined,
     notes: str(r.notes),
     createdAt: str(r.created_at),
+    externalRef: r.external_ref ? str(r.external_ref) : undefined,
+    lastViews: r.last_views != null ? Number(r.last_views) : undefined,
+    lastLikes: r.last_likes != null ? Number(r.last_likes) : undefined,
+    lastComments: r.last_comments != null ? Number(r.last_comments) : undefined,
+    lastShares: r.last_shares != null ? Number(r.last_shares) : undefined,
+    lastCheckedAt: r.last_checked_at ? str(r.last_checked_at) : undefined,
+    lastCheckError: r.last_check_error ? str(r.last_check_error) : undefined,
+    checkCount: r.check_count != null ? Number(r.check_count) : undefined,
   };
 }
 
 export function weekBrandReelToRow(r: WeekBrandReel) {
   const weekStart = pgDate(r.weekStart) ?? r.weekStart;
-  return {
+  const row: Record<string, unknown> = {
     id: r.id,
     employee_id: r.employeeId,
     week_start: weekStart,
@@ -784,6 +872,10 @@ export function weekBrandReelToRow(r: WeekBrandReel) {
     notes: r.notes,
     created_at: r.createdAt,
   };
+  // İzlenme metriği client state'inde varsa koru (yoksa kolonu yazma — böylece
+  // sunucu refresh'inin yazdığı değerler client toplu-kaydında NULL'a ezilmez).
+  if (r.lastViews != null) row.last_views = r.lastViews;
+  return row;
 }
 
 export function notificationFromRow(r: Record<string, unknown>): AppNotification {
@@ -888,6 +980,65 @@ export function brandRegistrationRequestToRow(r: BrandRegistrationRequest) {
     reviewed_by: r.reviewedBy ?? null,
     reviewed_at: r.reviewedAt ?? null,
     created_brand_id: r.createdBrandId ?? null,
+    created_user_id: r.createdUserId ?? null,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+export function streamerRegistrationRequestFromRow(
+  r: Record<string, unknown>
+): StreamerRegistrationRequest {
+  const status = str(r.status, "pending");
+  const allowed: StreamerRegistrationRequest["status"][] = [
+    "pending",
+    "approved",
+    "rejected",
+    "duplicate",
+  ];
+  return {
+    id: str(r.id),
+    displayName: str(r.display_name),
+    realName: r.real_name ? str(r.real_name) : undefined,
+    contactEmail: str(r.contact_email),
+    contactPhone: r.contact_phone ? str(r.contact_phone) : undefined,
+    telegram: r.telegram ? str(r.telegram) : undefined,
+    platforms: str(r.platforms),
+    categories: str(r.categories),
+    audienceSize: r.audience_size ? str(r.audience_size) : undefined,
+    preferredUsername: r.preferred_username ? str(r.preferred_username) : undefined,
+    notes: str(r.notes),
+    status: (allowed.includes(status as StreamerRegistrationRequest["status"])
+      ? status
+      : "pending") as StreamerRegistrationRequest["status"],
+    rejectionReason: r.rejection_reason ? str(r.rejection_reason) : undefined,
+    reviewedBy: r.reviewed_by ? str(r.reviewed_by) : undefined,
+    reviewedAt: r.reviewed_at ? str(r.reviewed_at) : undefined,
+    createdEmployeeId: r.created_employee_id ? str(r.created_employee_id) : undefined,
+    createdUserId: r.created_user_id ? str(r.created_user_id) : undefined,
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+
+export function streamerRegistrationRequestToRow(r: StreamerRegistrationRequest) {
+  return {
+    id: r.id,
+    display_name: r.displayName,
+    real_name: r.realName ?? null,
+    contact_email: r.contactEmail.toLowerCase().trim(),
+    contact_phone: r.contactPhone ?? null,
+    telegram: r.telegram ?? null,
+    platforms: r.platforms,
+    categories: r.categories,
+    audience_size: r.audienceSize ?? null,
+    preferred_username: r.preferredUsername ?? null,
+    notes: r.notes,
+    status: r.status,
+    rejection_reason: r.rejectionReason ?? null,
+    reviewed_by: r.reviewedBy ?? null,
+    reviewed_at: r.reviewedAt ?? null,
+    created_employee_id: r.createdEmployeeId ?? null,
     created_user_id: r.createdUserId ?? null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,

@@ -14,6 +14,9 @@ interface Props {
 }
 
 const IMG_RX = /^https?:\/\/.+\.(png|jpe?g|gif|webp)(\?.*)?$/i;
+const URL_RX = /^https?:\/\//i;
+/** TRC20 işlem hash'i — 64 karakterlik hex. */
+const TRON_TXID_RX = /^[0-9a-f]{64}$/i;
 
 /** URL girdisi + dosya yükleme tek bileşen. Yüklenen dosya Supabase Storage'a gider. */
 export function ProofUploader({ value, onChange, folder = "expense", placeholder, disabled }: Props) {
@@ -44,10 +47,10 @@ export function ProofUploader({ value, onChange, folder = "expense", placeholder
     <div className="space-y-2">
       <div className="flex gap-2">
         <Input
-          type="url"
+          type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder ?? "https://... veya soldan dosya yükle"}
+          placeholder={placeholder ?? "TXID, https://... veya soldan dosya yükle"}
           className="font-mono text-xs flex-1"
           disabled={disabled || uploading}
         />
@@ -92,7 +95,7 @@ export function ProofUploader({ value, onChange, folder = "expense", placeholder
           {IMG_RX.test(value) ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={value} alt="kanıt" className="max-h-44 object-contain mx-auto" />
-          ) : (
+          ) : URL_RX.test(value) ? (
             <a
               href={value}
               target="_blank"
@@ -101,6 +104,20 @@ export function ProofUploader({ value, onChange, folder = "expense", placeholder
             >
               <ImageIcon size={11} /> {value}
             </a>
+          ) : (
+            <div className="text-xs break-all space-y-1">
+              <p className="font-mono text-foreground/80">{value}</p>
+              {TRON_TXID_RX.test(value.trim()) && (
+                <a
+                  href={`https://tronscan.org/#/transaction/${value.trim()}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 inline-flex items-center gap-1"
+                >
+                  <ImageIcon size={11} /> TronScan&apos;de aç
+                </a>
+              )}
+            </div>
           )}
         </div>
       )}

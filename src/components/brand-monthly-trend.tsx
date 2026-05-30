@@ -13,10 +13,11 @@ import {
   Bar,
   Legend,
 } from "recharts";
-import { TrendingUp, Users, Wallet } from "lucide-react";
+import { Eye, TrendingUp, Users, Wallet } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useStore, type BrandMonthlyStats } from "@/store/store";
 import { fmtBrandMoney, fmtBrandCount } from "@/lib/brand-monthly-stats";
+import { totalLinkViewsForMonth, fmtCompactViews } from "@/lib/brand-month-metrics";
 import { shiftCalendarMonthYm } from "@/lib/data";
 
 function monthLabelShort(ym: string) {
@@ -40,12 +41,36 @@ export function BrandMonthlyTrend({
   brandId,
   monthYm,
   months = 6,
+  todayYm,
 }: {
   brandId: string;
   monthYm: string;
   months?: number;
+  /** Verilirse, operatör verisi yokken link izlenme trendi fallback'i gösterilir. */
+  todayYm?: string;
 }) {
-  const { brandMonthlyStats } = useStore();
+  const { brandMonthlyStats, brandLinks, linkSnapshots } = useStore();
+
+  const brandLinksForBrand = useMemo(
+    () => brandLinks.filter((l) => l.brandId === brandId),
+    [brandLinks, brandId]
+  );
+
+  const viewsData = useMemo(() => {
+    const ref = todayYm ?? monthYm;
+    const out: { month: string; monthLabel: string; views: number }[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const m = shiftCalendarMonthYm(monthYm, -i);
+      out.push({
+        month: m,
+        monthLabel: monthLabelShort(m),
+        views: totalLinkViewsForMonth(brandLinksForBrand, m, linkSnapshots, ref),
+      });
+    }
+    return out;
+  }, [brandLinksForBrand, linkSnapshots, monthYm, months, todayYm]);
+
+  const hasViewsTrend = viewsData.some((d) => d.views > 0);
 
   const data: TrendRow[] = useMemo(() => {
     const out: TrendRow[] = [];
@@ -80,6 +105,79 @@ export function BrandMonthlyTrend({
   );
 
   if (!hasAny) {
+    // Operatör (kayıt/yatırım) verisi yok — ama link izlenme verisi varsa onu göster.
+    if (hasViewsTrend) {
+      const totalViews = viewsData.reduce((s, d) => s + d.views, 0);
+      const peak = viewsData.reduce((m, d) => Math.max(m, d.views), 0);
+      return (
+        <Card className="border-violet-200/50 dark:border-violet-500/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Eye size={16} className="text-violet-700 dark:text-violet-300" />
+              İzlenme trendi (son {months} ay)
+            </CardTitle>
+            <CardDescription>
+              Operatör verisi henüz girilmedi — marka linklerinin aylık toplam izlenmesi gösteriliyor.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <TrendTile
+                label="Toplam izlenme"
+                value={fmtCompactViews(totalViews)}
+                icon={Eye}
+                accent="text-violet-700 dark:text-violet-300"
+              />
+              <TrendTile
+                label="En yüksek ay"
+                value={fmtCompactViews(peak)}
+                icon={TrendingUp}
+                accent="text-emerald-700 dark:text-emerald-300"
+              />
+            </div>
+            <div className="rounded-lg border border-border bg-card px-2 py-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-1 px-2">
+                Aylık toplam izlenme
+              </p>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={viewsData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="brand-views" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.4} />
+                  <XAxis dataKey="monthLabel" stroke="#6b7280" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    stroke="#6b7280"
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(v: number) => fmtCompactViews(v)}
+                  />
+                  <RTooltip
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                    formatter={(value: number) => [fmtCompactViews(value), "İzlenme"]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="views"
+                    name="İzlenme"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    fill="url(#brand-views)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card className="border-dashed">
         <CardHeader className="pb-2">

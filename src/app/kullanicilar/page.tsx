@@ -40,6 +40,7 @@ import Modal from "@/components/ui/modal";
 import { Field, Input, Select, FormGrid, FormActions } from "@/components/ui/field";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { BrandRegistrationsPanel } from "@/components/brand-registrations-panel";
+import { StreamerRegistrationsPanel } from "@/components/streamer-registrations-panel";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -61,6 +62,86 @@ const ROLE_COLORS: Record<Role, string> = {
   brand:    "text-violet-800 border-violet-300 bg-violet-50 dark:text-violet-300 dark:border-violet-500/45 dark:bg-violet-950/40",
 };
 
+/** Rol kartlarının kısa açıklaması ve seçili durum renkleri. */
+const ROLE_DESC: Record<Role, string> = {
+  streamer: "Takvim + kendi izlenmeleri",
+  brand:    "B2B panel · affiliate · CRM",
+  auditor:  "Rapor & denetim (salt görüntüleme)",
+  admin:    "Tüm yetki · kullanıcı yönetimi",
+};
+
+/** Rol kartı seçiliyken çerçeve + zemin tonu. */
+const ROLE_ACTIVE_RING: Record<Role, string> = {
+  admin:    "border-blue-400/70 bg-blue-50/70 ring-blue-400/30 dark:border-blue-500/60 dark:bg-blue-950/40",
+  streamer: "border-amber-400/70 bg-amber-50/70 ring-amber-400/30 dark:border-amber-500/60 dark:bg-amber-950/40",
+  auditor:  "border-purple-400/70 bg-purple-50/70 ring-purple-400/30 dark:border-purple-500/60 dark:bg-purple-950/40",
+  brand:    "border-violet-400/70 bg-violet-50/70 ring-violet-400/30 dark:border-violet-500/60 dark:bg-violet-950/40",
+};
+
+const ROLE_ICON_TONE: Record<Role, string> = {
+  admin:    "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300",
+  streamer: "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300",
+  auditor:  "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300",
+  brand:    "bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300",
+};
+
+const ROLE_ORDER: Role[] = ["streamer", "brand", "auditor", "admin"];
+
+/** Form içi ince bölüm başlığı. */
+function FormSection({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {children}
+      </span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+/** Görsel rol seçici (select yerine kartlar). */
+function RolePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: Role;
+  onChange: (r: Role) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {ROLE_ORDER.map((r) => {
+        const active = value === r;
+        const Icon = ROLE_ICONS[r];
+        return (
+          <button
+            key={r}
+            type="button"
+            onClick={() => !disabled && onChange(r)}
+            disabled={disabled}
+            aria-pressed={active}
+            className={cn(
+              "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
+              active
+                ? `${ROLE_ACTIVE_RING[r]} ring-1`
+                : "border-border bg-card hover:border-foreground/25 hover:bg-accent/40"
+            )}
+          >
+            <span className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md", ROLE_ICON_TONE[r])}>
+              <Icon size={15} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-foreground">{ROLE_LABELS[r]}</span>
+              <span className="block text-[10px] leading-tight text-muted-foreground">{ROLE_DESC[r]}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const AUDIT_TR: Record<AuditAction, string> = {
   user_created:        "Kullanıcı eklendi",
   user_updated:        "Kullanıcı güncellendi",
@@ -75,9 +156,18 @@ const AUDIT_TR: Record<AuditAction, string> = {
 };
 
 // ── User Form ────────────────────────────────────────────────────────────
-function UserForm({ initial, onSave, onClose }: {
+export interface NewBrandInput {
+  brandName: string;
+  shortName?: string;
+  preferredUsername?: string;
+  contactName?: string;
+  customPin?: string;
+}
+
+function UserForm({ initial, onSave, onCreateBrand, onClose }: {
   initial?: AppUser;
   onSave: (d: Omit<AppUser, "id">, generatedPin?: string) => void;
+  onCreateBrand?: (input: NewBrandInput) => void;
   onClose: () => void;
 }) {
   const { employees, brands } = useStore();
@@ -93,12 +183,29 @@ function UserForm({ initial, onSave, onClose }: {
     avatar:     initial?.avatar     ?? "",
     active:     initial?.active     ?? true,
   });
+  // Marka rolü: yeni bağımsız marka aç (kiracı) veya mevcut markaya kullanıcı ekle.
+  const [brandMode, setBrandMode] = useState<"new" | "existing">("new");
+  const [newBrandName, setNewBrandName] = useState("");
+  const [newBrandShort, setNewBrandShort] = useState("");
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
+
+  const brandNewMode = isNew && form.role === "brand" && brandMode === "new";
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        if (brandNewMode) {
+          if (!newBrandName.trim()) return;
+          onCreateBrand?.({
+            brandName: newBrandName.trim(),
+            shortName: newBrandShort.trim() || undefined,
+            preferredUsername: form.username.trim() || undefined,
+            contactName: form.name.trim() || undefined,
+            customPin: form.pin.trim() || undefined,
+          });
+          return;
+        }
         if (isNew) {
           onSave(form, form.pin.trim() || undefined);
           return;
@@ -114,49 +221,45 @@ function UserForm({ initial, onSave, onClose }: {
             Bu hesap <strong>Ana Yönetici</strong>dır. Kullanıcı adı, rol ve durum kilitlidir; ad, avatar ve PIN güncellenebilir.
           </div>
         )}
+
+        <FormSection>Kimlik</FormSection>
         <FormGrid>
-          <Field label="Ad Soyad" required>
-            <Input value={form.name} onChange={e => set("name", e.target.value)} required placeholder="Ad Soyad" />
+          <Field label={brandNewMode ? "Yetkili ad soyad" : "Ad Soyad"} required={!brandNewMode}>
+            <Input value={form.name} onChange={e => set("name", e.target.value)} required={!brandNewMode} placeholder="Ad Soyad" />
           </Field>
           <Field label="Avatar Harfi" hint="1-2 karakter">
             <Input value={form.avatar} onChange={e => set("avatar", e.target.value.slice(0, 2).toUpperCase())} placeholder="A" maxLength={2} />
           </Field>
         </FormGrid>
-        <FormGrid>
-          <Field label="Kullanıcı Adı (giriş)" required>
-            <Input
-              value={form.username}
-              onChange={e => set("username", e.target.value.toLowerCase().trim())}
-              required
-              placeholder="kullanici"
-              disabled={lockedMainAdmin}
-            />
-          </Field>
-          <Field label="Rol" required>
-            <Select value={form.role} onChange={e => {
-              const r = e.target.value as Role;
-              setForm(f => {
-                const next = { ...f, role: r };
-                if (r === "streamer") {
-                  next.brandId = undefined;
-                } else if (r === "brand") {
-                  next.employeeId = undefined;
-                } else {
-                  next.employeeId = undefined;
-                  next.brandId = undefined;
-                }
-                return next;
-              });
-            }} required
-              disabled={lockedMainAdmin}
-              options={[
-                { value: "streamer", label: "Yayıncı" },
-                { value: "brand",    label: "Marka (sadece takvim + kendi izlenmeler)" },
-                { value: "auditor",  label: "Denetçi" },
-                { value: "admin",    label: "Yönetici (tüm yetki)" },
-              ]} />
-          </Field>
-        </FormGrid>
+        <Field label="Kullanıcı Adı (giriş)" required={!brandNewMode} hint={brandNewMode ? "Boş bırakılırsa marka adından üretilir" : undefined}>
+          <Input
+            value={form.username}
+            onChange={e => set("username", e.target.value.toLowerCase().trim())}
+            required={!brandNewMode}
+            placeholder={brandNewMode ? "otomatik" : "kullanici"}
+            disabled={lockedMainAdmin}
+          />
+        </Field>
+
+        <FormSection>Rol &amp; yetki</FormSection>
+        <RolePicker
+          value={form.role}
+          disabled={lockedMainAdmin}
+          onChange={(r) =>
+            setForm(f => {
+              const next = { ...f, role: r };
+              if (r === "streamer") {
+                next.brandId = undefined;
+              } else if (r === "brand") {
+                next.employeeId = undefined;
+              } else {
+                next.employeeId = undefined;
+                next.brandId = undefined;
+              }
+              return next;
+            })
+          }
+        />
         {form.role === "streamer" && (
           <Field label="Bağlı Yayıncı (Employee)" hint="Yayıncı hangi maaş kaydına bağlı?">
             <Select value={form.employeeId ?? ""} onChange={e => set("employeeId", e.target.value || undefined)}
@@ -164,21 +267,82 @@ function UserForm({ initial, onSave, onClose }: {
           </Field>
         )}
         {form.role === "brand" && (
-          <Field label="Bağlı marka" hint="Giriş yapan kullanıcı sadece bu markanın özetini görür.">
-            <Select
-              value={form.brandId ?? ""}
-              onChange={e => set("brandId", e.target.value || undefined)}
-              options={[
-                { value: "", label: "— Seçin —" },
-                ...[...brands].sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")).map((b) => ({
-                  value: b.id,
-                  label: `${b.shortName} — ${b.name}`,
-                })),
-              ]}
-              required
-            />
-          </Field>
+          isNew ? (
+            <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-500/40 dark:bg-violet-950/25">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBrandMode("new")}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left text-sm transition",
+                    brandMode === "new"
+                      ? "border-violet-400/70 bg-violet-100/70 ring-1 ring-violet-400/30 dark:bg-violet-900/40"
+                      : "border-border bg-card hover:bg-accent/40"
+                  )}
+                >
+                  <span className="block font-semibold text-foreground">Yeni marka aç</span>
+                  <span className="block text-[11px] text-muted-foreground">Bağımsız kiracı (org + marka + sahibi)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBrandMode("existing")}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left text-sm transition",
+                    brandMode === "existing"
+                      ? "border-violet-400/70 bg-violet-100/70 ring-1 ring-violet-400/30 dark:bg-violet-900/40"
+                      : "border-border bg-card hover:bg-accent/40"
+                  )}
+                >
+                  <span className="block font-semibold text-foreground">Mevcut markaya ekle</span>
+                  <span className="block text-[11px] text-muted-foreground">Var olan bir markaya kullanıcı</span>
+                </button>
+              </div>
+
+              {brandMode === "new" ? (
+                <FormGrid>
+                  <Field label="Marka adı" required>
+                    <Input value={newBrandName} onChange={e => setNewBrandName(e.target.value)} required placeholder="Ör. Yeni Bahis" />
+                  </Field>
+                  <Field label="Kısa ad" hint="Boşsa marka adından üretilir">
+                    <Input value={newBrandShort} onChange={e => setNewBrandShort(e.target.value.slice(0, 12))} placeholder="YB" maxLength={12} />
+                  </Field>
+                </FormGrid>
+              ) : (
+                <Field label="Mevcut marka" hint="Giriş yapan kullanıcı sadece bu markanın özetini görür.">
+                  <Select
+                    value={form.brandId ?? ""}
+                    onChange={e => set("brandId", e.target.value || undefined)}
+                    options={[
+                      { value: "", label: "— Seçin —" },
+                      ...[...brands].sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")).map((b) => ({
+                        value: b.id,
+                        label: `${b.shortName} — ${b.name}`,
+                      })),
+                    ]}
+                    required
+                  />
+                </Field>
+              )}
+            </div>
+          ) : (
+            <Field label="Bağlı marka" hint="Giriş yapan kullanıcı sadece bu markanın özetini görür.">
+              <Select
+                value={form.brandId ?? ""}
+                onChange={e => set("brandId", e.target.value || undefined)}
+                options={[
+                  { value: "", label: "— Seçin —" },
+                  ...[...brands].sort((a, b) => a.shortName.localeCompare(b.shortName, "tr")).map((b) => ({
+                    value: b.id,
+                    label: `${b.shortName} — ${b.name}`,
+                  })),
+                ]}
+                required
+              />
+            </Field>
+          )
         )}
+
+        <FormSection>Giriş bilgileri</FormSection>
         <Field label="PIN" hint={isNew ? "Otomatik üretildi. Kayıt sonrası bir daha gösterilmez — kopyalayın!" : "Manuel değiştirmek için"}>
           <div className="flex gap-2">
             <Input
@@ -198,7 +362,7 @@ function UserForm({ initial, onSave, onClose }: {
             options={[{ value: "yes", label: "Aktif" }, { value: "no", label: "Pasif (giriş yapamaz)" }]} />
         </Field>
       </div>
-      <FormActions onCancel={onClose} submitLabel={isNew ? "Kullanıcı Oluştur" : "Güncelle"} />
+      <FormActions onCancel={onClose} submitLabel={brandNewMode ? "Marka Oluştur" : isNew ? "Kullanıcı Oluştur" : "Güncelle"} />
     </form>
   );
 }
@@ -546,10 +710,11 @@ function AuditLogPanel({
 }
 
 // ── Page ────────────────────────────────────────────────────────────────
-type KullanicilarTab = "users" | "brand-registrations";
+type KullanicilarTab = "users" | "brand-registrations" | "streamer-registrations";
 
 const TAB_PARAM_TO_ID: Record<string, KullanicilarTab> = {
   "marka-basvurulari": "brand-registrations",
+  "yayinci-basvurulari": "streamer-registrations",
   "users": "users",
   "kullanicilar": "users",
 };
@@ -557,6 +722,7 @@ const TAB_PARAM_TO_ID: Record<string, KullanicilarTab> = {
 const TAB_ID_TO_PARAM: Record<KullanicilarTab, string> = {
   users: "users",
   "brand-registrations": "marka-basvurulari",
+  "streamer-registrations": "yayinci-basvurulari",
 };
 
 export default function UsersPage() {
@@ -813,6 +979,36 @@ export default function UsersPage() {
     setModal(null);
   };
 
+  const handleCreateBrand = async (input: NewBrandInput) => {
+    try {
+      const res = await fetch("/api/admin/brands", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        brand?: { id: string; name: string };
+        user?: AppUser;
+        plainPin?: string;
+      };
+      if (!res.ok || !data.user) {
+        setFlash(data.error ?? "Marka oluşturulamadı.");
+        return;
+      }
+      await refreshUsers();
+      setModal(null);
+      if (data.plainPin) {
+        setPinModal({ user: { ...data.user, pin: data.plainPin }, pin: data.plainPin });
+      }
+      setFlash(`✓ ${data.brand?.name ?? "Marka"} bağımsız kiracı olarak oluşturuldu.`);
+    } catch (e) {
+      setFlash(e instanceof Error ? e.message : "Marka oluşturulamadı.");
+    }
+  };
+
   const handleResetPin = async (u: AppUser) => {
     const newPin = generatePin();
     const r = await resetPin(u.id, newPin);
@@ -897,12 +1093,18 @@ export default function UsersPage() {
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold text-foreground">
-            {tab === "brand-registrations" ? "Marka Başvuruları" : "Kullanıcılar"}
+            {tab === "brand-registrations"
+              ? "Marka Başvuruları"
+              : tab === "streamer-registrations"
+                ? "Yayıncı Başvuruları"
+                : "Kullanıcılar"}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
             {tab === "brand-registrations"
               ? "B2B marka self-servis kayıt başvurularını inceleyin, onaylayın veya reddedin"
-              : "Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın"}
+              : tab === "streamer-registrations"
+                ? "Yayıncı self-servis kayıt başvurularını inceleyin, onaylayın veya reddedin"
+                : "Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın"}
           </p>
         </div>
         {tab === "users" && (
@@ -938,6 +1140,7 @@ export default function UsersPage() {
             [
               { id: "users", label: "Kullanıcılar", icon: UsersIcon },
               { id: "brand-registrations", label: "Marka Başvuruları", icon: Inbox },
+              { id: "streamer-registrations", label: "Yayıncı Başvuruları", icon: Inbox },
             ] as ReadonlyArray<{
               id: KullanicilarTab;
               label: string;
@@ -969,6 +1172,8 @@ export default function UsersPage() {
 
       {tab === "brand-registrations" ? (
         <BrandRegistrationsPanel />
+      ) : tab === "streamer-registrations" ? (
+        <StreamerRegistrationsPanel />
       ) : (
       <>
       {/* Kayıtlı kullanıcılar — kart filtre + tablo (tüm kolonlar korunur) */}
@@ -1288,6 +1493,7 @@ export default function UsersPage() {
             key={modal === "new" ? "new" : modal.id}
             initial={modal === "new" ? undefined : modal}
             onSave={handleSave}
+            onCreateBrand={handleCreateBrand}
             onClose={() => setModal(null)}
           />
         )}
