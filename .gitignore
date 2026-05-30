@@ -10,3 +10,6 @@ scripts/*.log
 seed.sql
 seed-err.log
 /tmp
+
+# Yanlışlıkla eklenmesin — kök dizindeki landing görseli
+landing.jpg
