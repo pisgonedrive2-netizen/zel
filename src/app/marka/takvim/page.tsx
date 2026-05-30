@@ -21,6 +21,13 @@ import {
   WEEKDAYS_LONG,
   weekStartOf,
 } from "@/store/store";
+import {
+  BASE_TIMEZONE,
+  CALENDAR_TIMEZONES,
+  convertFromBase,
+  formatConverted,
+  offsetLabelFromBase,
+} from "@/lib/timezones";
 import { BrandLogo } from "@/components/brand-logo";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
@@ -81,25 +88,39 @@ function empColor(id: string) {
 export default function MarkaTakvimPage() {
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, canViewBrand, navMonth, monthTitle } = portal;
-  const { employees, scheduleSlots, weeklyPlans, streamerAccounts } = useStore();
+  const { employees, scheduleSlots, weeklyPlans, streamerAccounts, brandLinks } = useStore();
 
   const thisWeek = weekStartOf(todayDateLocal());
   const [weekView, setWeekView] = useState(thisWeek);
   const [fullscreen, setFullscreen] = useState(false);
+  // Takvim saat dilimi — saatler Türkiye saatinde saklanır, seçilen ülkeye çevrilir.
+  const [tz, setTz] = useState(BASE_TIMEZONE);
+  const tt = (hhmm?: string) => (hhmm ? formatConverted(convertFromBase(hhmm, tz)) : "");
 
   useEffect(() => {
     setWeekView(weekStartOf(`${month}-15`));
   }, [month]);
 
-  const yayincilar = useMemo(
-    () => employees.filter((e) => e.kind === "streamer" && e.status === "active"),
-    [employees]
-  );
-
   const plansForBrand = useMemo(() => {
     if (!brand) return [];
     return filterWeeklyPlansForBrand(weeklyPlans, brand);
   }, [weeklyPlans, brand]);
+
+  // Bu markaya ait yayıncılar: markaya bağlı link sahipleri VEYA markaya plan
+  // girmiş yayıncılar. Böylece yeni/bağımsız markalar ajansın iç yayıncılarını
+  // (Ramiz, Acelya, Lucy vb.) takviminde görmez.
+  const yayincilar = useMemo(() => {
+    const ids = new Set<string>();
+    for (const l of brandLinks) {
+      if (l.brandId === brandId && l.ownerId) ids.add(l.ownerId);
+    }
+    for (const p of plansForBrand) {
+      if (p.employeeId) ids.add(p.employeeId);
+    }
+    return employees.filter(
+      (e) => e.kind === "streamer" && e.status === "active" && ids.has(e.id)
+    );
+  }, [employees, brandLinks, brandId, plansForBrand]);
 
   const plansInMonth = useMemo(
     () => plansForBrand.filter((p) => p.date.startsWith(month)),
@@ -182,6 +203,27 @@ export default function MarkaTakvimPage() {
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-1">
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none mr-1">
+                  <Globe size={12} />
+                  <span className="hidden sm:inline">Saat:</span>
+                  <select
+                    value={tz}
+                    onChange={(e) => setTz(e.target.value)}
+                    className="h-7 rounded-md border border-border bg-card px-1.5 text-[11px] text-foreground outline-none focus:border-primary/50"
+                    aria-label="Takvim saat dilimi"
+                  >
+                    {CALENDAR_TIMEZONES.map((z) => (
+                      <option key={z.tz} value={z.tz}>
+                        {z.flag} {z.label}
+                      </option>
+                    ))}
+                  </select>
+                  {tz !== BASE_TIMEZONE && (
+                    <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] tabular-nums">
+                      {offsetLabelFromBase(tz)}
+                    </span>
+                  )}
+                </label>
                 <Button variant="ghost" size="sm" type="button" className="h-8 w-8 p-0" onClick={() => navWeek(-1)}>
                   <ChevronLeft size={14} />
                 </Button>
@@ -258,8 +300,8 @@ export default function MarkaTakvimPage() {
                                   </p>
                                   {(p.startTime || p.endTime) && (
                                     <p className="font-mono text-[9px] opacity-80">
-                                      {p.startTime}
-                                      {p.endTime ? `–${p.endTime}` : ""}
+                                      {tt(p.startTime)}
+                                      {p.endTime ? `–${tt(p.endTime)}` : ""}
                                     </p>
                                   )}
                                   <p className="font-medium leading-tight">{p.activity}</p>
@@ -384,7 +426,7 @@ export default function MarkaTakvimPage() {
                                         <span className="truncate">{s.platform}</span>
                                       </div>
                                       <p className="text-[10px] opacity-80 truncate">
-                                        {s.startTime}–{s.endTime}
+                                        {tt(s.startTime)}–{tt(s.endTime)}
                                       </p>
                                     </div>
                                   );
@@ -412,6 +454,7 @@ export default function MarkaTakvimPage() {
             onJumpThisWeek={() => setWeekView(thisWeek)}
             isThisWeek={weekView === thisWeek}
             accountLabel={accountLabel}
+            tt={tt}
           />
         </div>
       )}
@@ -423,11 +466,6 @@ function parsePlanTime(t?: string): number {
   if (!t) return -1;
   const [h, m] = t.split(":").map(Number);
   return h * 60 + (m || 0);
-}
-
-function formatPlanTimeRange(p: WeeklyPlan): string | null {
-  if (!p.startTime && !p.endTime) return null;
-  return `${p.startTime ?? "—"}${p.endTime ? `–${p.endTime}` : ""}`;
 }
 
 function BrandWeekFullscreen({
@@ -442,6 +480,7 @@ function BrandWeekFullscreen({
   onJumpThisWeek,
   isThisWeek,
   accountLabel,
+  tt,
 }: {
   open: boolean;
   onClose: () => void;
@@ -454,6 +493,7 @@ function BrandWeekFullscreen({
   onJumpThisWeek: () => void;
   isThisWeek: boolean;
   accountLabel: (id?: string) => string;
+  tt: (hhmm?: string) => string;
 }) {
   const hours = useMemo(() => {
     const set = new Set<number>();
@@ -532,7 +572,7 @@ function BrandWeekFullscreen({
             {hours.map((hour) => (
               <div key={hour} className="contents">
                 <div className="border-b border-border px-1 py-2 text-[10px] text-muted-foreground text-right font-mono bg-muted/20">
-                  {String(hour).padStart(2, "0")}:00
+                  {tt(`${String(hour).padStart(2, "0")}:00`)}
                 </div>
                 {weekDays.map((iso) => {
                   const slotPlans = weekPlans.filter((p) => {
@@ -548,6 +588,10 @@ function BrandWeekFullscreen({
                     >
                       {slotPlans.map((p) => {
                         const emp = employees.get(p.employeeId);
+                        const timeRange =
+                          p.startTime || p.endTime
+                            ? `${tt(p.startTime)}${p.endTime ? "–" + tt(p.endTime) : ""}`
+                            : null;
                         return (
                           <div
                             key={p.id}
@@ -559,9 +603,9 @@ function BrandWeekFullscreen({
                             <p className="font-semibold truncate">
                               {emp?.name.split(" ")[0] ?? "Yayıncı"}
                             </p>
-                            {formatPlanTimeRange(p) && (
+                            {timeRange && (
                               <p className="font-mono text-[8px] opacity-80">
-                                {formatPlanTimeRange(p)}
+                                {timeRange}
                               </p>
                             )}
                             <p className="font-medium truncate">{p.activity}</p>

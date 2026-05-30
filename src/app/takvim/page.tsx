@@ -5,12 +5,13 @@ import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, ExternalLink, Copy, Check, Link as LinkIcon,
   Twitch, Youtube, Instagram, Send, Globe, MessageCircle,
-  ChevronDown, ChevronUp, Filter, CalendarDays,
+  ChevronDown, ChevronUp, Filter, CalendarDays, Maximize2,
 } from "lucide-react";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
+import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -181,7 +182,7 @@ function SlotForm({
 export default function TakvimPage() {
   const { user, users } = useAuth();
   const {
-    employees, streamerAccounts, scheduleSlots, weeklyPlans,
+    employees, streamerAccounts, scheduleSlots, weeklyPlans, weekBrandReels,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
@@ -275,6 +276,8 @@ export default function TakvimPage() {
   const [planModal, setPlanModal] = useState<{ mode: "new" | WeeklyPlan; weekStart: string; employeeId: string } | null>(null);
   // Üst grid haftalık planları da göstersin
   const [overlayPlans, setOverlayPlans] = useState(true);
+  // Saat saat geniş-ekran görünümü
+  const [fullscreen, setFullscreen] = useState(false);
   // Takvim saat dilimi — saatler Türkiye saatinde saklanır, seçilen ülkeye çevrilir.
   const [tz, setTz] = useState(BASE_TIMEZONE);
   const tt = (hhmm: string) => formatConverted(convertFromBase(hhmm, tz));
@@ -296,6 +299,26 @@ export default function TakvimPage() {
       ),
     [weeklyPlans, planEmployeeId, planWeek]
   );
+
+  // Achievement (paylaşım) takvimi: seçili yayıncının hafta reel/post tarihleri.
+  const activityDates = useMemo(() => {
+    const dates: string[] = [];
+    for (const r of weekBrandReels) {
+      if (r.employeeId !== planEmployeeId) continue;
+      dates.push(r.publishedAt ?? r.createdAt ?? r.weekStart);
+    }
+    return dates.filter(Boolean);
+  }, [weekBrandReels, planEmployeeId]);
+
+  // Yayıncıya tıklayınca plan + achievement detayına götür.
+  const selectStreamer = (id: string) => {
+    setPlanEmpId(id);
+    setTimeout(() => {
+      document
+        .getElementById("yayinci-plan-detay")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
 
   // Üst grid'de gösterim için bu haftanın günleri (Pazartesi - Pazar)
   const currentWeekDays = useMemo(() => weekDayIsosFromStart(planWeek), [planWeek]);
@@ -378,6 +401,16 @@ export default function TakvimPage() {
                 />
                 <CalendarDays size={11} /> Yayıncı planlarını göster ({weekRangeLabel(planWeek)})
               </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 text-[11px]"
+                onClick={() => setFullscreen(true)}
+                title="Saat saat geniş takvim görünümü"
+              >
+                <Maximize2 size={12} /> Geniş ekran
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -399,7 +432,7 @@ export default function TakvimPage() {
 
               {/* Yayıncı satırları */}
               {yayincilar.map((emp) => (
-                <RowFragment key={emp.id} emp={emp}>
+                <RowFragment key={emp.id} emp={emp} onSelect={() => selectStreamer(emp.id)}>
                   {WEEKDAYS_LONG.map((_, dayIdx) => {
                     const day = dayIdx + 1;
                     const slots = scheduleSlots.filter(s => s.employeeId === emp.id && s.dayOfWeek === day);
@@ -520,14 +553,19 @@ export default function TakvimPage() {
           return (
             <Card key={emp.id} className="gap-0 overflow-hidden">
               <CardHeader className="flex-row items-center justify-between gap-2 py-3 px-4">
-                <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => selectStreamer(emp.id)}
+                  title={`${emp.name} · plan ve achievement detayını aç`}
+                  className="group flex items-center gap-3 text-left min-w-0"
+                >
                   <Avatar className="h-9 w-9">
                     <AvatarFallback className={`text-xs font-bold ${empColor(emp.id)}`}>
                       {emp.avatar || emp.name[0]}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <CardTitle className="text-sm font-semibold">{emp.name}</CardTitle>
+                    <CardTitle className="text-sm font-semibold group-hover:underline">{emp.name}</CardTitle>
                     <div className="flex flex-wrap items-center gap-1 mt-1">
                       {Object.entries(platformCounts).map(([plat, cnt]) => {
                         const PIcon = platformIcon(plat);
@@ -548,7 +586,7 @@ export default function TakvimPage() {
                       )}
                     </div>
                   </div>
-                </div>
+                </button>
                 <Button
                   type="button"
                   size="sm"
@@ -638,7 +676,7 @@ export default function TakvimPage() {
       </div>
 
       {/* ── YAYINCI HAFTALIK PLANLARI (tarihli) ─────────────────────── */}
-      <div className="mt-10 mb-4">
+      <div id="yayinci-plan-detay" className="mt-10 mb-4 scroll-mt-16">
         <h2 className="text-lg font-semibold text-foreground">Yayıncı Haftalık Planları</h2>
         <p className="text-muted-foreground text-sm mt-1">
           Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Geçmiş haftalara dönük güncellemeler de kalıcı olarak saklanır.
@@ -669,6 +707,11 @@ export default function TakvimPage() {
         </div>
         {yayincilar.length > 0 && planEmployeeId && (
           <div className="mt-4 space-y-4">
+            <PostActivityCalendar
+              activityDates={activityDates}
+              title={`${yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"} · paylaşım achievement'ı`}
+              description="Seçili yayıncının reel/post paylaşım günleri (API tarihleriyle) — seri ve toplam içerik takibi"
+            />
             <ShiftTemplateCard
               weekStart={planWeek}
               weekDays={currentWeekDays}
@@ -790,22 +833,174 @@ export default function TakvimPage() {
           />
         )}
       </Modal>
+
+      <AdminWeekFullscreen
+        open={fullscreen}
+        onClose={() => setFullscreen(false)}
+        weekLabel={weekRangeLabel(planWeek)}
+        weekDays={currentWeekDays}
+        yayincilar={yayincilar}
+        scheduleSlots={scheduleSlots}
+        plansByEmpDay={plansThisWeekByEmpDay}
+        overlayPlans={overlayPlans}
+        tt={tt}
+        empColor={empColor}
+      />
     </div>
   );
 }
 
+/** Admin haftalık takvim — saat saat geniş-ekran görünümü (saat dilimi çevirili). */
+function AdminWeekFullscreen({
+  open,
+  onClose,
+  weekLabel,
+  weekDays,
+  yayincilar,
+  scheduleSlots,
+  plansByEmpDay,
+  overlayPlans,
+  tt,
+  empColor,
+}: {
+  open: boolean;
+  onClose: () => void;
+  weekLabel: string;
+  weekDays: string[];
+  yayincilar: Employee[];
+  scheduleSlots: ScheduleSlot[];
+  plansByEmpDay: Map<string, WeeklyPlan[]>;
+  overlayPlans: boolean;
+  tt: (hhmm: string) => string;
+  empColor: (id: string) => string;
+}) {
+  interface HourEntry {
+    key: string;
+    dayIdx: number;
+    startHour: number;
+    empName: string;
+    empId: string;
+    time: string;
+    title: string;
+  }
+
+  const { entries, hours } = useMemo(() => {
+    const list: HourEntry[] = [];
+    const hourSet = new Set<number>();
+    for (let h = 8; h <= 23; h++) hourSet.add(h);
+    const parseHour = (t?: string) => {
+      if (!t) return -1;
+      const [h] = t.split(":").map(Number);
+      return Number.isFinite(h) ? h : -1;
+    };
+    for (const emp of yayincilar) {
+      // Sürekli slotlar
+      for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+        const day = dayIdx + 1;
+        for (const s of scheduleSlots.filter((x) => x.employeeId === emp.id && x.dayOfWeek === day)) {
+          const sh = parseHour(s.startTime);
+          if (sh >= 0) hourSet.add(sh);
+          list.push({
+            key: `s-${s.id}`,
+            dayIdx,
+            startHour: sh < 0 ? 10 : sh,
+            empName: emp.name.split(" ")[0],
+            empId: emp.id,
+            time: `${tt(s.startTime)}–${tt(s.endTime)}`,
+            title: s.platform + (s.notes ? ` · ${s.notes}` : ""),
+          });
+        }
+      }
+      // Yayıncı planları (overlay)
+      if (overlayPlans) {
+        for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
+          const iso = weekDays[dayIdx];
+          if (!iso) continue;
+          for (const p of plansByEmpDay.get(`${emp.id}::${iso}`) ?? []) {
+            const sh = parseHour(p.startTime);
+            if (sh >= 0) hourSet.add(sh);
+            list.push({
+              key: `p-${p.id}`,
+              dayIdx,
+              startHour: sh < 0 ? 10 : sh,
+              empName: emp.name.split(" ")[0],
+              empId: emp.id,
+              time: p.startTime ? `${tt(p.startTime)}${p.endTime ? "–" + tt(p.endTime) : ""}` : "",
+              title: p.activity + (p.brandName ? ` · ${p.brandName}` : ""),
+            });
+          }
+        }
+      }
+    }
+    return { entries: list, hours: [...hourSet].sort((a, b) => a - b) };
+  }, [yayincilar, scheduleSlots, plansByEmpDay, overlayPlans, weekDays, tt]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Haftalık takvim · geniş ekran" size="full">
+      <div className="space-y-3 -mx-1">
+        <p className="text-sm text-muted-foreground">
+          {weekLabel} · saat saat yayıncı slotları ve planları
+        </p>
+        <div className="overflow-x-auto border border-border rounded-xl">
+          <div className="grid min-w-[760px]" style={{ gridTemplateColumns: `3.5rem repeat(7, minmax(6rem, 1fr))` }}>
+            <div className="border-b border-border bg-muted/30 p-1" />
+            {WEEKDAYS_LONG.map((d, i) => (
+              <div key={d} className="border-b border-l border-border bg-muted/30 p-2 text-center">
+                <p className="text-[10px] font-semibold uppercase text-muted-foreground">{d.slice(0, 3)}</p>
+                {weekDays[i] && <p className="text-xs font-medium tabular-nums">{weekDays[i].slice(8, 10)}</p>}
+              </div>
+            ))}
+            {hours.map((hour) => (
+              <div key={hour} className="contents">
+                <div className="border-b border-border px-1 py-2 text-[10px] text-muted-foreground text-right font-mono bg-muted/20">
+                  {tt(`${String(hour).padStart(2, "0")}:00`)}
+                </div>
+                {WEEKDAYS_LONG.map((_, dayIdx) => {
+                  const cell = entries.filter((e) => e.dayIdx === dayIdx && e.startHour === hour);
+                  return (
+                    <div key={`${dayIdx}-${hour}`} className="border-b border-l border-border p-0.5 min-h-[48px] align-top">
+                      {cell.map((e) => (
+                        <div
+                          key={e.key}
+                          className={`w-full text-left px-1 py-0.5 mb-0.5 rounded border text-[9px] ${empColor(e.empId)}`}
+                        >
+                          <p className="font-semibold truncate">{e.empName}</p>
+                          {e.time && <p className="font-mono text-[8px] opacity-80">{e.time}</p>}
+                          <p className="font-medium truncate">{e.title}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Saatsiz planlar 10:00 satırında gösterilir. Saatler seçilen saat dilimine çevrilir.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
 /** Grid içinde "Yayıncı adı + 7 gün hücresi"ni tek satır olarak render eden yardımcı. */
-function RowFragment({ emp, children }: { emp: Employee; children: React.ReactNode }) {
+function RowFragment({ emp, children, onSelect }: { emp: Employee; children: React.ReactNode; onSelect?: () => void }) {
   return (
     <>
-      <div className="flex items-center gap-2 px-2 py-1.5">
+      <button
+        type="button"
+        onClick={onSelect}
+        title={`${emp.name} · plan ve achievement detayını aç`}
+        className="group flex items-center gap-2 px-2 py-1.5 text-left rounded-md hover:bg-accent/50 transition-colors"
+      >
         <Avatar className="h-7 w-7">
           <AvatarFallback className="bg-blue-100 text-blue-700 text-[10px] font-bold">
             {emp.avatar || emp.name[0]}
           </AvatarFallback>
         </Avatar>
-        <span className="text-xs font-medium truncate">{emp.name.split(" ")[0]}</span>
-      </div>
+        <span className="text-xs font-medium truncate group-hover:underline">{emp.name.split(" ")[0]}</span>
+      </button>
       {children}
     </>
   );

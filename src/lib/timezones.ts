@@ -29,6 +29,7 @@ export const CALENDAR_TIMEZONES: CalendarTimezone[] = [
   { tz: "Asia/Baku", label: "Azerbaycan (Bakü)", flag: "🇦🇿" },
   { tz: "Asia/Tashkent", label: "Özbekistan (Taşkent)", flag: "🇺🇿" },
   { tz: "Asia/Kolkata", label: "Hindistan (Delhi)", flag: "🇮🇳" },
+  { tz: "Asia/Bangkok", label: "Tayland (Bangkok)", flag: "🇹🇭" },
   { tz: "America/New_York", label: "ABD (New York)", flag: "🇺🇸" },
   { tz: "America/Sao_Paulo", label: "Brezilya (São Paulo)", flag: "🇧🇷" },
 ];
