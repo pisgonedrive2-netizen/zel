@@ -11,7 +11,12 @@ import {
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
-import { weekStartFromDateIso } from "@/lib/data";
+import {
+  mergeBrandViewershipHydrate,
+  mergeCanonicalBrandLinks,
+  mergeLinkSnapshotsHydrate,
+} from "@/lib/merge-viewership-hydrate";
+import { isoToLocalDateOnly, localNoonTimestampIso, normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
@@ -1222,16 +1227,17 @@ export const initialEmployees: Employee[] = [
     department: "Yayın",
     baseSalary: 3500,
     rentSupport: 650,
-    initialAdvance: 0,
+    initialAdvance: 900,
     paymentDay: "1-5",
-    payrollStartMonth: "2026-06",
+    payrollStartMonth: "2026-05",
     startDate: "2026-05-03",
     status: "active",
     walletAddress: "",
     avatar: "A",
     notes:
-      "3 Mayıs 2026'da aramıza katıldı. İlk maaş 1–5 Haziran 2026 arasında " +
-      "$3.500. Ev kira desteği $650/ay (Lucy ile toplam $1.300/ay).",
+      "3 Mayıs 2026'da aramıza katıldı. Toplam $900 avans; Mayıs 2026 ilk bordro: " +
+      "$300 avans kesintisi (1/3) · Mayıs kira desteği $1.550 · net $4.750 ($3.500 + $1.550 − $300) · 1–5 Haziran ödemesi. " +
+      "Haziran'dan itibaren $650/ay kira (Lucy ile $1.300 kap) + avans kesintisi planı.",
     kind: "streamer",
   },
   {
@@ -1324,7 +1330,42 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     type: "deduction",
   });
 
-  // Acelya — Haziran 2026 ve sonrası (ilk maaş Haziran 1-5)
+  // Acelya — $900 avans · $300/ay geri ödeme (May–Tem 2026, 1–5 ödeme takvimi)
+  const acelyaAdvancePlan: Array<{ month: string; amount: number; note: string }> = [
+    {
+      month: "2026-05",
+      amount: 300,
+      note: "Açık avans geri ödemesi (1/3 · ilk maaş) · 1–5 Haziran 2026 · kalan $600",
+    },
+    {
+      month: "2026-06",
+      amount: 300,
+      note: "Açık avans geri ödemesi (2/3) · 1–5 Temmuz 2026 · kalan $300",
+    },
+    {
+      month: "2026-07",
+      amount: 300,
+      note: "Açık avans geri ödemesi (3/3 · final) · 1–5 Ağustos 2026 · borç kapanır",
+    },
+  ];
+  acelyaAdvancePlan.forEach((p) => {
+    list.push({
+      id: `se-acelya-adv-${p.month}`,
+      employeeId: "emp-acelya",
+      month: p.month,
+      amount: p.amount,
+      description: p.note,
+      type: "deduction",
+    });
+  });
+  list.push({
+    id: "se-acelya-rent-2026-05",
+    employeeId: "emp-acelya",
+    month: "2026-05",
+    amount: 1550,
+    description: "Ev kira desteği (Mayıs 2026 · ilk bordro)",
+    type: "rent",
+  });
   ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"].forEach((m) => {
     list.push({
       id: `se-acelya-rent-${m}`,
@@ -1341,6 +1382,31 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
 
 export const initialSalaryExtras: SalaryExtra[] = buildInitialSalaryExtras();
 
+/** Seed kira kalemleri — reconcile/propagate sözleşme tutarını bunların üzerine yazmaz. */
+export const CANONICAL_RENT_BY_EXTRA_ID: Readonly<Record<string, number>> = {
+  "se-acelya-rent-2026-05": 1550,
+};
+
+function isLockedCanonicalRent(e: SalaryExtra): boolean {
+  return e.type === "rent" && e.id in CANONICAL_RENT_BY_EXTRA_ID;
+}
+
+/** Kritik bordro kalemleri (Mayıs kira vb.) bootstrap/persist ile kaybolmaz. */
+export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[] {
+  const byId = new Map(stored.map((e) => [e.id, e]));
+  for (const seed of initialSalaryExtras) {
+    const locked = CANONICAL_RENT_BY_EXTRA_ID[seed.id];
+    if (locked == null) continue;
+    const cur = byId.get(seed.id);
+    if (!cur) {
+      byId.set(seed.id, { ...seed, amount: locked });
+    } else if (cur.amount !== locked) {
+      byId.set(seed.id, { ...cur, amount: locked, description: seed.description });
+    }
+  }
+  return Array.from(byId.values());
+}
+
 /**
  * Geçmişten gelen `Advance` kayıtları kullanılmıyor — Ramiz'in açık avans bakiyesi
  * `Employee.initialAdvance` ($8.000) + `SalaryExtra` türünde "deduction" satırlarıyla
@@ -1350,6 +1416,7 @@ export const initialSalaryExtras: SalaryExtra[] = buildInitialSalaryExtras();
  * geçmiş aylarda geri ödenmiştir; sisteme yalnızca proje devri (1 Nis 2026) anındaki
  * AÇIK BAKİYE girilir, böylece carry-forward hesabı şişmez.
  */
+/** Nakit avans kayıtları — Acelya avansı `initialAdvance` + bordro kesintileriyle yönetilir. */
 export const initialAdvances: Advance[] = [];
 
 /**
@@ -1702,6 +1769,18 @@ export const initialContentExpenses: ContentExpense[] = [
   { ...RAMIZ_APR_BASE, id: "ce-r-15",                       brandName: "Reklam",  category: "Reklam",          description: "3 vlog için reklam çıkıldı",                            amountUsd:  300, amountThb:     0, notes: "" },
 ];
 
+/** Ramiz Nisan 2026 raporu (ce-r-01 … ce-r-15) — persist/bootstrap ile silinmez. */
+export function mergeCanonicalContentExpenses(
+  stored: ContentExpense[],
+): ContentExpense[] {
+  const byId = new Map<string, ContentExpense>();
+  for (const row of stored) byId.set(row.id, row);
+  for (const seed of initialContentExpenses) {
+    if (!byId.has(seed.id)) byId.set(seed.id, seed);
+  }
+  return Array.from(byId.values());
+}
+
 // Boş başlangıç — yayıncı kullanıcıları kendi planlarını ekleyecek.
 const initialWeeklyPlans: WeeklyPlan[] = [];
 const initialWeekBrandReels: WeekBrandReel[] = [];
@@ -1757,9 +1836,12 @@ export function propagateRentForEmployee(
       .map((e) => e.month)
   );
 
-  // 1) Mevcut kayıtları güncelle (description korunur).
+  // 1) Mevcut kayıtları güncelle (description korunur; seed kilitleri dokunulmaz).
   let next = salaryExtras.map((e) =>
-    e.employeeId === employee.id && e.type === "rent" && ymGte(e.month, effectiveFrom)
+    e.employeeId === employee.id &&
+    e.type === "rent" &&
+    ymGte(e.month, effectiveFrom) &&
+    !isLockedCanonicalRent(e)
       ? { ...e, amount }
       : e
   );
@@ -1848,12 +1930,15 @@ export function reconcileRentExtrasForAllEmployees(
   for (const emp of employees) {
     if (emp.rentSupport <= 0 || emp.status !== "active") continue;
 
+    const expectedRent = (e: SalaryExtra) =>
+      CANONICAL_RENT_BY_EXTRA_ID[e.id] ?? emp.rentSupport;
+
     const hasMismatch = next.some(
       (e) =>
         e.employeeId === emp.id &&
         e.type === "rent" &&
         ymGte(e.month, emp.payrollStartMonth) &&
-        e.amount !== emp.rentSupport
+        e.amount !== expectedRent(e)
     );
 
     const hasAnyPostStart = next.some(
@@ -2864,14 +2949,44 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
       },
 
       addWeekBrandReel: (r) => {
-        const row = { ...r, id: uid(), createdAt: new Date().toISOString() };
+        const dayIso =
+          isoToLocalDateOnly(r.publishedAt) ||
+          isoToLocalDateOnly(r.weekStart) ||
+          r.weekStart.slice(0, 10);
+        const weekStart = normalizeWeekAnchorIso(
+          weekStartFromDateIso(dayIso) || dayIso
+        );
+        const publishedAt = r.publishedAt?.includes("T")
+          ? r.publishedAt
+          : localNoonTimestampIso(dayIso);
+        const row: WeekBrandReel = {
+          ...r,
+          weekStart,
+          publishedAt,
+          id: uid(),
+          createdAt: new Date().toISOString(),
+        };
         set((s) => ({ weekBrandReels: [...s.weekBrandReels, row] }));
         persistEntity("week_brand_reel", row);
       },
       updateWeekBrandReel: (id, r) => set((s) => {
-        const weekBrandReels = s.weekBrandReels.map((x) => (x.id === id ? { ...x, ...r } : x));
-        const row = weekBrandReels.find((x) => x.id === id);
-        if (row) persistEntity("week_brand_reel", row);
+        const existing = s.weekBrandReels.find((x) => x.id === id);
+        if (!existing) return s;
+        const merged = { ...existing, ...r };
+        const dayIso =
+          isoToLocalDateOnly(merged.publishedAt) ||
+          isoToLocalDateOnly(merged.weekStart) ||
+          merged.weekStart;
+        const weekStart = normalizeWeekAnchorIso(
+          weekStartFromDateIso(dayIso) || dayIso
+        );
+        const publishedAt =
+          merged.publishedAt && merged.publishedAt.includes("T")
+            ? merged.publishedAt
+            : localNoonTimestampIso(dayIso);
+        const row: WeekBrandReel = { ...merged, weekStart, publishedAt };
+        const weekBrandReels = s.weekBrandReels.map((x) => (x.id === id ? row : x));
+        persistEntity("week_brand_reel", row);
         return { weekBrandReels };
       }),
       deleteWeekBrandReel: (id) => {
@@ -2942,18 +3057,46 @@ const storePersistConfig = {
         const salaryExtrasRaw = Array.isArray(p.salaryExtras)
           ? p.salaryExtras
           : currentState.salaryExtras;
-        const contentExpenses = Array.isArray(p.contentExpenses)
-          ? p.contentExpenses
-          : currentState.contentExpenses;
-        const salaryExtras = reconcileRentExtrasForAllEmployees(
-          employees,
-          dedupeSalaryExtrasByContentExpense(salaryExtrasRaw, contentExpenses)
+        let contentExpenses = mergeCanonicalContentExpenses(
+          Array.isArray(p.contentExpenses)
+            ? p.contentExpenses
+            : currentState.contentExpenses,
+        );
+        let salaryExtras = dedupeSalaryExtrasByContentExpense(
+          salaryExtrasRaw,
+          contentExpenses,
+        );
+        const payrollLinked = reconcilePayrollSettledContentExtras(
+          salaryExtras,
+          contentExpenses,
+        );
+        salaryExtras = payrollLinked.salaryExtras;
+        contentExpenses = payrollLinked.contentExpenses;
+        salaryExtras = mergeCanonicalSalaryExtras(salaryExtras);
+        salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
+        const brandsPersist = Array.isArray(p.brands) && p.brands.length > 0
+          ? p.brands
+          : currentState.brands;
+        const brandLinksMerged = mergeCanonicalBrandLinks(
+          Array.isArray(p.brandLinks) ? p.brandLinks : currentState.brandLinks,
+          brandsPersist
+        );
+        const linkSnapshotsMerged = mergeLinkSnapshotsHydrate(
+          currentState.linkSnapshots,
+          Array.isArray(p.linkSnapshots) ? p.linkSnapshots : undefined
+        );
+        const brandViewershipMerged = mergeBrandViewershipHydrate(
+          currentState.brandViewership,
+          Array.isArray(p.brandViewership) ? p.brandViewership : undefined
         );
         return {
           ...currentState,
           ...p,
           employees,
           salaryExtras,
+          brandLinks: brandLinksMerged,
+          linkSnapshots: linkSnapshotsMerged,
+          brandViewership: brandViewershipMerged,
           projects,
           kasas: ensuredKasas,
           kasaTransactions: migrateKasaTransactions(kasaSrc),
@@ -3097,6 +3240,20 @@ const ymGt  = (a: string, b: string) => a.localeCompare(b) >  0;
 /** Çalışan, verilen ay için maaş bordrosunda mı? (payrollStartMonth uygulanır.) */
 export function isPayrollActive(employee: Employee, month: string) {
   return employee.status === "active" && ymGte(month, employee.payrollStartMonth);
+}
+
+/** Bordro henüz başlamadı; ilk maaş `payrollStartMonth` döneminde (görüntülenen ay öncesi). */
+export function isPayrollUpcoming(employee: Employee, month: string): boolean {
+  return (
+    employee.status === "active" &&
+    employee.kind !== "coordinator" &&
+    ymGt(employee.payrollStartMonth, month)
+  );
+}
+
+/** İlk bordro ayı için tahmini net (temel maaş + sözleşme kira desteği). */
+export function estimateFirstPayrollNet(employee: Employee): number {
+  return employee.baseSalary + (employee.rentSupport ?? 0);
 }
 
 /** Önceki aylardan ödenmemiş avans tutarı (carry-forward). */
@@ -3272,7 +3429,63 @@ export function totalCashOutPaidForMonth(
   );
 }
 
-/** Planlanan ay çıkışı: net maaş yükümlülüğü + onaylı içerik (bordro yoksa yalnızca onaylı içerik). */
+/**
+ * Bordroya işlenmiş içerik harcaması, salary_extra satırı oluşturulmadan kalmışsa
+ * (settlement_mode=payroll ama salary_extra_id boş) — net ödemeye eklenir.
+ */
+export function payrollSettledContentNotInExtras(
+  employeeId: string,
+  month: string,
+  extras: SalaryExtra[],
+  contentExpenses: ContentExpense[]
+): number {
+  const linkedFromExtras = extras
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        e.month === month &&
+        e.contentExpenseId,
+    )
+    .reduce((s, e) => s + e.amount, 0);
+
+  const payrollSettled = sumPayrollSettledContentExpenses(
+    contentExpenses,
+    employeeId,
+    month,
+  );
+  return Math.max(0, payrollSettled - linkedFromExtras);
+}
+
+/**
+ * Bu ay ödenecek toplam: bordro neti + bordroya işlenmiş içerik (eksik kalem) + onaylı bekleyen içerik.
+ */
+export function calcPayrollPayoutDue(
+  employee: Employee,
+  month: string,
+  advances: Advance[],
+  extras: SalaryExtra[],
+  paymentStatuses: MonthPaymentStatus[],
+  contentExpenses: ContentExpense[],
+): number {
+  if (!isPayrollActive(employee, month)) {
+    return sumApprovedContentExpenses(contentExpenses, employee.id, month);
+  }
+  const net = calcNetPayable(employee, month, advances, extras, paymentStatuses);
+  const orphanPayroll = payrollSettledContentNotInExtras(
+    employee.id,
+    month,
+    extras,
+    contentExpenses,
+  );
+  const pendingApproved = sumApprovedContentExpenses(
+    contentExpenses,
+    employee.id,
+    month,
+  );
+  return net + orphanPayroll + pendingApproved;
+}
+
+/** Planlanan ay çıkışı — `calcPayrollPayoutDue` ile aynı. */
 export function plannedPayrollPlusApprovedContent(
   employee: Employee,
   month: string,
@@ -3281,10 +3494,80 @@ export function plannedPayrollPlusApprovedContent(
   paymentStatuses: MonthPaymentStatus[],
   contentExpenses: ContentExpense[]
 ): number {
-  const net = isPayrollActive(employee, month)
-    ? calcNetPayable(employee, month, advances, extras, paymentStatuses)
-    : 0;
-  return net + sumApprovedContentExpenses(contentExpenses, employee.id, month);
+  return calcPayrollPayoutDue(
+    employee,
+    month,
+    advances,
+    extras,
+    paymentStatuses,
+    contentExpenses,
+  );
+}
+
+/**
+ * `settlement_mode=payroll` olan ama salary_extra oluşturulmamış içerik harcamaları için
+ * bordro kalemi üretir (çift kayıt oluşturmaz).
+ */
+export function reconcilePayrollSettledContentExtras(
+  salaryExtras: SalaryExtra[],
+  contentExpenses: ContentExpense[],
+): { salaryExtras: SalaryExtra[]; contentExpenses: ContentExpense[] } {
+  let extras = [...salaryExtras];
+  let expenses = [...contentExpenses];
+
+  for (const exp of contentExpenses) {
+    if (exp.reviewStatus === "cancelled" || exp.reviewStatus === "rejected") continue;
+    const isPayroll =
+      exp.settlementMode === "payroll" || Boolean(exp.salaryExtraId);
+    if (!isPayroll) continue;
+
+    const linked = extras.find((e) => e.contentExpenseId === exp.id);
+    if (linked) {
+      if (!exp.salaryExtraId || exp.settlementMode !== "payroll") {
+        expenses = expenses.map((e) =>
+          e.id === exp.id
+            ? {
+                ...e,
+                salaryExtraId: linked.id,
+                settlementMode: "payroll" as const,
+              }
+            : e,
+        );
+      }
+      continue;
+    }
+
+    if (exp.salaryExtraId) continue;
+
+    const extraId = `se-ce-${exp.id}`;
+    const desc = `İçerik: ${exp.brandName} · ${exp.category}${exp.description ? ` — ${exp.description.slice(0, 80)}` : ""}`;
+    const newExtra: SalaryExtra = {
+      id: extraId,
+      employeeId: exp.employeeId,
+      month: exp.month,
+      amount: exp.amountUsd,
+      description: desc,
+      type: "expense",
+      contentExpenseId: exp.id,
+    };
+    extras = extras.filter((e) => e.contentExpenseId !== exp.id);
+    extras.push(newExtra);
+    expenses = expenses.map((e) =>
+      e.id === exp.id
+        ? {
+            ...e,
+            salaryExtraId: extraId,
+            settlementMode: "payroll" as const,
+            reviewStatus:
+              e.reviewStatus === "pending" || e.reviewStatus === "needs_info"
+                ? ("approved" as const)
+                : e.reviewStatus,
+          }
+        : e,
+    );
+  }
+
+  return { salaryExtras: extras, contentExpenses: expenses };
 }
 
 /** Belirli bir tarihe (veya günün sonuna) kadar kasa bakiyesini hesaplar (USD). */

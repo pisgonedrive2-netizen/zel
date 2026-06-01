@@ -9,6 +9,9 @@ import {
   useStore,
   APP_SNAPSHOT_KEYS,
   reconcileRentExtrasForAllEmployees,
+  mergeCanonicalContentExpenses,
+  mergeCanonicalSalaryExtras,
+  reconcilePayrollSettledContentExtras,
   type AppHydratePayload,
   type Employee,
   type SalaryExtra,
@@ -17,7 +20,24 @@ import {
   type BrandLink,
 } from "@/store/store";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
-import { filterBrandLinksWithValidBrands } from "@/lib/brand-links-sync";
+import {
+  mergeBrandViewershipHydrate,
+  mergeCanonicalBrandLinks,
+  mergeLinkSnapshotsHydrate,
+  unionBrandLinks,
+} from "@/lib/merge-viewership-hydrate";
+import {
+  preferRicherViewership,
+  readViewershipCache,
+  writeViewershipCache,
+} from "@/lib/viewership-cache";
+
+/** Ana bootstrap ile yazılmaz — yalnızca /api/bootstrap/viewership (+ yerel yedek). */
+const VIEWERSHIP_STORE_KEYS = new Set<string>([
+  "brandLinks",
+  "linkSnapshots",
+  "brandViewership",
+]);
 import { useAuth } from "@/store/auth";
 import { useAuditLog, type AuditEntry } from "@/store/audit-log";
 import { SYNC_ERROR_EVENT } from "@/lib/sync-notify";
@@ -60,18 +80,40 @@ function applyViewershipToPatch(
   patch: Record<string, unknown>,
   data: Pick<AppHydratePayload, "brands" | "brandLinks" | "linkSnapshots" | "brandViewership">
 ) {
+  const prev = useStore.getState();
+  const brands = (data.brands ?? patch.brands ?? prev.brands) as Brand[];
   if (data.brands !== undefined) patch.brands = data.brands;
+
   if (data.brandLinks !== undefined) {
-    const brands = (patch.brands ?? useStore.getState().brands) as Brand[];
-    const brandIdSet = new Set(brands.map((b) => b.id));
-    patch.brandLinks = filterBrandLinksWithValidBrands(data.brandLinks, brandIdSet);
+    patch.brandLinks = mergeCanonicalBrandLinks(
+      unionBrandLinks(
+        prev.brandLinks,
+        (patch.brandLinks as BrandLink[] | undefined) ?? [],
+        data.brandLinks
+      ),
+      brands
+    );
   }
-  if (data.linkSnapshots !== undefined) patch.linkSnapshots = data.linkSnapshots;
-  if (data.brandViewership !== undefined) patch.brandViewership = data.brandViewership;
+  if (data.linkSnapshots !== undefined) {
+    patch.linkSnapshots = mergeLinkSnapshotsHydrate(
+      prev.linkSnapshots,
+      data.linkSnapshots
+    );
+  }
+  if (data.brandViewership !== undefined) {
+    patch.brandViewership = mergeBrandViewershipHydrate(
+      prev.brandViewership,
+      data.brandViewership
+    );
+  }
 }
 
-/** Toplu sync'e dahil edilmeyen anahtarlar (sunucu/API ile yazılır). */
-const SYNC_EXCLUDE_KEYS = new Set<string>(["linkSnapshots", "brandViewership"]);
+/** Toplu sync'e dahil edilmeyen anahtarlar (izlenme sunucu/row-persist ile yazılır). */
+const SYNC_EXCLUDE_KEYS = new Set<string>([
+  "brandLinks",
+  "linkSnapshots",
+  "brandViewership",
+]);
 
 function pickStoreSnapshot(): AppHydratePayload {
   const s = useStore.getState();
@@ -84,13 +126,39 @@ function pickStoreSnapshot(): AppHydratePayload {
     s.salaryExtras,
     s.contentExpenses
   );
-  const brands = s.brands as Brand[];
-  const brandIds = new Set(brands.map((b) => b.id));
-  out.brandLinks = filterBrandLinksWithValidBrands(
-    s.brandLinks as BrandLink[],
-    brandIds
-  );
   return out;
+}
+
+function commitViewershipHydrate(
+  server: Pick<
+    AppHydratePayload,
+    "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
+  >
+) {
+  const rich = preferRicherViewership(
+    {
+      brandLinks: server.brandLinks ?? [],
+      linkSnapshots: server.linkSnapshots ?? [],
+      brandViewership: server.brandViewership ?? [],
+    },
+    readViewershipCache()
+  );
+  const patch: Record<string, unknown> = {};
+  applyViewershipToPatch(patch, { ...server, ...rich });
+  const next: Partial<{
+    brands: Brand[];
+    brandLinks: BrandLink[];
+    linkSnapshots: typeof rich.linkSnapshots;
+    brandViewership: typeof rich.brandViewership;
+  }> = {};
+  if (patch.brands !== undefined) next.brands = patch.brands as Brand[];
+  if (patch.brandLinks !== undefined) next.brandLinks = patch.brandLinks as BrandLink[];
+  if (patch.linkSnapshots !== undefined) next.linkSnapshots = patch.linkSnapshots as typeof rich.linkSnapshots;
+  if (patch.brandViewership !== undefined) {
+    next.brandViewership = patch.brandViewership as typeof rich.brandViewership;
+  }
+  if (Object.keys(next).length > 0) useStore.setState(next);
+  writeViewershipCache(rich);
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
@@ -177,10 +245,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabaseMode) {
       const s = useStore.getState();
-      const fixed = reconcileRentExtrasForAllEmployees(s.employees, s.salaryExtras);
-      if (fixed !== s.salaryExtras) {
+      const payrollLinked = reconcilePayrollSettledContentExtras(
+        s.salaryExtras,
+        s.contentExpenses,
+      );
+      const fixed = reconcileRentExtrasForAllEmployees(
+        s.employees,
+        payrollLinked.salaryExtras,
+      );
+      const brandLinks = mergeCanonicalBrandLinks(s.brandLinks, s.brands);
+      const cache = readViewershipCache();
+      const changed =
+        fixed !== s.salaryExtras ||
+        payrollLinked.contentExpenses !== s.contentExpenses ||
+        brandLinks !== s.brandLinks ||
+        !!cache;
+      if (changed) {
         skipSync.current = true;
-        useStore.setState({ salaryExtras: fixed });
+        useStore.setState({
+          salaryExtras: fixed,
+          contentExpenses: payrollLinked.contentExpenses,
+          brandLinks,
+        });
+        if (cache) commitViewershipHydrate(cache);
         setTimeout(() => { skipSync.current = false; }, 500);
       }
       setReady(true);
@@ -228,44 +315,44 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (data[k] !== undefined) patch[k] = data[k];
         }
         const employees = (patch.employees ?? useStore.getState().employees) as Employee[];
-        const contentExpenses = (patch.contentExpenses ??
-          useStore.getState().contentExpenses) as ContentExpense[];
+        const contentExpenses = mergeCanonicalContentExpenses(
+          (patch.contentExpenses ?? useStore.getState().contentExpenses) as ContentExpense[],
+        );
+        patch.contentExpenses = contentExpenses;
         let salaryExtras = dedupeSalaryExtrasByContentExpense(
           (patch.salaryExtras ?? useStore.getState().salaryExtras) as SalaryExtra[],
           contentExpenses
         );
+        const payrollLinked = reconcilePayrollSettledContentExtras(
+          salaryExtras,
+          contentExpenses,
+        );
+        salaryExtras = payrollLinked.salaryExtras;
+        patch.contentExpenses = payrollLinked.contentExpenses;
+        salaryExtras = mergeCanonicalSalaryExtras(salaryExtras);
         salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
         patch.salaryExtras = salaryExtras;
-        const brandsBoot = (patch.brands ?? []) as Brand[];
-        const brandIdSet = new Set(brandsBoot.map((b) => b.id));
-        if (patch.brandLinks) {
-          patch.brandLinks = filterBrandLinksWithValidBrands(
-            patch.brandLinks as BrandLink[],
-            brandIdSet
-          );
-        }
-        const snapCount = Array.isArray(patch.linkSnapshots)
-          ? (patch.linkSnapshots as unknown[]).length
-          : 0;
-        if (snapCount === 0) {
-          try {
-            const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {
-              credentials: "include",
-            });
-            if (vr.ok) {
-              const vd = (await vr.json()) as Pick<
-                AppHydratePayload,
-                "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
-              >;
-              if (Array.isArray(vd.linkSnapshots) && vd.linkSnapshots.length > 0) {
-                applyViewershipToPatch(patch, vd);
-              }
-            }
-          } catch {
-            /* izlenme yüklemesi isteğe bağlı */
+        useStore.setState(patch);
+        try {
+          const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {
+            credentials: "include",
+          });
+          if (vr.ok) {
+            const vd = (await vr.json()) as Pick<
+              AppHydratePayload,
+              "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
+            >;
+            if (!cancelled) commitViewershipHydrate(vd);
+          } else if (!cancelled) {
+            const cache = readViewershipCache();
+            if (cache) commitViewershipHydrate(cache);
+          }
+        } catch {
+          if (!cancelled) {
+            const cache = readViewershipCache();
+            if (cache) commitViewershipHydrate(cache);
           }
         }
-        useStore.setState(patch);
         if (data.users && user.role === "admin") {
           useAuth.setState({ users: data.users as ReturnType<typeof useAuth.getState>["users"] });
         }
@@ -327,9 +414,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           AppHydratePayload,
           "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
         >;
-        const patch: Record<string, unknown> = {};
-        applyViewershipToPatch(patch, vd);
-        useStore.setState(patch);
+        commitViewershipHydrate(vd);
         setSyncError(null);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Ağ hatası";

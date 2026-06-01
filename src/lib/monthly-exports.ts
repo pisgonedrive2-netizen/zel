@@ -10,6 +10,7 @@ import { fmtDateTime } from "@/lib/fmt-date";
 import autoTableImport from "jspdf-autotable";
 
 import type { KasaTransaction, ContentExpense } from "@/store/store";
+import { settlementLabel } from "@/lib/content-expense";
 import { listAvailableMonths, monthLabelTr } from "@/lib/month-label";
 import {
   downloadProfessionalCsv,
@@ -487,6 +488,8 @@ export interface SalaryReportRow {
   totalDeduction: number;
   netPayable: number;
   contentApproved: number;
+  /** Bordroya işlenmiş (maaşa masraf) içerik toplamı. */
+  contentPayrollSettled: number;
   plannedTotalOut: number;
   totalPaidOut: number;
   paid: boolean;
@@ -494,8 +497,28 @@ export interface SalaryReportRow {
   walletAddress: string;
 }
 
+export interface SalaryContentExportLine {
+  employeeName: string;
+  date: string;
+  brandName: string;
+  category: string;
+  description: string;
+  amountUsd: number;
+  settlement: string;
+}
+
+export interface SalaryUpcomingRow {
+  name: string;
+  role: string;
+  paymentDay: string;
+  payrollStartMonth: string;
+  estimatedNet: number;
+}
+
 export interface SalaryExportOptions {
   generatedBy?: string;
+  contentLines?: SalaryContentExportLine[];
+  upcomingRows?: SalaryUpcomingRow[];
 }
 
 export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void {
@@ -504,6 +527,7 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
   const totalPlanned = rows.reduce((s, r) => s + r.plannedTotalOut, 0);
   const totalPaid = rows.reduce((s, r) => s + r.totalPaidOut, 0);
   const totalContent = rows.reduce((s, r) => s + r.contentApproved, 0);
+  const totalContentPayroll = rows.reduce((s, r) => s + (r.contentPayrollSettled ?? 0), 0);
   const paidCount = rows.filter((r) => r.paid).length;
 
   const detailCols = [
@@ -520,6 +544,7 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
     "Kesinti_USDT",
     "Net_Odenecek_USDT",
     "Icerik_Onayli_USDT",
+    "Icerik_Bordro_USDT",
     "Plan_Toplami_USDT",
     "Odenen_Toplam_USDT",
     "Odeme_Durumu",
@@ -540,6 +565,7 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
     r.totalDeduction,
     r.netPayable,
     r.contentApproved,
+    r.contentPayrollSettled ?? 0,
     r.plannedTotalOut,
     r.totalPaidOut,
     r.paid ? "Odendi" : "Bekliyor",
@@ -558,9 +584,10 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
         5: totalBase,
         12: Math.round(totalNet * 100) / 100,
         13: Math.round(totalContent * 100) / 100,
-        14: Math.round(totalPlanned * 100) / 100,
-        15: Math.round(totalPaid * 100) / 100,
-        16: `${paidCount}/${rows.length} odendi`,
+        14: Math.round(totalContentPayroll * 100) / 100,
+        15: Math.round(totalPlanned * 100) / 100,
+        16: Math.round(totalPaid * 100) / 100,
+        17: `${paidCount}/${rows.length} odendi`,
       }),
     ],
     `Filtre: bordro aktif calisanlar | donem ${ym}`,
@@ -578,12 +605,45 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
         { metric: "Temel maas toplami", value: Math.round(totalBase * 100) / 100, unit: "USDT" },
         { metric: "Net odenecek toplam", value: Math.round(totalNet * 100) / 100, unit: "USDT" },
         { metric: "Icerik onayli toplam", value: Math.round(totalContent * 100) / 100, unit: "USDT" },
+        { metric: "Icerik bordro toplam", value: Math.round(totalContentPayroll * 100) / 100, unit: "USDT" },
         { metric: "Plan toplami", value: Math.round(totalPlanned * 100) / 100, unit: "USDT" },
         { metric: "Odenen toplam", value: Math.round(totalPaid * 100) / 100, unit: "USDT" },
       ]),
       detail,
     ],
   });
+}
+
+/** Bordro PDF/CSV için ay içi içerik harcaması satırları. */
+export function buildSalaryContentExportLines(
+  ym: string,
+  employees: Array<{ id: string; name: string }>,
+  expenses: ContentExpense[],
+): SalaryContentExportLine[] {
+  const byId = new Map(employees.map((e) => [e.id, e.name]));
+  return expenses
+    .filter(
+      (e) =>
+        e.month === ym &&
+        byId.has(e.employeeId) &&
+        e.reviewStatus !== "cancelled" &&
+        e.reviewStatus !== "rejected",
+    )
+    .sort((a, b) => {
+      const na = byId.get(a.employeeId) ?? "";
+      const nb = byId.get(b.employeeId) ?? "";
+      if (na !== nb) return na.localeCompare(nb, "tr");
+      return b.date.localeCompare(a.date);
+    })
+    .map((e) => ({
+      employeeName: byId.get(e.employeeId) ?? e.employeeId,
+      date: e.date,
+      brandName: e.brandName,
+      category: e.category,
+      description: e.description,
+      amountUsd: e.amountUsd,
+      settlement: settlementLabel(e),
+    }));
 }
 
 export function exportSalaryMonthPdf(
@@ -601,9 +661,12 @@ export function exportSalaryMonthPdf(
 
   const totalNet = rows.reduce((s, r) => s + r.netPayable, 0);
   const totalContent = rows.reduce((s, r) => s + r.contentApproved, 0);
+  const totalContentPayroll = rows.reduce((s, r) => s + (r.contentPayrollSettled ?? 0), 0);
   const totalPlanned = rows.reduce((s, r) => s + r.plannedTotalOut, 0);
   const totalPaid = rows.reduce((s, r) => s + r.totalPaidOut, 0);
   const paidCount = rows.filter((r) => r.paid).length;
+  const contentLines = opts.contentLines ?? [];
+  const upcomingRows = opts.upcomingRows ?? [];
 
   doc.setFontSize(11);
   doc.text(ascii(`Donem: ${monthLabelTr(ym)}`), 14, 26);
@@ -614,9 +677,10 @@ export function exportSalaryMonthPdf(
       `Calisan: ${rows.length}    ` +
       `Odenen: ${paidCount}/${rows.length}    ` +
       `Net: ${money(totalNet)}    ` +
-      `Icerik onayli: ${money(totalContent)}    ` +
+      `Icerik bek.: ${money(totalContent)}    ` +
+      `Icerik bordro: ${money(totalContentPayroll)}    ` +
       `Plan: ${money(totalPlanned)}    ` +
-      `Odenen toplam: ${money(totalPaid)}`
+      `Odenen: ${money(totalPaid)}`
     ),
     14,
     32
@@ -626,8 +690,8 @@ export function exportSalaryMonthPdf(
   autoTable(doc, {
     startY: 38,
     head: [[
-      "Ad", "Rol", "Gun", "Temel", "Kira", "Devir", "Avans", "Acik bak.",
-      "Prim", "Kesinti", "Net", "Icerik", "Plan", "Odenen", "Durum", "Cuzdan",
+      "Ad", "Rol", "Gun", "Temel", "Kira", "Devir", "Avans", "Acik",
+      "Prim", "Kes.", "Net", "Ic bek", "Ic brd", "Plan", "Odenen", "Durum",
     ]],
     body: rows.map((r) => [
       ascii(r.name),
@@ -642,12 +706,10 @@ export function exportSalaryMonthPdf(
       r.totalDeduction > 0 ? money(r.totalDeduction) : "—",
       money(r.netPayable),
       r.contentApproved > 0 ? money(r.contentApproved) : "—",
+      (r.contentPayrollSettled ?? 0) > 0 ? money(r.contentPayrollSettled ?? 0) : "—",
       money(r.plannedTotalOut),
       money(r.totalPaidOut),
       r.paid ? `Odendi ${r.paidDate ?? ""}` : "Bekliyor",
-      r.walletAddress
-        ? r.walletAddress.slice(0, 6) + "..." + r.walletAddress.slice(-4)
-        : "—",
     ]),
     styles: { fontSize: 7, cellPadding: 1.4 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold" },
@@ -662,18 +724,86 @@ export function exportSalaryMonthPdf(
       9: { halign: "right" },
       10: { halign: "right", fontStyle: "bold" },
       11: { halign: "right" },
-      12: { halign: "right", fontStyle: "bold" },
+      12: { halign: "right" },
       13: { halign: "right", fontStyle: "bold" },
+      14: { halign: "right", fontStyle: "bold" },
     },
     margin: { left: 14, right: 14 },
   });
 
+  let nextY =
+    (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 50;
+
   if (rows.length === 0) {
-    const y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 50;
     doc.setFontSize(11);
     doc.setTextColor(150);
-    doc.text(ascii("Bu ay icin bordrolu calisan yok."), 14, y + 14);
+    doc.text(ascii("Bu ay icin bordrolu calisan yok."), 14, nextY + 14);
     doc.setTextColor(0);
+    nextY += 20;
+  }
+
+  if (upcomingRows.length > 0) {
+    if (nextY > 170) {
+      doc.addPage();
+      nextY = 20;
+    }
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text(ascii("Ilk bordrosu bu aydan sonra baslayacaklar"), 14, nextY + 8);
+    autoTable(doc, {
+      startY: nextY + 12,
+      head: [["Ad", "Rol", "Odeme gunu", "Ilk bordro ayi", "Tahmini net (1-5)"]],
+      body: upcomingRows.map((u) => [
+        ascii(u.name),
+        ascii(u.role),
+        u.paymentDay,
+        ascii(monthLabelTr(u.payrollStartMonth)),
+        money(u.estimatedNet),
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.6 },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      margin: { left: 14, right: 14 },
+    });
+    nextY =
+      (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? nextY;
+  }
+
+  if (contentLines.length > 0) {
+    doc.addPage();
+    drawPdfChrome(doc, {
+      title: "Icerik Harcamalari",
+      subtitle: "Bordro eki",
+      month: ym,
+      generatedBy: opts.generatedBy,
+    });
+    doc.setFontSize(11);
+    doc.text(ascii(`Donem: ${monthLabelTr(ym)} · ${contentLines.length} kalem`), 14, 26);
+    const contentTotal = contentLines.reduce((s, l) => s + l.amountUsd, 0);
+    doc.setFontSize(9);
+    doc.setTextColor(80);
+    doc.text(ascii(`Toplam: ${money(contentTotal)}`), 14, 32);
+    doc.setTextColor(0);
+
+    autoTable(doc, {
+      startY: 38,
+      head: [["Yayinci", "Tarih", "Marka", "Kategori", "Aciklama", "USD", "Odeme"]],
+      body: contentLines.map((l) => [
+        ascii(l.employeeName),
+        l.date,
+        ascii(l.brandName),
+        ascii(l.category),
+        ascii(l.description.slice(0, 72)),
+        money(l.amountUsd),
+        ascii(l.settlement),
+      ]),
+      styles: { fontSize: 7, cellPadding: 1.4 },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [245, 243, 255] },
+      columnStyles: {
+        5: { halign: "right", fontStyle: "bold" },
+      },
+      margin: { left: 14, right: 14 },
+    });
   }
 
   drawPdfFooters(doc);

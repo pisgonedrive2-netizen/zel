@@ -8,7 +8,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
+  useStore, calcNetPayable, calcPayrollPayoutDue, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, isPayrollUpcoming,
+  estimateFirstPayrollNet, getRentForMonth,
   sumApprovedContentExpenses, sumPaidContentExpenses, sumPayrollSettledContentExpenses,
   plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
@@ -34,11 +35,13 @@ import { ProofUploader } from "@/components/proof-uploader";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import { BulkRentModal } from "@/components/bulk-rent-modal";
 import {
+  buildSalaryContentExportLines,
   exportSalaryMonthCsv,
   exportSalaryMonthPdf,
   listAvailableMonths,
   monthLabelTr,
   type SalaryReportRow,
+  type SalaryUpcomingRow,
 } from "@/lib/monthly-exports";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -254,33 +257,31 @@ function PayrollCardSection({
 
   return (
     <div className={cn("border-t border-border/60", toneCls)}>
-      <button
-        type="button"
-        className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-accent/25 transition-colors"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        <ChevronDown
-          size={14}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-transform duration-200",
-            open && "rotate-180",
-          )}
-        />
-        <span className="flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-          {title}
-        </span>
-        {!open && summary ? (
-          <span className="text-xs text-muted-foreground tabular-nums shrink-0 max-w-[55%] truncate text-right">
-            {summary}
+      <div className="flex w-full items-center gap-2 px-4 py-2.5">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left hover:bg-accent/25 transition-colors rounded-md -mx-1 px-1 py-0.5"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+        >
+          <ChevronDown
+            size={14}
+            className={cn(
+              "shrink-0 text-muted-foreground transition-transform duration-200",
+              open && "rotate-180",
+            )}
+          />
+          <span className="flex-1 min-w-0 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            {title}
           </span>
-        ) : null}
-        {trailing ? (
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-            {trailing}
-          </div>
-        ) : null}
-      </button>
+          {!open && summary ? (
+            <span className="text-xs text-muted-foreground tabular-nums shrink-0 max-w-[55%] truncate text-right">
+              {summary}
+            </span>
+          ) : null}
+        </button>
+        {trailing ? <div className="shrink-0">{trailing}</div> : null}
+      </div>
       {open ? <div className="px-4 pb-3 pt-0">{children}</div> : null}
     </div>
   );
@@ -315,11 +316,14 @@ function EmployeeDetailRow({
   const [payModalOpen, setPayModalOpen] = useState(false);
 
   const active = isPayrollActive(employee, month);
+  const upcoming = isPayrollUpcoming(employee, month);
+  const firstPayrollNet = estimateFirstPayrollNet(employee);
 
   const empAdv     = advances.filter(a => a.employeeId === employee.id && a.month === month);
   const empExtras  = salaryExtras.filter(e => e.employeeId === employee.id && e.month === month);
   const carry      = calcCarryForward(employee.id, month, advances, paymentStatuses);
-  const net        = calcNetPayable(employee, month, advances, salaryExtras, paymentStatuses);
+  const netBase    = calcNetPayable(employee, month, advances, salaryExtras, paymentStatuses);
+  const net        = calcPayrollPayoutDue(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const status     = paymentStatuses.find(p => p.employeeId === employee.id && p.month === month);
   const isPaid     = status?.paid ?? false;
   const openAdv    = calcOpenAdvanceBalance(employee, prevMonth(month), salaryExtras);
@@ -378,6 +382,7 @@ function EmployeeDetailRow({
   return (
     <>
       <div className={`rounded-xl border transition-colors ${
+        upcoming               ? "border-violet-400/40 bg-violet-50/30 dark:border-violet-500/35 dark:bg-violet-950/20" :
         !active                ? "border-border bg-muted/40 opacity-70" :
         isPaid                 ? "border-green-500/30 bg-green-50/40 dark:border-green-500/40 dark:bg-green-950/25" :
         "border-border bg-card"
@@ -419,6 +424,41 @@ function EmployeeDetailRow({
               </Badge>
             </div>
             <p className="text-muted-foreground text-xs truncate mt-0.5">{employee.role} · {employee.department}</p>
+            {upcoming && (
+              <p className="text-violet-700 dark:text-violet-300 text-[11px] mt-1 leading-snug">
+                İlk maaş 1–5 {monthLabelTr(employee.payrollStartMonth)} · tahmini {fmt(firstPayrollNet)}
+                {employee.rentSupport > 0 && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    ({fmt(employee.baseSalary)} + {fmt(employee.rentSupport)} kira)
+                  </span>
+                )}
+              </p>
+            )}
+            {employee.id === "emp-acelya" && month === "2026-05" && active && (
+              <p className="text-violet-800 dark:text-violet-200 text-[11px] mt-1 leading-snug">
+                Mayıs kira desteği {fmt(1550)} · avans {fmt(900)} (bu ay {fmt(300)} kesinti, 1/3)
+                {" → "}
+                <span className="font-medium">ilk ödeme {fmt(net)}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  ({fmt(3500)} maaş + {fmt(1550)} kira − {fmt(300)} · 1–5 Haziran · kalan avans{" "}
+                  {fmt(openAdvAfter)})
+                </span>
+              </p>
+            )}
+            {employee.id === "emp-acelya" && active && month !== "2026-05" && openAdv > 0 && (
+              <p className="text-violet-800 dark:text-violet-200 text-[11px] mt-1 leading-snug">
+                Açık avans {fmt(openAdv)}
+                {totalDeduc > 0 && (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · bu ay {fmt(totalDeduc)} kesinti
+                    {openAdvAfter < openAdv ? ` → kalan ${fmt(openAdvAfter)}` : ""}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {canEnterPanel && (
@@ -438,13 +478,19 @@ function EmployeeDetailRow({
             )}
           <div className="text-right">
             <p className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5">
-              {active ? "Net Ödenecek" : "Bordro pasif"}
+              {active ? "Net Ödenecek" : upcoming ? "İlk bordro" : "Bordro pasif"}
             </p>
             <p className={`text-xl font-bold tabular-nums ${
+              upcoming ? "text-violet-700 dark:text-violet-300" :
               !active ? "text-muted-foreground" : isPaid ? "text-green-600" : "text-foreground"
             }`}>
-              {active ? fmt(net) : "—"}
+              {active ? fmt(net) : upcoming ? fmt(firstPayrollNet) : "—"}
             </p>
+            {upcoming && (
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {monthLabelTr(employee.payrollStartMonth)} bordrosu
+              </p>
+            )}
           </div>
           </div>
         </div>
@@ -500,9 +546,15 @@ function EmployeeDetailRow({
             {totalDeduc > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-red-600 font-medium">{fmt(totalDeduc)} kesinti</span></>}
             <span className="text-muted-foreground/40">=</span>
             <span className="font-semibold text-foreground">{fmt(net)}</span>
-            {active && employee.kind !== "coordinator" && (contentAprv > 0 || contentPayroll > 0 || paidOut > net) && (
+            {active && employee.kind !== "coordinator" && net !== netBase && (
               <span className="text-muted-foreground/80 text-[10px] ml-2 hidden sm:inline">
-                · plan {fmt(plannedOut)}
+                · bordro {fmt(netBase)}
+                {contentPayroll > 0 ? ` · içerik bordro ${fmt(contentPayroll)}` : ""}
+                {contentAprv > 0 ? ` · bekleyen ${fmt(contentAprv)}` : ""}
+              </span>
+            )}
+            {active && employee.kind !== "coordinator" && (contentAprv > 0 || paidOut > 0) && net === netBase && (
+              <span className="text-muted-foreground/80 text-[10px] ml-2 hidden sm:inline">
                 {contentAprv > 0 ? ` · bekleyen içerik ${fmt(contentAprv)}` : ""}
                 · ödenen {fmt(paidOut)}
               </span>
@@ -1006,7 +1058,10 @@ export default function MaaslarPage() {
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && e.status === "active");
   const aktifBuAy = bordrolu.filter(e => isPayrollActive(e, month));
   const totalBase = aktifBuAy.reduce((s, e) => s + e.baseSalary, 0);
-  const totalNet  = aktifBuAy.reduce((s, e) => s + calcNetPayable(e, month, advances, salaryExtras, paymentStatuses), 0);
+  const totalNet  = aktifBuAy.reduce(
+    (s, e) => s + calcPayrollPayoutDue(e, month, advances, salaryExtras, paymentStatuses, contentExpenses),
+    0,
+  );
   const paidCnt   = aktifBuAy.filter(e => paymentStatuses.find(p => p.employeeId === e.id && p.month === month && p.paid)).length;
   const openAdvTotal = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, month, salaryExtras), 0);
 
@@ -1049,7 +1104,12 @@ export default function MaaslarPage() {
       const carry   = calcCarryForward(emp.id, ym, advances, paymentStatuses);
       const rentAmt   = getRentForMonth(emp, ym, salaryExtras);
       const totalBonus = empExt
-        .filter((e) => e.type !== "deduction" && e.type !== "rent")
+        .filter(
+          (e) =>
+            e.type !== "deduction" &&
+            e.type !== "rent" &&
+            !e.contentExpenseId,
+        )
         .reduce((s, e) => s + e.amount, 0);
       const ded     = empExt.filter((e) => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
       const status  = paymentStatuses.find((p) => p.employeeId === emp.id && p.month === ym);
@@ -1065,8 +1125,9 @@ export default function MaaslarPage() {
         openAdvanceAfter: calcOpenAdvanceBalance(emp, ym, salaryExtras),
         totalBonus,
         totalDeduction:   ded,
-        netPayable:       calcNetPayable(emp, ym, advances, salaryExtras, paymentStatuses),
+        netPayable:       calcPayrollPayoutDue(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses),
         contentApproved:  sumApprovedContentExpenses(contentExpenses, emp.id, ym),
+        contentPayrollSettled: sumPayrollSettledContentExpenses(contentExpenses, emp.id, ym),
         plannedTotalOut:  plannedPayrollPlusApprovedContent(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses),
         totalPaidOut:     totalCashOutPaidForMonth(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses),
         paid:             status?.paid ?? false,
@@ -1075,6 +1136,17 @@ export default function MaaslarPage() {
       };
     });
   };
+
+  const buildUpcomingRowsForMonth = (ym: string): SalaryUpcomingRow[] =>
+    employees
+      .filter((e) => e.kind !== "coordinator" && isPayrollUpcoming(e, ym))
+      .map((e) => ({
+        name: e.name,
+        role: e.role,
+        paymentDay: e.paymentDay,
+        payrollStartMonth: e.payrollStartMonth,
+        estimatedNet: estimateFirstPayrollNet(e),
+      }));
 
   const canExport = user?.role === "admin" || user?.role === "auditor";
 
@@ -1086,8 +1158,19 @@ export default function MaaslarPage() {
       );
       if (!go) return;
     }
+    const bordroluIds = employees.filter((e) => e.kind !== "coordinator");
+    const contentLines = buildSalaryContentExportLines(
+      ym,
+      bordroluIds.map((e) => ({ id: e.id, name: e.name })),
+      contentExpenses,
+    );
+    const upcomingRows = buildUpcomingRowsForMonth(ym);
     if (kind === "pdf") {
-      exportSalaryMonthPdf(rows, ym, { generatedBy: user?.name });
+      exportSalaryMonthPdf(rows, ym, {
+        generatedBy: user?.name,
+        contentLines,
+        upcomingRows,
+      });
     } else {
       exportSalaryMonthCsv(rows, ym);
     }
@@ -1208,8 +1291,9 @@ export default function MaaslarPage() {
                 const kiraKalem = salaryExtras
                   .filter(e => e.employeeId === emp.id && e.month === month && e.type === "rent")
                   .reduce((s, e) => s + e.amount, 0);
+                const upcomingAy = isPayrollUpcoming(emp, month);
                 const netAy = isPayrollActive(emp, month)
-                  ? calcNetPayable(emp, month, advances, salaryExtras, paymentStatuses)
+                  ? calcPayrollPayoutDue(emp, month, advances, salaryExtras, paymentStatuses, contentExpenses)
                   : 0;
                 const icAy = sumApprovedContentExpenses(contentExpenses, emp.id, month);
                 const planAy = plannedPayrollPlusApprovedContent(emp, month, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -1261,7 +1345,22 @@ export default function MaaslarPage() {
                   </td>
                   <td className="px-3 py-3 text-muted-foreground text-xs whitespace-nowrap">{emp.payrollStartMonth}</td>
                   <td className="px-3 py-3 tabular-nums whitespace-nowrap">
-                    {isPayrollActive(emp, month) ? fmt(netAy) : <span className="text-muted-foreground">—</span>}
+                    {isPayrollActive(emp, month) ? (
+                      fmt(netAy)
+                    ) : upcomingAy ? (
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <span className="text-violet-700 dark:text-violet-300 font-medium">
+                            {fmt(estimateFirstPayrollNet(emp))}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          İlk maaş 1–5 {monthLabelTr(emp.payrollStartMonth)}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-3 tabular-nums whitespace-nowrap">
                     {icAy > 0 ? <span className="text-violet-600">{fmt(icAy)}</span> : <span className="text-muted-foreground">—</span>}

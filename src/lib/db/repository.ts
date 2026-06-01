@@ -664,13 +664,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "planned_item_payments", rows: (payload.plannedItemPayments ?? []).map(plannedPaymentToRow) },
     { table: "streamer_accounts", rows: (payload.streamerAccounts ?? []).map(streamerAccountToRow), skipDelete: true },
     { table: "schedule_slots", rows: (payload.scheduleSlots ?? []).map(scheduleSlotToRow), skipDelete: true },
-    // Marka linkleri / snapshot / viewership asla toplu silinmez (sync eksik payload ile kayıp önlenir).
-    {
-      table: "brand_links",
-      rows: (payload.brandLinks ?? []).map(brandLinkToRow),
-      skipDelete: true,
-      mergeUpsert: true,
-    },
+    // brand_links / link_snapshots / brand_viewership: toplu sync YOK — yalnızca row-persist,
+    // refresh-runner ve /api/bootstrap/viewership (boş istemci state DB'yi ezmesin).
     // link_snapshots / brand_viewership: yalnızca row-persist, refresh-runner ve admin API.
     // Toplu sync ile yazılmaz — boş/eksik istemci state veri kaybı riski.
     // Kasa hesapları kasa_transactions FK referansı; önce hesaplar upsert edilmeli.
@@ -685,15 +680,8 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
   ];
 
-  for (const { table, rows, skipDelete, mergeUpsert } of tables) {
-    if (mergeUpsert && table === "brand_links") {
-      await upsertBrandLinksMerged(
-        (payload.brandLinks ?? []) as BrandLink[],
-        (payload.brands ?? []) as Brand[]
-      );
-    } else {
-      await upsertRows(table, rows);
-    }
+  for (const { table, rows, skipDelete } of tables) {
+    await upsertRows(table, rows);
     if (!skipDelete && rows.length > 0) {
       await deleteNotIn(table, rows.map((r) => String(r.id)));
     }
@@ -766,22 +754,7 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
 
   // Bildirimler yalnızca sunucu/API ile yazılır — yayıncı sync ile üzerine yazmaz.
 
-  const links = (payload.brandLinks ?? []).filter((l) => l.ownerId === employeeId);
-  if (links.length > 0) {
-    await upsertBrandLinksMerged(links, payload.brands ?? []);
-  }
-  // Yayıncı linkleri silinmez — boş sync veya eksik liste veri kaybına yol açmasın.
-
-  const linkIds = new Set(links.map((l) => l.id));
-  const snaps = (payload.linkSnapshots ?? []).filter((s) => linkIds.has(s.linkId));
-  if (snaps.length > 0) {
-    await upsertRows("link_snapshots", snaps.map(linkSnapshotToRow));
-  }
-
-  const viewership = (payload.brandViewership ?? []).filter((v) => v.employeeId === employeeId);
-  if (viewership.length > 0) {
-    await upsertRows("brand_viewership", viewership.map(viewershipToRow));
-  }
+  // brand_links / snapshots / viewership: yalnızca row-persist ve admin refresh API.
 }
 
 export async function deleteAppUser(id: string) {

@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Copy, Check } from "lucide-react";
 import {
-  useStore, calcNetPayable, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
-  sumApprovedContentExpenses, plannedPayrollPlusApprovedContent,
+  useStore, calcPayrollPayoutDue, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, getRentForMonth,
+  sumApprovedContentExpenses, sumPayrollSettledContentExpenses, plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
 } from "@/store/store";
 import { fmt, shiftCalendarMonthYm, toDateLocal, toYearMonthLocal } from "@/lib/data";
@@ -118,7 +118,7 @@ export default function RaporPage() {
         .filter((e) => e.type !== "deduction" && e.type !== "rent")
         .reduce((s, e) => s + e.amount, 0);
       const totalDeduc   = empExtras.filter((e) => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
-      const netPayable   = calcNetPayable(emp, ym, advances, salaryExtras, paymentStatuses);
+      const netPayable   = calcPayrollPayoutDue(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses);
       const contentAprv  = sumApprovedContentExpenses(contentExpenses, emp.id, ym);
       const plannedOut   = plannedPayrollPlusApprovedContent(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses);
       const paidOut      = totalCashOutPaidForMonth(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -140,6 +140,7 @@ export default function RaporPage() {
         totalDeduction:   totalDeduc,
         netPayable,
         contentApproved:  contentAprv,
+        contentPayrollSettled: sumPayrollSettledContentExpenses(contentExpenses, emp.id, ym),
         plannedTotalOut:  plannedOut,
         totalPaidOut:     paidOut,
         paid:             status?.paid ?? false,

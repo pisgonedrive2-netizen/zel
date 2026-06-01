@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ExternalLink, Link2, Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
+import { Check, ExternalLink, Link2, Pencil, Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -12,7 +12,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { PlatformGlyph } from "@/lib/platform-glyph";
-import { todayDateLocal, weekStartFromDateIso } from "@/lib/data";
+import {
+  isoToLocalDateOnly,
+  localNoonTimestampIso,
+  todayDateLocal,
+  weekStartFromDateIso,
+} from "@/lib/data";
 import type { Brand, WeekBrandReel } from "@/store/store";
 
 const PLATFORMS = ["Instagram", "TikTok", "YouTube", "Kick", "Twitter / X", "Telegram", "Diğer"];
@@ -98,6 +103,7 @@ interface Props {
   /** Bu yayıncıya ait tüm hafta reel/içerik kayıtları (filtrelenmemiş olabilir). */
   reels: WeekBrandReel[];
   onAdd: (r: Omit<WeekBrandReel, "id" | "createdAt">) => void;
+  onUpdate?: (id: string, patch: Partial<WeekBrandReel>) => void;
   onDelete: (id: string) => void;
   /** Salt-okunur (admin görüntüleme vb.) — ekleme/silme gizlenir. */
   readOnly?: boolean;
@@ -115,6 +121,7 @@ export function DailyContentCheckin({
   brands,
   reels,
   onAdd,
+  onUpdate,
   onDelete,
   readOnly = false,
   days = 30,
@@ -155,6 +162,7 @@ export function DailyContentCheckin({
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaHint, setMetaHint] = useState<string | null>(null);
   const [fetchedPublishedAt, setFetchedPublishedAt] = useState<string | undefined>();
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const brandNameOf = (id: string) => {
     if (!id || id === BRAND_OTHER) return "Diğer";
@@ -216,18 +224,41 @@ export function DailyContentCheckin({
     if (!u) return;
     // API yayın tarihi varsa onu kullan (achievement gerçek tarihe yansır),
     // yoksa seçili günün öğlenine sabitle.
-    const publishedAt = fetchedPublishedAt ?? `${selectedDay}T12:00:00.000Z`;
-    onAdd({
+    const dayIso = isoToLocalDateOnly(fetchedPublishedAt) || selectedDay;
+    const publishedAt = fetchedPublishedAt?.includes("T")
+      ? fetchedPublishedAt
+      : localNoonTimestampIso(dayIso);
+    const payload = {
       employeeId,
-      weekStart: weekStartFromDateIso((fetchedPublishedAt ?? selectedDay).slice(0, 10) || selectedDay),
+      weekStart: weekStartFromDateIso(dayIso) || dayIso,
       brandId: brandId === BRAND_OTHER ? "" : brandId,
       contentUrl: u,
       platform,
       contentType,
       publishedAt,
       notes: note.trim(),
-    });
+    };
+    if (editingId && onUpdate) {
+      onUpdate(editingId, payload);
+      setEditingId(null);
+    } else {
+      onAdd(payload);
+    }
     resetForm();
+  };
+
+  const startEdit = (r: WeekBrandReel) => {
+    setEditingId(r.id);
+    setSelectedDay(dateOnly(r.publishedAt ?? r.createdAt) || selectedDay);
+    setUrl(r.contentUrl);
+    setPlatform(r.platform);
+    setContentType(r.contentType ?? "reels");
+    setBrandId(r.brandId || BRAND_OTHER);
+    setNote(r.notes ?? "");
+    setTouchedPlatform(true);
+    setTouchedType(true);
+    setFetchedPublishedAt(r.publishedAt);
+    setMetaHint(r.publishedAt ? "Mevcut kayıt — kaydet ile güncellenir." : null);
   };
 
   const fmtDayLabel = (iso: string) => {
@@ -347,6 +378,16 @@ export function DailyContentCheckin({
                   >
                     <ExternalLink size={12} />
                   </a>
+                  {!readOnly && onUpdate && (
+                    <button
+                      type="button"
+                      onClick={() => startEdit(r)}
+                      className="shrink-0 text-muted-foreground/50 hover:text-foreground"
+                      title="Düzenle"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
                   {!readOnly && (
                     <button
                       type="button"
@@ -369,6 +410,14 @@ export function DailyContentCheckin({
           {/* Ekleme formu */}
           {!readOnly && (
             <form onSubmit={submit} className="space-y-2 border-t border-border/60 pt-3">
+              {editingId && (
+                <p className="text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50/80 dark:bg-amber-950/40 rounded-md px-2 py-1">
+                  Düzenleme modu —{" "}
+                  <button type="button" className="underline" onClick={() => { setEditingId(null); resetForm(); }}>
+                    iptal
+                  </button>
+                </p>
+              )}
               <div className="grid gap-2 sm:grid-cols-3">
                 <Field label="Marka" required>
                   <Select
@@ -445,7 +494,8 @@ export function DailyContentCheckin({
                 <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn. 2. reels, kampanya" />
               </Field>
               <Button type="submit" size="sm" className="gap-1.5" disabled={!url.trim()}>
-                <Plus size={14} /> İşaretle ve URL ekle
+                {editingId ? <Check size={14} /> : <Plus size={14} />}
+                {editingId ? "Kaydet (Supabase)" : "İşaretle ve URL ekle"}
               </Button>
             </form>
           )}

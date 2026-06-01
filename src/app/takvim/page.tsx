@@ -6,13 +6,16 @@ import {
   Plus, Pencil, ExternalLink, Copy, Check, Link as LinkIcon,
   Twitch, Youtube, Instagram, Send, Globe, MessageCircle,
   ChevronDown, ChevronUp, Filter, CalendarDays, Maximize2,
+  ListTree, Users, Trophy, Sparkles, Zap, TrendingUp,
 } from "lucide-react";
+import { isoToLocalDateOnly } from "@/lib/data";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
+import { StreamerOperationsHub } from "@/components/takvim/streamer-operations-hub";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -187,7 +190,7 @@ export default function TakvimPage() {
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
-    addWeekBrandReel, deleteWeekBrandReel,
+    addWeekBrandReel, updateWeekBrandReel, deleteWeekBrandReel,
   } = useStore();
 
   const DAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
@@ -307,17 +310,24 @@ export default function TakvimPage() {
     const dates: string[] = [];
     for (const r of weekBrandReels) {
       if (r.employeeId !== planEmployeeId) continue;
-      dates.push(r.publishedAt ?? r.createdAt ?? r.weekStart);
+      const d = isoToLocalDateOnly(r.publishedAt ?? r.createdAt ?? r.weekStart);
+      if (d) dates.push(d);
     }
-    return dates.filter(Boolean);
+    return dates;
   }, [weekBrandReels, planEmployeeId]);
+
+  const planMonthYm = planWeek.slice(0, 7);
+  const reelCountForStreamer = useMemo(
+    () => weekBrandReels.filter((r) => r.employeeId === planEmployeeId).length,
+    [weekBrandReels, planEmployeeId]
+  );
 
   // Yayıncıya tıklayınca plan + achievement detayına götür.
   const selectStreamer = (id: string) => {
     setPlanEmpId(id);
     setTimeout(() => {
       document
-        .getElementById("yayinci-plan-detay")
+        .getElementById("plan-yayinci-hub")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
   };
@@ -345,6 +355,30 @@ export default function TakvimPage() {
                        "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/45 dark:text-amber-100 dark:border-amber-500/40"];
   const empColor = (id: string) => EMP_COLORS[yayincilar.findIndex(e => e.id === id) % EMP_COLORS.length];
 
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const TAKVIM_SECTIONS = [
+    { id: "takvim-haftalik", label: "Haftalık grid", icon: CalendarDays },
+    { id: "yayinci-hesaplar", label: "Hesaplar", icon: LinkIcon },
+    { id: "yayinci-plan-detay", label: "Plan & içerik", icon: ListTree },
+  ] as const;
+
+  const PLAN_SUBSECTIONS = [
+    { id: "plan-yayinci-hub", label: "Operasyon özeti", icon: TrendingUp },
+    { id: "plan-achievement", label: "Achievement", icon: Trophy },
+    { id: "plan-checkin", label: "Check-in", icon: Check },
+    { id: "plan-sablon", label: "7s şablon", icon: Sparkles },
+    { id: "plan-haftalik-grid", label: "Haftalık plan", icon: CalendarDays },
+  ] as const;
+
+  const openPlanModal = () => {
+    if (!planEmployeeId) return;
+    setPlanModal({ mode: "new", weekStart: planWeek, employeeId: planEmployeeId });
+    scrollToSection("plan-haftalik-grid");
+  };
+
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
       <div className="flex items-start justify-between mb-3">
@@ -364,8 +398,122 @@ export default function TakvimPage() {
         </div>
       </div>
 
+      <nav
+        aria-label="Sayfa içi hızlı gezinme"
+        className="sticky top-0 z-20 -mx-2 mb-4 border-b border-border/80 bg-background/95 px-2 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 sm:-mx-3 sm:px-3 md:-mx-5 md:px-5"
+      >
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Hızlı yön bulma — kaydırma gerekmez
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {TAKVIM_SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => scrollToSection(id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-accent"
+            >
+              <Icon size={13} className="text-muted-foreground" />
+              {label}
+            </button>
+          ))}
+        </div>
+        {yayincilar.length > 0 && (
+          <div className="mt-2.5 flex items-center gap-2 overflow-x-auto pb-0.5">
+            <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-muted-foreground">
+              <Users size={11} /> Yayıncı:
+            </span>
+            {yayincilar.map((emp) => (
+              <button
+                key={emp.id}
+                type="button"
+                onClick={() => selectStreamer(emp.id)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  planEmployeeId === emp.id
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-muted/50 text-foreground hover:border-primary/40"
+                }`}
+              >
+                {emp.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {planEmployeeId && (
+          <>
+            <p className="mt-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Plan bölümü — hızlı atlama
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {PLAN_SUBSECTIONS.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => scrollToSection(id)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-muted/40 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-accent"
+                >
+                  <Icon size={12} className="text-muted-foreground" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-medium text-muted-foreground shrink-0">
+                <Zap size={11} className="inline mr-0.5" />
+                Hızlı başlangıç:
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="h-7 text-[11px] gap-1"
+                onClick={() => scrollToSection("plan-yayinci-hub")}
+              >
+                <TrendingUp size={12} /> Operasyon özeti
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="h-7 text-[11px] gap-1"
+                onClick={openPlanModal}
+              >
+                <Plus size={12} /> Plan ekle
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] gap-1"
+                onClick={() => scrollToSection("plan-checkin")}
+              >
+                <LinkIcon size={12} /> İçerik URL
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] gap-1"
+                onClick={() => scrollToSection("plan-sablon")}
+              >
+                <Sparkles size={12} /> 7s şablon
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 text-[11px]"
+                onClick={() => setPlanWeek(weekStartOf())}
+              >
+                Bu hafta
+              </Button>
+            </div>
+          </>
+        )}
+      </nav>
+
       {/* ── HAFTALIK TAKVİM ───────────────────────────────────────────── */}
-      <Card className="mb-4 gap-2 py-5">
+      <Card id="takvim-haftalik" className="mb-4 scroll-mt-28 gap-2 py-5">
         <CardHeader>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -504,7 +652,7 @@ export default function TakvimPage() {
       </Card>
 
       {/* ── YAYINCI HESAPLARI ─────────────────────────────────────────── */}
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div id="yayinci-hesaplar" className="scroll-mt-28 mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-foreground">Güncel Hesaplar</h2>
           <p className="text-muted-foreground text-sm">Yayıncıların aktif kullandığı tüm hesap, kanal ve linkler</p>
@@ -678,11 +826,16 @@ export default function TakvimPage() {
       </div>
 
       {/* ── YAYINCI HAFTALIK PLANLARI (tarihli) ─────────────────────── */}
-      <div id="yayinci-plan-detay" className="mt-10 mb-4 scroll-mt-16">
+      <div id="yayinci-plan-detay" className="mt-10 mb-4 scroll-mt-28">
         <h2 className="text-lg font-semibold text-foreground">Yayıncı Haftalık Planları</h2>
         <p className="text-muted-foreground text-sm mt-1">
-          Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Geçmiş haftalara dönük güncellemeler de kalıcı olarak saklanır.
+          Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Tüm değişiklikler Supabase&apos;e kaydedilir; tarihler yerel takvime göre tutulur.
         </p>
+        {planEmployeeId && reelCountForStreamer === 0 && (
+          <p className="mt-2 text-xs text-amber-800 dark:text-amber-200 rounded-lg border border-amber-300/60 bg-amber-50/80 dark:bg-amber-950/40 px-3 py-2">
+            Bu yayıncı için henüz içerik check-in kaydı yok. Üstteki <strong>İçerik URL</strong> ile işaretleyin; achievement takvimi otomatik dolacak.
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 mt-4">
           <Select
             value={planEmployeeId}
@@ -709,19 +862,32 @@ export default function TakvimPage() {
         </div>
         {yayincilar.length > 0 && planEmployeeId && (
           <div className="mt-4 space-y-4">
-            <PostActivityCalendar
-              activityDates={activityDates}
-              title={`${yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"} · paylaşım achievement'ı`}
-              description="Seçili yayıncının reel/post paylaşım günleri (API tarihleriyle) — seri ve toplam içerik takibi"
-            />
-            <DailyContentCheckin
-              key={planEmployeeId}
+            <StreamerOperationsHub
               employeeId={planEmployeeId}
-              brands={brands}
-              reels={weekBrandReels}
-              onAdd={addWeekBrandReel}
-              onDelete={deleteWeekBrandReel}
+              employeeName={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"}
+              planWeek={planWeek}
+              planMonthYm={planMonthYm}
             />
+            <div id="plan-achievement" className="scroll-mt-28">
+              <PostActivityCalendar
+                activityDates={activityDates}
+                initialMonthYm={planMonthYm}
+                title={`${yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"} · paylaşım achievement'ı`}
+                description="Seçili yayıncının reel/post paylaşım günleri (yerel tarih + API) — seri ve toplam içerik takibi"
+              />
+            </div>
+            <div id="plan-checkin" className="scroll-mt-28">
+              <DailyContentCheckin
+                key={planEmployeeId}
+                employeeId={planEmployeeId}
+                brands={brands}
+                reels={weekBrandReels}
+                onAdd={addWeekBrandReel}
+                onUpdate={updateWeekBrandReel}
+                onDelete={deleteWeekBrandReel}
+              />
+            </div>
+            <div id="plan-sablon" className="scroll-mt-28">
             <ShiftTemplateCard
               weekStart={planWeek}
               weekDays={currentWeekDays}
@@ -733,6 +899,8 @@ export default function TakvimPage() {
               onApply={(plans) => plans.map((p) => addWeeklyPlan(p))}
               onUndo={(ids) => ids.forEach((id) => deleteWeeklyPlan(id))}
             />
+            </div>
+            <div id="plan-haftalik-grid" className="scroll-mt-28">
             <WeeklyPlanGrid
               weekStart={planWeek}
               label={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Plan"}
@@ -746,6 +914,7 @@ export default function TakvimPage() {
                 })
               }
             />
+            </div>
           </div>
         )}
       </div>

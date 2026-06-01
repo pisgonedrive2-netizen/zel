@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarCheck, ChevronLeft, ChevronRight, Flame, Trophy } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { todayDateLocal } from "@/lib/data";
+import { isoToLocalDateOnly, todayDateLocal } from "@/lib/data";
 
 const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const MONTH_NAMES = [
@@ -11,11 +11,8 @@ const MONTH_NAMES = [
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
 ];
 
-/** ISO (tarih veya tarih+saat) → YYYY-MM-DD. Geçersizse boş. */
 function dateOnly(iso: string | undefined | null): string {
-  if (!iso) return "";
-  const s = String(iso).slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+  return isoToLocalDateOnly(iso);
 }
 
 function ymOf(date: string): string {
@@ -42,6 +39,8 @@ interface ActivityCalendarProps {
   activityDates: string[];
   title?: string;
   description?: string;
+  /** İlk açılışta gösterilecek ay (YYYY-MM). */
+  initialMonthYm?: string;
 }
 
 /**
@@ -54,9 +53,20 @@ export function PostActivityCalendar({
   activityDates,
   title = "Paylaşım takvimi",
   description = "Hangi gün içerik paylaştığınızın achievement takibi",
+  initialMonthYm,
 }: ActivityCalendarProps) {
   const today = todayDateLocal();
-  const [month, setMonth] = useState<string>(ymOf(today));
+  const defaultMonth =
+    initialMonthYm && /^\d{4}-\d{2}$/.test(initialMonthYm)
+      ? initialMonthYm
+      : ymOf(today);
+  const [month, setMonth] = useState<string>(defaultMonth);
+
+  useEffect(() => {
+    if (initialMonthYm && /^\d{4}-\d{2}$/.test(initialMonthYm)) {
+      setMonth(initialMonthYm);
+    }
+  }, [initialMonthYm]);
 
   // Tarih → o gün paylaşım sayısı.
   const counts = useMemo(() => {

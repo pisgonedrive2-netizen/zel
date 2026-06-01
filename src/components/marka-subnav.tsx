@@ -33,9 +33,9 @@ import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability
 type NavGroup =
   | "Genel"
   | "İş Birliği"
-  | "Performans"
-  | "Büyüme & CRM"
-  | "Ekip & İK"
+  | "İzlenme"
+  | "Büyüme"
+  | "Ekip"
   | "Finans"
   | "Hesap";
 
@@ -57,16 +57,16 @@ const NAV: readonly NavItem[] = [
   { href: "/marka/anlasmalar", label: "Anlaşmalar", icon: Handshake, group: "İş Birliği" },
   { href: "/marka/takvim", label: "Yayıncı takvimi", icon: CalendarDays, group: "İş Birliği" },
 
-  { href: "/marka/izlenmeler", label: "İzlenmeler", icon: Eye, group: "Performans" },
-  { href: "/marka/postlar", label: "Postlar", icon: Video, group: "Performans" },
+  { href: "/marka/izlenmeler", label: "İzlenmeler", icon: Eye, group: "İzlenme" },
+  { href: "/marka/postlar", label: "Postlar", icon: Video, group: "İzlenme" },
 
-  { href: "/marka/affiliate", label: "Affiliate", icon: TrendingUp, group: "Büyüme & CRM" },
-  { href: "/marka/crm", label: "CRM", icon: Contact, group: "Büyüme & CRM", cap: "crm" },
+  { href: "/marka/affiliate", label: "Affiliate", icon: TrendingUp, group: "Büyüme" },
+  { href: "/marka/crm", label: "CRM", icon: Contact, group: "Büyüme", cap: "crm" },
 
-  { href: "/marka/personel", label: "Personel", icon: Briefcase, group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/departmanlar", label: "Departmanlar", icon: Building2, group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/takip", label: "Görev & Takip", icon: ClipboardList, group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/ekip", label: "Ekip & yetkiler", icon: Settings, group: "Ekip & İK", cap: "team" },
+  { href: "/marka/personel", label: "Personel", icon: Briefcase, group: "Ekip", cap: "hr" },
+  { href: "/marka/departmanlar", label: "Departmanlar", icon: Building2, group: "Ekip", cap: "hr" },
+  { href: "/marka/takip", label: "Görev & Takip", icon: ClipboardList, group: "Ekip", cap: "hr" },
+  { href: "/marka/ekip", label: "Ekip & yetkiler", icon: Settings, group: "Ekip", cap: "team" },
 
   { href: "/marka/muhasebe", label: "Muhasebe", icon: Calculator, group: "Finans", cap: "finance" },
   { href: "/marka/faturalar", label: "Faturalar", icon: FileText, group: "Finans", cap: "finance" },
@@ -77,10 +77,19 @@ const NAV: readonly NavItem[] = [
   { href: "/marka/bildirimler", label: "Bildirimler", icon: Bell, group: "Hesap" },
 ];
 
+const GROUP_ORDER: NavGroup[] = [
+  "Genel",
+  "İş Birliği",
+  "İzlenme",
+  "Büyüme",
+  "Ekip",
+  "Finans",
+  "Hesap",
+];
+
 export function MarkaSubnav() {
   const pathname = usePathname();
   const { user, month, isAdminView, brandId, brand } = useMarkaPortal();
-  // Admin marka görünümünde tüm modülleri görür; marka kullanıcısı org rolüne göre.
   const orgRole = isAdminView ? "admin" : user?.orgRole;
   const navItems = NAV.filter((item) => !item.cap || clientHasOrgCapability(orgRole, item.cap));
 
@@ -110,7 +119,6 @@ export function MarkaSubnav() {
             const href = markaHref(item.href, month);
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
-            // Grup değişiminde ince dikey ayraç (ilk öğe hariç).
             const showDivider = i > 0 && item.group !== navItems[i - 1].group;
             return (
               <div key={item.href} className="flex items-stretch">
@@ -122,18 +130,31 @@ export function MarkaSubnav() {
                 )}
                 <Link
                   href={href}
-                  title={`${item.group} · ${item.label}`}
                   className={cn(
-                    "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors",
                     active
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <Icon size={15} className="shrink-0" />
-                  <span className="whitespace-nowrap">{item.label}</span>
+                  <Icon size={14} className="shrink-0" />
+                  {item.label}
                 </Link>
               </div>
+            );
+          })}
+        </div>
+        <div className="hidden flex-wrap gap-1 sm:flex">
+          {GROUP_ORDER.map((group) => {
+            const inGroup = navItems.filter((n) => n.group === group);
+            if (inGroup.length === 0) return null;
+            return (
+              <span
+                key={group}
+                className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                {group}
+              </span>
             );
           })}
         </div>

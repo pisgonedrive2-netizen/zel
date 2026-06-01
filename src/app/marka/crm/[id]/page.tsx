@@ -24,9 +24,8 @@ import {
 const CUR_SYMBOL: Record<string, string> = { USD: "$", EUR: "€", TRY: "₺" };
 
 export default function MarkaCrmKontakPage() {
-  const params = useParams();
+  const id = String(useParams<{ id: string }>().id ?? "");
   const router = useRouter();
-  const id = String(params?.id ?? "");
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 

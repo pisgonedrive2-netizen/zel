@@ -94,8 +94,7 @@ async function fetchDealDeliverableMatch(
 }
 
 export default function MarkaAnlasmaDetayPage() {
-  const params = useParams();
-  const dealId = String(params?.id ?? "");
+  const dealId = String(useParams<{ id: string }>().id ?? "");
   const portal = useMarkaPortal();
   const { user, brandId, brand, canViewBrand, isAdminView } = portal;
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);

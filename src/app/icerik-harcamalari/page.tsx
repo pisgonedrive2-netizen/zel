@@ -29,6 +29,7 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { BrandMultiSelect } from "@/components/brand-multi-select";
 import {
   buildExpenseBrandFields,
+  expenseMatchesBrand,
   formatExpenseBrandLabel,
   resolveExpenseBrandIds,
 } from "@/lib/content-expense-brands";
@@ -338,6 +339,7 @@ function ContentExpensesPageInner() {
   const [search, setSearch] = useState("");
   const [monthFilter, setMonthFilter] = useState<string>("all");
   const [brandFilter, setBrandFilter] = useState<string>("all");
+  const [brandIdFilter, setBrandIdFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [employeeFilter, setEmployeeFilter] = useState<string>("all");
   const [paidFilter,  setPaidFilter]  = useState<"all" | "paid" | "unpaid">("all");
@@ -362,15 +364,21 @@ function ContentExpensesPageInner() {
     const m = searchParams.get("month");
     const emp = searchParams.get("employee");
     const cat = searchParams.get("category");
+    const brandId = searchParams.get("brand");
     const review = searchParams.get("review");
     if (m) setMonthFilter(m);
     if (emp) setEmployeeFilter(emp);
     if (cat) setCategoryFilter(cat);
+    if (brandId) {
+      setBrandIdFilter(brandId);
+      const b = brands.find((x) => x.id === brandId);
+      if (b) setBrandFilter(b.shortName || b.name);
+    }
     if (review) {
       const exp = contentExpenses.find((e) => e.id === review);
       if (exp) setReviewModal(exp);
     }
-  }, [searchParams, contentExpenses]);
+  }, [searchParams, contentExpenses, brands]);
 
   const months = useMemo(
     () => Array.from(new Set(contentExpenses.map(e => e.month))).sort((a, b) => b.localeCompare(a)),
@@ -393,22 +401,42 @@ function ContentExpensesPageInner() {
 
   const filtered = useMemo(
     () => contentExpenses
-      .filter(e =>
-        (monthFilter === "all" || e.month === monthFilter) &&
-        (brandFilter === "all" || e.brandName === brandFilter) &&
-        (categoryFilter === "all" || e.category === categoryFilter) &&
-        (employeeFilter === "all" || e.employeeId === employeeFilter) &&
-        (paidFilter  === "all" || (paidFilter === "paid" ? e.paid : !e.paid)) &&
-        (search === "" ||
-          e.description.toLowerCase().includes(search.toLowerCase()) ||
-          e.brandName.toLowerCase().includes(search.toLowerCase()) ||
-          e.category.toLowerCase().includes(search.toLowerCase()) ||
-          (employees.find((em) => em.id === e.employeeId)?.name ?? "")
-            .toLowerCase()
-            .includes(search.toLowerCase()))
-      )
+      .filter(e => {
+        const brandOk =
+          brandIdFilter === "all"
+            ? brandFilter === "all" || e.brandName === brandFilter
+            : (() => {
+                const b = brands.find((x) => x.id === brandIdFilter);
+                return b ? expenseMatchesBrand(e, b, brands) : false;
+              })();
+        return (
+          (monthFilter === "all" || e.month === monthFilter) &&
+          brandOk &&
+          (categoryFilter === "all" || e.category === categoryFilter) &&
+          (employeeFilter === "all" || e.employeeId === employeeFilter) &&
+          (paidFilter === "all" || (paidFilter === "paid" ? e.paid : !e.paid)) &&
+          (search === "" ||
+            e.description.toLowerCase().includes(search.toLowerCase()) ||
+            e.brandName.toLowerCase().includes(search.toLowerCase()) ||
+            e.category.toLowerCase().includes(search.toLowerCase()) ||
+            (employees.find((em) => em.id === e.employeeId)?.name ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase()))
+        );
+      })
       .sort((a, b) => b.date.localeCompare(a.date)),
-    [contentExpenses, monthFilter, brandFilter, categoryFilter, employeeFilter, paidFilter, search, employees]
+    [
+      contentExpenses,
+      monthFilter,
+      brandFilter,
+      brandIdFilter,
+      brands,
+      categoryFilter,
+      employeeFilter,
+      paidFilter,
+      search,
+      employees,
+    ]
   );
 
   // Geri çekilen ve reddedilen kayıtlar hiçbir grafiğe/KPI'a girmemeli.

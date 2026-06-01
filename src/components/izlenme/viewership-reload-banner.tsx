@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requestViewershipReload } from "@/lib/viewership-reload";
@@ -15,10 +15,19 @@ export function ViewershipReloadBanner({
   viewMonth: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const autoTried = useRef(false);
   const filledLinks = linkCount;
+  const noLinks = filledLinks === 0;
   const missingSnapshots = snapshotCount === 0 && filledLinks > 0;
+  const needsRestore = noLinks || missingSnapshots;
 
-  if (!missingSnapshots) return null;
+  useEffect(() => {
+    if (!needsRestore || autoTried.current) return;
+    autoTried.current = true;
+    requestViewershipReload();
+  }, [needsRestore]);
+
+  if (!needsRestore) return null;
 
   return (
     <div
@@ -28,11 +37,15 @@ export function ViewershipReloadBanner({
       <div className="flex flex-wrap items-start gap-3">
         <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="font-medium">İzlenme verileri ekranda görünmüyor</p>
+          <p className="font-medium">
+            {noLinks
+              ? "Link ve izlenme verileri yüklenemedi"
+              : "İzlenme sayıları ekranda görünmüyor"}
+          </p>
           <p className="mt-1 text-xs opacity-90">
-            Sunucuda kayıtlar duruyor; bu oturumda snapshot verisi yüklenmemiş olabilir.
-            {viewMonth ? ` Seçili ay: ${viewMonth}.` : ""} Aşağıdaki düğmeyle sunucudan
-            yeniden yükleyin — hiçbir kayıt silinmez.
+            Veritabanındaki kayıtlar silinmez; bu oturumda veri henüz gelmemiş olabilir.
+            {viewMonth ? ` Seçili ay: ${viewMonth}.` : ""} Otomatik yenileme denendi — hâlâ
+            boşsa düğmeyle sunucudan (veya son yerel yedekten) geri yükleyin.
           </p>
         </div>
         <Button

@@ -35,25 +35,26 @@ type NavItem = {
   label: string;
   icon:  React.ComponentType<{ className?: string }>;
   group:
-    | "Yönetim" | "Yayın" | "Finans" | "Yayıncı" | "Denetim" | "Marka"
-    | "Genel" | "İş Birliği" | "Performans" | "Büyüme & CRM" | "Ekip & İK" | "Hesap";
+    | "Kontrol" | "Bordro" | "Yayın" | "Muhasebe" | "Sistem"
+    | "Yönetim" | "Finans" | "Yayıncı" | "Denetim" | "Marka"
+    | "Genel" | "İş Birliği" | "İzlenme" | "Büyüme" | "Ekip" | "Hesap";
   cap?:  OrgCapability;
 };
 
 const ADMIN_NAV: NavItem[] = [
-  { href: "/ozet",                 label: "Özet",              icon: LayoutDashboard, group: "Yönetim" },
-  { href: "/maaslar",              label: "Maaşlar",           icon: Users,           group: "Yönetim" },
-  { href: "/rapor",                label: "Ödeme Raporu",      icon: FileSpreadsheet, group: "Yönetim" },
-  { href: "/kasa",                 label: "Kasa",              icon: Wallet,          group: "Yönetim" },
-  { href: "/kullanicilar",         label: "Kullanıcılar",      icon: KeyRound,        group: "Yönetim" },
-  { href: "/bildirimler",          label: "Bildirim Merkezi",  icon: Bell,            group: "Yönetim" },
-  { href: "/takvim",               label: "Haftalık Takvim",   icon: CalendarDays,    group: "Yayın" },
-  { href: "/izlenme",              label: "Marka İzlenme",     icon: Eye,             group: "Yayın" },
-  { href: "/icerik-harcamalari",   label: "İçerik Harcamaları",icon: Clapperboard,    group: "Yayın" },
-  { href: "/dis-gelir",            label: "Dış Gelir (Geçmiş)",icon: ArrowUpRight,    group: "Finans" },
-  { href: "/ic-gelir",             label: "İç Gelir",          icon: FolderKanban,    group: "Finans" },
-  { href: "/giderler",             label: "Giderler",          icon: Receipt,         group: "Finans" },
-  { href: "/planlanan",            label: "Planlanan",         icon: CalendarRange,   group: "Finans" },
+  { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol" },
+  { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro" },
+  { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro" },
+  { href: "/kasa",                 label: "Kasa",               icon: Wallet,          group: "Bordro" },
+  { href: "/takvim",               label: "Haftalık Takvim",    icon: CalendarDays,    group: "Yayın" },
+  { href: "/izlenme",              label: "Marka İzlenme",      icon: Eye,             group: "Yayın" },
+  { href: "/icerik-harcamalari",   label: "İçerik Harcamaları", icon: Clapperboard,    group: "Yayın" },
+  { href: "/dis-gelir",            label: "Dış Gelir (Geçmiş)", icon: ArrowUpRight,    group: "Muhasebe" },
+  { href: "/ic-gelir",             label: "İç Gelir",           icon: FolderKanban,    group: "Muhasebe" },
+  { href: "/giderler",             label: "Giderler",           icon: Receipt,         group: "Muhasebe" },
+  { href: "/planlanan",            label: "Planlanan",          icon: CalendarRange,   group: "Muhasebe" },
+  { href: "/kullanicilar",         label: "Kullanıcılar",       icon: KeyRound,        group: "Sistem" },
+  { href: "/bildirimler",          label: "Bildirim Merkezi",   icon: Bell,            group: "Sistem" },
 ];
 
 const STREAMER_NAV: NavItem[] = [
@@ -85,33 +86,26 @@ const AUDITOR_NAV: NavItem[] = [
 ];
 
 const BRAND_NAV: NavItem[] = [
-  // Genel
-  { href: "/marka/anasayfa",    label: "Anasayfa",         icon: LayoutDashboard, group: "Genel" },
-  { href: "/marka/operasyon",   label: "Operasyon özeti",  icon: BarChart3,       group: "Genel" },
-  // İş birliği akışı
-  { href: "/marka/havuz",       label: "Yayıncı havuzu",   icon: Users,           group: "İş Birliği" },
-  { href: "/marka/teklifler",   label: "Teklifler",        icon: Send,            group: "İş Birliği" },
-  { href: "/marka/anlasmalar",  label: "Anlaşmalar",       icon: Handshake,       group: "İş Birliği" },
-  { href: "/marka/takvim",      label: "Yayıncı takvimi",  icon: CalendarDays,    group: "İş Birliği" },
-  // Performans & içerik
-  { href: "/marka/izlenmeler",  label: "İzlenmeler",       icon: Eye,             group: "Performans" },
-  { href: "/marka/postlar",     label: "Postlar",          icon: Video,           group: "Performans" },
-  // Büyüme & CRM
-  { href: "/marka/affiliate",   label: "Affiliate",        icon: TrendingUp,      group: "Büyüme & CRM" },
-  { href: "/marka/crm",         label: "CRM",              icon: Contact,         group: "Büyüme & CRM", cap: "crm" },
-  // Ekip & İK
-  { href: "/marka/personel",    label: "Personel",         icon: Briefcase,       group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/departmanlar",label: "Departmanlar",     icon: Building2,       group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/takip",       label: "Görev & Takip",    icon: ClipboardList,   group: "Ekip & İK", cap: "hr" },
-  { href: "/marka/ekip",        label: "Ekip & yetkiler",  icon: Settings,        group: "Ekip & İK", cap: "team" },
-  // Finans
-  { href: "/marka/muhasebe",    label: "Muhasebe",         icon: Calculator,      group: "Finans", cap: "finance" },
-  { href: "/marka/faturalar",   label: "Faturalar",        icon: FileText,        group: "Finans", cap: "finance" },
-  { href: "/marka/bordro",      label: "Bordro",           icon: Banknote,        group: "Finans", cap: "finance" },
-  { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,          group: "Finans" },
-  // Hesap
-  { href: "/marka/profil",      label: "Marka profili",    icon: UserCog,         group: "Hesap" },
-  { href: "/marka/bildirimler", label: "Bildirimler",      icon: Bell,            group: "Hesap" },
+  { href: "/marka/anasayfa",     label: "Anasayfa",          icon: LayoutDashboard, group: "Genel" },
+  { href: "/marka/operasyon",    label: "Operasyon özeti",   icon: BarChart3,       group: "Genel" },
+  { href: "/marka/havuz",        label: "Yayıncı havuzu",    icon: Users,           group: "İş Birliği" },
+  { href: "/marka/teklifler",    label: "Teklifler",         icon: Send,            group: "İş Birliği" },
+  { href: "/marka/anlasmalar",   label: "Anlaşmalar",        icon: Handshake,       group: "İş Birliği" },
+  { href: "/marka/takvim",       label: "Yayıncı takvimi",   icon: CalendarDays,    group: "İş Birliği" },
+  { href: "/marka/izlenmeler",   label: "İzlenmeler",        icon: Eye,             group: "İzlenme" },
+  { href: "/marka/postlar",      label: "Postlar",           icon: Video,           group: "İzlenme" },
+  { href: "/marka/affiliate",    label: "Affiliate",         icon: TrendingUp,      group: "Büyüme" },
+  { href: "/marka/crm",          label: "CRM",               icon: Contact,         group: "Büyüme", cap: "crm" },
+  { href: "/marka/personel",     label: "Personel",          icon: Briefcase,       group: "Ekip", cap: "hr" },
+  { href: "/marka/departmanlar", label: "Departmanlar",      icon: Building2,       group: "Ekip", cap: "hr" },
+  { href: "/marka/takip",        label: "Görev & Takip",     icon: ClipboardList,   group: "Ekip", cap: "hr" },
+  { href: "/marka/ekip",         label: "Ekip & yetkiler",   icon: Settings,        group: "Ekip", cap: "team" },
+  { href: "/marka/muhasebe",     label: "Muhasebe",          icon: Calculator,      group: "Finans", cap: "finance" },
+  { href: "/marka/faturalar",    label: "Faturalar",         icon: FileText,        group: "Finans", cap: "finance" },
+  { href: "/marka/bordro",       label: "Bordro",            icon: Banknote,        group: "Finans", cap: "finance" },
+  { href: "/marka/odemeler",     label: "Ödeme planı",       icon: Wallet,          group: "Finans" },
+  { href: "/marka/profil",       label: "Marka profili",     icon: UserCog,         group: "Hesap" },
+  { href: "/marka/bildirimler",  label: "Bildirimler",       icon: Bell,            group: "Hesap" },
 ];
 
 export default function Sidebar() {
@@ -162,13 +156,13 @@ export default function Sidebar() {
     user?.role === "auditor"  ? AUDITOR_NAV  :
     user?.role === "brand"    ? BRAND_NAV    :
     STREAMER_NAV;
-  const BRAND_GROUPS: NavItem["group"][] = ["Genel", "İş Birliği", "Performans", "Büyüme & CRM", "Ekip & İK", "Finans", "Hesap"];
+  const BRAND_GROUPS: NavItem["group"][] = ["Genel", "İş Birliği", "İzlenme", "Büyüme", "Ekip", "Finans", "Hesap"];
   const STREAMER_GROUPS: NavItem["group"][] = ["Yayıncı", "İş Birliği", "Hesap"];
   const groups: NavItem["group"][] =
     adminViewingStreamer     ? STREAMER_GROUPS :
     adminViewingBrand        ? BRAND_GROUPS :
-    user?.role === "admin"   ? ["Yönetim", "Yayın", "Finans"] :
-    user?.role === "auditor" ? ["Denetim"] :
+    user?.role === "admin"   ? ["Kontrol", "Bordro", "Yayın", "Muhasebe", "Sistem"] :
+    user?.role === "auditor" ? ["Kontrol", "Bordro", "Yayın", "Muhasebe", "Sistem"] :
     user?.role === "brand"   ? BRAND_GROUPS :
                                STREAMER_GROUPS;
 

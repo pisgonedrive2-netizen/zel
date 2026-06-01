@@ -1,4 +1,4 @@
-import { useStore, type ContentExpense } from "@/store/store";
+import { mergeCanonicalContentExpenses, useStore, type ContentExpense } from "@/store/store";
 
 /** Sunucudaki içerik harcamalarını store'a yazar (yayıncı oturumu). */
 export async function reloadStreamerExpensesFromServer(
@@ -13,10 +13,10 @@ export async function reloadStreamerExpensesFromServer(
     const data = (await res.json()) as { contentExpenses?: ContentExpense[] };
     const rows = data.contentExpenses ?? [];
     useStore.setState((s) => ({
-      contentExpenses: [
+      contentExpenses: mergeCanonicalContentExpenses([
         ...s.contentExpenses.filter((e) => e.employeeId !== employeeId),
         ...rows,
-      ],
+      ]),
     }));
     return { ok: true, count: rows.length };
   } catch (e) {

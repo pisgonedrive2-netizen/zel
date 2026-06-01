@@ -19,6 +19,7 @@ import {
   Calculator,
   FileText,
   Wallet,
+  Banknote,
 } from "lucide-react";
 import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
 import { markaHref } from "@/lib/use-marka-view-month";
@@ -43,6 +44,13 @@ interface ModuleSection {
 // Sidebar BRAND_NAV / marka-subnav ile aynı gruplama ve sıralama mantığı.
 const SECTIONS: ModuleSection[] = [
   {
+    title: "Genel",
+    items: [
+      { href: "/marka/anasayfa", label: "Anasayfa", description: "Özet KPI ve hızlı erişim", icon: Compass, color: "orange" },
+      { href: "/marka/operasyon", label: "Operasyon özeti", description: "Günlük operasyon ve aktivite", icon: TrendingUp, color: "orange" },
+    ],
+  },
+  {
     title: "İş Birliği",
     items: [
       { href: "/marka/havuz", label: "Yayıncı havuzu", description: "Yayıncıları keşfet, filtrele ve teklif gönder", icon: Users, color: "orange" },
@@ -52,21 +60,21 @@ const SECTIONS: ModuleSection[] = [
     ],
   },
   {
-    title: "Performans",
+    title: "İzlenme",
     items: [
       { href: "/marka/izlenmeler", label: "İzlenmeler", description: "Link & sosyal platform izlenme takibi", icon: Eye, color: "blue" },
       { href: "/marka/postlar", label: "Postlar", description: "Yayıncı içerik ve reel performansı", icon: Video, color: "blue" },
     ],
   },
   {
-    title: "Büyüme & CRM",
+    title: "Büyüme",
     items: [
       { href: "/marka/affiliate", label: "Affiliate", description: "Partner komisyon, FTD ve tıklama takibi", icon: TrendingUp, color: "pink" },
       { href: "/marka/crm", label: "CRM", description: "Lead, fırsat ve müşteri ilişkileri", icon: Contact, color: "pink", cap: "crm" },
     ],
   },
   {
-    title: "Ekip & İK",
+    title: "Ekip",
     items: [
       { href: "/marka/personel", label: "Personel", description: "Personel kayıtları, roller ve detaylar", icon: Briefcase, color: "violet", cap: "hr" },
       { href: "/marka/takip", label: "Görev & Takip", description: "Görev atama ve vardiya takibi", icon: ClipboardList, color: "violet", cap: "hr" },
@@ -78,6 +86,7 @@ const SECTIONS: ModuleSection[] = [
     items: [
       { href: "/marka/muhasebe", label: "Muhasebe", description: "Gelir/gider defteri ve bakiye", icon: Calculator, color: "green", cap: "finance" },
       { href: "/marka/faturalar", label: "Faturalar", description: "Fatura oluştur, gönder ve takip et", icon: FileText, color: "green", cap: "finance" },
+      { href: "/marka/bordro", label: "Bordro", description: "Maaş ve bordro kalemleri", icon: Banknote, color: "green", cap: "finance" },
       { href: "/marka/odemeler", label: "Ödeme planı", description: "Taksit planı ve ödeme durumu", icon: Wallet, color: "green" },
     ],
   },

@@ -12,16 +12,17 @@ export const MONTHS = [
  * 2026 takvim yılı maaş bordrosu (net ödeme), USD.
  * Kaynak: 1) Ramiz Nis-Ara 2026 ($10k base + $1.300 kira − $3k avans Nis/May, sonra avans yok)
  *         2) Lucy   Nis-Ara 2026 ($3k base + $650 kira → her 17'sinde)
- *         3) Acelya Haz-Ara 2026 ($3.5k base + $650 kira → ilk maaş 1-5 Haz)
+ *         3) Acelya May 2026 ilk bordro ($3.5k + $1.55k kira − $300 avans → $4.75k);
+ *            Haz–Tem $300/ay avans kesintisi; sonra $3.5k + $650/ay kira
  *         4) Orkun  bordroda yok (koordinatör)
  *
- *   Oca Şub Mar  Nis     May     Haz     Tem-Ara
- *    0   0   0  11.950  11.950  19.100   19.100 × 7
+ *   Oca Şub Mar  Nis     May      Haz     Tem-Ara
+ *    0   0   0  11.950  21.526  18.750   18.750 × 7
  */
 export const maasAylik: readonly number[] = [
   0, 0, 0,
-  11_950, 11_950,
-  19_100, 19_100, 19_100, 19_100, 19_100, 19_100, 19_100,
+  11_950, 21_526,
+  18_750, 18_750, 18_750, 18_750, 18_750, 18_750, 18_750,
 ];
 
 /**
@@ -41,7 +42,7 @@ export const giderlerAylik: readonly number[] = [ 1_200,  1_100,  1_500,  1_300,
 const sumN = (a: readonly number[]) => a.reduce((s, v) => s + v, 0);
 
 export const YILLIK = {
-  maas:     sumN(maasAylik),     // 157.600
+  maas:     sumN(maasAylik),     // 164.726
   disGelir: sumN(disGelirAylik), // 377.199
   icGelir:  sumN(icGelirAylik),  // 805.000
   giderler: sumN(giderlerAylik), // 15.800
@@ -179,6 +180,25 @@ function pgDateOnly(value: string): string | null {
   const v = value.trim();
   const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : null;
+}
+
+/** ISO tarih/saat → yerel YYYY-MM-DD (UTC `slice(0,10)` kaymasını önler). */
+export function isoToLocalDateOnly(iso: string | undefined | null): string {
+  if (!iso) return "";
+  const bare = pgDateOnly(String(iso));
+  if (!bare) return "";
+  if (String(iso).trim().length <= 10) return bare;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return bare;
+  return toDateLocal(d);
+}
+
+/** Yerel öğlen (12:00) — `published_at` için timezone kayması olmadan gün sabitlenir. */
+export function localNoonTimestampIso(dateIso: string): string {
+  const bare = pgDateOnly(dateIso);
+  if (!bare) return new Date().toISOString();
+  const [y, mo, day] = bare.split("-").map(Number);
+  return new Date(y, mo - 1, day, 12, 0, 0).toISOString();
 }
 
 export function shiftCalendarMonthYm(ym: string, deltaMonths: number): string {

@@ -57,9 +57,8 @@ const money = (cur: keyof typeof STAFF_CURRENCY_SYMBOL, amt?: number) =>
   amt && amt > 0 ? `${STAFF_CURRENCY_SYMBOL[cur]}${amt.toLocaleString("tr-TR")}` : "—";
 
 export default function MarkaPersonelDetayPage() {
-  const params = useParams();
+  const id = String(useParams<{ id: string }>().id ?? "");
   const router = useRouter();
-  const id = String(params?.id ?? "");
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
