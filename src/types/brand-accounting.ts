@@ -53,3 +53,28 @@ export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   overdue: "Gecikti",
   cancelled: "İptal",
 };
+
+/**
+ * iGaming (online bahis/casino) odaklı önayar kategoriler.
+ * `category` serbest metin olduğu için bunlar yalnızca öneri/seçim kolaylığıdır;
+ * kullanıcı kendi metnini de yazabilir (şema değişikliği yok).
+ */
+export const LEDGER_EXPENSE_CATEGORIES: readonly string[] = [
+  "Affiliate ödeme — CPA",
+  "Affiliate ödeme — RevShare",
+  "Bonus maliyeti",
+  "PSP / ödeme komisyonu",
+  "Lisans & regülasyon",
+  "Pazarlama & reklam",
+  "Yayıncı içerik ödemesi",
+  "Personel maliyeti",
+  "Yazılım / sağlayıcı",
+  "Vergi",
+  "Diğer",
+];
+
+export const LEDGER_INCOME_CATEGORIES: readonly string[] = [
+  "Operatör geliri / komisyon",
+  "Affiliate geliri",
+  "Diğer gelir",
+];

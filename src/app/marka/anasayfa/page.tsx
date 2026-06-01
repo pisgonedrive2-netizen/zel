@@ -208,10 +208,13 @@ export default function MarkaAnasayfaPage() {
 
   const brandNotifications = useMemo(() => {
     if (!targetUserId) return [];
-    return visibleNotificationsForRole(notifications, "brand", targetUserId).sort(
-      (a, b) => b.createdAt.localeCompare(a.createdAt)
-    );
-  }, [notifications, targetUserId]);
+    return visibleNotificationsForRole(
+      notifications,
+      "brand",
+      targetUserId,
+      brandId ? [brandId] : undefined
+    ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [notifications, targetUserId, brandId]);
 
   // Başlangıç kontrol listesi adımları (yeni marka için)
   const gettingStartedSteps: GettingStartedStep[] = useMemo(() => {

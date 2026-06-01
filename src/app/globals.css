@@ -157,6 +157,14 @@
 .dark ::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 15%); }
 .dark ::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 25%); }
 
+/* Üstte daha görünür/tutulabilir yatay kaydırma çubuğu (kasa tablosu). */
+.scroll-top-visible { scrollbar-width: thin; }
+.scroll-top-visible::-webkit-scrollbar { height: 10px; }
+.scroll-top-visible::-webkit-scrollbar-thumb { background: oklch(0 0 0 / 22%); border-radius: 5px; }
+.scroll-top-visible::-webkit-scrollbar-thumb:hover { background: oklch(0 0 0 / 34%); }
+.dark .scroll-top-visible::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 22%); }
+.dark .scroll-top-visible::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 34%); }
+
 /* ─── Recharts overrides ────────────────────────────────────────────────── */
 .recharts-default-tooltip {
   background-color: white !important;

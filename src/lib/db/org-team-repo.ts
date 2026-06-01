@@ -18,6 +18,8 @@ export interface OrgTeamMember {
     avatar: string;
     active: boolean;
     lastLoginAt?: string;
+    /** Platform rolü (admin = iç ajans/platform ekibi). */
+    role?: string;
   } | null;
 }
 
@@ -40,7 +42,7 @@ export async function fetchOrgTeam(organizationId: string): Promise<OrgTeamMembe
   const memberIds = members.map((m) => str(m.id));
 
   const [{ data: userRows }, { data: scopeRows }] = await Promise.all([
-    admin.from("app_users").select("id, name, username, avatar, active, last_login_at").in("id", userIds),
+    admin.from("app_users").select("id, name, username, avatar, active, last_login_at, role").in("id", userIds),
     admin.from("organization_member_brands").select("member_id, brand_id").in("member_id", memberIds),
   ]);
 
@@ -74,6 +76,7 @@ export async function fetchOrgTeam(organizationId: string): Promise<OrgTeamMembe
             avatar: str(u.avatar),
             active: Boolean(u.active),
             lastLoginAt: u.last_login_at ? str(u.last_login_at) : undefined,
+            role: u.role ? str(u.role) : undefined,
           }
         : null,
     };

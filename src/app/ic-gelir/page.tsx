@@ -394,6 +394,7 @@ export default function IcGelirPage() {
             message: `${project.name} için ${payrollMonthLongTitle(viewMonth)} tahsilatı bekleniyor (${fmt(project.monthlyRevenue)}).`,
             forRole: "brand",
             forUserId: bu.id,
+            forBrandId: bu.brandId ?? project.brandId,
             href: "/marka/izlenmeler",
             refId: `brand-pay-manual-${project.id}-${viewMonth}-${bu.id}`,
           });

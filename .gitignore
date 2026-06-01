@@ -11,6 +11,7 @@ seed.sql
 seed-err.log
 /tmp
 
-# Yanlışlıkla eklenmesin — yalnızca kök dizindeki landing görseli
-# (public/landing.jpg deploy için commit edilmeli, bu yüzden kökle sınırlı)
+# Yanlışlıkla eklenmesin — yalnızca kök dizindeki landing görselleri
+# (public/ içindekiler deploy için commit edilmeli, bu yüzden kökle sınırlı)
 /landing.jpg
+/landback.png

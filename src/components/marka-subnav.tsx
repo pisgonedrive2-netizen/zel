@@ -22,6 +22,8 @@ import {
   Wallet,
   UserCog,
   Bell,
+  Banknote,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
@@ -62,11 +64,13 @@ const NAV: readonly NavItem[] = [
   { href: "/marka/crm", label: "CRM", icon: Contact, group: "Büyüme & CRM", cap: "crm" },
 
   { href: "/marka/personel", label: "Personel", icon: Briefcase, group: "Ekip & İK", cap: "hr" },
+  { href: "/marka/departmanlar", label: "Departmanlar", icon: Building2, group: "Ekip & İK", cap: "hr" },
   { href: "/marka/takip", label: "Görev & Takip", icon: ClipboardList, group: "Ekip & İK", cap: "hr" },
   { href: "/marka/ekip", label: "Ekip & yetkiler", icon: Settings, group: "Ekip & İK", cap: "team" },
 
   { href: "/marka/muhasebe", label: "Muhasebe", icon: Calculator, group: "Finans", cap: "finance" },
   { href: "/marka/faturalar", label: "Faturalar", icon: FileText, group: "Finans", cap: "finance" },
+  { href: "/marka/bordro", label: "Bordro", icon: Banknote, group: "Finans", cap: "finance" },
   { href: "/marka/odemeler", label: "Ödeme planı", icon: Wallet, group: "Finans" },
 
   { href: "/marka/profil", label: "Marka profili", icon: UserCog, group: "Hesap" },

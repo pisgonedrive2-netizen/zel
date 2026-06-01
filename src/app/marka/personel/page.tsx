@@ -4,31 +4,38 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Users, Plus, Loader2, RefreshCcw, Pencil, Trash2, Mail, Phone, ArrowUpRight, Wallet,
+  Search, UserCheck, UserMinus, MailPlus, TrendingUp, X, Building2,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, NumberInput, FormGrid, FormActions } from "@/components/ui/field";
 import {
   fetchStaff, saveStaff, deleteStaff,
 } from "@/lib/brand-personnel-api";
+import { fetchDepartments } from "@/lib/brand-payroll-api";
 import {
-  STAFF_STATUS_LABELS,
+  STAFF_STATUS_LABELS, STAFF_CURRENCY_SYMBOL,
+  type BrandDepartment,
   type BrandStaff,
   type StaffCurrency,
   type StaffStatus,
 } from "@/types/brand-personnel";
 
-const CUR_SYMBOL: Record<StaffCurrency, string> = { USD: "$", EUR: "€", TRY: "₺" };
 const STATUS_CLS: Record<StaffStatus, string> = {
   active: "border-green-300 bg-green-50 text-green-700 dark:border-green-500/45 dark:bg-green-950/40 dark:text-green-300",
   passive: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-400",
   invited: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-300",
 };
+
+const fmtMoney = (cur: StaffCurrency, amt: number) =>
+  `${STAFF_CURRENCY_SYMBOL[cur]}${Math.round(amt).toLocaleString("tr-TR")}`;
+
+type StatusFilter = "all" | StaffStatus;
 
 const emptyForm = {
   id: "",
@@ -39,13 +46,19 @@ const emptyForm = {
   status: "active" as StaffStatus,
   monthlyCost: 0,
   currency: "USD" as StaffCurrency,
+  avatar: "",
   notes: "",
+  departmentId: "",
+  baseSalary: 0,
+  rentSupport: 0,
+  mealAllowance: 0,
 };
 
 export default function MarkaPersonelPage() {
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [staff, setStaff] = useState<BrandStaff[]>([]);
+  const [departments, setDepartments] = useState<BrandDepartment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -53,18 +66,32 @@ export default function MarkaPersonelPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+
   const load = useCallback(async () => {
     if (!brandId) return;
     setLoading(true);
     setError(null);
     try {
-      setStaff(await fetchStaff(brandId));
+      const [s, d] = await Promise.all([
+        fetchStaff(brandId),
+        fetchDepartments(brandId).catch(() => [] as BrandDepartment[]),
+      ]);
+      setStaff(s);
+      setDepartments(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Yüklenemedi");
     } finally {
       setLoading(false);
     }
   }, [brandId]);
+
+  const deptName = useCallback(
+    (id?: string) => (id ? departments.find((d) => d.id === id)?.name ?? "Atanmadı" : "Atanmadı"),
+    [departments]
+  );
 
   useEffect(() => {
     void load();
@@ -76,12 +103,58 @@ export default function MarkaPersonelPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const totals = useMemo(() => {
-    const active = staff.filter((s) => s.status === "active");
-    const byCur: Record<string, number> = {};
-    for (const s of active) byCur[s.currency] = (byCur[s.currency] ?? 0) + s.monthlyCost;
-    return { count: staff.length, activeCount: active.length, byCur };
+  const roles = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of staff) if (s.role.trim()) set.add(s.role.trim());
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "tr"));
   }, [staff]);
+
+  const kpis = useMemo(() => {
+    const counts = { active: 0, passive: 0, invited: 0 } as Record<StaffStatus, number>;
+    const costByCur: Record<string, number> = {};
+    const countByCur: Record<string, number> = {};
+    for (const s of staff) {
+      counts[s.status] += 1;
+      if (s.status !== "passive" && s.monthlyCost > 0) {
+        costByCur[s.currency] = (costByCur[s.currency] ?? 0) + s.monthlyCost;
+        countByCur[s.currency] = (countByCur[s.currency] ?? 0) + 1;
+      }
+    }
+    return { counts, costByCur, countByCur, total: staff.length };
+  }, [staff]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase("tr");
+    return staff.filter((s) => {
+      if (statusFilter !== "all" && s.status !== statusFilter) return false;
+      if (roleFilter !== "all" && (s.role.trim() || "Tanımsız") !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        s.name.toLocaleLowerCase("tr").includes(q) ||
+        s.role.toLocaleLowerCase("tr").includes(q) ||
+        (s.email ?? "").toLocaleLowerCase("tr").includes(q) ||
+        (s.phone ?? "").toLocaleLowerCase("tr").includes(q)
+      );
+    });
+  }, [staff, search, statusFilter, roleFilter]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, BrandStaff[]>();
+    for (const s of filtered) {
+      const key = s.role.trim() || "Tanımsız";
+      const arr = map.get(key);
+      if (arr) arr.push(s);
+      else map.set(key, [s]);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "tr"));
+  }, [filtered]);
+
+  const hasFilters = search.trim() !== "" || statusFilter !== "all" || roleFilter !== "all";
+  const clearFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setRoleFilter("all");
+  };
 
   const openNew = () => {
     setForm(emptyForm);
@@ -97,7 +170,12 @@ export default function MarkaPersonelPage() {
       status: s.status,
       monthlyCost: s.monthlyCost,
       currency: s.currency,
+      avatar: s.avatar ?? "",
       notes: s.notes,
+      departmentId: s.departmentId ?? "",
+      baseSalary: s.baseSalary ?? 0,
+      rentSupport: s.rentSupport ?? 0,
+      mealAllowance: s.mealAllowance ?? 0,
     });
     setModalOpen(true);
   };
@@ -117,7 +195,12 @@ export default function MarkaPersonelPage() {
         status: form.status,
         monthlyCost: form.monthlyCost,
         currency: form.currency,
+        avatar: form.avatar.trim() || undefined,
         notes: form.notes,
+        departmentId: form.departmentId || undefined,
+        baseSalary: form.baseSalary,
+        rentSupport: form.rentSupport,
+        mealAllowance: form.mealAllowance,
       });
       setToast(form.id ? "Personel güncellendi" : "Personel eklendi");
       setModalOpen(false);
@@ -149,7 +232,7 @@ export default function MarkaPersonelPage() {
               <Users size={22} /> Personel
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {brand?.name} ekibini yönetin · {totals.activeCount} aktif / {totals.count} toplam
+              {brand?.name} ekibini yönetin · {kpis.counts.active} aktif / {kpis.total} toplam
             </p>
           </div>
           <div className="flex gap-2">
@@ -171,109 +254,189 @@ export default function MarkaPersonelPage() {
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
         )}
 
-        {/* Aylık maliyet özeti */}
-        {Object.keys(totals.byCur).length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            {(Object.entries(totals.byCur) as [StaffCurrency, number][]).map(([cur, amt]) => (
-              <Card key={cur}>
-                <CardContent className="flex items-center gap-3 py-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Wallet size={18} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Aylık maliyet ({cur})</p>
-                    <p className="text-lg font-bold tabular-nums">
-                      {CUR_SYMBOL[cur]}{amt.toLocaleString("tr-TR")}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+        {/* Headcount KPI'ları */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard icon={<UserCheck size={18} />} tone="green" label="Aktif personel" value={String(kpis.counts.active)} />
+          <KpiCard icon={<UserMinus size={18} />} tone="zinc" label="Pasif" value={String(kpis.counts.passive)} />
+          <KpiCard icon={<MailPlus size={18} />} tone="amber" label="Davetli" value={String(kpis.counts.invited)} />
+          <KpiCard
+            icon={<Users size={18} />}
+            tone="primary"
+            label="Toplam kişi"
+            value={String(kpis.total)}
+            sub={roles.length > 0 ? `${roles.length} farklı rol` : undefined}
+          />
+        </div>
+
+        {/* Maliyet özeti (para birimine göre) */}
+        {Object.keys(kpis.costByCur).length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(Object.entries(kpis.costByCur) as [StaffCurrency, number][]).map(([cur, amt]) => {
+              const n = kpis.countByCur[cur] ?? 0;
+              const avg = n > 0 ? amt / n : 0;
+              return (
+                <Card key={cur}>
+                  <CardContent className="flex items-center gap-3 py-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Wallet size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Aylık maliyet ({cur})</p>
+                      <p className="text-lg font-bold tabular-nums">{fmtMoney(cur, amt)}</p>
+                      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <TrendingUp size={11} /> Ort. {fmtMoney(cur, avg)} · {n} kişi
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
 
-        <Card>
-          <CardHeader className="border-b border-border/60 pb-4">
-            <CardTitle>Ekip listesi</CardTitle>
-            <CardDescription>Personel kartına tıklayarak görev, vardiya ve aktiviteleri görün.</CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            {loading && staff.length === 0 ? (
-              <div className="py-12 text-center text-muted-foreground">
-                <Loader2 size={22} className="mx-auto animate-spin opacity-50" />
-                <p className="mt-2 text-sm">Yükleniyor…</p>
-              </div>
-            ) : staff.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-                <Users size={28} className="opacity-30" />
-                <p className="text-sm">Henüz personel eklenmemiş.</p>
-                {!readOnly && (
-                  <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}>
-                    <Plus size={14} /> İlk personeli ekle
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      {["Personel", "İletişim", "Aylık maliyet", "Durum", ...(readOnly ? [] : [""])].map((h, idx) => (
-                        <th key={h || `act-${idx}`} className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {staff.map((s) => (
-                      <tr key={s.id} className="border-b border-border/60 transition-colors hover:bg-accent/15">
-                        <td className="px-3 py-3">
-                          <Link href={`/marka/personel/${s.id}`} className="group flex items-center gap-2.5">
-                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                              {s.avatar || s.name.slice(0, 1).toUpperCase()}
-                            </span>
-                            <span>
-                              <span className="flex items-center gap-1 font-medium text-foreground group-hover:underline">
-                                {s.name} <ArrowUpRight size={12} className="opacity-0 group-hover:opacity-60" />
-                              </span>
-                              {s.role && <span className="block text-xs text-muted-foreground">{s.role}</span>}
-                            </span>
-                          </Link>
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                            {s.email && <span className="flex items-center gap-1"><Mail size={11} /> {s.email}</span>}
-                            {s.phone && <span className="flex items-center gap-1"><Phone size={11} /> {s.phone}</span>}
-                            {!s.email && !s.phone && "—"}
+        {/* Arama + filtre */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="İsim, rol, e-posta veya telefon ara…"
+              className="pl-9"
+              aria-label="Personel ara"
+            />
+          </div>
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="w-auto min-w-[130px]"
+            aria-label="Duruma göre filtrele"
+            options={[
+              { value: "all", label: "Tüm durumlar" },
+              { value: "active", label: "Aktif" },
+              { value: "passive", label: "Pasif" },
+              { value: "invited", label: "Davetli" },
+            ]}
+          />
+          <Select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="w-auto min-w-[140px]"
+            aria-label="Role göre filtrele"
+            options={[
+              { value: "all", label: "Tüm roller" },
+              ...roles.map((r) => ({ value: r, label: r })),
+            ]}
+          />
+          {hasFilters && (
+            <Button variant="ghost" size="sm" className="gap-1" onClick={clearFilters}>
+              <X size={13} /> Temizle
+            </Button>
+          )}
+        </div>
+
+        {/* Liste — role göre gruplu */}
+        {loading && staff.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center text-muted-foreground">
+              <Loader2 size={22} className="mx-auto animate-spin opacity-50" />
+              <p className="mt-2 text-sm">Yükleniyor…</p>
+            </CardContent>
+          </Card>
+        ) : staff.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+              <Users size={28} className="opacity-30" />
+              <p className="text-sm">Henüz personel eklenmemiş.</p>
+              {!readOnly && (
+                <Button size="sm" className="mt-1 gap-1.5" onClick={openNew}>
+                  <Plus size={14} /> İlk personeli ekle
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : filtered.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+              <Search size={26} className="opacity-30" />
+              <p className="text-sm">Filtreyle eşleşen personel yok.</p>
+              <Button variant="outline" size="sm" className="mt-1 gap-1" onClick={clearFilters}>
+                <X size={13} /> Filtreleri temizle
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-5">
+            {grouped.map(([role, members]) => (
+              <section key={role}>
+                <div className="mb-2 flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-foreground">{role}</h2>
+                  <Badge variant="outline" className="text-[10px] tabular-nums">{members.length}</Badge>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {members.map((s) => (
+                    <Card key={s.id} className="group relative transition-colors hover:border-primary/40">
+                      <CardContent className="space-y-3 py-4">
+                        <div className="flex items-start gap-3">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-semibold text-primary">
+                            {s.avatar || s.name.slice(0, 1).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={`/marka/personel/${s.id}`}
+                              className="flex items-center gap-1 font-semibold text-foreground hover:underline"
+                            >
+                              <span className="truncate">{s.name}</span>
+                              <ArrowUpRight size={13} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
+                            </Link>
+                            {s.role && <p className="truncate text-xs text-muted-foreground">{s.role}</p>}
                           </div>
-                        </td>
-                        <td className="px-3 py-3 tabular-nums">
-                          {s.monthlyCost > 0 ? `${CUR_SYMBOL[s.currency]}${s.monthlyCost.toLocaleString("tr-TR")}` : "—"}
-                        </td>
-                        <td className="px-3 py-3">
-                          <Badge variant="outline" className={`text-[10px] ${STATUS_CLS[s.status]}`}>
+                          <Badge variant="outline" className={`shrink-0 text-[10px] ${STATUS_CLS[s.status]}`}>
                             {STAFF_STATUS_LABELS[s.status]}
                           </Badge>
-                        </td>
-                        {!readOnly && (
-                          <td className="px-3 py-3">
-                            <div className="flex justify-end gap-1">
-                              <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(s)} aria-label="Düzenle">
-                                <Pencil size={14} />
+                        </div>
+
+                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                          {s.email && (
+                            <a href={`mailto:${s.email}`} className="flex items-center gap-1.5 hover:text-foreground">
+                              <Mail size={12} /> <span className="truncate">{s.email}</span>
+                            </a>
+                          )}
+                          {s.phone && (
+                            <a href={`tel:${s.phone}`} className="flex items-center gap-1.5 hover:text-foreground">
+                              <Phone size={12} /> {s.phone}
+                            </a>
+                          )}
+                          {!s.email && !s.phone && <span>İletişim bilgisi yok</span>}
+                          <span className="flex items-center gap-1.5">
+                            <Building2 size={12} /> {deptName(s.departmentId)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-border/60 pt-2.5">
+                          <span className="flex items-center gap-1.5 text-sm font-medium tabular-nums">
+                            <Wallet size={13} className="text-muted-foreground" />
+                            {s.monthlyCost > 0 ? `${fmtMoney(s.currency, s.monthlyCost)}/ay` : "—"}
+                          </span>
+                          {!readOnly && (
+                            <div className="flex gap-0.5">
+                              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(s)} aria-label="Düzenle">
+                                <Pencil size={13} />
                               </Button>
-                              <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(s)} aria-label="Sil">
-                                <Trash2 size={14} />
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:bg-red-500/10 dark:text-red-400" onClick={() => void remove(s)} aria-label="Sil">
+                                <Trash2 size={13} />
                               </Button>
                             </div>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </div>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={form.id ? "Personeli düzenle" : "Yeni personel"} size="md">
@@ -308,7 +471,37 @@ export default function MarkaPersonelPage() {
                 options={[{ value: "active", label: "Aktif" }, { value: "passive", label: "Pasif" }, { value: "invited", label: "Davetli" }]}
               />
             </Field>
+            <Field label="Departman">
+              <Select
+                value={form.departmentId}
+                onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}
+                options={[
+                  { value: "", label: "Atanmadı" },
+                  ...departments.map((d) => ({ value: d.id, label: d.name })),
+                ]}
+              />
+            </Field>
+            <Field label="Avatar (baş harfler)" hint="Boş bırakılırsa isimden üretilir.">
+              <Input value={form.avatar} onChange={(e) => setForm((f) => ({ ...f, avatar: e.target.value.slice(0, 3) }))} placeholder="AB" maxLength={3} />
+            </Field>
           </FormGrid>
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+            <p className="mb-2 text-[12px] font-medium text-muted-foreground">Maaş bileşenleri (bordro)</p>
+            <FormGrid>
+              <Field label="Baz maaş">
+                <NumberInput value={form.baseSalary} onChange={(v) => setForm((f) => ({ ...f, baseSalary: v }))} min={0} />
+              </Field>
+              <Field label="Kira desteği">
+                <NumberInput value={form.rentSupport} onChange={(v) => setForm((f) => ({ ...f, rentSupport: v }))} min={0} />
+              </Field>
+              <Field label="Yemek yardımı">
+                <NumberInput value={form.mealAllowance} onChange={(v) => setForm((f) => ({ ...f, mealAllowance: v }))} min={0} />
+              </Field>
+            </FormGrid>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Bu alanlar aylık bordro hesabında baz olarak kullanılır. Aylık maliyet ({STAFF_CURRENCY_SYMBOL[form.currency]}) ana gösterge olarak kalır.
+            </p>
+          </div>
           <Field label="Notlar">
             <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={3} />
           </Field>
@@ -316,5 +509,34 @@ export default function MarkaPersonelPage() {
         </form>
       </Modal>
     </MarkaPageGuard>
+  );
+}
+
+function KpiCard({
+  icon, label, value, sub, tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  tone: "green" | "zinc" | "amber" | "primary";
+}) {
+  const toneCls: Record<string, string> = {
+    green: "bg-green-500/10 text-green-600 dark:text-green-400",
+    zinc: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+    amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    primary: "bg-primary/10 text-primary",
+  };
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 py-4">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${toneCls[tone]}`}>{icon}</div>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="text-xl font-bold tabular-nums">{value}</p>
+          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

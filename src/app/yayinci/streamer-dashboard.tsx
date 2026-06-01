@@ -2417,9 +2417,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               employeeId={me.id}
               userId={user.id}
               existingPlans={weekViewPlans}
-              onApply={(plans) => {
-                for (const p of plans) addWeeklyPlan(p);
-              }}
+              onApply={(plans) => plans.map((p) => addWeeklyPlan(p))}
+              onUndo={(ids) => ids.forEach((id) => deleteWeeklyPlan(id))}
             />
 
             <PlanWeekBoard

@@ -244,6 +244,165 @@ export function exportKasaMonthCsv(
   downloadProfessionalCsv(report);
 }
 
+// ── Kasa: serbest tarih aralığı ───────────────────────────────────────────
+
+export interface KasaRangeExportOptions {
+  /** Aralık başlangıcından önceki devir bakiye (USDT). */
+  openingBalance?: number;
+  generatedBy?: string;
+}
+
+/** [from, to] (YYYY-MM-DD), her ikisi de dahil. */
+function filterKasaByRange(tx: KasaTransaction[], from: string, to: string): KasaTransaction[] {
+  return tx
+    .filter((t) => {
+      const d = t.date.slice(0, 10);
+      return d >= from && d <= to;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function exportKasaRangeCsv(
+  all: KasaTransaction[],
+  from: string,
+  to: string,
+  opts: KasaRangeExportOptions = {}
+): void {
+  const tx = filterKasaByRange(all, from, to);
+  const { rows, totalIn, totalOut, totalFee, closing } = summarizeKasa(tx, opts.openingBalance ?? 0);
+  const opening = opts.openingBalance ?? 0;
+  const rangeLabel = `${from} → ${to}`;
+
+  const detailCols = [
+    "Tarih", "Saat", "Yon", "Tutar_USDT", "Network_Fee_USDT",
+    "Amac", "Karsi_Taraf", "Kanit_URL", "Notlar", "Bakiye_Sonrasi_USDT",
+  ];
+  const detailRows = rows.map((t) => [
+    t.date.slice(0, 10),
+    t.date.slice(11, 16) || "",
+    t.direction === "in" ? "Gelen" : "Giden",
+    Math.round(t.amountUsd * 100) / 100,
+    Math.round(t.feeUsd * 100) / 100,
+    t.purpose,
+    t.counterparty,
+    t.proof,
+    t.notes,
+    Math.round(t.balanceAfter * 100) / 100,
+  ]);
+
+  const colCount = detailCols.length + 1;
+  const detail = numberedDetailSection(
+    "Kasa hareketleri",
+    detailCols,
+    [
+      ...detailRows,
+      totalRow(colCount, "TOPLAM / OZET", { 1: "", 4: totalIn, 5: totalFee }),
+    ],
+    `Filtre: ${rangeLabel} | ${rows.length} hareket`,
+  );
+
+  downloadProfessionalCsv({
+    filename: `foxstream-kasa-${from}_${to}.csv`,
+    metadata: {
+      Uygulama: "Foxstream",
+      "Rapor turu": "Kasa hareketleri (tarih araligi)",
+      Donem: rangeLabel,
+      "Olusturulma (TR)": fmtDateTime(new Date()),
+      "Para birimi": "USDT",
+      "Kayit sayisi": String(rows.length),
+      "Olusturan": opts.generatedBy ?? "",
+    },
+    sections: [
+      summarySection("Finansal ozet", [
+        { metric: "Acilis bakiyesi", value: opening, unit: "USDT" },
+        { metric: "Toplam giris", value: totalIn, unit: "USDT" },
+        { metric: "Toplam cikis", value: totalOut, unit: "USDT" },
+        { metric: "Toplam network fee", value: totalFee, unit: "USDT" },
+        { metric: "Kapanis bakiyesi", value: Math.round(closing * 100) / 100, unit: "USDT" },
+      ]),
+      detail,
+    ],
+  });
+}
+
+export function exportKasaRangePdf(
+  all: KasaTransaction[],
+  from: string,
+  to: string,
+  opts: KasaRangeExportOptions = {}
+): void {
+  const tx = filterKasaByRange(all, from, to);
+  const { rows, totalIn, totalOut, totalFee, closing } = summarizeKasa(tx, opts.openingBalance ?? 0);
+  const rangeLabel = `${from} - ${to}`;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 18, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont("helvetica", "bold");
+  doc.text("FOXSTREAM", 14, 11);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text(ascii("Kasa Hareketleri (Tarih Araligi)"), 14, 16);
+  const right = ascii(`Kasa Raporu - ${rangeLabel}`);
+  doc.text(right, pageWidth - 14 - doc.getTextWidth(right), 11);
+  const stamp = ascii(`Olusturulma: ${fmtDateTime(new Date())}${opts.generatedBy ? " - " + opts.generatedBy : ""}`);
+  doc.text(stamp, pageWidth - 14 - doc.getTextWidth(stamp), 16);
+  doc.setTextColor(0, 0, 0);
+
+  doc.setFontSize(11);
+  doc.text(ascii(`Aralik: ${rangeLabel}`), 14, 26);
+  doc.setFontSize(9);
+  doc.setTextColor(80);
+  doc.text(
+    ascii(
+      `Acilis bakiye: ${moneyUsdt(opts.openingBalance ?? 0)}    ` +
+      `Toplam giris: ${moneyUsdt(totalIn)}    ` +
+      `Toplam cikis: ${moneyUsdt(totalOut)}    ` +
+      `Fee: ${moneyUsdt(totalFee)}    ` +
+      `Kapanis bakiye: ${moneyUsdt(closing)}`
+    ),
+    14, 32
+  );
+  doc.setTextColor(0);
+
+  autoTable(doc, {
+    startY: 38,
+    head: [["Tarih", "Saat", "Yon", "Tutar", "Fee", "Amac", "Karsi Taraf", "Bakiye"]],
+    body: rows.map((t) => [
+      t.date.slice(0, 10),
+      t.date.slice(11, 16) || "—",
+      t.direction === "in" ? "Gelen" : "Giden",
+      moneyUsdt(t.amountUsd),
+      t.feeUsd > 0 ? moneyUsdt(t.feeUsd) : "—",
+      ascii(t.purpose),
+      ascii(t.counterparty || "—"),
+      moneyUsdt(t.balanceAfter),
+    ]),
+    styles: { fontSize: 8, cellPadding: 1.6 },
+    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [243, 244, 246] },
+    columnStyles: {
+      3: { halign: "right", fontStyle: "bold" },
+      4: { halign: "right" },
+      7: { halign: "right", fontStyle: "bold" },
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  if (rows.length === 0) {
+    const y = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 50;
+    doc.setFontSize(11);
+    doc.setTextColor(150);
+    doc.text(ascii("Bu aralik icin kayitli kasa hareketi yok."), 14, y + 14);
+    doc.setTextColor(0);
+  }
+
+  drawPdfFooters(doc);
+  savePdf(doc, `foxstream-kasa-${from}_${to}.pdf`);
+}
+
 export function exportKasaMonthPdf(
   all: KasaTransaction[],
   ym: string,

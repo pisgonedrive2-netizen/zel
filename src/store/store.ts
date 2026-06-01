@@ -520,6 +520,8 @@ export interface WeekBrandReel {
   /** Yayınlanan reel / post doğrudan linki. */
   contentUrl: string;
   platform: string;
+  /** İçerik türü: reels / post / story / video / canlı / diğer (opsiyonel). */
+  contentType?: string;
   /** Varsa kayıtlı marka linki (şablondan seçim). */
   brandLinkId?: string;
   /** Instagram vb. içeriğin yayınlandığı tarih (API). */
@@ -817,6 +819,8 @@ export interface AppNotification {
   forRole: "admin" | "auditor" | "streamer" | "brand";
   /** Belirli kullanıcıya yönelik (opsiyonel, ör. yayıncıya geri bildirim). */
   forUserId?: string;
+  /** Belirli markaya yönelik (brand izolasyonu — o markanın tüm ekibi görür). */
+  forBrandId?: string;
   /** İlgili kaydın id'si (ör. ContentExpense.id). */
   refId?: string;
   /** Hangi kullanıcı tetikledi (auth.users.id). */
@@ -3041,15 +3045,27 @@ export const STREAMER_NOTIFICATION_TYPE_LABELS: Partial<Record<AppNotification["
 export function visibleNotificationsForRole(
   notifications: AppNotification[],
   role: "admin" | "auditor" | "streamer" | "brand",
-  userId?: string
+  userId?: string,
+  /** Brand rolü için erişilebilir marka id'leri (marka izolasyonu). */
+  brandIds?: string[]
 ): AppNotification[] {
   const isOpsRole = role === "admin" || role === "auditor";
   return notifications.filter((n) => {
     if (n.forRole !== role) return false;
-    if (userId) {
-      if (n.forUserId && n.forUserId !== userId) return false;
-    } else if (n.forUserId) {
-      return false;
+    if (role === "brand") {
+      // Marka izolasyonu: kendi kullanıcı bildirimi VEYA markasının bildirimi
+      // VEYA genel duyuru (her ikisi de boş). Başka markanın bildirimi sızmaz.
+      const mine = !!userId && n.forUserId === userId;
+      const brandMatch =
+        !!n.forBrandId && !!brandIds && brandIds.includes(n.forBrandId);
+      const isGlobal = !n.forUserId && !n.forBrandId;
+      if (!mine && !brandMatch && !isGlobal) return false;
+    } else {
+      if (userId) {
+        if (n.forUserId && n.forUserId !== userId) return false;
+      } else if (n.forUserId) {
+        return false;
+      }
     }
     if (role === "streamer") {
       return STREAMER_NOTIFICATION_TYPES.has(n.type);
@@ -3063,9 +3079,11 @@ export function visibleNotificationsForRole(
 export function unreadNotificationCount(
   notifications: AppNotification[],
   role: "admin" | "auditor" | "streamer" | "brand",
-  userId?: string
+  userId?: string,
+  brandIds?: string[]
 ): number {
-  return visibleNotificationsForRole(notifications, role, userId).filter((n) => !n.read).length;
+  return visibleNotificationsForRole(notifications, role, userId, brandIds).filter((n) => !n.read)
+    .length;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

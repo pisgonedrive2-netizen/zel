@@ -239,6 +239,7 @@ export async function POST(req: Request) {
           message: `Yayıncı yeni bir ${saved.platform} ${saved.postType} ekledi: ${saved.url}`,
           forRole: "brand",
           forUserId: target.userId,
+          forBrandId: saved.brandId,
           refId: saved.id,
           triggeredBy: session.userId,
           createdAt: nowIso,

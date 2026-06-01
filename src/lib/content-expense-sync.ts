@@ -6,9 +6,22 @@ import {
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import type { ContentExpense, SalaryExtra } from "@/store/store";
 
+/**
+ * Aynı `id`'ye sahip satırları tekilleştirir (son kazanır). Tek bir
+ * `INSERT ... ON CONFLICT (id)` içinde aynı arbiter anahtarı iki kez geçerse
+ * Postgres "ON CONFLICT DO UPDATE command cannot affect row a second time"
+ * hatası verir; bu yüzden upsert öncesi mutlaka tekilleştiriyoruz.
+ */
+function dedupeById(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const r of rows) map.set(String(r.id), r);
+  return [...map.values()];
+}
+
 async function upsertRows(table: string, rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
-  const { error } = await getSupabaseAdmin().from(table).upsert(rows, { onConflict: "id" });
+  const deduped = dedupeById(rows);
+  if (deduped.length === 0) return;
+  const { error } = await getSupabaseAdmin().from(table).upsert(deduped, { onConflict: "id" });
   if (error) throw new Error(`${table} upsert: ${error.message}`);
 }
 
@@ -41,7 +54,7 @@ async function upsertSalaryExtras(
       rest.push(row);
     }
   }
-  const deduped = [...rest, ...byContent.values()];
+  const deduped = dedupeById([...rest, ...byContent.values()]);
 
   for (const row of deduped) {
     const cid = row.content_expense_id ? String(row.content_expense_id) : "";

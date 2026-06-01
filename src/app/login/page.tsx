@@ -105,6 +105,31 @@ function FeatureCard({
     </div>
   );
 }
+
+/** Landing alt bölümlerinde hafif merkez ışıması (turuncu, düşük opaklık). */
+function LandingSoftGlow({
+  at = "50% 50%",
+  opacity = 0.28,
+  spread = "70%",
+}: {
+  at?: string;
+  opacity?: number;
+  spread?: string;
+}) {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+      <div
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `radial-gradient(circle at ${at}, rgba(255,107,0,0.5) 0%, transparent ${spread})`,
+          opacity,
+          mixBlendMode: "soft-light",
+        }}
+      />
+    </div>
+  );
+}
+
 import {
   type BrandRegistrationCreateBody,
 } from "@/types/brand-registration";
@@ -901,29 +926,31 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* HERO — landing.jpg arka planı (siyah zemin görselle kusursuz harmanlanır) */}
-      <section id="hero" className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6">
-        {/* Arka plan görseli — mobilde tüm banner görünür (contain), masaüstünde tam doldurur (cover) */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-          {/* Ambient: ölçeklenmiş + bulanık kopya, contain modundaki boşlukları ışıkla doldurur */}
+      {/* HERO — landback.png tam ekran (cover), siyah zeminle kenar uyumu */}
+      <section
+        id="hero"
+        className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6"
+      >
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+          {/* Ambient: hafif blur — cover kenarlarında siyah boşluk kalmaz */}
           <Image
-            src="/landing.jpg"
+            src="/landback.png"
             alt=""
             fill
             priority
-            quality={100}
+            quality={90}
             sizes="100vw"
-            className="scale-125 object-cover object-center opacity-70 blur-3xl sm:opacity-100"
+            className="scale-110 object-cover object-center opacity-50 blur-2xl"
           />
-          {/* Ana görsel: mobil contain → masaüstü cover (tam sığar, boşluk yok) */}
+          {/* Ana görsel: tüm breakpoint'lerde viewport'u tam doldurur */}
           <Image
-            src="/landing.jpg"
+            src="/landback.png"
             alt=""
             fill
             priority
             quality={100}
             sizes="100vw"
-            className="object-contain object-center sm:object-cover"
+            className="object-cover object-[center_42%] sm:object-center"
           />
         </div>
 
@@ -973,8 +1000,29 @@ export default function LoginPage() {
       </section>
 
       {/* ROLLER — login bg'sindeki 4 rol */}
-      <section id="roller" className="relative w-full border-y border-white/5 bg-gradient-to-b from-black via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
-        <div className="mx-auto max-w-[1180px]">
+      <section
+        id="roller"
+        className="relative w-full overflow-hidden border-t border-white/5 bg-black px-4 py-16 sm:px-6 sm:py-20"
+      >
+        {/* Dikey geçiş: siyah (hero) → zinc-950 (nasil) — alt kenarda orantılı karışım */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            background:
+              "linear-gradient(180deg, #000000 0%, #000000 38%, #040404 62%, #070707 82%, #09090b 100%)",
+          }}
+        />
+        {/* Radial turuncu ışıma — alt kenarda sönümlenir, #nasil ile çakışmaz */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            background:
+              "radial-gradient(125% 95% at 50% 14%, #000000 40%, rgba(255,107,0,0.26) 70%, transparent 92%)",
+          }}
+        />
+        <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-10 text-center">
             <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Foxstream platformu</span>
             <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">
@@ -1021,9 +1069,10 @@ export default function LoginPage() {
         </div>
       </section>
 
-      {/* NASIL ÇALIŞIR — 4 adım */}
-      <section id="nasil" className="relative w-full bg-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
-        <div className="mx-auto max-w-[1180px]">
+      {/* NASIL ÇALIŞIR — 4 adım (#roller altıyla aynı zemin: zinc-950) */}
+      <section id="nasil" className="relative w-full overflow-hidden bg-[#09090b] px-4 py-16 sm:px-6 sm:py-20">
+        <LandingSoftGlow at="50% 18%" opacity={0.22} spread="72%" />
+        <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-10 text-center">
             <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Süreç</span>
             <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Nasıl çalışır?</h2>
@@ -1061,8 +1110,12 @@ export default function LoginPage() {
       </section>
 
       {/* ÖZELLİKLER — kart grid */}
-      <section id="ozellikler" className="relative w-full border-y border-white/5 bg-gradient-to-b from-zinc-950 via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20">
-        <div className="mx-auto max-w-[1180px]">
+      <section
+        id="ozellikler"
+        className="relative w-full overflow-hidden border-y border-white/5 bg-gradient-to-b from-zinc-950 via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20"
+      >
+        <LandingSoftGlow at="50% 50%" opacity={0.2} spread="68%" />
+        <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-10 text-center">
             <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Modüller</span>
             <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Platform özellikleri</h2>
@@ -1082,8 +1135,9 @@ export default function LoginPage() {
       </section>
 
       {/* CTA — Markaysan / Yayıncıysan */}
-      <section className="relative w-full bg-black px-4 py-16 sm:px-6 sm:py-20">
-        <div className="mx-auto max-w-[1180px] text-center">
+      <section className="relative w-full overflow-hidden bg-black px-4 py-16 sm:px-6 sm:py-20">
+        <LandingSoftGlow at="50% 100%" opacity={0.3} spread="78%" />
+        <div className="relative z-10 mx-auto max-w-[1180px] text-center">
           <h2 className="text-3xl font-bold leading-tight sm:text-4xl">
             Hemen başla — <span className="text-orange-400">2 dakikada</span> aktif ol.
           </h2>
@@ -1113,9 +1167,15 @@ export default function LoginPage() {
       </section>
 
       {/* PARTNERLER + footer marquee */}
-      <section id="partnerler" className="relative w-full shrink-0 border-t border-white/5 bg-gradient-to-t from-black via-black/90 to-transparent pb-[max(env(safe-area-inset-bottom),24px)] pt-10">
-        <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" dualRow={false} />
-        <div className="mx-auto mt-8 flex max-w-[1180px] flex-col items-center justify-between gap-2 px-4 text-[11px] text-white/40 sm:flex-row sm:px-6">
+      <section
+        id="partnerler"
+        className="relative w-full shrink-0 overflow-hidden border-t border-white/5 bg-gradient-to-t from-black via-black/90 to-transparent pb-[max(env(safe-area-inset-bottom),24px)] pt-10"
+      >
+        <LandingSoftGlow at="50% 100%" opacity={0.18} spread="55%" />
+        <div className="relative z-10">
+          <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" dualRow={false} />
+        </div>
+        <div className="relative z-10 mx-auto mt-8 flex max-w-[1180px] flex-col items-center justify-between gap-2 px-4 text-[11px] text-white/40 sm:flex-row sm:px-6">
           <span>© {new Date().getFullYear()} Foxstream · Yayıncı – marka iş birliği platformu</span>
           <span>İletişim için yöneticinizle bağlantıya geçin.</span>
         </div>

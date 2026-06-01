@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ExternalLink, Link2, Plus, Trash2, X } from "lucide-react";
+import { Check, ExternalLink, Link2, Plus, Trash2, X, Loader2, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -19,6 +19,27 @@ const PLATFORMS = ["Instagram", "TikTok", "YouTube", "Kick", "Twitter / X", "Tel
 const MONTHS_SHORT = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
 const WEEKDAY_SHORT = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
+/** Markaya bağlı olmayan içerik için sentinel. */
+const BRAND_OTHER = "__other__";
+
+/** İçerik türleri (yayıncının o gün ne attığı). */
+const CONTENT_TYPES: { value: string; label: string }[] = [
+  { value: "reels", label: "Reels / kısa video" },
+  { value: "post", label: "Post / gönderi" },
+  { value: "story", label: "Story / hikaye" },
+  { value: "video", label: "Video (uzun)" },
+  { value: "live", label: "Canlı yayın" },
+  { value: "other", label: "Diğer" },
+];
+const CONTENT_TYPE_LABEL: Record<string, string> = {
+  reels: "Reels",
+  post: "Post",
+  story: "Story",
+  video: "Video",
+  live: "Canlı",
+  other: "Diğer",
+};
+
 /** URL'den platformu tahmin et. */
 function detectPlatform(url: string): string {
   const u = url.toLowerCase();
@@ -29,6 +50,18 @@ function detectPlatform(url: string): string {
   if (u.includes("twitter") || u.includes("x.com")) return "Twitter / X";
   if (u.includes("t.me") || u.includes("telegram")) return "Telegram";
   return "Diğer";
+}
+
+/** URL'den içerik türünü tahmin et (reels / post / story / video). */
+function detectContentType(url: string): string {
+  const u = url.toLowerCase();
+  if (u.includes("/stories/") || u.includes("/story/")) return "story";
+  if (u.includes("/reel") || u.includes("/shorts/")) return "reels";
+  if (u.includes("/p/") || u.includes("/post")) return "post";
+  if (u.includes("tiktok.com")) return "reels";
+  if (u.includes("youtu") && u.includes("watch")) return "video";
+  if (u.includes("kick.com")) return "live";
+  return "reels";
 }
 
 /** ISO (tarih veya tarih+saat) → YYYY-MM-DD. */
@@ -113,28 +146,88 @@ export function DailyContentCheckin({
   // Ekleme formu
   const [url, setUrl] = useState("");
   const [platform, setPlatform] = useState("Instagram");
-  const [brandId, setBrandId] = useState(brands[0]?.id ?? "");
+  const [contentType, setContentType] = useState("reels");
+  const [brandId, setBrandId] = useState(brands[0]?.id ?? BRAND_OTHER);
   const [note, setNote] = useState("");
   const [touchedPlatform, setTouchedPlatform] = useState(false);
+  const [touchedType, setTouchedType] = useState(false);
+  // API otomatik metadata
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaHint, setMetaHint] = useState<string | null>(null);
+  const [fetchedPublishedAt, setFetchedPublishedAt] = useState<string | undefined>();
+
+  const brandNameOf = (id: string) => {
+    if (!id || id === BRAND_OTHER) return "Diğer";
+    const b = brands.find((x) => x.id === id);
+    return b ? b.shortName : "Diğer";
+  };
 
   const selectedReels = byDay.get(selectedDay) ?? [];
+
+  // URL girilince platform + içerik türü tahmini + API'den yayın tarihi/izlenme çek.
+  const autoFetchMeta = async (u: string) => {
+    if (!u.trim()) return;
+    setMetaLoading(true);
+    setMetaHint(null);
+    try {
+      const res = await fetch("/api/social/url-metadata", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: u.trim() }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        publishedAt?: string;
+        platform?: string;
+        error?: string;
+      };
+      if (json.ok && json.publishedAt) {
+        setFetchedPublishedAt(json.publishedAt);
+        if (json.platform && !touchedPlatform) setPlatform(json.platform);
+        setMetaHint(
+          `API · yayın ${new Date(json.publishedAt).toLocaleString("tr-TR", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}`
+        );
+      } else if (!json.ok) {
+        setMetaHint(json.error ?? "Yayın tarihi otomatik alınamadı — gün manuel işaretlenir.");
+      }
+    } catch {
+      setMetaHint("API'ye ulaşılamadı — gün manuel işaretlenir.");
+    } finally {
+      setMetaLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setUrl("");
+    setNote("");
+    setTouchedPlatform(false);
+    setTouchedType(false);
+    setMetaHint(null);
+    setFetchedPublishedAt(undefined);
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const u = url.trim();
-    if (!u || !brandId) return;
+    if (!u) return;
+    // API yayın tarihi varsa onu kullan (achievement gerçek tarihe yansır),
+    // yoksa seçili günün öğlenine sabitle.
+    const publishedAt = fetchedPublishedAt ?? `${selectedDay}T12:00:00.000Z`;
     onAdd({
       employeeId,
-      weekStart: weekStartFromDateIso(selectedDay),
-      brandId,
+      weekStart: weekStartFromDateIso((fetchedPublishedAt ?? selectedDay).slice(0, 10) || selectedDay),
+      brandId: brandId === BRAND_OTHER ? "" : brandId,
       contentUrl: u,
       platform,
-      publishedAt: `${selectedDay}T12:00:00.000Z`,
+      contentType,
+      publishedAt,
       notes: note.trim(),
     });
-    setUrl("");
-    setNote("");
-    setTouchedPlatform(false);
+    resetForm();
   };
 
   const fmtDayLabel = (iso: string) => {
@@ -217,6 +310,21 @@ export function DailyContentCheckin({
                   className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-2.5 py-1.5"
                 >
                   <PlatformGlyph platform={r.platform} size={15} className="shrink-0 text-muted-foreground" />
+                  {r.contentType && (
+                    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+                      {CONTENT_TYPE_LABEL[r.contentType] ?? r.contentType}
+                    </span>
+                  )}
+                  <span
+                    className={[
+                      "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                      r.brandId
+                        ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                        : "bg-muted text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {brandNameOf(r.brandId)}
+                  </span>
                   <a
                     href={r.contentUrl}
                     target="_blank"
@@ -261,13 +369,26 @@ export function DailyContentCheckin({
           {/* Ekleme formu */}
           {!readOnly && (
             <form onSubmit={submit} className="space-y-2 border-t border-border/60 pt-3">
-              <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <Field label="Marka" required>
                   <Select
                     value={brandId}
                     onChange={(e) => setBrandId(e.target.value)}
-                    options={brands.map((b) => ({ value: b.id, label: `${b.shortName} — ${b.name}` }))}
+                    options={[
+                      ...brands.map((b) => ({ value: b.id, label: `${b.shortName} — ${b.name}` })),
+                      { value: BRAND_OTHER, label: "Diğer (markaya bağlı değil)" },
+                    ]}
                     required
+                  />
+                </Field>
+                <Field label="İçerik türü" required>
+                  <Select
+                    value={contentType}
+                    onChange={(e) => {
+                      setContentType(e.target.value);
+                      setTouchedType(true);
+                    }}
+                    options={CONTENT_TYPES}
                   />
                 </Field>
                 <Field label="Platform">
@@ -281,7 +402,11 @@ export function DailyContentCheckin({
                   />
                 </Field>
               </div>
-              <Field label="İçerik URL'i" required hint="Tik atmak için içeriğin linki zorunludur">
+              <Field
+                label="İçerik URL'i"
+                required
+                hint={metaHint ?? "Tik atmak için içeriğin linki zorunludur — link yapıştırınca tür/tarih otomatik gelir"}
+              >
                 <div className="flex items-center gap-1.5">
                   <Link2 size={14} className="shrink-0 text-muted-foreground" />
                   <Input
@@ -291,17 +416,35 @@ export function DailyContentCheckin({
                     onChange={(e) => {
                       const v = e.target.value;
                       setUrl(v);
-                      if (!touchedPlatform && v.trim()) setPlatform(detectPlatform(v));
+                      setFetchedPublishedAt(undefined);
+                      setMetaHint(null);
+                      if (v.trim()) {
+                        if (!touchedPlatform) setPlatform(detectPlatform(v));
+                        if (!touchedType) setContentType(detectContentType(v));
+                      }
                     }}
+                    onBlur={(e) => autoFetchMeta(e.target.value)}
                     placeholder="https://instagram.com/reel/…"
                     className="font-mono text-xs"
                   />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0 gap-1 px-2"
+                    title="API'den yayın tarihi ve türü otomatik getir"
+                    disabled={!url.trim() || metaLoading}
+                    onClick={() => autoFetchMeta(url)}
+                  >
+                    {metaLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    <span className="hidden sm:inline">Otomatik</span>
+                  </Button>
                 </div>
               </Field>
               <Field label="Kısa not (opsiyonel)">
-                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn. 2. reels, Stories" />
+                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Örn. 2. reels, kampanya" />
               </Field>
-              <Button type="submit" size="sm" className="gap-1.5" disabled={!url.trim() || !brandId}>
+              <Button type="submit" size="sm" className="gap-1.5" disabled={!url.trim()}>
                 <Plus size={14} /> İşaretle ve URL ekle
               </Button>
             </form>

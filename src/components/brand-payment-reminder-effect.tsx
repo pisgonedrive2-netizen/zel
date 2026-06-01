@@ -120,6 +120,7 @@ export function BrandPaymentReminderEffect() {
           message,
           forRole: "brand",
           forUserId: bu.id,
+          forBrandId: bu.brandId ?? p.brandId,
           href: "/marka/izlenmeler",
           refId: refBrand,
         });

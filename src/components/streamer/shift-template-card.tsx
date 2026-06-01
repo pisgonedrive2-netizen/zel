@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarClock, Coffee, Sparkles, Check, AlertTriangle } from "lucide-react";
+import { CalendarClock, Coffee, Sparkles, Check, AlertTriangle, Undo2, User } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/field";
-import { WEEKDAYS_LONG, type WeeklyPlan } from "@/store/store";
+import { Input, Select } from "@/components/ui/field";
+import { WEEKDAYS_LONG, type Employee, type WeeklyPlan } from "@/store/store";
 import { weekStartFromDateIso } from "@/lib/data";
 import {
   SHIFT_TEMPLATE_7H,
@@ -29,6 +29,9 @@ export function ShiftTemplateCard({
   existingPlans,
   defaultStartTime = "20:00",
   onApply,
+  employees,
+  onSelectEmployee,
+  onUndo,
 }: {
   weekStart: string;
   /** Haftanın 7 günü (Pzt→Paz) ISO. */
@@ -38,9 +41,20 @@ export function ShiftTemplateCard({
   /** Bu yayıncı + hafta için mevcut planlar (dolu gün tespiti). */
   existingPlans: WeeklyPlan[];
   defaultStartTime?: string;
-  onApply: (plans: PlanInput[]) => void;
+  /** Planları ekler ve oluşturulan kayıt id'lerini döndürür (geri al için). */
+  onApply: (plans: PlanInput[]) => string[];
+  /** Şablonun uygulanacağı yayıncıyı seçmek için (opsiyonel — yönetici görünümü). */
+  employees?: Employee[];
+  onSelectEmployee?: (id: string) => void;
+  /** Verilen plan id'lerini siler (son uygulamayı geri al). */
+  onUndo?: (ids: string[]) => void;
 }) {
   const [startTime, setStartTime] = useState(defaultStartTime);
+  const [confirming, setConfirming] = useState(false);
+  // Son uygulanan kayıtların id'leri (bu yayıncı için) — geri al butonu için.
+  const [lastApplied, setLastApplied] = useState<{ employeeId: string; ids: string[] } | null>(null);
+
+  const targetEmployee = employees?.find((e) => e.id === employeeId);
 
   // Hangi günlerde zaten plan var?
   const filledDays = useMemo(() => {
@@ -102,8 +116,25 @@ export function ShiftTemplateCard({
         });
       }
     }
-    onApply(plans);
+    const ids = onApply(plans) ?? [];
+    setLastApplied({ employeeId, ids: ids.filter(Boolean) });
+    setConfirming(false);
   };
+
+  const undo = () => {
+    if (!lastApplied || lastApplied.ids.length === 0) return;
+    onUndo?.(lastApplied.ids);
+    setLastApplied(null);
+  };
+
+  // Yayıncı/hafta değişince onay ve "geri al" durumunu sıfırla.
+  const undoKey = `${employeeId}|${weekKey}`;
+  const [lastUndoKey, setLastUndoKey] = useState(undoKey);
+  if (undoKey !== lastUndoKey) {
+    setLastUndoKey(undoKey);
+    setConfirming(false);
+    if (lastApplied && lastApplied.employeeId !== employeeId) setLastApplied(null);
+  }
 
   return (
     <Card className="border-[#FF6B00]/30 bg-gradient-to-br from-orange-50/50 to-card dark:from-orange-950/20">
@@ -117,17 +148,37 @@ export function ShiftTemplateCard({
             Sosyal medya odaklı · 2-3 derin görev · değişken başlangıç saati
           </CardDescription>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-[11px] font-medium text-muted-foreground" htmlFor="shift-start">
-            Başlangıç (S+0)
-          </label>
-          <Input
-            id="shift-start"
-            type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            className="h-8 w-[110px]"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          {employees && onSelectEmployee && (
+            <div className="flex items-center gap-1.5">
+              <User size={13} className="text-muted-foreground" />
+              <Select
+                aria-label="Hedef yayıncı"
+                value={employeeId}
+                onChange={(e) => {
+                  setConfirming(false);
+                  onSelectEmployee(e.target.value);
+                }}
+                options={employees.map((e) => ({ value: e.id, label: e.name }))}
+                className="h-8 w-[150px]"
+              />
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-medium text-muted-foreground" htmlFor="shift-start">
+              Başlangıç (S+0)
+            </label>
+            <Input
+              id="shift-start"
+              type="time"
+              value={startTime}
+              onChange={(e) => {
+                setStartTime(e.target.value);
+                setConfirming(false);
+              }}
+              className="h-8 w-[110px]"
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -212,14 +263,50 @@ export function ShiftTemplateCard({
           </div>
         </div>
 
+        {/* Son uygulamayı geri al */}
+        {lastApplied && lastApplied.ids.length > 0 && lastApplied.employeeId === employeeId && (
+          <div className="flex flex-col gap-2 rounded-lg border border-emerald-300/50 bg-emerald-50/60 px-3 py-2 text-[11px] dark:border-emerald-500/40 dark:bg-emerald-950/25 sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-200">
+              <Check size={13} /> {lastApplied.ids.length} plan kaydı eklendi
+              {targetEmployee ? ` — ${targetEmployee.name}` : ""}. Saatler yanlışsa geri alabilirsin.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5"
+              onClick={undo}
+            >
+              <Undo2 size={13} /> Son uygulamayı geri al
+            </Button>
+          </div>
+        )}
+
         {emptyDays.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg border border-emerald-300/50 bg-emerald-50/50 px-3 py-2 text-[11px] text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-950/25 dark:text-emerald-200">
             <Check size={13} /> Bu haftanın tüm günleri planlı — şablon uygulanacak boş gün yok.
+          </div>
+        ) : confirming ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-[#FF6B00]/40 bg-[#FF6B00]/5 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-center gap-1.5 text-[11px] text-foreground">
+              <AlertTriangle size={13} className="text-[#FF6B00]" />
+              <strong>{targetEmployee?.name ?? "Bu yayıncı"}</strong> için {targetDays.length} güne{" "}
+              {targetDays.length * SHIFT_TEMPLATE_7H.length} kayıt eklenecek. Onaylıyor musun?
+            </span>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" variant="ghost" className="h-7" onClick={() => setConfirming(false)}>
+                Vazgeç
+              </Button>
+              <Button type="button" size="sm" className="h-7 gap-1.5" onClick={apply}>
+                <Check size={13} /> Onayla & uygula
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <AlertTriangle size={12} className="text-amber-500" />
+              {targetEmployee ? <strong className="text-foreground">{targetEmployee.name}</strong> : null}{" "}
               {targetDays.length} güne, gün başına {SHIFT_TEMPLATE_7H.length} blok eklenecek
               ({targetDays.length * SHIFT_TEMPLATE_7H.length} kayıt).
             </span>
@@ -227,7 +314,7 @@ export function ShiftTemplateCard({
               type="button"
               size="sm"
               className="gap-1.5"
-              onClick={apply}
+              onClick={() => setConfirming(true)}
               disabled={targetDays.length === 0}
             >
               <Sparkles size={13} /> Şablonu uygula

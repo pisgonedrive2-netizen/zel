@@ -133,6 +133,7 @@ export async function POST(
         ].join("\n"),
         forRole: "brand",
         forUserId: user.id,
+        forBrandId: brand.id,
         refId: reqRow.id,
         triggeredBy: session.userId,
         createdAt: now,

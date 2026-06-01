@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
-  Banknote, Archive, Link2, Activity,
+  Banknote, Archive, Link2, Activity, CalendarRange, FileSpreadsheet, FileText,
 } from "lucide-react";
 import {
   useStore, calcKasaBalance,
@@ -26,6 +26,8 @@ import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import {
   exportKasaMonthCsv,
   exportKasaMonthPdf,
+  exportKasaRangeCsv,
+  exportKasaRangePdf,
   listAvailableMonths,
 } from "@/lib/monthly-exports";
 import {
@@ -273,6 +275,23 @@ export default function KasaPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [tronGenelCutoff, setTronGenelCutoff] = useState("");
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+  // Tablo yatay kaydırması: üstteki ve alttaki çubuğu senkronize tut.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
+  const syncFromTable = useCallback(() => {
+    if (topScrollRef.current && tableScrollRef.current) {
+      topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft;
+    }
+  }, []);
+  const syncFromTop = useCallback(() => {
+    if (topScrollRef.current && tableScrollRef.current) {
+      tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  }, []);
   const [selectedKasaId, setSelectedKasaId] = useState<string | "all">("all");
   const [tronSyncing, setTronSyncing] = useState(false);
   const [tronTxView, setTronTxView] = useState<"all" | "ops" | "local">("all");
@@ -412,6 +431,30 @@ export default function KasaPage() {
       .filter((t) => t.date < ym + "-01T00:00")
       .reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0);
 
+  // Serbest aralık raporu için: `from` gününden ÖNCEKİ devir bakiye.
+  const openingBalanceBeforeDate = (fromDate: string) =>
+    txnsForSelected
+      .filter((t) => t.date.slice(0, 10) < fromDate)
+      .reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0);
+
+  const runRangeExport = (kind: "csv" | "pdf") => {
+    if (!rangeFrom || !rangeTo) {
+      window.alert("Lütfen başlangıç ve bitiş tarihi seçin.");
+      return;
+    }
+    if (rangeFrom > rangeTo) {
+      window.alert("Başlangıç tarihi bitişten sonra olamaz.");
+      return;
+    }
+    const opts = {
+      openingBalance: openingBalanceBeforeDate(rangeFrom),
+      generatedBy: user?.name,
+    };
+    if (kind === "csv") exportKasaRangeCsv(txnsForSelected, rangeFrom, rangeTo, opts);
+    else exportKasaRangePdf(txnsForSelected, rangeFrom, rangeTo, opts);
+    setRangeOpen(false);
+  };
+
   const canExport = user?.role === "admin" || user?.role === "auditor";
 
   const sorted = useMemo(
@@ -461,6 +504,17 @@ export default function KasaPage() {
     [kasas, kasaTransactions]
   );
   const tronKasa = tronPanel?.tronKasa ?? null;
+
+  // Genel Kasa görünümünde, dahil edilmiş TRON harcamaları işletme gideri olarak
+  // düşülür (kartta gösterilen bakiye). "Tümü" görünümünde TRON harcaması zaten
+  // TRON kasa bakiyesinde sayıldığı için ayrıca düşülmez.
+  const currentBalanceDisplay = useMemo(() => {
+    const genelKasaId = tronPanel?.genelKasa?.id;
+    if (genelKasaId && selectedKasaId === genelKasaId) {
+      return currentBalance - (tronPanel?.includedTronOut ?? 0);
+    }
+    return currentBalance;
+  }, [currentBalance, selectedKasaId, tronPanel?.genelKasa?.id, tronPanel?.includedTronOut]);
 
   // TRON harcamalarını topluca Genel Kasa giderine dahil et / hariç tut.
   const setAllTronGenelInclusion = (include: boolean) => {
@@ -555,6 +609,17 @@ export default function KasaPage() {
     setPage(1);
   }, [filter, sourceFilter, genelFilter, search, selectedKasaId, tronTxView]);
 
+  // Tablo genişliğini izle → üstteki kaydırma çubuğunun boşluğunu eşitle.
+  useEffect(() => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+    const update = () => setTableScrollWidth(el.scrollWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pagedRows.length, selectedKasaId]);
+
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1720px]">
       <div className="flex items-start justify-between mb-4 gap-3 flex-wrap">
@@ -583,6 +648,54 @@ export default function KasaPage() {
                 })
               }
             />
+          )}
+          {canExport && (
+            <div className="relative">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setRangeOpen((v) => !v)}
+                className="gap-1.5"
+              >
+                <CalendarRange size={14} /> Aralık raporu
+              </Button>
+              {rangeOpen && (
+                <div className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-border bg-card p-3 shadow-xl">
+                  <p className="mb-2 text-xs font-semibold text-foreground">
+                    Tarih aralığı raporu
+                  </p>
+                  <p className="mb-2 text-[11px] text-muted-foreground">
+                    Seçili kasanın iki tarih arasındaki tüm hareketlerini indir (gün dahil).
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Başlangıç">
+                      <Input
+                        type="date"
+                        value={rangeFrom}
+                        max={rangeTo || undefined}
+                        onChange={(e) => setRangeFrom(e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Bitiş">
+                      <Input
+                        type="date"
+                        value={rangeTo}
+                        min={rangeFrom || undefined}
+                        onChange={(e) => setRangeTo(e.target.value)}
+                      />
+                    </Field>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" className="flex-1 gap-1.5" onClick={() => runRangeExport("csv")}>
+                      <FileSpreadsheet size={13} /> CSV
+                    </Button>
+                    <Button size="sm" variant="outline" className="flex-1 gap-1.5" onClick={() => runRangeExport("pdf")}>
+                      <FileText size={13} /> PDF
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {!readOnly && (
             <>
@@ -975,7 +1088,12 @@ export default function KasaPage() {
           <p className="text-blue-700 dark:text-blue-300 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
             <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
           </p>
-          <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalance)}</p>
+          <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalanceDisplay)}</p>
+          {currentBalanceDisplay !== currentBalance && (
+            <p className="mt-0.5 text-[10px] text-blue-700/70 dark:text-blue-300/70">
+              TRON dahil · {fmtUsdt(tronPanel?.includedTronOut ?? 0)} harcama düşüldü
+            </p>
+          )}
         </div>
         {[
           { label: "Toplam Giriş",     value: fmt(totalIn),       cls: "text-green-600 dark:text-green-400",   icon: ArrowDownRight },
@@ -1089,7 +1207,16 @@ export default function KasaPage() {
 
       {/* Tablo */}
       <div className="border border-border rounded-xl overflow-hidden bg-card">
-        <div className="overflow-x-auto">
+        {/* Üstte senkron yatay kaydırma çubuğu */}
+        <div
+          ref={topScrollRef}
+          onScroll={syncFromTop}
+          className="scroll-top-visible overflow-x-auto border-b border-border/60 bg-muted/20"
+          aria-hidden="true"
+        >
+          <div style={{ width: tableScrollWidth, height: 1 }} />
+        </div>
+        <div ref={tableScrollRef} onScroll={syncFromTable} className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">

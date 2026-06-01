@@ -61,8 +61,8 @@ export default function MarkaBildirimlerPage() {
 
   const myNotifications = useMemo(() => {
     if (!targetUserId) return [];
-    return visibleNotificationsForRole(notifications, "brand", targetUserId);
-  }, [notifications, targetUserId]);
+    return visibleNotificationsForRole(notifications, "brand", targetUserId, brandId ? [brandId] : undefined);
+  }, [notifications, targetUserId, brandId]);
 
   const filtered = useMemo(() => {
     return myNotifications.filter((n) => {
@@ -73,7 +73,7 @@ export default function MarkaBildirimlerPage() {
   }, [myNotifications, showRead, typeFilter]);
 
   const unread = targetUserId
-    ? unreadNotificationCount(notifications, "brand", targetUserId)
+    ? unreadNotificationCount(notifications, "brand", targetUserId, brandId ? [brandId] : undefined)
     : 0;
   const totalForRole = myNotifications.length;
 

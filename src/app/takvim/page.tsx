@@ -728,9 +728,10 @@ export default function TakvimPage() {
               employeeId={planEmployeeId}
               userId={user?.id ?? ""}
               existingPlans={plansForWeek}
-              onApply={(plans) => {
-                for (const p of plans) addWeeklyPlan(p);
-              }}
+              employees={yayincilar}
+              onSelectEmployee={(id) => setPlanEmpId(id)}
+              onApply={(plans) => plans.map((p) => addWeeklyPlan(p))}
+              onUndo={(ids) => ids.forEach((id) => deleteWeeklyPlan(id))}
             />
             <WeeklyPlanGrid
               weekStart={planWeek}
@@ -894,15 +895,43 @@ function AdminWeekFullscreen({
     title: string;
   }
 
-  const { entries, hours } = useMemo(() => {
+  // Üstten yayıncı seçimi (varsayılan: tümü). Hafta/yayıncı listesi değişince sıfırla.
+  const allEmpIds = useMemo(() => yayincilar.map((e) => e.id), [yayincilar]);
+  const [selectedEmpIds, setSelectedEmpIds] = useState<Set<string>>(() => new Set(allEmpIds));
+  const empKey = allEmpIds.join("|");
+  const [lastEmpKey, setLastEmpKey] = useState(empKey);
+  if (empKey !== lastEmpKey) {
+    setLastEmpKey(empKey);
+    setSelectedEmpIds(new Set(allEmpIds));
+  }
+  const toggleEmp = (id: string) =>
+    setSelectedEmpIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const { entries, hours, hoursByEmp } = useMemo(() => {
     const list: HourEntry[] = [];
     const hourSet = new Set<number>();
+    const minutesByEmp = new Map<string, number>();
     for (let h = 8; h <= 23; h++) hourSet.add(h);
     const parseHour = (t?: string) => {
       if (!t) return -1;
       const [h] = t.split(":").map(Number);
       return Number.isFinite(h) ? h : -1;
     };
+    const durationMin = (start?: string, end?: string) => {
+      if (!start || !end) return 0;
+      const [sh, sm] = start.split(":").map(Number);
+      const [eh, em] = end.split(":").map(Number);
+      if (![sh, sm, eh, em].every(Number.isFinite)) return 0;
+      let d = eh * 60 + em - (sh * 60 + sm);
+      if (d < 0) d += 24 * 60; // gece aşan vardiya
+      return d;
+    };
+    const addMin = (id: string, m: number) => minutesByEmp.set(id, (minutesByEmp.get(id) ?? 0) + m);
     for (const emp of yayincilar) {
       // Sürekli slotlar
       for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
@@ -910,6 +939,7 @@ function AdminWeekFullscreen({
         for (const s of scheduleSlots.filter((x) => x.employeeId === emp.id && x.dayOfWeek === day)) {
           const sh = parseHour(s.startTime);
           if (sh >= 0) hourSet.add(sh);
+          addMin(emp.id, durationMin(s.startTime, s.endTime));
           list.push({
             key: `s-${s.id}`,
             dayIdx,
@@ -929,6 +959,7 @@ function AdminWeekFullscreen({
           for (const p of plansByEmpDay.get(`${emp.id}::${iso}`) ?? []) {
             const sh = parseHour(p.startTime);
             if (sh >= 0) hourSet.add(sh);
+            addMin(emp.id, durationMin(p.startTime, p.endTime));
             list.push({
               key: `p-${p.id}`,
               dayIdx,
@@ -942,8 +973,21 @@ function AdminWeekFullscreen({
         }
       }
     }
-    return { entries: list, hours: [...hourSet].sort((a, b) => a - b) };
+    return {
+      entries: list,
+      hours: [...hourSet].sort((a, b) => a - b),
+      hoursByEmp: minutesByEmp,
+    };
   }, [yayincilar, scheduleSlots, plansByEmpDay, overlayPlans, weekDays, tt]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter((e) => selectedEmpIds.has(e.empId)),
+    [entries, selectedEmpIds]
+  );
+  const fmtHours = (min: number) => {
+    const h = Math.round((min / 60) * 10) / 10;
+    return Number.isInteger(h) ? `${h}s` : `${h.toFixed(1)}s`;
+  };
 
   return (
     <Modal open={open} onClose={onClose} title="Haftalık takvim · geniş ekran" size="full">
@@ -951,6 +995,47 @@ function AdminWeekFullscreen({
         <p className="text-sm text-muted-foreground">
           {weekLabel} · saat saat yayıncı slotları ve planları
         </p>
+
+        {/* Yayıncı seçimi (üstten) + haftalık saat toplamı */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedEmpIds(
+                selectedEmpIds.size === yayincilar.length ? new Set() : new Set(allEmpIds)
+              )
+            }
+            className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted"
+          >
+            {selectedEmpIds.size === yayincilar.length ? "Tümünü kaldır" : "Tümünü seç"}
+          </button>
+          {yayincilar.map((emp) => {
+            const on = selectedEmpIds.has(emp.id);
+            const mins = hoursByEmp.get(emp.id) ?? 0;
+            return (
+              <button
+                key={emp.id}
+                type="button"
+                onClick={() => toggleEmp(emp.id)}
+                className={[
+                  "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition",
+                  on
+                    ? `${empColor(emp.id)} border-current/40 font-medium`
+                    : "border-border bg-background text-muted-foreground hover:border-foreground/30",
+                ].join(" ")}
+              >
+                <span className={`h-2 w-2 rounded-full ${on ? "bg-current" : "bg-muted-foreground/30"}`} />
+                {emp.name.split(" ")[0]}
+                {mins > 0 && (
+                  <span className="rounded-full bg-background/60 px-1 text-[9px] font-mono tabular-nums">
+                    {fmtHours(mins)}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="overflow-x-auto border border-border rounded-xl">
           <div className="grid min-w-[760px]" style={{ gridTemplateColumns: `3.5rem repeat(7, minmax(6rem, 1fr))` }}>
             <div className="border-b border-border bg-muted/30 p-1" />
@@ -966,7 +1051,7 @@ function AdminWeekFullscreen({
                   {tt(`${String(hour).padStart(2, "0")}:00`)}
                 </div>
                 {WEEKDAYS_LONG.map((_, dayIdx) => {
-                  const cell = entries.filter((e) => e.dayIdx === dayIdx && e.startHour === hour);
+                  const cell = visibleEntries.filter((e) => e.dayIdx === dayIdx && e.startHour === hour);
                   return (
                     <div key={`${dayIdx}-${hour}`} className="border-b border-l border-border p-0.5 min-h-[48px] align-top">
                       {cell.map((e) => (
@@ -987,7 +1072,8 @@ function AdminWeekFullscreen({
           </div>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Saatsiz planlar 10:00 satırında gösterilir. Saatler seçilen saat dilimine çevrilir.
+          {selectedEmpIds.size}/{yayincilar.length} yayıncı seçili · Saatsiz planlar 10:00 satırında
+          gösterilir. Saatler seçilen saat dilimine çevrilir.
         </p>
       </div>
     </Modal>

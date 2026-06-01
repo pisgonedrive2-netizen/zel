@@ -83,6 +83,10 @@ export async function POST(req: Request) {
     currency: pick(body.currency, CURRENCY, "USD"),
     avatar: body.avatar?.trim() || name.slice(0, 1).toUpperCase(),
     notes: body.notes ?? "",
+    departmentId: String(body.departmentId ?? "").trim() || undefined,
+    baseSalary: Math.max(0, Number(body.baseSalary) || 0),
+    rentSupport: Math.max(0, Number(body.rentSupport) || 0),
+    mealAllowance: Math.max(0, Number(body.mealAllowance) || 0),
     createdAt: body.createdAt ?? now,
     updatedAt: now,
   };

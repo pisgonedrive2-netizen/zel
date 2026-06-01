@@ -89,9 +89,9 @@ export async function refreshMyNotificationsFromServer(
     const res = await fetch("/api/notifications?limit=200", { credentials: "include" });
     if (!res.ok) return false;
     const data = (await res.json()) as { notifications?: AppNotification[] };
-    const mine = (data.notifications ?? []).filter(
-      (n) => n.forRole === role && (!n.forUserId || n.forUserId === userId)
-    );
+    // Sunucu zaten oturuma (kullanıcı + marka) göre scope'ladı; rol bazında al.
+    void userId;
+    const mine = (data.notifications ?? []).filter((n) => n.forRole === role);
     useStore.setState((s) => {
       const rest = s.notifications.filter((n) => n.forRole !== role);
       return { notifications: [...mine, ...rest].slice(0, 500) };

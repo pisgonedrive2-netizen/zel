@@ -39,6 +39,11 @@ function staffFromRow(r: Record<string, unknown>): BrandStaff {
     currency: pick(r.currency, CURRENCY, "USD"),
     avatar: str(r.avatar),
     notes: str(r.notes),
+    // Aşağıdaki kolonlar migration uygulanmadan önce mevcut olmayabilir → 0/undefined.
+    departmentId: r.department_id ? str(r.department_id) : undefined,
+    baseSalary: num(r.base_salary),
+    rentSupport: num(r.rent_support),
+    mealAllowance: num(r.meal_allowance),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
   };
@@ -56,7 +61,21 @@ function staffToRow(s: BrandStaff) {
     currency: s.currency,
     avatar: s.avatar,
     notes: s.notes,
+    department_id: s.departmentId ?? null,
+    base_salary: s.baseSalary ?? 0,
+    rent_support: s.rentSupport ?? 0,
+    meal_allowance: s.mealAllowance ?? 0,
   };
+}
+// Migration uygulanmadan önce yeni kolonlar olmayabilir; bu durumda geriye dönük
+// uyum için yalnızca eski kolonlarla yazarız.
+function staffToLegacyRow(s: BrandStaff) {
+  const { department_id, base_salary, rent_support, meal_allowance, ...legacy } = staffToRow(s);
+  void department_id; void base_salary; void rent_support; void meal_allowance;
+  return legacy;
+}
+function isMissingColumnError(message: string): boolean {
+  return /column .* does not exist|could not find the .* column|schema cache/i.test(message);
 }
 
 export async function fetchBrandStaff(brandIds: string[]): Promise<BrandStaff[]> {
@@ -81,11 +100,20 @@ export async function findBrandStaffById(id: string): Promise<BrandStaff | null>
 }
 
 export async function upsertBrandStaff(s: BrandStaff): Promise<BrandStaff> {
-  const { data, error } = await getSupabaseAdmin()
+  const admin = getSupabaseAdmin();
+  let { data, error } = await admin
     .from("brand_staff")
     .upsert(staffToRow(s), { onConflict: "id" })
     .select("*")
     .maybeSingle();
+  // Yeni kolonlar (department_id/base_salary/...) henüz eklenmemişse eski şemayla tekrar dene.
+  if (error && isMissingColumnError(error.message)) {
+    ({ data, error } = await admin
+      .from("brand_staff")
+      .upsert(staffToLegacyRow(s), { onConflict: "id" })
+      .select("*")
+      .maybeSingle());
+  }
   if (error) throw new Error(`brand_staff: ${error.message}`);
   if (!data) throw new Error("brand_staff: upsert sonuç dönmedi.");
   return staffFromRow(data as Record<string, unknown>);

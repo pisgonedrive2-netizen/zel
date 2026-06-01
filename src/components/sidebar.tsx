@@ -13,6 +13,7 @@ import {
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
   Send, Handshake, Video, TrendingUp, UserCog,
   Briefcase, ClipboardList, Contact, Calculator, FileText, Settings,
+  Banknote, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
@@ -100,11 +101,13 @@ const BRAND_NAV: NavItem[] = [
   { href: "/marka/crm",         label: "CRM",              icon: Contact,         group: "Büyüme & CRM", cap: "crm" },
   // Ekip & İK
   { href: "/marka/personel",    label: "Personel",         icon: Briefcase,       group: "Ekip & İK", cap: "hr" },
+  { href: "/marka/departmanlar",label: "Departmanlar",     icon: Building2,       group: "Ekip & İK", cap: "hr" },
   { href: "/marka/takip",       label: "Görev & Takip",    icon: ClipboardList,   group: "Ekip & İK", cap: "hr" },
   { href: "/marka/ekip",        label: "Ekip & yetkiler",  icon: Settings,        group: "Ekip & İK", cap: "team" },
   // Finans
   { href: "/marka/muhasebe",    label: "Muhasebe",         icon: Calculator,      group: "Finans", cap: "finance" },
   { href: "/marka/faturalar",   label: "Faturalar",        icon: FileText,        group: "Finans", cap: "finance" },
+  { href: "/marka/bordro",      label: "Bordro",           icon: Banknote,        group: "Finans", cap: "finance" },
   { href: "/marka/odemeler",    label: "Ödeme planı",      icon: Wallet,          group: "Finans" },
   // Hesap
   { href: "/marka/profil",      label: "Marka profili",    icon: UserCog,         group: "Hesap" },
@@ -171,8 +174,11 @@ export default function Sidebar() {
 
   // Bildirimler
   const notifications = useStore((s) => s.notifications);
+  const userBrandIds  = user?.role === "brand"
+    ? (user.brandIds && user.brandIds.length ? user.brandIds : user.brandId ? [user.brandId] : [])
+    : undefined;
   const unreadCount   = user
-    ? unreadNotificationCount(notifications, user.role, user.id)
+    ? unreadNotificationCount(notifications, user.role, user.id, userBrandIds)
     : 0;
 
   // Marka modüllerinde org-capability gizleme: admin marka görünümünde tümü görünür,
@@ -460,7 +466,11 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
   const { notifications } = useStore();
 
   if (!user) return null;
-  const my = visibleNotificationsForRole(notifications, user.role, user.id).slice(0, 30);
+  const popupBrandIds =
+    user.role === "brand"
+      ? (user.brandIds && user.brandIds.length ? user.brandIds : user.brandId ? [user.brandId] : [])
+      : undefined;
+  const my = visibleNotificationsForRole(notifications, user.role, user.id, popupBrandIds).slice(0, 30);
   const clearAllInPopup = async () => {
     if (my.length === 0) return;
     if (!window.confirm(`${my.length} bildirimi temizlemek istiyor musun?`)) return;

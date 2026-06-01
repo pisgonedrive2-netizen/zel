@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
       message,
       forRole: "brand",
       forUserId: bu.id,
+      forBrandId: bu.brandId ?? project.brandId,
       refId: `${refId}-${bu.id}`,
       triggeredBy: session.userId,
       createdAt: now,

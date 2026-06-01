@@ -74,7 +74,19 @@ export async function GET(req: Request) {
   if (!ctx) return NextResponse.json({ error: "Organizasyon bulunamadı." }, { status: 403 });
 
   try {
-    const members = await fetchOrgTeam(ctx.organizationId);
+    let members = await fetchOrgTeam(ctx.organizationId);
+    // Marka oturumu: organizasyon ajans org'unu (org-foxstream) paylaşsa bile
+    // marka YALNIZCA kendi ekibini görür. İç ajans/platform ekibi (role=admin),
+    // tüm-marka kapsamlı üyeler ve başka markaların kullanıcıları gizlenir.
+    if (session.role === "brand") {
+      const accessible = new Set(ctx.brandIds);
+      members = members.filter((m) => {
+        if (m.userId === session.userId) return true; // kendisi her zaman görünür
+        if (m.user?.role === "admin") return false; // iç ajans/platform ekibi
+        if (m.scopeAllBrands) return false; // org geneli (markaya özel değil)
+        return m.brandIds.some((b) => accessible.has(b)); // yalnızca bu markanın üyeleri
+      });
+    }
     return NextResponse.json({ members, brandIds: ctx.brandIds, canManage: canManageOrgTeam(session) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Yüklenemedi" }, { status: 500 });

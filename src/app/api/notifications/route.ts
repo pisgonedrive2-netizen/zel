@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { getSession, type SessionPayload } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled } from "@/lib/env";
 import { notificationFromRow, notificationToRow } from "@/lib/db/mappers";
 import { STREAMER_NOTIFICATION_TYPES, type AppNotification } from "@/store/store";
 
 export const runtime = "nodejs";
+
+/** Markanın erişebildiği marka id'leri (scope_all_brands ise tümü, yoksa birincil). */
+function brandScopeIds(session: SessionPayload): string[] {
+  if (session.brandIds && session.brandIds.length) return session.brandIds;
+  if (session.brandId) return [session.brandId];
+  return [];
+}
 
 /** GET /api/notifications — admin/denetçi tüm akış; yayıncı/marka kendi bildirimleri. */
 export async function GET(req: NextRequest) {
@@ -33,8 +40,17 @@ export async function GET(req: NextRequest) {
       .limit(limit);
     if (session.role === "streamer") {
       q = q.in("type", [...STREAMER_NOTIFICATION_TYPES]);
+      // Yayıncı: kendi bildirimi + genel duyuru (kullanıcı bazlı izolasyon).
+      q = q.or(`for_user_id.eq.${session.userId},and(for_user_id.is.null,for_brand_id.is.null)`);
+    } else {
+      // Marka: kendi kullanıcı bildirimi VEYA erişebildiği markaların bildirimi
+      // VEYA genel duyuru (her ikisi de NULL). Markalar arası sızma engellenir.
+      const brandIds = brandScopeIds(session);
+      const orParts = [`for_user_id.eq.${session.userId}`];
+      if (brandIds.length) orParts.push(`for_brand_id.in.(${brandIds.join(",")})`);
+      orParts.push(`and(for_user_id.is.null,for_brand_id.is.null)`);
+      q = q.or(orParts.join(","));
     }
-    q = q.or(`for_user_id.is.null,for_user_id.eq.${session.userId}`);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const notifications = (data ?? []).map((r) =>
@@ -92,6 +108,7 @@ export async function POST(req: NextRequest) {
     message: body.message,
     forRole: body.forRole,
     forUserId: body.forUserId,
+    forBrandId: body.forBrandId,
     refId: body.refId,
     triggeredBy: session.userId,
     createdAt: new Date().toISOString(),
@@ -153,13 +170,21 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ ok: true, deleted: 1 });
     }
     if (isSelfRole) {
-      // Kullanıcı yalnızca kendi bildirimini silebilir.
-      const { error, count } = await db
+      // Kullanıcı yalnızca kendi (veya markası) bildirimini silebilir.
+      let dq = db
         .from("app_notifications")
         .delete({ count: "exact" })
         .eq("id", id)
-        .eq("for_role", session.role)
-        .eq("for_user_id", session.userId);
+        .eq("for_role", session.role);
+      if (session.role === "brand") {
+        const brandIds = brandScopeIds(session);
+        const parts = [`for_user_id.eq.${session.userId}`];
+        if (brandIds.length) parts.push(`for_brand_id.in.(${brandIds.join(",")})`);
+        dq = dq.or(parts.join(","));
+      } else {
+        dq = dq.eq("for_user_id", session.userId);
+      }
+      const { error, count } = await dq;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       if ((count ?? 0) === 0) {
         return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
@@ -230,13 +255,21 @@ export async function PATCH(req: NextRequest) {
 
   if (body.markAll) {
     if (isSelfRole) {
-      // Self mark-all: forRole ve forUserId sunucudan zorlanır.
-      const { error } = await db
+      // Self mark-all: forRole sunucudan zorlanır; marka için marka kapsamı dahil.
+      let uq = db
         .from("app_notifications")
         .update({ read: true })
         .eq("for_role", session.role)
-        .eq("for_user_id", session.userId)
         .eq("read", false);
+      if (session.role === "brand") {
+        const brandIds = brandScopeIds(session);
+        const parts = [`for_user_id.eq.${session.userId}`];
+        if (brandIds.length) parts.push(`for_brand_id.in.(${brandIds.join(",")})`);
+        uq = uq.or(parts.join(","));
+      } else {
+        uq = uq.eq("for_user_id", session.userId);
+      }
+      const { error } = await uq;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
@@ -258,13 +291,21 @@ export async function PATCH(req: NextRequest) {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
-    // Self-only update: id + for_role + for_user_id scope edilir.
-    const { error, count } = await db
+    // Self-only update: id + for_role + (kullanıcı veya marka) scope edilir.
+    let uq = db
       .from("app_notifications")
       .update({ read: true }, { count: "exact" })
       .eq("id", body.id)
-      .eq("for_role", session.role)
-      .eq("for_user_id", session.userId);
+      .eq("for_role", session.role);
+    if (session.role === "brand") {
+      const brandIds = brandScopeIds(session);
+      const parts = [`for_user_id.eq.${session.userId}`];
+      if (brandIds.length) parts.push(`for_brand_id.in.(${brandIds.join(",")})`);
+      uq = uq.or(parts.join(","));
+    } else {
+      uq = uq.eq("for_user_id", session.userId);
+    }
+    const { error, count } = await uq;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if ((count ?? 0) === 0) {
       return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
