@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ExternalLink, Pencil, Sparkles, Users } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { ExternalLink, Loader2, Pencil, RefreshCw, Sparkles, Users } from "lucide-react";
 import Modal from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,16 @@ import { useStore, type Brand, type BrandLink, type Employee, type LinkSnapshot 
 import { useAuth } from "@/store/auth";
 import { defaultSnapshotDateInMonth } from "@/lib/data";
 import { monthLabelTr } from "@/hooks/use-marka-portal";
+import { resolveRefreshTargetDate } from "@/lib/izlenme-refresh";
+import {
+  applyLinkMetricsToStore,
+  type LinkMetricsStoreUpdate,
+} from "@/lib/social-api/link-store-sync";
+
+type LinkRefreshResult = {
+  linkId: string;
+  linkUpdate?: LinkMetricsStoreUpdate;
+};
 
 function fmtViews(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -55,14 +65,17 @@ export function MarkaLinksPreviewModal({
   const [sortKey, setSortKey] = useState<BrandLinkSortKey>("views");
   const [monthOnly, setMonthOnly] = useState(true);
 
-  // Admin: tek link için API'den çek (detay) ve manuel snapshot düzenleme.
   const role = useAuth((s) => s.user?.role);
-  const isAdmin = role === "admin";
+  const canRefreshApi = role === "admin" || role === "auditor";
   const addLinkSnapshot = useStore((s) => s.addLinkSnapshot);
   const updateLinkSnapshot = useStore((s) => s.updateLinkSnapshot);
   const deleteLinkSnapshot = useStore((s) => s.deleteLinkSnapshot);
+  const updateBrandLink = useStore((s) => s.updateBrandLink);
+  const upsertLinkSnapshot = useStore((s) => s.upsertLinkSnapshot);
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
   const [snapEdit, setSnapEdit] = useState<{ link: BrandLink; snapshot?: LinkSnapshot } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshLabel, setRefreshLabel] = useState<string | null>(null);
 
   const rawLinkById = useMemo(() => {
     const m = new Map<string, BrandLink>();
@@ -111,6 +124,111 @@ export function MarkaLinksPreviewModal({
 
   const totalViews = filtered.reduce((s, r) => s + r.lastViews, 0);
 
+  const activeLinkIds = useMemo(
+    () => links.filter((l) => l.status === "active" && l.url?.trim()).map((l) => l.id),
+    [links]
+  );
+
+  const refreshAllLinks = useCallback(
+    async (opts?: { failedOnly?: boolean }) => {
+      if (!canRefreshApi || refreshing || activeLinkIds.length === 0) return;
+      setRefreshing(true);
+      setRefreshLabel("Başlatılıyor…");
+
+      const jobId = `marka-modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const targetDate = resolveRefreshTargetDate(
+        monthYm,
+        monthYm === todayYm ? "today" : "view-month"
+      );
+
+      const poll = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/admin/refresh-progress?jobId=${jobId}`, {
+            credentials: "include",
+          });
+          const json = (await res.json()) as {
+            ok?: boolean;
+            found?: boolean;
+            job?: {
+              status: string;
+              current?: { index: number; total: number; handle?: string };
+            };
+          };
+          if (json.ok && json.found && json.job?.current) {
+            const { index, total, handle } = json.job.current;
+            setRefreshLabel(`${index}/${total}${handle ? ` · ${handle}` : ""}`);
+          }
+          if (json.job?.status && json.job.status !== "running") {
+            clearInterval(poll);
+          }
+        } catch {
+          /* sessiz */
+        }
+      }, 1500);
+
+      try {
+        const res = await fetch("/api/admin/refresh-all-links", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId,
+            brandId: brand.id,
+            linkIds: activeLinkIds,
+            failedOnly: opts?.failedOnly ?? false,
+            targetDate,
+            linkScope: "month",
+            monthYm,
+            trigger: "marka-links-modal",
+          }),
+        });
+        const json = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          summary?: {
+            succeeded: number;
+            failed: number;
+            skippedQuota?: number;
+            results: LinkRefreshResult[];
+          };
+        };
+        clearInterval(poll);
+        if (!res.ok || !json.ok || !json.summary) {
+          throw new Error(json.error ?? `HTTP ${res.status}`);
+        }
+        for (const r of json.summary.results) {
+          if (r.linkUpdate) {
+            applyLinkMetricsToStore(r.linkId, r.linkUpdate, {
+              updateBrandLink,
+              upsertLinkSnapshot,
+            });
+          }
+        }
+        setRefreshLabel(
+          `${json.summary.succeeded} güncellendi` +
+            (json.summary.failed > 0 ? ` · ${json.summary.failed} hata` : "") +
+            (json.summary.skippedQuota ? ` · ${json.summary.skippedQuota} kota` : "")
+        );
+      } catch (e) {
+        clearInterval(poll);
+        setRefreshLabel(e instanceof Error ? e.message : "Yenileme hatası");
+      } finally {
+        setRefreshing(false);
+        setTimeout(() => setRefreshLabel(null), 10_000);
+      }
+    },
+    [
+      activeLinkIds,
+      brand.id,
+      canRefreshApi,
+      monthYm,
+      refreshing,
+      todayYm,
+      updateBrandLink,
+      upsertLinkSnapshot,
+    ]
+  );
+
   return (
     <Modal
       open={open}
@@ -119,10 +237,50 @@ export function MarkaLinksPreviewModal({
       title={`${brand.name} · marka linkleri`}
     >
       <div className="space-y-4 min-h-[280px]">
-        <p className="text-sm text-muted-foreground">
-          {monthLabelTr(monthYm)} · {filtered.length} / {links.length} link · toplam{" "}
-          <span className="font-semibold text-foreground tabular-nums">{fmtViews(totalViews)}</span>
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
+          <p className="text-sm text-muted-foreground min-w-0">
+            {monthLabelTr(monthYm)} · {filtered.length} / {links.length} link · toplam{" "}
+            <span className="font-semibold text-foreground tabular-nums">{fmtViews(totalViews)}</span>
+            {canRefreshApi && activeLinkIds.length > 0 && (
+              <span className="block text-[11px] mt-0.5">
+                API yenileme: {activeLinkIds.length} aktif URL
+              </span>
+            )}
+          </p>
+          {canRefreshApi && (
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {refreshLabel && (
+                <span className="text-[11px] text-muted-foreground tabular-nums max-w-[200px] truncate">
+                  {refreshing && <Loader2 size={11} className="inline animate-spin mr-1" />}
+                  {refreshLabel}
+                </span>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={refreshing || activeLinkIds.length === 0}
+                onClick={() => void refreshAllLinks()}
+                title="Bu markanın tüm aktif linklerini RapidAPI ile yenile"
+              >
+                <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+                Hepsini yenile
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs"
+                disabled={refreshing || activeLinkIds.length === 0}
+                onClick={() => void refreshAllLinks({ failedOnly: true })}
+                title="Son denemede hatalı veya eksik kalan linkleri tekrar dene"
+              >
+                Bekleyenler
+              </Button>
+            </div>
+          )}
+        </div>
 
         <BrandLinkListToolbar
           search={search}
@@ -196,7 +354,7 @@ export function MarkaLinksPreviewModal({
                       <p className="text-[11px] italic text-muted-foreground mt-1">URL henüz yok</p>
                     )}
 
-                    {isAdmin && (
+                    {canRefreshApi && (
                       <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/40 pt-2">
                         <Button
                           type="button"

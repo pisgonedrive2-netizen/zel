@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   LayoutDashboard,
@@ -47,7 +48,6 @@ type NavItem = {
   cap?: OrgCapability;
 };
 
-// Sıralama + gruplama src/components/sidebar.tsx içindeki BRAND_NAV ile BİREBİR aynıdır.
 const NAV: readonly NavItem[] = [
   { href: "/marka/anasayfa", label: "Anasayfa", icon: LayoutDashboard, group: "Genel" },
   { href: "/marka/operasyon", label: "Operasyon özeti", icon: BarChart3, group: "Genel" },
@@ -87,74 +87,123 @@ const GROUP_ORDER: NavGroup[] = [
   "Hesap",
 ];
 
+function groupForPath(pathname: string, items: readonly NavItem[]): NavGroup {
+  const hit = [...items]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
+  return hit?.group ?? "Genel";
+}
+
+function activeItemForPath(pathname: string, items: readonly NavItem[]): NavItem | undefined {
+  return [...items]
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
+}
+
 export function MarkaSubnav() {
   const pathname = usePathname();
-  const { user, month, isAdminView, brandId, brand } = useMarkaPortal();
+  const { user, month, isAdminView, brandId } = useMarkaPortal();
   const orgRole = isAdminView ? "admin" : user?.orgRole;
   const navItems = NAV.filter((item) => !item.cap || clientHasOrgCapability(orgRole, item.cap));
+
+  const pathGroup = useMemo(() => groupForPath(pathname, navItems), [pathname, navItems]);
+  const activeItem = useMemo(() => activeItemForPath(pathname, navItems), [pathname, navItems]);
+  const [mobileGroup, setMobileGroup] = useState<NavGroup>(pathGroup);
+
+  useEffect(() => {
+    setMobileGroup(pathGroup);
+  }, [pathGroup]);
+
+  const mobileGroupItems = navItems.filter((n) => n.group === mobileGroup);
+  const visibleGroups = GROUP_ORDER.filter((g) => navItems.some((n) => n.group === g));
 
   return (
     <nav
       aria-label="Marka paneli"
-      className="sticky top-0 z-40 mb-4 border-b border-border/70 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80"
+      className={cn(
+        "z-30 mb-3 border-b border-border/70 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80",
+        /* PanelViewBanner (üst şerit) ile çakışmasın */
+        isAdminView ? "sticky top-10 sm:top-11" : "sticky top-0"
+      )}
     >
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-2 px-1 py-2.5 sm:py-3">
-        {isAdminView && brandId && brand && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2 text-xs dark:border-violet-500/40 dark:bg-violet-950/35">
-            <span className="text-violet-900 dark:text-violet-100">
-              Yönetici görünümü: <strong>{brand.name}</strong>
-            </span>
-            <Link
-              href={markaHref(`/izlenme/marka/${brandId}`, month)}
-              className="inline-flex items-center gap-1 font-medium text-violet-700 hover:underline dark:text-violet-300"
-            >
-              Detaylı izlenme paneli
-              <ArrowUpRight size={12} />
-            </Link>
-          </div>
+      {/* Masaüstü: breadcrumb — sidebar zaten tam menüyü gösterir */}
+      <div className="mx-auto hidden max-w-[1280px] items-center justify-between gap-3 px-1 py-2 md:flex">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {pathGroup}
+          </p>
+          <p className="text-sm font-semibold text-foreground truncate">
+            {activeItem?.label ?? "Marka paneli"}
+          </p>
+        </div>
+        {isAdminView && brandId && (
+          <Link
+            href={markaHref(`/izlenme/marka/${brandId}`, month)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
+          >
+            Detaylı izlenme
+            <ArrowUpRight size={12} />
+          </Link>
         )}
-        <div className="flex items-stretch gap-1 overflow-x-auto pb-1">
-          {navItems.map((item, i) => {
+      </div>
+
+      {/* Mobil / tablet: gruplu kısayol — yalnızca seçili gruptaki sayfalar */}
+      <div className="mx-auto max-w-[1280px] px-1 py-2 md:hidden">
+        {isAdminView && brandId && (
+          <Link
+            href={markaHref(`/izlenme/marka/${brandId}`, month)}
+            className="mb-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-border bg-muted/30 px-2 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
+          >
+            Detaylı izlenme paneli
+            <ArrowUpRight size={12} />
+          </Link>
+        )}
+        <div
+          className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-none"
+          role="tablist"
+          aria-label="Marka modül grupları"
+        >
+          {visibleGroups.map((group) => {
+            const selected = mobileGroup === group;
+            return (
+              <button
+                key={group}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setMobileGroup(group)}
+                className={cn(
+                  "shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors",
+                  selected
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {group}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex gap-1 overflow-x-auto scrollbar-none -mx-0.5 px-0.5">
+          {mobileGroupItems.map((item) => {
             const Icon = item.icon;
             const href = markaHref(item.href, month);
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const showDivider = i > 0 && item.group !== navItems[i - 1].group;
             return (
-              <div key={item.href} className="flex items-stretch">
-                {showDivider && (
-                  <span
-                    aria-hidden
-                    className="mx-1 my-1.5 w-px shrink-0 self-stretch bg-border"
-                  />
+              <Link
+                key={item.href}
+                href={href}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
-                <Link
-                  href={href}
-                  className={cn(
-                    "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors",
-                    active
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <Icon size={14} className="shrink-0" />
-                  {item.label}
-                </Link>
-              </div>
-            );
-          })}
-        </div>
-        <div className="hidden flex-wrap gap-1 sm:flex">
-          {GROUP_ORDER.map((group) => {
-            const inGroup = navItems.filter((n) => n.group === group);
-            if (inGroup.length === 0) return null;
-            return (
-              <span
-                key={group}
-                className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
               >
-                {group}
-              </span>
+                <Icon size={14} className="shrink-0" />
+                {item.label}
+              </Link>
             );
           })}
         </div>
