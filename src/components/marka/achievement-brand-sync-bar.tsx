@@ -3,21 +3,27 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { syncMarkaAchievementFromLinks } from "@/lib/marka-achievement-sync-api";
+import { syncMarkaAchievementFromAccounts } from "@/lib/achievement-api";
 import { useStore } from "@/store/store";
 import type { WeekBrandReel } from "@/store/store";
 
 function mergeBrandReelsIntoStore(reels: WeekBrandReel[], brandId: string) {
   useStore.setState((s) => {
-    const others = s.weekBrandReels.filter((r) => r.brandId !== brandId);
+    const others = s.weekBrandReels.filter(
+      (r) => r.brandId !== brandId && r.brandId !== ""
+    );
     const byId = new Map(others.map((r) => [r.id, r]));
     for (const r of reels) byId.set(r.id, r);
-    return { weekBrandReels: [...byId.values()] };
+    const personal = [...byId.values()];
+    const brandScoped = s.weekBrandReels.filter((r) => r.brandId === brandId);
+    const merged = new Map(personal.map((r) => [r.id, r]));
+    for (const r of brandScoped) merged.set(r.id, r);
+    return { weekBrandReels: [...merged.values()] };
   });
 }
 
 /**
- * Marka kapsamındaki yayıncı linklerinden achievement / week_brand_reels senkronu.
+ * Partner yayıncıların kişisel YouTube / Instagram / TikTok hesaplarından achievement senkronu.
  */
 export function AchievementBrandSyncBar({
   brandId,
@@ -27,7 +33,6 @@ export function AchievementBrandSyncBar({
 }: {
   brandId: string;
   brandName?: string;
-  /** Yalnızca bu yayıncının linkleri (opsiyonel). */
   employeeId?: string;
   compact?: boolean;
 }) {
@@ -39,12 +44,12 @@ export function AchievementBrandSyncBar({
     setLoading(true);
     setHint(null);
     try {
-      const res = await syncMarkaAchievementFromLinks(brandId, employeeId);
+      const res = await syncMarkaAchievementFromAccounts(brandId, employeeId);
       if (res.reels?.length) mergeBrandReelsIntoStore(res.reels, brandId);
       const s = res.summary;
       if (s) {
         setHint(
-          `${s.synced} güncellendi · ${s.skipped} atlandı` +
+          `${s.synced} içerik · ${s.attempted} hesap` +
             (s.failed > 0 ? ` · ${s.failed} hata` : "") +
             (s.errors[0] ? ` — ${s.errors[0]}` : "")
         );
@@ -70,8 +75,8 @@ export function AchievementBrandSyncBar({
       {!compact && (
         <p className="text-xs text-muted-foreground max-w-xl">
           <Sparkles size={12} className="inline mr-1 text-emerald-600" />
-          <strong>{brandName ?? "Marka"}</strong> için atanmış içerik linkleri taranır; yayın günü
-          paylaşım takvimine yazılır.
+          <strong>{brandName ?? "Marka"}</strong> partner yayıncılarının kişisel YouTube, Instagram ve
+          TikTok hesapları taranır; paylaşım günleri takvime yazılır. Marka linkleri kullanılmaz.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -88,7 +93,7 @@ export function AchievementBrandSyncBar({
           ) : (
             <RefreshCw size={13} />
           )}
-          Marka linklerinden doldur
+          Kişisel hesaplardan tara
         </Button>
         {hint && (
           <span className="text-[10px] text-muted-foreground max-w-[280px]">{hint}</span>

@@ -529,6 +529,8 @@ export interface WeekBrandReel {
   contentType?: string;
   /** Varsa kayıtlı marka linki (şablondan seçim). */
   brandLinkId?: string;
+  /** Kişisel yayıncı hesabı (streamer_accounts) — achievement API kaynağı. */
+  streamerAccountId?: string;
   /** Instagram vb. içeriğin yayınlandığı tarih (API). */
   publishedAt?: string;
   notes: string;

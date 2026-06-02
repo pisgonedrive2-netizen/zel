@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
   ChevronLeft,
@@ -62,6 +62,8 @@ interface ActivityCalendarProps {
   initialMonthYm?: string;
   /** CollapsibleSection içinde — dış Card/başlık yok. */
   embedded?: boolean;
+  /** Güne tıklanınca API'den içerik + URL listesi (marka linkleri yerine kişisel hesap). */
+  fetchDayDetail?: (date: string) => Promise<ActivityDayItem[]>;
 }
 
 /**
@@ -74,9 +76,10 @@ export function PostActivityCalendar({
   activityDates,
   byDate,
   title = "Paylaşım takvimi",
-  description = "Hangi gün içerik paylaştığınızın achievement takibi — güne tıklayınca linkler",
+  description = "Hangi gün içerik paylaştığınızın achievement takibi — güne tıklayınca içerikler ve URL'ler",
   initialMonthYm,
   embedded = false,
+  fetchDayDetail,
 }: ActivityCalendarProps) {
   const today = todayDateLocal();
   const defaultMonth =
@@ -85,6 +88,9 @@ export function PostActivityCalendar({
       : ymOf(today);
   const [month, setMonth] = useState<string>(defaultMonth);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [dayDetailItems, setDayDetailItems] = useState<ActivityDayItem[] | null>(null);
+  const [dayDetailLoading, setDayDetailLoading] = useState(false);
+  const [dayDetailError, setDayDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialMonthYm && /^\d{4}-\d{2}$/.test(initialMonthYm)) {
@@ -160,7 +166,38 @@ export function PostActivityCalendar({
     [grid, counts]
   );
 
-  const selectedItems = selectedDay ? byDate?.get(selectedDay) ?? [] : [];
+  const localItems = selectedDay ? byDate?.get(selectedDay) ?? [] : [];
+  const selectedItems = dayDetailItems ?? localItems;
+
+  const loadDayDetail = useCallback(
+    async (date: string) => {
+      if (!fetchDayDetail) {
+        setDayDetailItems(null);
+        return;
+      }
+      setDayDetailLoading(true);
+      setDayDetailError(null);
+      try {
+        const items = await fetchDayDetail(date);
+        setDayDetailItems(items);
+      } catch (err) {
+        setDayDetailItems([]);
+        setDayDetailError(err instanceof Error ? err.message : "Yüklenemedi");
+      } finally {
+        setDayDetailLoading(false);
+      }
+    },
+    [fetchDayDetail]
+  );
+
+  useEffect(() => {
+    if (!selectedDay) {
+      setDayDetailItems(null);
+      setDayDetailError(null);
+      return;
+    }
+    void loadDayDetail(selectedDay);
+  }, [selectedDay, loadDayDetail]);
 
   useEffect(() => {
     if (!selectedDay) return;
@@ -199,7 +236,7 @@ export function PostActivityCalendar({
     <div className="space-y-4">
       {embedded && (
         <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-border/50">
-          <p className="text-xs text-muted-foreground">Ay seçin · güne tıklayınca linkler</p>
+          <p className="text-xs text-muted-foreground">Ay seçin · güne tıklayınca içerikler</p>
           {monthNav}
         </div>
       )}
@@ -253,10 +290,16 @@ export function PostActivityCalendar({
                 key={cell.date}
                 type="button"
                 disabled={isFuture}
-                onClick={() => setSelectedDay(posted ? cell.date : null)}
+                onClick={() => {
+                  if (!posted) {
+                    setSelectedDay(null);
+                    return;
+                  }
+                  setSelectedDay(cell.date);
+                }}
                 title={
                   posted
-                    ? `${cell.date} · ${count} paylaşım · linkleri göster`
+                    ? `${cell.date} · ${count} paylaşım · içerikleri göster`
                     : isFuture
                       ? cell.date
                       : `${cell.date} · paylaşım yok`
@@ -296,19 +339,25 @@ export function PostActivityCalendar({
                 ? ` · ${selectedItems.length} paylaşım`
                 : " · kayıt (tarih eşleşti)"}
             </p>
-            {selectedItems.length === 0 ? (
+            {dayDetailLoading ? (
+              <p className="text-[11px] text-muted-foreground">İçerikler yükleniyor…</p>
+            ) : dayDetailError ? (
+              <p className="text-[11px] text-destructive">{dayDetailError}</p>
+            ) : selectedItems.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">
-                Bu gün için link listesi yok; check-in veya postlar sayfasından URL ekleyin.
+                Bu gün için kayıt yok. Kişisel hesaplardan tara veya Hesaplarım bölümünde profil
+                ekleyin.
               </p>
             ) : (
               <ul className="space-y-1.5">
                 {selectedItems.map((item) => (
                   <li
                     key={item.id}
-                    className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-2.5 py-1.5"
+                    className="flex flex-col gap-0.5 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 sm:flex-row sm:items-center sm:gap-2"
                   >
                     <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
                       {item.platform}
+                      {item.label ? ` · ${item.label}` : ""}
                     </span>
                     <a
                       href={item.url}
@@ -322,7 +371,7 @@ export function PostActivityCalendar({
                       href={item.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      className="shrink-0 text-muted-foreground hover:text-foreground self-end sm:self-center"
                       title="Aç"
                     >
                       <ExternalLink size={12} />

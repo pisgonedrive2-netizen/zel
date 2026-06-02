@@ -361,8 +361,17 @@ export default function KasaPage() {
         balanceUsd?: number;
         outgoingFound?: number;
         error?: string;
+        truncated?: boolean;
+        hint?: string;
+        pagesFetched?: number;
       };
-      if (!res.ok || !json.ok) throw new Error(json.error ?? "Senkron başarısız");
+      if (!res.ok || !json.ok) {
+        const extra =
+          res.status === 429
+            ? " TronGrid kota limiti — 2–3 dakika sonra tekrar deneyin."
+            : "";
+        throw new Error((json.error ?? "Senkron başarısız") + extra);
+      }
       const boot = await fetch("/api/bootstrap", { credentials: "include" });
       if (boot.ok) {
         const data = (await boot.json()) as {
@@ -389,6 +398,11 @@ export default function KasaPage() {
             ? `${json.outgoingFound} giden USDT hareketi işlendi.`
             : "",
           `Güncel kasa bakiyesi: ${bal}`,
+          json.truncated
+            ? (json.hint ??
+              "Uyarı: Tüm geçmiş tek seferde alınamadı (sayfa limiti). Daha yakın bir başlangıç tarihi seçip tekrar deneyin.")
+            : "",
+          json.pagesFetched != null ? `TronGrid: ${json.pagesFetched} sayfa okundu.` : "",
           "Satırları listeden düzenleyebilir; bildirim merkezinde özet görünür.",
         ]
           .filter(Boolean)
@@ -869,10 +883,10 @@ export default function KasaPage() {
                       disabled={tronSyncing}
                       onClick={() => {
                         setSelectedKasaId(tronKasa.id);
-                        void syncTronForKasa({ recentDays: 30 });
+                        void syncTronForKasa({ recentDays: 7 });
                       }}
                     >
-                      {tronSyncing ? "Çekiliyor…" : "Son 30 gün çek"}
+                      {tronSyncing ? "Çekiliyor…" : "Son 7 gün çek"}
                     </Button>
                     <Button
                       type="button"

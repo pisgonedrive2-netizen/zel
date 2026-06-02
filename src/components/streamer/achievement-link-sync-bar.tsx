@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { syncAchievementFromBrandLinks } from "@/lib/streamer-achievement-sync-api";
+import { syncStreamerAchievementFromAccounts } from "@/lib/achievement-api";
 import { useStore } from "@/store/store";
 import type { WeekBrandReel } from "@/store/store";
 
@@ -17,8 +17,7 @@ function mergeReelsIntoStore(reels: WeekBrandReel[], employeeId: string) {
 }
 
 /**
- * Marka linkleri (içerik URL) → API yayın tarihi → achievement / week_brand_reels.
- * Ramiz / Açelya marka linkleri sayfasındaki reel/post URL'leri ile aynı kaynak.
+ * Yayıncının kişisel YouTube / Instagram / TikTok hesapları → achievement takvimi.
  */
 export function AchievementLinkSyncBar({
   employeeId,
@@ -37,18 +36,19 @@ export function AchievementLinkSyncBar({
     setLoading(true);
     setHint(null);
     try {
-      const res = await syncAchievementFromBrandLinks(employeeId);
+      const res = await syncStreamerAchievementFromAccounts(employeeId);
       if (res.reels?.length) mergeReelsIntoStore(res.reels, employeeId);
       const s = res.summary;
       if (s) {
         setHint(
-          `${s.synced} güncellendi · ${s.skipped} atlandı` +
+          `${s.synced} içerik · ${s.attempted} hesap` +
             (s.failed > 0 ? ` · ${s.failed} hata` : "") +
             (s.errors[0] ? ` — ${s.errors[0]}` : "")
         );
       } else {
         setHint("Senkron tamamlandı.");
       }
+      if (res.warning) setHint((h) => (h ? `${h} · ${res.warning}` : res.warning ?? null));
     } catch (err) {
       setHint(err instanceof Error ? err.message : "Senkron başarısız");
     } finally {
@@ -67,9 +67,8 @@ export function AchievementLinkSyncBar({
       {!compact && (
         <p className="text-xs text-muted-foreground max-w-xl">
           <Sparkles size={12} className="inline mr-1 text-emerald-600" />
-          {employeeName ?? "Yayıncı"} için <strong>marka linklerindeki</strong> içerik URL&apos;leri
-          (reel / post / shorts) API ile taranır; yayın günü achievement takvimine yazılır.
-          Marka linkleri sayfasıyla aynı veri.
+          {employeeName ?? "Yayıncı"} için <strong>Hesaplarım</strong> bölümündeki kişisel YouTube,
+          Instagram ve TikTok profilleri API ile taranır; günlük paylaşımlar takvime yazılır.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -86,7 +85,7 @@ export function AchievementLinkSyncBar({
           ) : (
             <RefreshCw size={13} />
           )}
-          Marka linklerinden doldur
+          Kişisel hesaplardan tara
         </Button>
         {hint && (
           <span className="text-[10px] text-muted-foreground max-w-[280px]">{hint}</span>

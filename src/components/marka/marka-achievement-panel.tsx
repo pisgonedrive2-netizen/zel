@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchMarkaAchievementDay } from "@/lib/achievement-api";
 import { Users } from "lucide-react";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { AchievementBrandSyncBar } from "@/components/marka/achievement-brand-sync-bar";
@@ -93,6 +94,16 @@ export function MarkaAchievementPanel({
     [activity.byDate]
   );
 
+  const fetchDayDetail = useCallback(
+    (date: string) =>
+      fetchMarkaAchievementDay(
+        brandId,
+        date,
+        employeeId && employeeId !== "all" ? employeeId : undefined
+      ).then((r) => r.items),
+    [brandId, employeeId]
+  );
+
   const desc =
     description ??
     (employeeId !== "all"
@@ -126,6 +137,7 @@ export function MarkaAchievementPanel({
         title={title}
         description={desc}
         embedded={embedded}
+        fetchDayDetail={fetchDayDetail}
       />
     </div>
   );

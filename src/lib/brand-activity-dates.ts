@@ -25,12 +25,29 @@ export function scopeBrandActivityData(
     brandDeals: BrandDeal[];
   }
 ): BrandActivityScope {
+  const links = data.brandLinks.filter((l) => l.brandId === brandId);
+  const deals = data.brandDeals.filter((d) => d.brandId === brandId);
+  const posts = data.brandPosts.filter((p) => p.brandId === brandId);
+  const partnerSet = new Set(
+    brandPartnerEmployeeIds({
+      brandId,
+      reels: data.weekBrandReels,
+      posts: data.brandPosts,
+      links,
+      deals,
+    })
+  );
+
   return {
     brandId,
-    reels: data.weekBrandReels.filter((r) => r.brandId === brandId),
-    posts: data.brandPosts.filter((p) => p.brandId === brandId),
-    links: data.brandLinks.filter((l) => l.brandId === brandId),
-    deals: data.brandDeals.filter((d) => d.brandId === brandId),
+    reels: data.weekBrandReels.filter((r) => {
+      if (r.brandLinkId) return false;
+      if (r.brandId === brandId) return true;
+      return Boolean(r.employeeId && partnerSet.has(r.employeeId) && !r.brandId);
+    }),
+    posts,
+    links,
+    deals,
   };
 }
 

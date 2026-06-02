@@ -31,6 +31,7 @@ import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
+import { fetchStreamerAchievementDay } from "@/lib/achievement-api";
 import {
   activityDatesList,
   buildStreamerActivity,
@@ -136,6 +137,14 @@ export default function YayinciPostlarPage() {
   const activityDates = useMemo(
     () => activityDatesList(activity.byDate),
     [activity.byDate]
+  );
+
+  const fetchDayDetail = useCallback(
+    (date: string) => {
+      if (!employeeId) return Promise.resolve([]);
+      return fetchStreamerAchievementDay(employeeId, date).then((r) => r.items);
+    },
+    [employeeId]
   );
 
   const brandLabel = useCallback(
@@ -250,6 +259,7 @@ export default function YayinciPostlarPage() {
       <PostActivityCalendar
         activityDates={activityDates}
         byDate={activity.byDate}
+        fetchDayDetail={employeeId ? fetchDayDetail : undefined}
       />
 
       <div className="flex items-start gap-3 rounded-xl border border-blue-300/60 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-100">

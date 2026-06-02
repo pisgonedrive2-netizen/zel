@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { fetchMarkaAchievementDay } from "@/lib/achievement-api";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { AchievementBrandSyncBar } from "@/components/marka/achievement-brand-sync-bar";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -47,6 +48,16 @@ export function MarkaDealAchievementPanel({
     [activity.byDate]
   );
 
+  const fetchDayDetail = useCallback(
+    (date: string) => {
+      if (!deal.employeeId) return Promise.resolve([]);
+      return fetchMarkaAchievementDay(deal.brandId, date, deal.employeeId).then(
+        (r) => r.items
+      );
+    },
+    [deal.brandId, deal.employeeId]
+  );
+
   return (
     <CollapsibleSection
       defaultOpen
@@ -67,8 +78,9 @@ export function MarkaDealAchievementPanel({
           byDate={activity.byDate}
           initialMonthYm={monthYm}
           title="Paylaşım günleri"
-          description="Deliverable ve gerçek paylaşım günleri"
+          description="Kişisel hesap paylaşımları ve teslimat postları"
           embedded
+          fetchDayDetail={deal.employeeId ? fetchDayDetail : undefined}
         />
       </div>
     </CollapsibleSection>

@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/tron-sync",
-      "schedule": "30 4 * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

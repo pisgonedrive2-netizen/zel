@@ -73,6 +73,8 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
+    syncIntervalMinutes: 5,
+    estimatedMonthlyRequests: "~50k (cron 5 dk + manuel; 100k limit içinde)",
     apiKeySet,
     watchOnly: Boolean(watchAddress),
     watchAddress: watchAddress || null,

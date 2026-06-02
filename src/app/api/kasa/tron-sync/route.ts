@@ -74,11 +74,16 @@ export async function POST(req: NextRequest) {
       }).catch(() => undefined);
     }
 
-    return NextResponse.json({ ok: true, ...summary });
-  } catch (e) {
     return NextResponse.json({
-      ok: false,
-      error: e instanceof Error ? e.message : "TRON senkron hatası",
-    }, { status: 500 });
+      ok: true,
+      ...summary,
+      hint: summary.truncated
+        ? "TronGrid sayfa limiti doldu; daha yakın bir tarihten tekrar çekin veya birkaç dakika sonra yenileyin."
+        : undefined,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "TRON senkron hatası";
+    const status = msg.includes("429") ? 429 : 500;
+    return NextResponse.json({ ok: false, error: msg }, { status });
   }
 }

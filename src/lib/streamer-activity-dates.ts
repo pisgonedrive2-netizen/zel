@@ -1,5 +1,4 @@
 import { isoToLocalDateOnly } from "@/lib/data";
-import { resolveLinkDetection } from "@/lib/social-api/platform-detect";
 import type { BrandDeal, BrandLink, BrandPost, WeekBrandReel } from "@/store/store";
 
 export type ActivityDayItem = {
@@ -81,6 +80,7 @@ export function buildStreamerActivity(
   };
 
   for (const r of reels) {
+    if (r.brandLinkId) continue;
     if (!reelBelongsToEmployee(r, employeeId, linkOwners)) continue;
     const date = activityDateFromRecord(r.publishedAt, r.createdAt);
     if (!date) continue;
@@ -106,43 +106,6 @@ export function buildStreamerActivity(
       label: p.postType,
       source: "post",
     });
-  }
-
-  const coveredLinkIds = new Set(
-    reels.filter((r) => r.brandLinkId).map((r) => r.brandLinkId as string)
-  );
-  const coveredUrls = new Set(
-    reels.map((r) => r.contentUrl.trim().toLowerCase()).filter(Boolean)
-  );
-
-  for (const link of opts.brandLinks ?? []) {
-    if (link.ownerId !== employeeId || link.status !== "active") continue;
-    if (coveredLinkIds.has(link.id)) continue;
-    const url = link.url?.trim();
-    if (!url || coveredUrls.has(url.toLowerCase())) continue;
-    const detected = resolveLinkDetection({
-      url,
-      platform: link.platform,
-      handle: link.handle,
-      externalRef: link.externalRef,
-    });
-    if (!detected || detected.kind !== "video") continue;
-    const date = activityDateFromRecord(
-      undefined,
-      link.lastSnapshotDate
-        ? `${link.lastSnapshotDate.slice(0, 10)}T12:00:00`
-        : link.lastCheckedAt
-    );
-    if (!date) continue;
-    push({
-      id: `link-${link.id}`,
-      date,
-      url,
-      platform: link.platform,
-      label: "Marka linki",
-      source: "link",
-    });
-    coveredUrls.add(url.toLowerCase());
   }
 
   const dates = [...byDate.keys()].sort();

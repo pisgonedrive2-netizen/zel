@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, ExternalLink, Copy, Check, Link as LinkIcon,
@@ -14,6 +14,7 @@ import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
+import { fetchStreamerAchievementDay } from "@/lib/achievement-api";
 import {
   activityDatesList,
   buildStreamerActivity,
@@ -330,6 +331,14 @@ export default function TakvimPage() {
   const activityDates = useMemo(
     () => activityDatesList(activity.byDate),
     [activity.byDate]
+  );
+
+  const fetchDayDetail = useCallback(
+    (date: string) => {
+      if (!planEmployeeId) return Promise.resolve([]);
+      return fetchStreamerAchievementDay(planEmployeeId, date).then((r) => r.items);
+    },
+    [planEmployeeId]
   );
 
   const planMonthYm = planWeek.slice(0, 7);
@@ -896,7 +905,7 @@ export default function TakvimPage() {
               id="plan-achievement"
               className="scroll-mt-28 border-[#FF6B00]/30 shadow-sm"
               title={`${planStreamerName} · paylaşım achievement'ı`}
-              description="Aylık takvim, seri ve günlük paylaşım linkleri — operasyon özetinin üstünde"
+              description="Aylık takvim, seri ve kişisel hesap paylaşımları — operasyon özetinin üstünde"
               defaultOpen
               trailing={
                 <Badge variant="secondary" className="text-[10px] tabular-nums">
@@ -913,6 +922,7 @@ export default function TakvimPage() {
                 activityDates={activityDates}
                 byDate={activity.byDate}
                 initialMonthYm={planMonthYm}
+                fetchDayDetail={planEmployeeId ? fetchDayDetail : undefined}
               />
             </CollapsibleSection>
 
