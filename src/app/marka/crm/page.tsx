@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Contact, Plus, Loader2, RefreshCcw, Trash2, ArrowUpRight, Building2, TrendingUp, Link2, Pencil,
+  UserCheck, Target, Percent, Handshake,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
@@ -21,6 +22,10 @@ import {
   CONTACT_STATUS_LABELS, DEAL_STAGE_LABELS,
   type ContactStatus, type CrmContact, type CrmCurrency, type CrmDeal, type DealStage,
 } from "@/types/crm";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computeCrmInsights } from "@/lib/marka-brand-insights";
+import { fmtBrandCount } from "@/lib/brand-monthly-stats";
+import { markaHref } from "@/lib/use-marka-view-month";
 
 const CUR_SYMBOL: Record<CrmCurrency, string> = { USD: "$", EUR: "€", TRY: "₺" };
 const STAGES: { id: DealStage; label: string; accent: string }[] = [
@@ -49,7 +54,7 @@ const emptyDeal = {
 };
 
 export default function MarkaCrmPage() {
-  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const affiliatePartners = useStore((s) => s.affiliatePartners);
   const brandDeals = useStore((s) => s.brandDeals);
@@ -105,6 +110,13 @@ export default function MarkaCrmPage() {
     const sum = (arr: CrmDeal[]) => arr.reduce((a, d) => a + d.value, 0);
     return { openCount: open.length, openValue: sum(open), wonValue: sum(won) };
   }, [deals]);
+
+  const crmInsights = useMemo(
+    () => computeCrmInsights(contacts, deals),
+    [contacts, deals]
+  );
+
+  const affiliateHref = markaHref("/marka/affiliate", month);
 
   const submitContact = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,21 +257,72 @@ export default function MarkaCrmPage() {
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
         )}
 
-        {/* Özet */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card><CardContent className="flex items-center gap-3 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary"><TrendingUp size={18} /></div>
-            <div><p className="text-xs text-muted-foreground">Açık anlaşma</p><p className="text-lg font-bold tabular-nums">{pipelineValue.openCount}</p></div>
-          </CardContent></Card>
-          <Card><CardContent className="flex items-center gap-3 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600"><TrendingUp size={18} /></div>
-            <div><p className="text-xs text-muted-foreground">Açık pipeline ($)</p><p className="text-lg font-bold tabular-nums">${pipelineValue.openValue.toLocaleString("tr-TR")}</p></div>
-          </CardContent></Card>
-          <Card><CardContent className="flex items-center gap-3 py-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10 text-green-600"><TrendingUp size={18} /></div>
-            <div><p className="text-xs text-muted-foreground">Kazanılan ($)</p><p className="text-lg font-bold tabular-nums">${pipelineValue.wonValue.toLocaleString("tr-TR")}</p></div>
-          </CardContent></Card>
-        </div>
+        <MarkaStatGrid
+          columns={6}
+          items={[
+            {
+              label: "Kontak",
+              value: fmtBrandCount(crmInsights.contactCount),
+              sub: `${crmInsights.activeContacts} aktif / VIP`,
+              icon: <Building2 size={18} />,
+              tone: "blue",
+            },
+            {
+              label: "Açık fırsat",
+              value: fmtBrandCount(crmInsights.openDeals),
+              sub: `$${pipelineValue.openValue.toLocaleString("tr-TR")}`,
+              icon: <TrendingUp size={18} />,
+              tone: "primary",
+            },
+            {
+              label: "Ağırlıklı pipeline",
+              value: `$${Math.round(crmInsights.weightedPipelineUsd).toLocaleString("tr-TR")}`,
+              sub: "olasılık × değer",
+              icon: <Target size={18} />,
+              tone: "amber",
+            },
+            {
+              label: "Kazanılan",
+              value: `$${pipelineValue.wonValue.toLocaleString("tr-TR")}`,
+              icon: <TrendingUp size={18} />,
+              tone: "green",
+            },
+            {
+              label: "Kaybedilen",
+              value: fmtBrandCount(crmInsights.lostDeals),
+              icon: <UserCheck size={18} />,
+              tone: "rose",
+            },
+            {
+              label: "Kazanma oranı",
+              value: crmInsights.winRatePct != null ? `%${crmInsights.winRatePct}` : "—",
+              sub: brandPartners.length ? `${brandPartners.length} affiliate` : undefined,
+              icon: <Percent size={18} />,
+              tone: "violet",
+              href: brandPartners.length ? affiliateHref : undefined,
+            },
+          ]}
+        />
+        {(brandPartners.length > 0 || myBrandDeals.length > 0) && (
+          <p className="text-[11px] text-muted-foreground">
+            {brandPartners.length > 0 && (
+              <>
+                <Link href={affiliateHref} className="text-primary underline">
+                  {brandPartners.length} affiliate partner
+                </Link>
+              </>
+            )}
+            {myBrandDeals.length > 0 && (
+              <>
+                {brandPartners.length > 0 ? " · " : ""}
+                <Link href="/marka/anlasmalar" className="text-primary underline">
+                  {myBrandDeals.length} yayıncı anlaşması
+                </Link>{" "}
+                CRM fırsatlarına bağlanabilir
+              </>
+            )}
+          </p>
+        )}
 
         {/* Pipeline */}
         <div className="grid gap-3 lg:grid-cols-5 md:grid-cols-3 sm:grid-cols-2">
@@ -281,6 +344,20 @@ export default function MarkaCrmPage() {
                         <button onClick={() => openEditDeal(d)} className="block w-full text-left text-sm font-medium text-foreground hover:underline">{d.title}</button>
                       )}
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{contactName(d.contactId)}</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {d.affiliatePartnerId && (
+                          <Badge variant="outline" className="text-[9px] font-normal gap-0.5">
+                            <Link2 size={9} />
+                            {brandPartners.find((p) => p.id === d.affiliatePartnerId)?.name ?? "Affiliate"}
+                          </Badge>
+                        )}
+                        {d.brandDealId && (
+                          <Badge variant="outline" className="text-[9px] font-normal gap-0.5 border-green-500/40">
+                            <Handshake size={9} />
+                            {myBrandDeals.find((bd) => bd.id === d.brandDealId)?.title ?? "Anlaşma"}
+                          </Badge>
+                        )}
+                      </div>
                       <div className="mt-1.5 flex items-center justify-between">
                         <span className="text-xs font-semibold tabular-nums">{CUR_SYMBOL[d.currency]}{d.value.toLocaleString("tr-TR")}</span>
                         <span className="text-[10px] text-muted-foreground">%{d.probability}</span>

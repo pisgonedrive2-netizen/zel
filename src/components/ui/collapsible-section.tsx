@@ -18,6 +18,8 @@ export interface CollapsibleSectionProps {
   /** Sağ üst ek aksiyon (filtre, badge vb.) */
   trailing?: ReactNode;
   id?: string;
+  /** Açıkken içerik alanı max yükseklik (px) — uzun listelerde scroll. */
+  contentMaxHeight?: number;
 }
 
 /**
@@ -34,6 +36,7 @@ export function CollapsibleSection({
   headerClassName,
   trailing,
   id,
+  contentMaxHeight,
 }: CollapsibleSectionProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const isOpen = controlledOpen ?? internalOpen;
@@ -79,7 +82,17 @@ export function CollapsibleSection({
           </div>
         )}
       </div>
-      {isOpen && <div className="border-t border-border/60 px-4 py-4">{children}</div>}
+      {isOpen && (
+        <div
+          className={cn(
+            "border-t border-border/60 px-4 py-4",
+            contentMaxHeight != null && "overflow-y-auto"
+          )}
+          style={contentMaxHeight != null ? { maxHeight: contentMaxHeight } : undefined}
+        >
+          {children}
+        </div>
+      )}
     </section>
   );
 }

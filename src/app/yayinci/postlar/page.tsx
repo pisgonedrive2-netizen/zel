@@ -30,6 +30,11 @@ import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner"
 import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
+import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
+import {
+  activityDatesList,
+  buildStreamerActivity,
+} from "@/lib/streamer-activity-dates";
 import {
   BRAND_POST_PLATFORM_LABELS,
   BRAND_POST_STATUS_BADGE_CLS,
@@ -43,7 +48,11 @@ export default function YayinciPostlarPage() {
   const { user } = useAuth();
   const brands = useStore((s) => s.brands);
   const weekBrandReels = useStore((s) => s.weekBrandReels);
+  const storeBrandPosts = useStore((s) => s.brandPosts);
+  const brandDeals = useStore((s) => s.brandDeals);
+  const brandLinks = useStore((s) => s.brandLinks);
   const addWeekBrandReel = useStore((s) => s.addWeekBrandReel);
+  const updateWeekBrandReel = useStore((s) => s.updateWeekBrandReel);
   const deleteWeekBrandReel = useStore((s) => s.deleteWeekBrandReel);
   const employeeId = user?.employeeId;
 
@@ -89,8 +98,16 @@ export default function YayinciPostlarPage() {
     void load();
   }, [load]);
 
+  const mergedPosts = useMemo(() => {
+    if (!employeeId) return [] as BrandPost[];
+    const byId = new Map<string, BrandPost>();
+    for (const p of storeBrandPosts) byId.set(p.id, p);
+    for (const p of posts) byId.set(p.id, p);
+    return [...byId.values()];
+  }, [storeBrandPosts, posts, employeeId]);
+
   const filtered = useMemo(() => {
-    return posts
+    return mergedPosts
       .filter((p) => {
         if (platformFilter && p.platform !== platformFilter) return false;
         if (dealFilter && p.dealId !== dealFilter) return false;
@@ -99,18 +116,27 @@ export default function YayinciPostlarPage() {
       .sort((a, b) =>
         (b.postedAt ?? b.createdAt).localeCompare(a.postedAt ?? a.createdAt)
       );
-  }, [posts, platformFilter, dealFilter]);
+  }, [mergedPosts, platformFilter, dealFilter]);
 
-  // Paylaşım takvimi (achievement) için tarihler: postlar + bu yayıncının hafta reel'leri.
-  const activityDates = useMemo(() => {
-    const dates: string[] = [];
-    for (const p of posts) dates.push(p.postedAt ?? p.createdAt);
-    for (const r of weekBrandReels) {
-      if (r.employeeId !== employeeId) continue;
-      dates.push(r.publishedAt ?? r.createdAt ?? r.weekStart);
-    }
-    return dates.filter(Boolean);
-  }, [posts, weekBrandReels, employeeId]);
+  const activityOpts = useMemo(
+    () => ({ brandDeals, brandLinks }),
+    [brandDeals, brandLinks]
+  );
+
+  const activity = useMemo(() => {
+    if (!employeeId) return { dates: [] as string[], byDate: new Map() };
+    return buildStreamerActivity(
+      employeeId,
+      weekBrandReels,
+      mergedPosts,
+      activityOpts
+    );
+  }, [mergedPosts, weekBrandReels, employeeId, activityOpts]);
+
+  const activityDates = useMemo(
+    () => activityDatesList(activity.byDate),
+    [activity.byDate]
+  );
 
   const brandLabel = useCallback(
     (id: string) => brands.find((b) => b.id === id)?.name ?? id,
@@ -204,16 +230,27 @@ export default function YayinciPostlarPage() {
       </Card>
 
       {employeeId && (
+        <AchievementLinkSyncBar employeeId={employeeId} employeeName={user?.name} />
+      )}
+
+      {employeeId && (
         <DailyContentCheckin
           employeeId={employeeId}
           brands={brands}
           reels={weekBrandReels}
+          brandPosts={mergedPosts}
+          brandDeals={brandDeals}
+          brandLinks={brandLinks}
           onAdd={addWeekBrandReel}
+          onUpdate={updateWeekBrandReel}
           onDelete={deleteWeekBrandReel}
         />
       )}
 
-      <PostActivityCalendar activityDates={activityDates} />
+      <PostActivityCalendar
+        activityDates={activityDates}
+        byDate={activity.byDate}
+      />
 
       <div className="flex items-start gap-3 rounded-xl border border-blue-300/60 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-100">
         <Info size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />

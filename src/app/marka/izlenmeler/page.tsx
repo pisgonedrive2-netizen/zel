@@ -35,6 +35,14 @@ import { SocialPlatformIcon, platformAccentClass } from "@/components/social-pla
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { Select } from "@/components/ui/field";
+import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import {
+  buildBrandAggregatedActivity,
+  buildBrandStreamerActivity,
+  countActivityDaysInMonth,
+  reelDisplayDate,
+  scopeBrandActivityData,
+} from "@/lib/brand-activity-dates";
 
 const CARD_PREVIEW_LIMIT = 5;
 
@@ -69,6 +77,8 @@ export default function MarkaIzlenmelerPage() {
     employees,
     contentExpenses,
     brandMonthlyStats,
+    brandPosts,
+    brandDeals,
     updateBrand,
   } = useStore();
   const [linksModalOpen, setLinksModalOpen] = useState(false);
@@ -159,6 +169,28 @@ export default function MarkaIzlenmelerPage() {
     if (reelStreamerFilter === "all") return reelsInMonth;
     return reelsInMonth.filter((r) => r.employeeId === reelStreamerFilter);
   }, [reelsInMonth, reelStreamerFilter]);
+
+  const activityScope = useMemo(
+    () =>
+      brandId
+        ? scopeBrandActivityData(brandId, {
+            weekBrandReels,
+            brandPosts,
+            brandLinks,
+            brandDeals,
+          })
+        : null,
+    [brandId, weekBrandReels, brandPosts, brandLinks, brandDeals]
+  );
+
+  const sharingDaysThisMonth = useMemo(() => {
+    if (!activityScope) return 0;
+    const { byDate } =
+      reelStreamerFilter === "all"
+        ? buildBrandAggregatedActivity(activityScope)
+        : buildBrandStreamerActivity(reelStreamerFilter, activityScope);
+    return countActivityDaysInMonth(byDate, month);
+  }, [activityScope, reelStreamerFilter, month]);
 
   const totalLinkViewsMonth = useMemo(
     () => enrichedLinks.reduce((s, r) => s + r.lastViews, 0),
@@ -556,6 +588,31 @@ export default function MarkaIzlenmelerPage() {
           </div>
           </CollapsibleSection>
 
+          {brandId && (
+            <MarkaAchievementPanel
+              brandId={brandId}
+              brandName={brand.name}
+              monthYm={month}
+              defaultEmployeeId={reelStreamerFilter === "all" ? "" : reelStreamerFilter}
+              defaultOpen
+            />
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2 max-w-md">
+            <ViewDotCard
+              target={sharingDaysThisMonth}
+              metricCaption="Gün"
+              label={`${monthTitle} · Paylaşım günü`}
+              sub={
+                reelStreamerFilter === "all"
+                  ? "Tüm partner yayıncılar"
+                  : empName(reelStreamerFilter)
+              }
+              accent="emerald"
+              size="sm"
+            />
+          </div>
+
           <CollapsibleSection
             defaultOpen={false}
             title={`Haftalık içerik / videolar (${filteredReels.length})`}
@@ -590,9 +647,17 @@ export default function MarkaIzlenmelerPage() {
                       </Badge>
                       <span className="text-[10px] text-muted-foreground">{weekRangeLabel(r.weekStart)}</span>
                     </div>
-                    <p className="text-xs flex items-center gap-1.5">
+                    <p className="text-xs flex items-center gap-1.5 flex-wrap">
                       <SocialPlatformIcon platform={r.platform} size={14} />
                       {r.platform}
+                      {reelDisplayDate(r) && (
+                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
+                          · {reelDisplayDate(r)}
+                        </span>
+                      )}
+                      {r.brandLinkId && (
+                        <span className="text-[10px] text-muted-foreground">· link eşleşmesi</span>
+                      )}
                     </p>
                     <a
                       href={r.contentUrl}

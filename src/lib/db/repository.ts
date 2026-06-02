@@ -32,6 +32,10 @@ import { filterWeeklyPlansForBrand } from "@/lib/weekly-plan-brand-match";
 import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import type { AppUser } from "@/store/auth";
 import {
+  mergeCanonicalSalaryExtras,
+  reconcileRentExtrasForAllEmployees,
+} from "@/store/store";
+import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
   salaryExtraFromRow, salaryExtraToRow, paymentStatusFromRow, paymentStatusToRow,
   companyFromRow, companyToRow, sponsorTxFromRow, sponsorTxToRow,
@@ -394,12 +398,17 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     }),
   ]);
 
+  const salaryExtrasCanonical = reconcileRentExtrasForAllEmployees(
+    employees,
+    mergeCanonicalSalaryExtras(salaryExtras)
+  );
+
   const payload: AppHydratePayload & { users?: AppUser[] } = {
     organizations,
     organizationMembers,
     employees,
     advances,
-    salaryExtras,
+    salaryExtras: salaryExtrasCanonical,
     paymentStatuses,
     companies,
     sponsorTransactions,

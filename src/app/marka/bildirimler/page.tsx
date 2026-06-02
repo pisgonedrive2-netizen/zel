@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { Bell, CheckCheck, Filter, Inbox, Trash2 } from "lucide-react";
@@ -30,12 +31,16 @@ const TYPE_LABEL: Record<AppNotification["type"], string> = {
   password_reset_request: "Şifre sıfırlama talebi",
   account_registration_request: "Hesap kayıt talebi",
   api_refresh_alert:  "API izlenme uyarısı",
+  content_published:  "İçerik paylaşımı",
+  deliverable_late:   "Teslimat eksik / gecikme",
   general:            "Genel duyuru",
 };
 
 const TYPE_ACCENT: Partial<Record<AppNotification["type"], string>> = {
   brand_payment_reminder: "text-emerald-700 border-emerald-300 bg-emerald-50 dark:text-emerald-300 dark:border-emerald-500/45 dark:bg-emerald-950/40",
   schedule_updated: "text-blue-700 border-blue-300 bg-blue-50 dark:text-blue-300 dark:border-blue-500/45 dark:bg-blue-950/40",
+  content_published: "text-emerald-700 border-emerald-300 bg-emerald-50 dark:text-emerald-300 dark:border-emerald-500/45 dark:bg-emerald-950/40",
+  deliverable_late: "text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/45 dark:bg-amber-950/40",
   general: "text-violet-700 border-violet-300 bg-violet-50 dark:text-violet-300 dark:border-violet-500/45 dark:bg-violet-950/40",
 };
 
@@ -76,6 +81,14 @@ export default function MarkaBildirimlerPage() {
     ? unreadNotificationCount(notifications, "brand", targetUserId, brandId ? [brandId] : undefined)
     : 0;
   const totalForRole = myNotifications.length;
+
+  const typeCounts = useMemo(() => {
+    const map = new Map<AppNotification["type"], number>();
+    for (const n of myNotifications) {
+      map.set(n.type, (map.get(n.type) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]);
+  }, [myNotifications]);
 
   return (
     <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
@@ -128,6 +141,25 @@ export default function MarkaBildirimlerPage() {
           accent="text-violet-700 dark:text-violet-300"
         />
       </div>
+
+      {typeCounts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {typeCounts.slice(0, 8).map(([type, count]) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setTypeFilter(typeFilter === type ? "" : type)}
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium transition ${
+                typeFilter === type
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-muted/40 text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              {TYPE_LABEL[type]} ({count})
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs">
         <label htmlFor="notif-type-filter" className="text-muted-foreground">Tür:</label>
@@ -193,7 +225,13 @@ export default function MarkaBildirimlerPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm font-medium text-foreground">{n.title}</p>
+                      {n.href ? (
+                        <Link href={n.href} className="text-sm font-medium text-foreground hover:underline">
+                          {n.title}
+                        </Link>
+                      ) : (
+                        <p className="text-sm font-medium text-foreground">{n.title}</p>
+                      )}
                       <p className="text-xs text-muted-foreground mt-0.5">{n.message}</p>
                       <p className="text-[10px] text-muted-foreground/80 mt-1">
                         {fmtDateTime(n.createdAt)}

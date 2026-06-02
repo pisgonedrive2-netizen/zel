@@ -24,6 +24,9 @@ import {
   ASSIGNABLE_ORG_ROLES, ORG_ROLE_LABELS, ORG_ROLE_DESCRIPTIONS, READ_ONLY_ORG_ROLES,
 } from "@/lib/org-roles";
 import type { OrgRole } from "@/store/store";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computeTeamInsights } from "@/lib/marka-brand-insights";
+import { fmtBrandCount } from "@/lib/brand-monthly-stats";
 
 const ROLE_BADGE: Record<string, string> = {
   owner: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-300",
@@ -175,6 +178,16 @@ export default function MarkaEkipPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  const teamInsights = useMemo(
+    () => computeTeamInsights(data?.members ?? []),
+    [data?.members]
+  );
+
+  const topRoles = useMemo(() => {
+    const entries = Object.entries(teamInsights.roleCounts).sort((a, b) => b[1] - a[1]);
+    return entries.slice(0, 2).map(([r, n]) => `${ORG_ROLE_LABELS[r as OrgRole] ?? r}: ${n}`).join(" · ");
+  }, [teamInsights.roleCounts]);
+
   const members = useMemo(
     () => (data?.members ?? []).slice().sort((a, b) => {
       const order: Record<string, number> = { owner: 0, admin: 1, finance: 2, hr: 3, marketing: 4, auditor: 5, viewer: 6 };
@@ -308,6 +321,40 @@ export default function MarkaEkipPage() {
             Ekip yönetimi yalnızca marka sahibi ve yöneticilerinde açıktır. Bu listeyi görüntüleyebilirsiniz.
           </div>
         )}
+
+        <MarkaStatGrid
+          columns={4}
+          items={[
+            {
+              label: "Üye",
+              value: fmtBrandCount(teamInsights.total),
+              sub: `${teamInsights.active} aktif`,
+              icon: <Users size={18} />,
+              tone: "primary",
+            },
+            {
+              label: "Salt okunur",
+              value: fmtBrandCount(teamInsights.readOnly),
+              sub: "denetçi / görüntüleyici",
+              icon: <Eye size={18} />,
+              tone: "violet",
+            },
+            {
+              label: "Rol dağılımı",
+              value: fmtBrandCount(Object.keys(teamInsights.roleCounts).length),
+              sub: topRoles || "—",
+              icon: <ShieldCheck size={18} />,
+              tone: "blue",
+            },
+            {
+              label: "Marka kapsamı",
+              value: fmtBrandCount(orgBrandIds.length),
+              sub: `${orgBrandIds.length} marka erişimi`,
+              icon: <Crown size={18} />,
+              tone: "amber",
+            },
+          ]}
+        />
 
         <Card>
           <CardHeader className="border-b border-border/60 pb-4">

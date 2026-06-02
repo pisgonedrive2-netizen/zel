@@ -926,13 +926,13 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* HERO — landback.png tam ekran (cover), siyah zeminle kenar uyumu */}
+      {/* HERO — mobilde görsel kırpılmadan (contain), masaüstünde tam ekran cover */}
       <section
         id="hero"
         className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6"
       >
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
-          {/* Ambient: hafif blur — cover kenarlarında siyah boşluk kalmaz */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center bg-black">
+          {/* Ambient blur — masaüstünde cover; mobilde contain ile hizalı */}
           <Image
             src="/landback.png"
             alt=""
@@ -940,9 +940,8 @@ export default function LoginPage() {
             priority
             quality={90}
             sizes="100vw"
-            className="scale-110 object-cover object-center opacity-50 blur-2xl"
+            className="object-contain object-center opacity-40 blur-2xl max-md:scale-100 md:scale-110 md:object-cover"
           />
-          {/* Ana görsel: tüm breakpoint'lerde viewport'u tam doldurur */}
           <Image
             src="/landback.png"
             alt=""
@@ -950,7 +949,7 @@ export default function LoginPage() {
             priority
             quality={100}
             sizes="100vw"
-            className="object-cover object-[center_42%] sm:object-center"
+            className="object-contain object-center max-md:opacity-95 md:object-cover md:object-center"
           />
         </div>
 

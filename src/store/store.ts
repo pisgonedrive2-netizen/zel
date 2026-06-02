@@ -817,6 +817,8 @@ export interface AppNotification {
     | "password_reset_request"
     | "account_registration_request"
     | "api_refresh_alert"
+    | "content_published"
+    | "deliverable_late"
     | "general";
   title: string;
   message: string;

@@ -6,6 +6,9 @@ import {
   ArrowLeft, Loader2, Mail, Phone, Send, Plus, MessageSquare, TrendingUp,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { useStore } from "@/store/store";
+import Link from "next/link";
+import { markaHref } from "@/lib/use-marka-view-month";
 import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
@@ -26,7 +29,8 @@ const CUR_SYMBOL: Record<string, string> = { USD: "$", EUR: "€", TRY: "₺" };
 export default function MarkaCrmKontakPage() {
   const id = String(useParams<{ id: string }>().id ?? "");
   const router = useRouter();
-  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = useMarkaPortal();
+  const { affiliatePartners, brandDeals } = useStore();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
   const [detail, setDetail] = useState<ContactDetail | null>(null);
@@ -85,7 +89,8 @@ export default function MarkaCrmKontakPage() {
         ) : !detail ? (
           <Card><CardContent className="py-12 text-center text-muted-foreground">Kontak bulunamadı.</CardContent></Card>
         ) : (
-          <>
+          <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+            <div className="space-y-5 min-w-0">
             <Card>
               <CardContent className="py-5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -176,7 +181,43 @@ export default function MarkaCrmKontakPage() {
                 )}
               </CardContent>
             </Card>
-          </>
+            </div>
+
+            <aside className="space-y-3">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Bağlantılar</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-xs">
+                  <Link href={markaHref("/marka/affiliate", month)} className="block text-primary underline">
+                    Affiliate modülü
+                  </Link>
+                  <Link href="/marka/anlasmalar" className="block text-primary underline">
+                    Yayıncı anlaşmaları
+                  </Link>
+                  {detail.deals.map((d) => (
+                    <div key={d.id} className="rounded border border-border px-2 py-1.5">
+                      <p className="font-medium truncate">{d.title}</p>
+                      {d.affiliatePartnerId && (
+                        <p className="text-muted-foreground mt-0.5">
+                          Affiliate:{" "}
+                          {affiliatePartners.find((p) => p.id === d.affiliatePartnerId)?.name ?? "—"}
+                        </p>
+                      )}
+                      {d.brandDealId && (
+                        <Link
+                          href={`/marka/anlasmalar/${d.brandDealId}`}
+                          className="text-primary underline mt-0.5 inline-block"
+                        >
+                          Anlaşma: {brandDeals.find((b) => b.id === d.brandDealId)?.title ?? d.brandDealId}
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </aside>
+          </div>
         )}
       </div>
     </MarkaPageGuard>

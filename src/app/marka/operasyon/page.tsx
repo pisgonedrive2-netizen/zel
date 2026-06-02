@@ -61,9 +61,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
+import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
 
 export default function MarkaOperasyonPage() {
-  const { brandMonthlyStats, brands, contentExpenses } = useStore();
+  const {
+    brandMonthlyStats,
+    brands,
+    contentExpenses,
+    weekBrandReels,
+    brandPosts,
+    brandLinks,
+    brandDeals,
+  } = useStore();
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle, isAdminView } = portal;
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
@@ -103,6 +113,11 @@ export default function MarkaOperasyonPage() {
   const insights = useMemo(
     () => (metrics && liveDemo ? generateOperationInsights(metrics, prevMetrics, liveDemo) : []),
     [metrics, prevMetrics, liveDemo]
+  );
+
+  const storeSlice = useMemo(
+    () => ({ weekBrandReels, brandPosts, brandLinks, brandDeals }),
+    [weekBrandReels, brandPosts, brandLinks, brandDeals]
   );
 
   const buildOperationExport = (): BrandOperationPdfInput | null => {
@@ -181,6 +196,22 @@ export default function MarkaOperasyonPage() {
           </div>
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
+
+          <MarkaContentOverviewCard
+            brandId={brandId}
+            brandName={brand.name}
+            monthYm={month}
+            monthTitle={monthTitle}
+            storeSlice={storeSlice}
+          />
+
+          <MarkaAchievementPanel
+            brandId={brandId}
+            brandName={brand.name}
+            monthYm={month}
+            defaultOpen={false}
+            title="Paylaşım takvimi (detay)"
+          />
 
           {hasStats && metrics ? (
             <>

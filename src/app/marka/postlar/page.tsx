@@ -9,6 +9,8 @@ import {
   RefreshCcw,
   Trash2,
   Video,
+  Heart,
+  FileVideo,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
@@ -31,6 +33,10 @@ import {
 } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
+import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computePostListInsights } from "@/lib/marka-brand-insights";
+import { fmtBrandCount } from "@/lib/brand-monthly-stats";
 import {
   BRAND_POST_PLATFORM_LABELS,
   BRAND_POST_STATUS_BADGE_CLS,
@@ -43,7 +49,7 @@ import type { BrandDeal, BrandPost } from "@/store/store";
 
 export default function MarkaPostlarPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand, isAdminView } = portal;
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = portal;
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const employees = useStore((s) => s.employees);
 
@@ -103,6 +109,11 @@ export default function MarkaPostlarPage() {
       ...deals.map((d) => ({ value: d.id, label: d.title })),
     ],
     [deals]
+  );
+
+  const postInsights = useMemo(
+    () => computePostListInsights(filteredPosts),
+    [filteredPosts]
   );
 
   const employeeOptions = useMemo(() => {
@@ -228,6 +239,51 @@ export default function MarkaPostlarPage() {
               </div>
             </CardContent>
           </Card>
+
+          {filteredPosts.length > 0 && (
+            <MarkaStatGrid
+              columns={4}
+              items={[
+                {
+                  label: "Post",
+                  value: fmtBrandCount(postInsights.total),
+                  icon: <FileVideo size={18} />,
+                  tone: "primary",
+                },
+                {
+                  label: "Toplam izlenme",
+                  value: fmtCompactViews(postInsights.totalViews),
+                  icon: <Eye size={18} />,
+                  tone: "blue",
+                },
+                {
+                  label: "Beğeni",
+                  value: fmtCompactViews(postInsights.totalLikes),
+                  icon: <Heart size={18} />,
+                  tone: "rose",
+                },
+                {
+                  label: "Platform",
+                  value: fmtBrandCount(Object.keys(postInsights.byPlatform).length),
+                  sub: Object.entries(postInsights.byPlatform)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .slice(0, 2)
+                    .join(" · "),
+                  tone: "violet",
+                },
+              ]}
+            />
+          )}
+
+          {brandId && (
+            <MarkaAchievementPanel
+              brandId={brandId}
+              brandName={brand.name}
+              monthYm={month}
+              extraPosts={posts}
+              defaultOpen
+            />
+          )}
 
           {notReady && <PoolServerBanner />}
           {error && (

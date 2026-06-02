@@ -11,16 +11,20 @@ import {
   Loader2,
   RefreshCcw,
   Video,
+  DollarSign,
+  CheckCircle2,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computeDealStats } from "@/lib/marka-brand-insights";
+import { fmtBrandCount, fmtBrandMoney } from "@/lib/brand-monthly-stats";
+import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { fmtBrandMoney } from "@/lib/brand-monthly-stats";
-import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { fmtDateOnly } from "@/lib/fmt-date";
 import { fetchDeals, isPoolNotReadyError } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
@@ -96,6 +100,11 @@ export default function MarkaAnlasmalarPage() {
     [employees]
   );
 
+  const dealStats = useMemo(
+    () => (brandId ? computeDealStats(deals, brandId) : null),
+    [deals, brandId]
+  );
+
   return (
     <MarkaPageGuard
       user={user}
@@ -105,6 +114,41 @@ export default function MarkaAnlasmalarPage() {
     >
       {brand && brandId && (
         <div className="mx-auto max-w-[1280px] space-y-5 pb-10">
+          {dealStats && (
+            <MarkaStatGrid
+              columns={4}
+              items={[
+                {
+                  label: "Aktif anlaşma",
+                  value: fmtBrandCount(dealStats.active),
+                  sub: fmtBrandMoney(dealStats.budgetUsd, "USD") + " bütçe",
+                  icon: <Handshake size={18} />,
+                  tone: "green",
+                },
+                {
+                  label: "Ödenen",
+                  value: fmtBrandMoney(dealStats.paidUsd, "USD"),
+                  sub: "aktif anlaşmalarda",
+                  icon: <DollarSign size={18} />,
+                  tone: "blue",
+                },
+                {
+                  label: "Post",
+                  value: fmtBrandCount(dealStats.postsCount),
+                  icon: <Video size={18} />,
+                  tone: "violet",
+                },
+                {
+                  label: "İzlenme",
+                  value: fmtCompactViews(dealStats.totalViews),
+                  sub: `${dealStats.completed} tamamlanan`,
+                  icon: <Eye size={18} />,
+                  tone: "amber",
+                },
+              ]}
+            />
+          )}
+
           <Card>
             <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>

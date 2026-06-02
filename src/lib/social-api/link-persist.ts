@@ -1,5 +1,9 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { FetchedMetrics } from "./clients";
+import {
+  ensureWeekBrandReelFromBrandLink,
+  fetchBrandLinkForAchievement,
+} from "./link-achievement-sync";
 
 /**
  * Snapshot kaydı — `targetDate` belirtilmezse bugünün tarihiyle yazılır.
@@ -81,6 +85,8 @@ export async function persistLinkMetricsUpdate(opts: {
   refreshCountTotal?: number | null;
   /** Snapshot için hedef tarih (YYYY-MM-DD). Belirtilmezse bugün. */
   targetDate?: string;
+  /** API'den gelen yayın tarihi (achievement günü). */
+  publishedAt?: string | null;
 }): Promise<PersistedLinkMetrics> {
   const snapshotDate = opts.targetDate ?? new Date().toISOString().slice(0, 10);
   const now = new Date().toISOString();
@@ -127,6 +133,17 @@ export async function persistLinkMetricsUpdate(opts: {
   await syncLinkedWeekReels(opts.linkId, opts.metrics, opts.externalRef, now).catch(
     () => undefined
   );
+
+  const linkRow = await fetchBrandLinkForAchievement(opts.linkId).catch(() => null);
+  if (linkRow) {
+    await ensureWeekBrandReelFromBrandLink({
+      link: linkRow,
+      metrics: opts.metrics,
+      externalRef: opts.externalRef,
+      publishedAt: opts.publishedAt ?? opts.metrics.publishedAt,
+      targetDate: opts.targetDate,
+    }).catch(() => undefined);
+  }
 
   return {
     linkId: opts.linkId,

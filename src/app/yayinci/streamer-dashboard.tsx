@@ -30,6 +30,7 @@ import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
+import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
@@ -2839,6 +2840,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               <p className="text-sm text-muted-foreground max-w-2xl">
                 Üstteki <strong>ay seçici</strong> maaş ve izlenmelerle ortaktır: aynı link için hangi ayın snapshot’ına baktığınızı seçin.
                 İzlenmeler sayfasındaki marka toplamları bu aydaki link verileriyle uyumludur.
+                Reel/post URL&apos;leri achievement takvimine <strong>Marka linklerinden doldur</strong> ile aktarılır.
               </p>
             </div>
             <Button
@@ -2851,6 +2853,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               <Plus size={13} /> Yeni Link
             </Button>
           </div>
+
+          {me && (
+            <AchievementLinkSyncBar employeeId={me.id} employeeName={me.name} />
+          )}
 
           <Card>
             <CardHeader className="space-y-4 pb-2">

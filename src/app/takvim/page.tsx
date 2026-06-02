@@ -14,8 +14,14 @@ import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
+import {
+  activityDatesList,
+  buildStreamerActivity,
+} from "@/lib/streamer-activity-dates";
 import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
 import { StreamerOperationsHub } from "@/components/takvim/streamer-operations-hub";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -187,6 +193,7 @@ export default function TakvimPage() {
   const { user, users } = useAuth();
   const {
     employees, brands, streamerAccounts, scheduleSlots, weeklyPlans, weekBrandReels,
+    brandPosts, brandDeals, brandLinks,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addScheduleSlot, updateScheduleSlot, deleteScheduleSlot,
     addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
@@ -305,29 +312,38 @@ export default function TakvimPage() {
     [weeklyPlans, planEmployeeId, planWeek]
   );
 
-  // Achievement (paylaşım) takvimi: seçili yayıncının hafta reel/post tarihleri.
-  const activityDates = useMemo(() => {
-    const dates: string[] = [];
-    for (const r of weekBrandReels) {
-      if (r.employeeId !== planEmployeeId) continue;
-      const d = isoToLocalDateOnly(r.publishedAt ?? r.createdAt ?? r.weekStart);
-      if (d) dates.push(d);
-    }
-    return dates;
-  }, [weekBrandReels, planEmployeeId]);
-
-  const planMonthYm = planWeek.slice(0, 7);
-  const reelCountForStreamer = useMemo(
-    () => weekBrandReels.filter((r) => r.employeeId === planEmployeeId).length,
-    [weekBrandReels, planEmployeeId]
+  const activityOpts = useMemo(
+    () => ({ brandDeals, brandLinks }),
+    [brandDeals, brandLinks]
   );
 
-  // Yayıncıya tıklayınca plan + achievement detayına götür.
+  const activity = useMemo(
+    () =>
+      buildStreamerActivity(
+        planEmployeeId,
+        weekBrandReels,
+        brandPosts,
+        activityOpts
+      ),
+    [weekBrandReels, brandPosts, planEmployeeId, activityOpts]
+  );
+  const activityDates = useMemo(
+    () => activityDatesList(activity.byDate),
+    [activity.byDate]
+  );
+
+  const planMonthYm = planWeek.slice(0, 7);
+  const contentCountForStreamer = useMemo(
+    () => activity.byDate.size,
+    [activity.byDate]
+  );
+
+  // Yayıncıya tıklayınca doğrudan achievement bölümüne götür.
   const selectStreamer = (id: string) => {
     setPlanEmpId(id);
     setTimeout(() => {
       document
-        .getElementById("plan-yayinci-hub")
+        .getElementById("plan-achievement")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 60);
   };
@@ -366,12 +382,15 @@ export default function TakvimPage() {
   ] as const;
 
   const PLAN_SUBSECTIONS = [
-    { id: "plan-yayinci-hub", label: "Operasyon özeti", icon: TrendingUp },
     { id: "plan-achievement", label: "Achievement", icon: Trophy },
     { id: "plan-checkin", label: "Check-in", icon: Check },
+    { id: "plan-yayinci-hub", label: "Operasyon özeti", icon: TrendingUp },
     { id: "plan-sablon", label: "7s şablon", icon: Sparkles },
     { id: "plan-haftalik-grid", label: "Haftalık plan", icon: CalendarDays },
   ] as const;
+
+  const planStreamerName =
+    yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı";
 
   const openPlanModal = () => {
     if (!planEmployeeId) return;
@@ -467,9 +486,9 @@ export default function TakvimPage() {
                 size="sm"
                 variant="secondary"
                 className="h-7 text-[11px] gap-1"
-                onClick={() => scrollToSection("plan-yayinci-hub")}
+                onClick={() => scrollToSection("plan-achievement")}
               >
-                <TrendingUp size={12} /> Operasyon özeti
+                <Trophy size={12} /> Achievement
               </Button>
               <Button
                 type="button"
@@ -488,6 +507,15 @@ export default function TakvimPage() {
                 onClick={() => scrollToSection("plan-checkin")}
               >
                 <LinkIcon size={12} /> İçerik URL
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 text-[11px] gap-1"
+                onClick={() => scrollToSection("plan-yayinci-hub")}
+              >
+                <TrendingUp size={12} /> Operasyon
               </Button>
               <Button
                 type="button"
@@ -831,9 +859,11 @@ export default function TakvimPage() {
         <p className="text-muted-foreground text-sm mt-1">
           Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Tüm değişiklikler Supabase&apos;e kaydedilir; tarihler yerel takvime göre tutulur.
         </p>
-        {planEmployeeId && reelCountForStreamer === 0 && (
+        {planEmployeeId && contentCountForStreamer === 0 && (
           <p className="mt-2 text-xs text-amber-800 dark:text-amber-200 rounded-lg border border-amber-300/60 bg-amber-50/80 dark:bg-amber-950/40 px-3 py-2">
-            Bu yayıncı için henüz içerik check-in kaydı yok. Üstteki <strong>İçerik URL</strong> ile işaretleyin; achievement takvimi otomatik dolacak.
+            Bu yayıncı için henüz paylaşım kaydı yok (check-in veya havuz postu). Alttaki{" "}
+            <strong>İçerik URL</strong> ile ekleyin veya <strong>Postlarım / anlaşma</strong>{" "}
+            üzerinden URL girin; achievement takvimi otomatik dolacak.
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2 mt-4">
@@ -861,33 +891,76 @@ export default function TakvimPage() {
           </Button>
         </div>
         {yayincilar.length > 0 && planEmployeeId && (
-          <div className="mt-4 space-y-4">
-            <StreamerOperationsHub
-              employeeId={planEmployeeId}
-              employeeName={yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"}
-              planWeek={planWeek}
-              planMonthYm={planMonthYm}
-            />
-            <div id="plan-achievement" className="scroll-mt-28">
-              <PostActivityCalendar
-                activityDates={activityDates}
-                initialMonthYm={planMonthYm}
-                title={`${yayincilar.find((e) => e.id === planEmployeeId)?.name ?? "Yayıncı"} · paylaşım achievement'ı`}
-                description="Seçili yayıncının reel/post paylaşım günleri (yerel tarih + API) — seri ve toplam içerik takibi"
+          <div className="mt-4 space-y-3">
+            <CollapsibleSection
+              id="plan-achievement"
+              className="scroll-mt-28 border-[#FF6B00]/30 shadow-sm"
+              title={`${planStreamerName} · paylaşım achievement'ı`}
+              description="Aylık takvim, seri ve günlük paylaşım linkleri — operasyon özetinin üstünde"
+              defaultOpen
+              trailing={
+                <Badge variant="secondary" className="text-[10px] tabular-nums">
+                  {contentCountForStreamer} gün
+                </Badge>
+              }
+            >
+              <AchievementLinkSyncBar
+                employeeId={planEmployeeId}
+                employeeName={planStreamerName}
               />
-            </div>
-            <div id="plan-checkin" className="scroll-mt-28">
+              <PostActivityCalendar
+                embedded
+                activityDates={activityDates}
+                byDate={activity.byDate}
+                initialMonthYm={planMonthYm}
+              />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="plan-checkin"
+              className="scroll-mt-28"
+              title="Günlük içerik check-in"
+              description="30 günlük URL işaretleme — achievement ile aynı veri"
+              defaultOpen={false}
+              contentMaxHeight={520}
+            >
               <DailyContentCheckin
                 key={planEmployeeId}
                 employeeId={planEmployeeId}
                 brands={brands}
                 reels={weekBrandReels}
+                brandPosts={brandPosts}
+                brandDeals={brandDeals}
+                brandLinks={brandLinks}
                 onAdd={addWeekBrandReel}
                 onUpdate={updateWeekBrandReel}
                 onDelete={deleteWeekBrandReel}
               />
-            </div>
-            <div id="plan-sablon" className="scroll-mt-28">
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="plan-yayinci-hub"
+              className="scroll-mt-28 border-[#FF6B00]/25"
+              title={`${planStreamerName} · operasyon & performans`}
+              description="Linkler, harcamalar, izlenme — uzun liste; varsayılan kapalı"
+              defaultOpen={false}
+            >
+              <StreamerOperationsHub
+                embedded
+                employeeId={planEmployeeId}
+                employeeName={planStreamerName}
+                planWeek={planWeek}
+                planMonthYm={planMonthYm}
+              />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="plan-sablon"
+              className="scroll-mt-28"
+              title="7 saniye şablon · haftalık plan"
+              description="Tek tıkla haftalık plan satırları"
+              defaultOpen={false}
+            >
             <ShiftTemplateCard
               weekStart={planWeek}
               weekDays={currentWeekDays}
@@ -899,7 +972,7 @@ export default function TakvimPage() {
               onApply={(plans) => plans.map((p) => addWeeklyPlan(p))}
               onUndo={(ids) => ids.forEach((id) => deleteWeeklyPlan(id))}
             />
-            </div>
+            </CollapsibleSection>
             <div id="plan-haftalik-grid" className="scroll-mt-28">
             <WeeklyPlanGrid
               weekStart={planWeek}

@@ -45,6 +45,8 @@ const TYPE_LABEL: Record<AppNotification["type"], string> = {
   password_reset_request: "Şifre sıfırlama talebi",
   account_registration_request: "Hesap kayıt talebi",
   api_refresh_alert:  "API izlenme uyarısı",
+  content_published:  "İçerik paylaşımı",
+  deliverable_late:   "Teslimat eksik",
   general:            "Genel duyuru",
 };
 

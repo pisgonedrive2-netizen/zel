@@ -15,6 +15,9 @@ import { Field, Input, Select, Textarea, FormActions } from "@/components/ui/fie
 import { fetchStaff } from "@/lib/brand-personnel-api";
 import { fetchDepartments, saveDepartment, deleteDepartment } from "@/lib/brand-payroll-api";
 import type { BrandDepartment, BrandStaff } from "@/types/brand-personnel";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computeDepartmentInsights } from "@/lib/marka-brand-insights";
+import { fmtBrandCount } from "@/lib/brand-monthly-stats";
 
 const emptyForm = { id: "", name: "", description: "", leadStaffId: "" };
 
@@ -71,6 +74,11 @@ export default function MarkaDepartmanlarPage() {
   const unassigned = useMemo(
     () => staff.filter((s) => !s.departmentId).length,
     [staff]
+  );
+
+  const deptInsights = useMemo(
+    () => computeDepartmentInsights(departments, staff, memberCount),
+    [departments, staff, memberCount]
   );
 
   const staffName = (id?: string) => (id ? staff.find((s) => s.id === id)?.name : undefined);
@@ -150,6 +158,39 @@ export default function MarkaDepartmanlarPage() {
         {error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
         )}
+
+        <MarkaStatGrid
+          columns={4}
+          items={[
+            {
+              label: "Departman",
+              value: fmtBrandCount(deptInsights.departmentCount),
+              icon: <Building2 size={18} />,
+              tone: "primary",
+            },
+            {
+              label: "Personel",
+              value: fmtBrandCount(deptInsights.totalStaff),
+              href: "/marka/personel",
+              icon: <Users size={18} />,
+              tone: "blue",
+            },
+            {
+              label: "Atanma",
+              value: `%${deptInsights.assignedPct}`,
+              sub: "departmana bağlı",
+              icon: <UserCog size={18} />,
+              tone: "green",
+            },
+            {
+              label: "Atanmamış",
+              value: fmtBrandCount(deptInsights.unassigned),
+              href: "/marka/personel",
+              icon: <Users size={18} />,
+              tone: deptInsights.unassigned > 0 ? "amber" : "zinc",
+            },
+          ]}
+        />
 
         {loading && departments.length === 0 ? (
           <Card>

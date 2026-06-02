@@ -119,6 +119,7 @@ export async function GET(
       externalRef: detected.externalRef,
       previousViews: link.last_views != null ? Number(link.last_views) : null,
       checkCount: link.check_count != null ? Number(link.check_count) : 0,
+      publishedAt: details.publishedAt,
     });
 
     return NextResponse.json({

@@ -7,8 +7,15 @@ import {
   Search,
   SlidersHorizontal,
   Users,
+  Eye,
+  Globe2,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { useStore } from "@/store/store";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { MarkaPoolCard } from "@/components/marka/marka-pool-card";
+import { fmtBrandCount } from "@/lib/brand-monthly-stats";
+import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { BrandLogo } from "@/components/brand-logo";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +30,6 @@ import {
 import { cn } from "@/lib/utils";
 import { fetchStreamerPool, isPoolNotReadyError } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
-import { StreamerPoolCard } from "@/components/streamer-pool/streamer-pool-card";
 import { OfferFormModal } from "@/components/streamer-pool/offer-form-modal";
 import type { StreamerPoolProfile } from "@/store/store";
 import type { StreamerPoolFilters } from "@/types/streamer-pool";
@@ -33,7 +39,14 @@ const COUNTRIES = ["TR", "DE", "AZ", "RU", "NL", "UK", "US"] as const;
 
 export default function MarkaHavuzPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand } = portal;
+  const { user, brandId, brand, canViewBrand, month } = portal;
+  const {
+    weekBrandReels,
+    brandPosts,
+    brandLinks,
+    brandDeals,
+    brandOffers,
+  } = useStore();
 
   const [profiles, setProfiles] = useState<StreamerPoolProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +110,26 @@ export default function MarkaHavuzPage() {
     );
   }, [filters]);
 
+  const poolSummary = useMemo(() => {
+    const followers = profiles.reduce((s, p) => s + (p.followersTotal ?? 0), 0);
+    const avgViews = profiles.length
+      ? profiles.reduce((s, p) => s + (p.avgViews ?? 0), 0) / profiles.length
+      : 0;
+    const cats = new Set(profiles.flatMap((p) => p.categories));
+    return { count: profiles.length, followers, avgViews, categories: cats.size };
+  }, [profiles]);
+
+  const storeSlice = useMemo(
+    () => ({
+      weekBrandReels,
+      brandPosts,
+      brandLinks,
+      brandDeals,
+      brandOffers,
+    }),
+    [weekBrandReels, brandPosts, brandLinks, brandDeals, brandOffers]
+  );
+
   return (
     <MarkaPageGuard
       user={user}
@@ -150,6 +183,40 @@ export default function MarkaHavuzPage() {
           </Card>
 
           {notReady && <PoolServerBanner />}
+
+          <MarkaStatGrid
+            columns={4}
+            items={[
+              {
+                label: "Yayıncı profili",
+                value: fmtBrandCount(poolSummary.count),
+                sub: "yayında",
+                icon: <Users size={18} />,
+                tone: "primary",
+              },
+              {
+                label: "Toplam takipçi",
+                value: fmtCompactViews(poolSummary.followers),
+                sub: "havuz toplamı",
+                icon: <Users size={18} />,
+                tone: "blue",
+              },
+              {
+                label: "Ort. izlenme",
+                value: fmtCompactViews(Math.round(poolSummary.avgViews)),
+                sub: "profil başı",
+                icon: <Eye size={18} />,
+                tone: "violet",
+              },
+              {
+                label: "Kategori",
+                value: fmtBrandCount(poolSummary.categories),
+                sub: "farklı etiket",
+                icon: <Globe2 size={18} />,
+                tone: "amber",
+              },
+            ]}
+          />
 
           {/* Filtre çubuğu */}
           <Card>
@@ -306,9 +373,12 @@ export default function MarkaHavuzPage() {
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               {profiles.map((p) => (
-                <StreamerPoolCard
+                <MarkaPoolCard
                   key={p.id}
                   profile={p}
+                  brandId={brandId}
+                  monthYm={month}
+                  storeSlice={storeSlice}
                   onOfferClick={(profile) => setSelectedProfile(profile)}
                 />
               ))}

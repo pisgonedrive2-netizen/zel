@@ -1,12 +1,15 @@
 import { getRapidApiKey } from "@/lib/env";
 import { SOCIAL_PLANS, type SocialPlatform } from "./config";
 import type { DetectedPlatform } from "./platform-detect";
+import { pickPublishedAtIso } from "./published-at";
 
 export interface FetchedMetrics {
   views: number | null;
   likes: number | null;
   comments: number | null;
   shares: number | null;
+  /** İçerik yayın tarihi (ISO) — achievement takvimi için. */
+  publishedAt?: string;
   raw?: unknown;
 }
 
@@ -283,7 +286,8 @@ async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics>
     ["comments", "commentCount"],
     []
   );
-  return { ...metrics, shares: null, raw };
+  const publishedAt = pickPublishedAtIso(raw) ?? pickPublishedAtIso(stats);
+  return { ...metrics, shares: null, publishedAt, raw };
 }
 
 // ───────────────────────── Instagram ────────────────────────────────────────
@@ -353,7 +357,8 @@ async function fetchInstagram(detected: DetectedPlatform): Promise<FetchedMetric
     "comments",
     "commentCount",
   ], ["share_count", "shares", "shareCount", "repost_count"]);
-  return { ...metrics, raw };
+  const publishedAt = pickPublishedAtIso(data) ?? pickPublishedAtIso(raw);
+  return { ...metrics, publishedAt, raw };
 }
 
 // ───────────────────────── TikTok ───────────────────────────────────────────
@@ -434,7 +439,8 @@ async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> 
     "commentCount",
     "comments",
   ], ["share_count", "shareCount", "shares", "repost_count"]);
-  return { ...metrics, raw };
+  const publishedAt = pickPublishedAtIso(item ?? data) ?? pickPublishedAtIso(raw);
+  return { ...metrics, publishedAt, raw };
 }
 
 /** Tek giriş noktası — platforma göre uygun fetcher'a dispatch eder. */

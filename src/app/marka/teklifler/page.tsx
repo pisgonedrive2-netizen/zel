@@ -7,15 +7,21 @@ import {
   Loader2,
   MessageSquare,
   RefreshCcw,
+  Handshake,
+  Clock,
+  CheckCircle2,
+  DollarSign,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
+import { computeOfferStats } from "@/lib/marka-brand-insights";
+import { fmtBrandCount, fmtBrandMoney } from "@/lib/brand-monthly-stats";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { fmtBrandMoney } from "@/lib/brand-monthly-stats";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { fetchOffers, isPoolNotReadyError } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
@@ -44,7 +50,7 @@ const TABS: Array<{ id: StatusTab; label: string }> = [
 
 export default function MarkaTekliflerPage() {
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand } = portal;
+  const { user, brandId, brand, canViewBrand, month } = portal;
   const employees = useStore((s) => s.employees);
 
   const [offers, setOffers] = useState<BrandOffer[]>([]);
@@ -77,12 +83,17 @@ export default function MarkaTekliflerPage() {
     void load();
   }, [load]);
 
+  const brandOffersFiltered = useMemo(
+    () => (brandId ? offers.filter((o) => o.brandId === brandId) : offers),
+    [offers, brandId]
+  );
+
   const filteredOffers = useMemo(() => {
     const allowed = new Set(TAB_STATUSES[tab]);
-    return offers
+    return brandOffersFiltered
       .filter((o) => allowed.has(o.status))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [offers, tab]);
+  }, [brandOffersFiltered, tab]);
 
   const employeeLabel = useCallback(
     (employeeId: string): string => {
@@ -97,6 +108,11 @@ export default function MarkaTekliflerPage() {
     [offers, selectedId]
   );
 
+  const offerStats = useMemo(
+    () => (brandId ? computeOfferStats(offers, brandId, month) : null),
+    [offers, brandId, month]
+  );
+
   return (
     <MarkaPageGuard
       user={user}
@@ -106,6 +122,41 @@ export default function MarkaTekliflerPage() {
     >
       {brand && brandId && (
         <div className="mx-auto max-w-[1280px] space-y-5 pb-10">
+          {offerStats && (
+            <MarkaStatGrid
+              columns={4}
+              items={[
+                {
+                  label: "Bekleyen",
+                  value: fmtBrandCount(offerStats.pending),
+                  sub: "yeni teklif",
+                  icon: <Clock size={18} />,
+                  tone: "amber",
+                },
+                {
+                  label: "Müzakere",
+                  value: fmtBrandCount(offerStats.negotiating),
+                  sub: fmtBrandMoney(offerStats.activeBudgetUsd, "USD") + " bütçe",
+                  icon: <MessageSquare size={18} />,
+                  tone: "blue",
+                },
+                {
+                  label: "Kabul (ay)",
+                  value: fmtBrandCount(offerStats.acceptedThisMonth),
+                  sub: `${offerStats.accepted} toplam`,
+                  icon: <CheckCircle2 size={18} />,
+                  tone: "green",
+                },
+                {
+                  label: "Red",
+                  value: fmtBrandCount(offerStats.rejected),
+                  icon: <Handshake size={18} />,
+                  tone: "zinc",
+                },
+              ]}
+            />
+          )}
+
           <Card>
             <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>

@@ -18,7 +18,12 @@ import {
   todayDateLocal,
   weekStartFromDateIso,
 } from "@/lib/data";
-import type { Brand, WeekBrandReel } from "@/store/store";
+import {
+  activityDateFromRecord,
+  postBelongsToEmployee,
+  reelBelongsToEmployee,
+} from "@/lib/streamer-activity-dates";
+import type { Brand, BrandDeal, BrandLink, BrandPost, WeekBrandReel } from "@/store/store";
 
 const PLATFORMS = ["Instagram", "TikTok", "YouTube", "Kick", "Twitter / X", "Telegram", "Diğer"];
 const MONTHS_SHORT = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
@@ -69,12 +74,6 @@ function detectContentType(url: string): string {
   return "reels";
 }
 
-/** ISO (tarih veya tarih+saat) → YYYY-MM-DD. */
-function dateOnly(iso: string | undefined | null): string {
-  if (!iso) return "";
-  const s = String(iso).slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
-}
 
 /** today'den geriye N günün ISO listesi (eski → yeni). */
 function lastNDays(n: number): string[] {
@@ -102,6 +101,10 @@ interface Props {
   brands: Brand[];
   /** Bu yayıncıya ait tüm hafta reel/içerik kayıtları (filtrelenmemiş olabilir). */
   reels: WeekBrandReel[];
+  /** Havuz postları — achievement ile aynı gün/link görünümü için. */
+  brandPosts?: BrandPost[];
+  brandDeals?: BrandDeal[];
+  brandLinks?: BrandLink[];
   onAdd: (r: Omit<WeekBrandReel, "id" | "createdAt">) => void;
   onUpdate?: (id: string, patch: Partial<WeekBrandReel>) => void;
   onDelete: (id: string) => void;
@@ -120,6 +123,9 @@ export function DailyContentCheckin({
   employeeId,
   brands,
   reels,
+  brandPosts = [],
+  brandDeals = [],
+  brandLinks = [],
   onAdd,
   onUpdate,
   onDelete,
@@ -130,18 +136,64 @@ export function DailyContentCheckin({
   const dayList = useMemo(() => lastNDays(days), [days]);
 
   // gün → bu yayıncının o günkü içerikleri
+  const dealEmployees = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of brandDeals) {
+      if (d.employeeId) m.set(d.id, d.employeeId);
+    }
+    return m;
+  }, [brandDeals]);
+
+  const linkOwners = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of brandLinks) {
+      if (l.ownerId) m.set(l.id, l.ownerId);
+    }
+    return m;
+  }, [brandLinks]);
+
   const byDay = useMemo(() => {
     const map = new Map<string, WeekBrandReel[]>();
+    const postByDay = new Map<string, BrandPost[]>();
+    for (const p of brandPosts) {
+      if (!postBelongsToEmployee(p, employeeId, dealEmployees)) continue;
+      const d = activityDateFromRecord(p.postedAt, p.createdAt);
+      if (!d) continue;
+      const arr = postByDay.get(d) ?? [];
+      arr.push(p);
+      postByDay.set(d, arr);
+    }
     for (const r of reels) {
-      if (r.employeeId !== employeeId) continue;
-      const d = dateOnly(r.publishedAt ?? r.createdAt ?? r.weekStart);
+      if (!reelBelongsToEmployee(r, employeeId, linkOwners)) continue;
+      const d = activityDateFromRecord(r.publishedAt, r.createdAt);
       if (!d) continue;
       const arr = map.get(d) ?? [];
       arr.push(r);
       map.set(d, arr);
     }
+    for (const [d, posts] of postByDay) {
+      if (map.has(d)) continue;
+      map.set(
+        d,
+        posts.map(
+          (p) =>
+            ({
+              id: `post-${p.id}`,
+              employeeId,
+              weekStart: weekStartFromDateIso(d) || d,
+              brandId: p.brandId,
+              contentUrl: p.url,
+              platform: p.platform,
+              contentType: p.postType,
+              publishedAt: p.postedAt ?? p.createdAt,
+              notes: p.caption?.slice(0, 80) ?? "",
+              createdAt: p.createdAt,
+            }) as WeekBrandReel
+        )
+      );
+    }
     return map;
-  }, [reels, employeeId]);
+  }, [reels, brandPosts, employeeId, dealEmployees, linkOwners]);
 
   const doneCount = useMemo(
     () => dayList.filter((d) => (byDay.get(d)?.length ?? 0) > 0).length,
@@ -249,7 +301,7 @@ export function DailyContentCheckin({
 
   const startEdit = (r: WeekBrandReel) => {
     setEditingId(r.id);
-    setSelectedDay(dateOnly(r.publishedAt ?? r.createdAt) || selectedDay);
+    setSelectedDay(activityDateFromRecord(r.publishedAt, r.createdAt) || selectedDay);
     setUrl(r.contentUrl);
     setPlatform(r.platform);
     setContentType(r.contentType ?? "reels");

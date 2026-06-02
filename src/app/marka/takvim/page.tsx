@@ -51,6 +51,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Modal from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
+import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import {
+  buildBrandAggregatedActivity,
+  scopeBrandActivityData,
+} from "@/lib/brand-activity-dates";
+import { planDaysWithoutShare } from "@/lib/marka-content-alerts";
+import { AlertTriangle } from "lucide-react";
 
 const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
   planned:
@@ -88,7 +95,16 @@ function empColor(id: string) {
 export default function MarkaTakvimPage() {
   const portal = useMarkaPortal();
   const { user, brandId, brand, month, canViewBrand, navMonth, monthTitle } = portal;
-  const { employees, scheduleSlots, weeklyPlans, streamerAccounts, brandLinks } = useStore();
+  const {
+    employees,
+    scheduleSlots,
+    weeklyPlans,
+    streamerAccounts,
+    brandLinks,
+    weekBrandReels,
+    brandPosts,
+    brandDeals,
+  } = useStore();
 
   const thisWeek = weekStartOf(todayDateLocal());
   const [weekView, setWeekView] = useState(thisWeek);
@@ -143,6 +159,32 @@ export default function MarkaTakvimPage() {
 
   const empById = useMemo(() => new Map(yayincilar.map((e) => [e.id, e])), [yayincilar]);
 
+  const partnerIds = useMemo(() => yayincilar.map((e) => e.id), [yayincilar]);
+
+  const weekSharingDays = useMemo(() => {
+    if (!brandId) return new Set<string>();
+    const scope = scopeBrandActivityData(brandId, {
+      weekBrandReels,
+      brandPosts,
+      brandLinks,
+      brandDeals,
+    });
+    const { byDate } = buildBrandAggregatedActivity(scope, partnerIds);
+    const days = new Set<string>();
+    for (const iso of weekDays) {
+      if (byDate.has(iso)) days.add(iso);
+    }
+    return days;
+  }, [
+    brandId,
+    weekBrandReels,
+    brandPosts,
+    brandLinks,
+    brandDeals,
+    partnerIds,
+    weekDays,
+  ]);
+
   const accountLabel = (accountId?: string) => {
     if (!accountId) return "";
     const a = streamerAccounts.find((x) => x.id === accountId);
@@ -153,6 +195,29 @@ export default function MarkaTakvimPage() {
   const izlenmeHref = markaHref("/marka/izlenmeler", month);
 
   const navWeek = (dir: -1 | 1) => setWeekView((w) => shiftWeekStartIso(w, dir));
+
+  const planGaps = useMemo(() => {
+    if (!brandId) return [];
+    const names = new Map(yayincilar.map((e) => [e.id, e.name]));
+    return planDaysWithoutShare(
+      brandId,
+      weekDays,
+      weekPlans,
+      partnerIds,
+      { weekBrandReels, brandPosts, brandLinks, brandDeals },
+      names
+    );
+  }, [
+    brandId,
+    weekDays,
+    weekPlans,
+    partnerIds,
+    weekBrandReels,
+    brandPosts,
+    brandLinks,
+    brandDeals,
+    yayincilar,
+  ]);
 
   return (
     <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
@@ -277,9 +342,17 @@ export default function MarkaTakvimPage() {
                             : "border-border"
                         )}
                       >
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5">
-                          {WEEKDAYS_LONG[i].slice(0, 3)}{" "}
-                          <span className="text-foreground/70">{iso.slice(8, 10)}</span>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5 flex items-center justify-between gap-1">
+                          <span>
+                            {WEEKDAYS_LONG[i].slice(0, 3)}{" "}
+                            <span className="text-foreground/70">{iso.slice(8, 10)}</span>
+                          </span>
+                          {weekSharingDays.has(iso) && (
+                            <span
+                              className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
+                              title="Bu gün içerik paylaşımı var"
+                            />
+                          )}
                         </p>
                         {dayPlans.length === 0 ? (
                           <span className="text-[10px] text-muted-foreground/40">—</span>
@@ -327,6 +400,35 @@ export default function MarkaTakvimPage() {
               )}
             </CardContent>
           </Card>
+
+          {planGaps.length > 0 && (
+            <div className="rounded-lg border border-amber-300/70 bg-amber-50/80 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-100">
+              <p className="font-semibold flex items-center gap-1.5 mb-1">
+                <AlertTriangle size={14} />
+                Planlandı ama paylaşım yok ({planGaps.length})
+              </p>
+              <ul className="space-y-0.5 text-[11px] max-h-24 overflow-y-auto">
+                {planGaps.slice(0, 8).map((g, i) => (
+                  <li key={`${g.date}-${g.employeeId}-${i}`}>
+                    {g.date} · {g.employeeName ?? "Yayıncı"} — {g.planCount} plan
+                  </li>
+                ))}
+                {planGaps.length > 8 && (
+                  <li className="text-muted-foreground">+{planGaps.length - 8} gün daha</li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {brandId && (
+            <MarkaAchievementPanel
+              brandId={brandId}
+              brandName={brand.name}
+              monthYm={month}
+              employeeIdsFilter={partnerIds}
+              defaultOpen
+            />
+          )}
 
           {/* Ay özeti listesi */}
           {plansInMonth.length > 0 && (

@@ -40,6 +40,8 @@ import { CsvImportModal } from "@/components/affiliate/csv-import-modal";
 import { DailyStatModal } from "@/components/affiliate/daily-stat-modal";
 import { PayoutModal } from "@/components/affiliate/payout-modal";
 import { PartnerDetailModal } from "@/components/affiliate/partner-detail-modal";
+import { AffiliateDailyTrend } from "@/components/marka/affiliate-daily-trend";
+import { computeAffiliateMonthInsights } from "@/lib/marka-brand-insights";
 import {
   commissionLabel,
   payoutStatusBadgeClass,
@@ -162,6 +164,14 @@ export default function MarkaAffiliatePage() {
       cancelled = true;
     };
   }, [brandId, month]);
+
+  const affiliateInsights = useMemo(
+    () =>
+      brandId
+        ? computeAffiliateMonthInsights(partners, statsForMonth, payouts, brandId, month)
+        : null,
+    [partners, statsForMonth, payouts, brandId, month]
+  );
 
   const totals = useMemo(() => {
     return statsForMonth.reduce(
@@ -380,6 +390,27 @@ export default function MarkaAffiliatePage() {
               </div>
             </CardContent>
           </Card>
+
+          {affiliateInsights && affiliateInsights.dailyFtd.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp size={16} className="text-emerald-600" />
+                  Günlük FTD trendi
+                </CardTitle>
+                <CardDescription>
+                  {monthTitle} — partner günlük istatistiklerinden
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AffiliateDailyTrend dailyFtd={affiliateInsights.dailyFtd} />
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  {affiliateInsights.activePartners} aktif partner ·{" "}
+                  {affiliateInsights.pendingPayouts} bekleyen ödeme
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Partner listesi */}
           <Card>

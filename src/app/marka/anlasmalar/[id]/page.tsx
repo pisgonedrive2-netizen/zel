@@ -50,6 +50,7 @@ import {
 } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { PostFormModal } from "@/components/streamer-pool/post-form-modal";
+import { MarkaDealAchievementPanel } from "@/components/marka/marka-deal-achievement-panel";
 import {
   BRAND_DEAL_STATUS_BADGE_CLS,
   BRAND_DEAL_STATUS_LABELS,
@@ -61,6 +62,7 @@ import {
   type BrandDealStatus,
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
+import { deliverableGaps } from "@/lib/marka-content-alerts";
 
 /** `GET /api/marka/anlasmalar/[id]/posts` yanıtındaki deliverable ilerleme satırı. */
 type DeliverableProgress = {
@@ -96,7 +98,7 @@ async function fetchDealDeliverableMatch(
 export default function MarkaAnlasmaDetayPage() {
   const dealId = String(useParams<{ id: string }>().id ?? "");
   const portal = useMarkaPortal();
-  const { user, brandId, brand, canViewBrand, isAdminView } = portal;
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = portal;
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const employees = useStore((s) => s.employees);
 
@@ -239,6 +241,13 @@ export default function MarkaAnlasmaDetayPage() {
                 postCount={posts.length}
                 match={deliverableMatch}
                 resolveEmployeeName={resolveEmployeeName}
+              />
+
+              <MarkaDealAchievementPanel
+                deal={deal}
+                posts={posts}
+                monthYm={month}
+                brandName={brand.name}
               />
 
               <Card>
@@ -478,6 +487,16 @@ function DeliverableChecklist({
       posts: [],
     }));
   const hasMatch = match != null;
+  const gaps = deliverableGaps(
+    deal,
+    rows.map((r) => ({
+      type: r.type,
+      platform: r.platform,
+      target: r.target,
+      matched: r.matched,
+    }))
+  );
+  const missingTotal = gaps.reduce((s, g) => s + g.missing, 0);
 
   return (
     <Card>
@@ -493,6 +512,29 @@ function DeliverableChecklist({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {gaps.length > 0 && (
+          <div
+            className={cn(
+              "rounded-lg border px-3 py-2 text-xs",
+              gaps.some((g) => g.overdue)
+                ? "border-red-300/70 bg-red-50/80 text-red-900 dark:bg-red-950/30 dark:text-red-100"
+                : "border-amber-300/70 bg-amber-50/80 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+            )}
+          >
+            <p className="font-semibold">
+              {gaps.some((g) => g.overdue) ? "Gecikmiş teslimat" : "Eksik teslimat"} — {missingTotal}{" "}
+              adet kaldı
+            </p>
+            <ul className="mt-1 space-y-0.5 text-[11px]">
+              {gaps.map((g, idx) => (
+                <li key={idx}>
+                  {BRAND_POST_TYPE_LABELS[g.type as keyof typeof BRAND_POST_TYPE_LABELS] ?? g.type}
+                  {g.platform ? ` (${g.platform})` : ""}: {g.matched}/{g.target}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {rows.map((d, i) => {
           const target = d.target;
           const matched = d.matched;

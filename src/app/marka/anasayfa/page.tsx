@@ -36,6 +36,12 @@ import {
 import { totalLinkViewsForMonth, fmtCompactViews } from "@/lib/brand-month-metrics";
 import { filterWeeklyPlansForBrand } from "@/lib/weekly-plan-brand-match";
 import { toYearMonthLocal, todayDateLocal } from "@/lib/data";
+import {
+  buildBrandAggregatedActivity,
+  countActivityDaysInMonth,
+  scopeBrandActivityData,
+} from "@/lib/brand-activity-dates";
+import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
 
 function monthDayLabel(iso: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -72,6 +78,8 @@ export default function MarkaAnasayfaPage() {
     affiliatePartners,
     affiliateDailyStats,
     brandOffers,
+    brandPosts,
+    brandDeals,
   } = useStore();
 
   const todayYm = toYearMonthLocal();
@@ -135,6 +143,18 @@ export default function MarkaAnasayfaPage() {
       (r) => r.brandId === brandId && r.weekStart === currentWeek
     );
   }, [weekBrandReels, brandId, currentWeek]);
+
+  const sharingDaysThisMonth = useMemo(() => {
+    if (!brandId) return 0;
+    const scope = scopeBrandActivityData(brandId, {
+      weekBrandReels,
+      brandPosts,
+      brandLinks,
+      brandDeals,
+    });
+    const { byDate } = buildBrandAggregatedActivity(scope);
+    return countActivityDaysInMonth(byDate, month);
+  }, [brandId, weekBrandReels, brandPosts, brandLinks, brandDeals, month]);
 
   const brandPayments = useMemo(() => {
     const projectIds = new Set(brandProjects.map((p) => p.id));
@@ -227,6 +247,12 @@ export default function MarkaAnasayfaPage() {
       { label: "Marka profilini tamamla", description: "Kategori ve aylık hedef belirle", href: "/marka/profil", done: hasProfile },
       { label: "Aylık KPI gir", description: "Kayıt, FTD, yatırım — bu ay", href: markaHref("/marka/operasyon", month), done: hasKpi },
       { label: "İzlenme linklerini ekle", description: "Sosyal/yayın platform linkleri", href: markaHref("/marka/izlenmeler", month), done: hasLinks },
+      {
+        label: "Paylaşım takvimini senkronla",
+        description: "Marka linklerinden achievement doldur",
+        href: markaHref("/marka/izlenmeler", month),
+        done: sharingDaysThisMonth > 0,
+      },
       { label: "Yayıncı havuzundan teklif gönder", description: "Doğru yayıncıyı bul ve teklif et", href: "/marka/havuz", done: hasOffers },
       { label: "Affiliate partner ekle", description: "Partner performansını takip et", href: markaHref("/marka/affiliate", month), done: hasAffiliate },
     ];
@@ -247,7 +273,17 @@ export default function MarkaAnasayfaPage() {
     }
 
     return steps;
-  }, [brand, statsRow, linksForBrand, brandId, brandOffers, brandAffiliatePartners, month, orgRole]);
+  }, [
+    brand,
+    statsRow,
+    linksForBrand,
+    brandId,
+    brandOffers,
+    brandAffiliatePartners,
+    month,
+    orgRole,
+    sharingDaysThisMonth,
+  ]);
 
   const gettingStartedDone = gettingStartedSteps
     .filter((s) => !s.optional)
@@ -288,6 +324,20 @@ export default function MarkaAnasayfaPage() {
             ftd={statsRow?.firstTimeDepositors ?? 0}
             currency={currency}
             kpiHref={operasyonHref}
+          />
+
+          <MarkaContentOverviewCard
+            brandId={brandId}
+            brandName={brand.name}
+            monthYm={month}
+            monthTitle={monthTitle}
+            storeSlice={{
+              weekBrandReels,
+              brandPosts,
+              brandLinks,
+              brandDeals,
+            }}
+            compact
           />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
@@ -347,13 +397,13 @@ export default function MarkaAnasayfaPage() {
                       value: fmtBrandCount(reelsThisWeek.length),
                     },
                     {
-                      label: "İzlenme",
-                      value: fmtCompactViews(totalLinkViews),
+                      label: "Paylaşım günü",
+                      value: fmtBrandCount(sharingDaysThisMonth),
                       sub: monthTitle.split(" ")[0],
                     },
                   ]}
-                  href={takvimHref}
-                  linkLabel="Takvim"
+                  href={markaHref("/marka/izlenmeler", month)}
+                  linkLabel="İzlenme"
                 />
 
                 <BrandKpiCard

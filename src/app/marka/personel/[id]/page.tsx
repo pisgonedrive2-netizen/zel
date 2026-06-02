@@ -7,6 +7,8 @@ import {
   CalendarDays, Activity, Trash2, Pencil, Timer, AlertTriangle, User as UserIcon,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import Link from "next/link";
+import { markaHref } from "@/lib/use-marka-view-month";
 import { clientIsReadOnly } from "@/lib/org-capability";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
@@ -59,7 +61,7 @@ const money = (cur: keyof typeof STAFF_CURRENCY_SYMBOL, amt?: number) =>
 export default function MarkaPersonelDetayPage() {
   const id = String(useParams<{ id: string }>().id ?? "");
   const router = useRouter();
-  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
   const [detail, setDetail] = useState<StaffDetail | null>(null);
@@ -257,6 +259,25 @@ export default function MarkaPersonelDetayPage() {
                     )}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="flex flex-wrap gap-3 py-3 text-xs">
+                <Link href={markaHref("/marka/bordro", month)} className="text-primary underline">
+                  Bordro ({month})
+                </Link>
+                <Link href="/marka/takip" className="text-primary underline">
+                  Görev & vardiya takibi
+                </Link>
+                <Link href="/marka/departmanlar" className="text-primary underline">
+                  Departmanlar
+                </Link>
+                {detail.staff.departmentId && (
+                  <span className="text-muted-foreground">
+                    Departman: {departments.find((d) => d.id === detail.staff.departmentId)?.name ?? "—"}
+                  </span>
+                )}
               </CardContent>
             </Card>
 

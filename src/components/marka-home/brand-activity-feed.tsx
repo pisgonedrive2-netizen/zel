@@ -13,6 +13,8 @@ const TYPE_LABEL: Partial<Record<AppNotification["type"], string>> = {
   general: "Duyuru",
   payroll_reminder: "Hatırlatma",
   api_refresh_alert: "İzlenme",
+  content_published: "İçerik",
+  deliverable_late: "Teslimat",
 };
 
 const TYPE_ACCENT: Partial<Record<AppNotification["type"], string>> = {

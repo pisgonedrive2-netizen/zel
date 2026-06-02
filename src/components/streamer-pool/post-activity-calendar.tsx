@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarCheck, ChevronLeft, ChevronRight, Flame, Trophy } from "lucide-react";
+import {
+  CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Flame,
+  Link2,
+  Trophy,
+} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { isoToLocalDateOnly, todayDateLocal } from "@/lib/data";
+import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
 
 const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const MONTH_NAMES = [
@@ -13,6 +22,14 @@ const MONTH_NAMES = [
 
 function dateOnly(iso: string | undefined | null): string {
   return isoToLocalDateOnly(iso);
+}
+
+function nextDay(date: string): string {
+  const [y, m, dd] = date.split("-").map(Number);
+  const dt = new Date(y, m - 1, dd + 1, 12, 0, 0);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(
+    dt.getDate()
+  ).padStart(2, "0")}`;
 }
 
 function ymOf(date: string): string {
@@ -37,10 +54,14 @@ function prevDay(date: string): string {
 interface ActivityCalendarProps {
   /** Paylaşım tarihleri (ISO). Aynı gün birden fazla olabilir — sayım yapılır. */
   activityDates: string[];
+  /** Gün → paylaşım linkleri (achievement detayı). */
+  byDate?: Map<string, ActivityDayItem[]>;
   title?: string;
   description?: string;
   /** İlk açılışta gösterilecek ay (YYYY-MM). */
   initialMonthYm?: string;
+  /** CollapsibleSection içinde — dış Card/başlık yok. */
+  embedded?: boolean;
 }
 
 /**
@@ -51,9 +72,11 @@ interface ActivityCalendarProps {
  */
 export function PostActivityCalendar({
   activityDates,
+  byDate,
   title = "Paylaşım takvimi",
-  description = "Hangi gün içerik paylaştığınızın achievement takibi",
+  description = "Hangi gün içerik paylaştığınızın achievement takibi — güne tıklayınca linkler",
   initialMonthYm,
+  embedded = false,
 }: ActivityCalendarProps) {
   const today = todayDateLocal();
   const defaultMonth =
@@ -61,6 +84,7 @@ export function PostActivityCalendar({
       ? initialMonthYm
       : ymOf(today);
   const [month, setMonth] = useState<string>(defaultMonth);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialMonthYm && /^\d{4}-\d{2}$/.test(initialMonthYm)) {
@@ -91,15 +115,8 @@ export function PostActivityCalendar({
       let cursor = d;
       // İleriye git
       // (basit: bir sonraki günü hesapla)
-      const next = (date: string) => {
-        const [y, m, dd] = date.split("-").map(Number);
-        const dt = new Date(y, m - 1, dd + 1, 12, 0, 0);
-        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(
-          dt.getDate()
-        ).padStart(2, "0")}`;
-      };
-      while (set.has(next(cursor))) {
-        cursor = next(cursor);
+      while (set.has(nextDay(cursor))) {
+        cursor = nextDay(cursor);
         len++;
       }
       if (len > longest) longest = len;
@@ -143,43 +160,49 @@ export function PostActivityCalendar({
     [grid, counts]
   );
 
+  const selectedItems = selectedDay ? byDate?.get(selectedDay) ?? [] : [];
+
+  useEffect(() => {
+    if (!selectedDay) return;
+    if (!selectedDay.startsWith(month)) setSelectedDay(null);
+  }, [month, selectedDay]);
+
   const [my, mm] = month.split("-").map(Number);
   const monthLabel = `${MONTH_NAMES[mm - 1]} ${my}`;
 
-  return (
-    <Card>
-      <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarCheck size={16} className="text-[#FF6B00]" />
-            {title}
-          </CardTitle>
-          <CardDescription>{description}</CardDescription>
+  const monthNav = (
+    <div className="flex items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={() => setMonth((m) => shiftMonth(m, -1))}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        aria-label="Önceki ay"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <span className="min-w-[120px] text-center text-sm font-semibold text-foreground">
+        {monthLabel}
+      </span>
+      <button
+        type="button"
+        onClick={() => setMonth((m) => shiftMonth(m, 1))}
+        disabled={month >= ymOf(today)}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
+        aria-label="Sonraki ay"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  );
+
+  const body = (
+    <div className="space-y-4">
+      {embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-border/50">
+          <p className="text-xs text-muted-foreground">Ay seçin · güne tıklayınca linkler</p>
+          {monthNav}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setMonth((m) => shiftMonth(m, -1))}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            aria-label="Önceki ay"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <span className="min-w-[120px] text-center text-sm font-semibold text-foreground">
-            {monthLabel}
-          </span>
-          <button
-            type="button"
-            onClick={() => setMonth((m) => shiftMonth(m, 1))}
-            disabled={month >= ymOf(today)}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
-            aria-label="Sonraki ay"
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      )}
         {/* İstatistik rozetleri */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <StatPill
@@ -226,11 +249,14 @@ export function PostActivityCalendar({
             const isToday = cell.date === today;
             const isFuture = cell.date > today;
             return (
-              <div
+              <button
                 key={cell.date}
+                type="button"
+                disabled={isFuture}
+                onClick={() => setSelectedDay(posted ? cell.date : null)}
                 title={
                   posted
-                    ? `${cell.date} · ${count} paylaşım`
+                    ? `${cell.date} · ${count} paylaşım · linkleri göster`
                     : isFuture
                       ? cell.date
                       : `${cell.date} · paylaşım yok`
@@ -238,11 +264,12 @@ export function PostActivityCalendar({
                 className={[
                   "relative flex aspect-square flex-col items-center justify-center rounded-lg border text-[11px] font-medium transition",
                   posted
-                    ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                    ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
                     : isFuture
-                      ? "border-dashed border-border/50 bg-transparent text-muted-foreground/40"
-                      : "border-border/60 bg-muted/30 text-muted-foreground/70",
+                      ? "border-dashed border-border/50 bg-transparent text-muted-foreground/40 cursor-default"
+                      : "border-border/60 bg-muted/30 text-muted-foreground/70 cursor-default",
                   isToday ? "ring-2 ring-[#FF6B00]/70" : "",
+                  selectedDay === cell.date ? "ring-2 ring-primary" : "",
                 ].join(" ")}
               >
                 <span>{cell.day}</span>
@@ -255,10 +282,57 @@ export function PostActivityCalendar({
                     )}
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
+
+        {selectedDay && (
+          <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+            <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <Link2 size={13} />
+              {selectedDay}
+              {selectedItems.length > 0
+                ? ` · ${selectedItems.length} paylaşım`
+                : " · kayıt (tarih eşleşti)"}
+            </p>
+            {selectedItems.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                Bu gün için link listesi yok; check-in veya postlar sayfasından URL ekleyin.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {selectedItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-2.5 py-1.5"
+                  >
+                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                      {item.platform}
+                    </span>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 min-w-0 truncate font-mono text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      {item.url}
+                    </a>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      title="Aç"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* Açıklama / efsane */}
         <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
@@ -275,7 +349,24 @@ export function PostActivityCalendar({
             Bugün
           </span>
         </div>
-      </CardContent>
+    </div>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarCheck size={16} className="text-[#FF6B00]" />
+            {title}
+          </CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </div>
+        {monthNav}
+      </CardHeader>
+      <CardContent>{body}</CardContent>
     </Card>
   );
 }

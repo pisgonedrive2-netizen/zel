@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -59,6 +59,8 @@ import {
   type LinkSnapshot,
   type WeekBrandReel,
 } from "@/store/store";
+
+const LINKS_PAGE_SIZE = 15;
 
 const CONTENT_TYPE_LABEL: Record<string, string> = {
   reels: "Reels",
@@ -136,11 +138,14 @@ export function StreamerOperationsHub({
   employeeName,
   planWeek,
   planMonthYm,
+  embedded = false,
 }: {
   employeeId: string;
   employeeName: string;
   planWeek: string;
   planMonthYm: string;
+  /** Üst CollapsibleSection içinde — dış Card başlığı yok. */
+  embedded?: boolean;
 }) {
   const {
     brandLinks,
@@ -158,6 +163,12 @@ export function StreamerOperationsHub({
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
   const [expandedLinkId, setExpandedLinkId] = useState<string | null>(null);
+  const [linksVisibleCount, setLinksVisibleCount] = useState(LINKS_PAGE_SIZE);
+
+  useEffect(() => {
+    setLinksVisibleCount(LINKS_PAGE_SIZE);
+    setExpandedLinkId(null);
+  }, [employeeId, brandFilter, planMonthYm]);
 
   const relatedBrands = useMemo(() => {
     const ids = new Set<string>();
@@ -393,59 +404,48 @@ export function StreamerOperationsHub({
       ? "Tüm markalar"
       : brandLabel(brands, brandFilter);
 
-  return (
-    <Card
-      id="plan-yayinci-hub"
-      className="scroll-mt-28 border-[#FF6B00]/25 bg-gradient-to-br from-orange-50/40 to-card dark:from-orange-950/15"
-    >
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TrendingUp size={18} className="text-[#FF6B00]" />
-              {employeeName} · operasyon & performans
-            </CardTitle>
-            <CardDescription className="mt-1 max-w-2xl">
-              {weekRangeLabel(planWeek)} · {planMonthYm}
-              {brandFilter !== "all" && (
-                <span className="font-medium text-foreground"> · {filterLabel}</span>
-              )}
-              {" "}
-              — linkler, API metrikleri, içerik harcamaları ve paylaşımlar (salt okunur özet; veri silinmez).
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[140px]">
-              <p className="text-[10px] font-medium text-muted-foreground mb-1">Marka filtresi</p>
-              <Select
-                value={brandFilter}
-                onChange={(e) => setBrandFilter(e.target.value)}
-                options={[
-                  { value: "all", label: "Tüm markalar" },
-                  ...relatedBrands.map((b) => ({
-                    value: b.id,
-                    label: b.shortName || b.name,
-                  })),
-                ]}
-              />
-            </div>
-            <Link
-              href="/izlenme"
-              className="inline-flex h-9 items-center rounded-md border border-border bg-card px-2.5 text-[11px] font-medium hover:bg-accent"
-            >
-              İzlenme panosu
-            </Link>
-            <Link
-              href={expensesHref}
-              className="inline-flex h-9 items-center rounded-md border border-border bg-card px-2.5 text-[11px] font-medium hover:bg-accent"
-            >
-              İçerik harcamaları
-            </Link>
-          </div>
+  const toolbar = (
+    <div className="flex flex-wrap items-end justify-between gap-3 pb-1">
+      <p className="text-xs text-muted-foreground">
+        {weekRangeLabel(planWeek)} · {planMonthYm}
+        {brandFilter !== "all" && (
+          <span className="font-medium text-foreground"> · {filterLabel}</span>
+        )}
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[140px]">
+          <p className="text-[10px] font-medium text-muted-foreground mb-1">Marka filtresi</p>
+          <Select
+            value={brandFilter}
+            onChange={(e) => setBrandFilter(e.target.value)}
+            options={[
+              { value: "all", label: "Tüm markalar" },
+              ...relatedBrands.map((b) => ({
+                value: b.id,
+                label: b.shortName || b.name,
+              })),
+            ]}
+          />
         </div>
-      </CardHeader>
+        <Link
+          href="/izlenme"
+          className="inline-flex h-9 items-center rounded-md border border-border bg-card px-2.5 text-[11px] font-medium hover:bg-accent"
+        >
+          İzlenme panosu
+        </Link>
+        <Link
+          href={expensesHref}
+          className="inline-flex h-9 items-center rounded-md border border-border bg-card px-2.5 text-[11px] font-medium hover:bg-accent"
+        >
+          İçerik harcamaları
+        </Link>
+      </div>
+    </div>
+  );
 
-      <CardContent className="space-y-3 pt-0">
+  const inner = (
+    <div className="space-y-3">
+        {toolbar}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <KpiCard
             label={`${planMonthYm} izlenme`}
@@ -500,7 +500,8 @@ export function StreamerOperationsHub({
         <CollapsibleSection
           title="İçerik harcamaları özeti"
           description={`${planMonthYm} ayı — ${filterLabel}. Tutarlar iptal/red hariç; çoklu markada pay eşit bölünür.`}
-          defaultOpen
+          defaultOpen={false}
+          contentMaxHeight={420}
           trailing={
             <Badge variant="secondary" className="text-[10px]">
               {monthExpenses.length} kayıt
@@ -576,8 +577,8 @@ export function StreamerOperationsHub({
 
         <CollapsibleSection
           title="İzlenme linkleri & API"
-          description="Snapshot geçmişi, engagement ve izlenme sayfasındaki gibi API detay modalı (yalnızca modal açılınca kota kullanır)."
-          defaultOpen={myLinks.length <= 8}
+          description="Liste kısaltıldı — achievement’a hızlı ulaşmak için varsayılan kapalı. Satıra tıklayınca detay açılır."
+          defaultOpen={false}
           trailing={
             <Badge variant="outline" className="text-[10px]">
               {myLinks.length} link
@@ -590,7 +591,7 @@ export function StreamerOperationsHub({
             </p>
           ) : (
             <div className="space-y-2">
-              {myLinks.map((link) => (
+              {myLinks.slice(0, linksVisibleCount).map((link) => (
                 <LinkAccordionRow
                   key={link.id}
                   link={link}
@@ -605,6 +606,21 @@ export function StreamerOperationsHub({
                   onApiDetails={() => setDetailsLink(link)}
                 />
               ))}
+              {linksVisibleCount < myLinks.length && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-8 text-[11px]"
+                  onClick={() =>
+                    setLinksVisibleCount((n) =>
+                      Math.min(n + LINKS_PAGE_SIZE, myLinks.length)
+                    )
+                  }
+                >
+                  Daha fazla göster ({myLinks.length - linksVisibleCount} kaldı)
+                </Button>
+              )}
             </div>
           )}
         </CollapsibleSection>
@@ -691,14 +707,41 @@ export function StreamerOperationsHub({
             </div>
           </CollapsibleSection>
         )}
-      </CardContent>
+    </div>
+  );
+
+  return (
+    <>
+      {embedded ? (
+        inner
+      ) : (
+        <Card
+          id="plan-yayinci-hub"
+          className="scroll-mt-28 border-[#FF6B00]/25 bg-gradient-to-br from-orange-50/40 to-card dark:from-orange-950/15"
+        >
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp size={18} className="text-[#FF6B00]" />
+                  {employeeName} · operasyon & performans
+                </CardTitle>
+                <CardDescription className="mt-1 max-w-2xl">
+                  Linkler, API metrikleri, içerik harcamaları ve paylaşımlar (salt okunur özet).
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">{inner}</CardContent>
+        </Card>
+      )}
 
       <LinkDetailsModal
         link={detailsLink}
         open={detailsLink !== null}
         onClose={() => setDetailsLink(null)}
       />
-    </Card>
+    </>
   );
 }
 
