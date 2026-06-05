@@ -32,23 +32,34 @@ import {
   BRAND_DEAL_STATUS_BADGE_CLS,
   BRAND_DEAL_STATUS_LABELS,
   BRAND_DEAL_TYPE_LABELS,
-  type BrandDealStatus,
 } from "@/types/brand-deals";
 import type { BrandDeal } from "@/store/store";
+import { todayDateLocal } from "@/lib/data";
+import { Flag } from "lucide-react";
 
-type StatusTab = "active" | "completed" | "cancelled";
+type KanbanColumnId = "draft" | "active" | "review" | "completed" | "disputed" | "cancelled";
 
-const TAB_STATUSES: Record<StatusTab, BrandDealStatus[]> = {
-  active: ["active", "disputed"],
-  completed: ["completed"],
-  cancelled: ["cancelled"],
-};
-
-const TABS: Array<{ id: StatusTab; label: string }> = [
-  { id: "active", label: "Aktif" },
-  { id: "completed", label: "Tamamlanmış" },
-  { id: "cancelled", label: "İptal" },
+const KANBAN_COLUMNS: Array<{ id: KanbanColumnId; label: string; hint: string }> = [
+  { id: "draft", label: "Taslak", hint: "Henüz içerik yok" },
+  { id: "active", label: "Aktif", hint: "Devam eden kampanya" },
+  { id: "review", label: "İnceleme", hint: "Bitiş / teslimat kontrolü" },
+  { id: "completed", label: "Tamamlandı", hint: "Kapanmış anlaşma" },
+  { id: "disputed", label: "İhtilaflı", hint: "Uyuşmazlık" },
+  { id: "cancelled", label: "İptal", hint: "İptal edildi" },
 ];
+
+function kanbanColumn(deal: BrandDeal): KanbanColumnId {
+  if (deal.status === "completed") return "completed";
+  if (deal.status === "cancelled") return "cancelled";
+  if (deal.status === "disputed") return "disputed";
+  const today = todayDateLocal();
+  if (deal.status === "active") {
+    if (deal.postsCount === 0 && deal.paidUsd === 0) return "draft";
+    if (deal.endDate && deal.endDate <= today) return "review";
+    return "active";
+  }
+  return "active";
+}
 
 export default function MarkaAnlasmalarPage() {
   const portal = useMarkaPortal();
@@ -59,7 +70,6 @@ export default function MarkaAnlasmalarPage() {
   const [loading, setLoading] = useState(true);
   const [notReady, setNotReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<StatusTab>("active");
 
   const load = useCallback(async () => {
     if (!brandId) return;
@@ -85,12 +95,23 @@ export default function MarkaAnlasmalarPage() {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const allowed = new Set(TAB_STATUSES[tab]);
-    return deals
-      .filter((d) => allowed.has(d.status))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [deals, tab]);
+  const dealsByColumn = useMemo(() => {
+    const map: Record<KanbanColumnId, BrandDeal[]> = {
+      draft: [],
+      active: [],
+      review: [],
+      completed: [],
+      disputed: [],
+      cancelled: [],
+    };
+    for (const d of deals) {
+      map[kanbanColumn(d)].push(d);
+    }
+    for (const col of Object.keys(map) as KanbanColumnId[]) {
+      map[col].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    return map;
+  }, [deals]);
 
   const employeeLabel = useCallback(
     (employeeId: string): string => {
@@ -172,35 +193,10 @@ export default function MarkaAnlasmalarPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-1 overflow-x-auto border-b border-border">
-                {TABS.map((t) => {
-                  const count = deals.filter((d) =>
-                    TAB_STATUSES[t.id].includes(d.status)
-                  ).length;
-                  const active = t.id === tab;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setTab(t.id)}
-                      className={cn(
-                        "relative shrink-0 px-3 py-2 text-sm font-medium transition-colors",
-                        active
-                          ? "text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <span>{t.label}</span>
-                      <span className="ml-1.5 text-[10px] tabular-nums text-muted-foreground">
-                        ({count})
-                      </span>
-                      {active && (
-                        <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[#22C55E]" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Anlaşmaları duruma göre sürükleyerek değil, detay sayfasından güncelleyin.
+                Kilometre taşları için karttaki bağlantıyı kullanın.
+              </p>
             </CardContent>
           </Card>
 
@@ -215,17 +211,41 @@ export default function MarkaAnlasmalarPage() {
             <div className="flex h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 size={14} className="animate-spin" /> Yükleniyor…
             </div>
-          ) : filtered.length === 0 ? (
-            <EmptyDeals tab={tab} notReady={notReady} />
+          ) : deals.length === 0 ? (
+            <EmptyDeals notReady={notReady} />
           ) : (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {filtered.map((deal) => (
-                <DealCard
-                  key={deal.id}
-                  deal={deal}
-                  streamerLabel={employeeLabel(deal.employeeId)}
-                />
-              ))}
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {KANBAN_COLUMNS.map((col) => {
+                const colDeals = dealsByColumn[col.id];
+                return (
+                  <div
+                    key={col.id}
+                    className="flex w-[min(100%,280px)] shrink-0 flex-col rounded-xl border border-border bg-muted/20"
+                  >
+                    <div className="border-b border-border px-3 py-2.5">
+                      <p className="text-sm font-semibold text-foreground">{col.label}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {col.hint} · {colDeals.length}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 p-2 min-h-[120px] max-h-[70vh] overflow-y-auto">
+                      {colDeals.length === 0 ? (
+                        <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">
+                          Boş
+                        </p>
+                      ) : (
+                        colDeals.map((deal) => (
+                          <DealCard
+                            key={deal.id}
+                            deal={deal}
+                            streamerLabel={employeeLabel(deal.employeeId)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -301,13 +321,21 @@ function DealCard({
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <Link
-            href={`/marka/anlasmalar/${deal.id}`}
-            className="inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 px-2 py-1 text-[11px] font-semibold text-[#16A34A] hover:bg-[#22C55E]/15 dark:text-[#4ADE80]"
-          >
-            <FileSignature size={11} /> Detay
-            <ArrowUpRight size={11} />
-          </Link>
+          <div className="flex flex-wrap gap-1.5">
+            <Link
+              href={`/marka/anlasmalar/${deal.id}`}
+              className="inline-flex items-center gap-1 rounded-md bg-[#22C55E]/10 px-2 py-1 text-[11px] font-semibold text-[#16A34A] hover:bg-[#22C55E]/15 dark:text-[#4ADE80]"
+            >
+              <FileSignature size={11} /> Detay
+              <ArrowUpRight size={11} />
+            </Link>
+            <Link
+              href={`/marka/anlasmalar/${deal.id}#milestones`}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              <Flag size={11} /> Kilometre taşları
+            </Link>
+          </div>
           {deal.contractUrl && (
             <a
               href={deal.contractUrl}
@@ -346,7 +374,7 @@ function Mini({
   );
 }
 
-function EmptyDeals({ tab, notReady }: { tab: StatusTab; notReady: boolean }) {
+function EmptyDeals({ notReady }: { notReady: boolean }) {
   if (notReady) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/40 px-6 py-10 text-center">
@@ -358,26 +386,13 @@ function EmptyDeals({ tab, notReady }: { tab: StatusTab; notReady: boolean }) {
       </div>
     );
   }
-  const labels: Record<StatusTab, { title: string; sub: string }> = {
-    active: {
-      title: "Aktif anlaşma yok",
-      sub: "Bir teklif kabul edildiğinde otomatik olarak burada görünür.",
-    },
-    completed: {
-      title: "Tamamlanmış anlaşma yok",
-      sub: "Anlaşmaları tamamlandı olarak işaretledikçe burada birikir.",
-    },
-    cancelled: {
-      title: "İptal anlaşma yok",
-      sub: "İptal edilen anlaşmalar burada görünür.",
-    },
-  };
-  const info = labels[tab];
   return (
     <div className="rounded-xl border border-dashed border-border bg-card/40 px-6 py-10 text-center">
       <Handshake size={28} className="mx-auto mb-2 text-muted-foreground/70" />
-      <p className="text-sm font-medium text-foreground">{info.title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{info.sub}</p>
+      <p className="text-sm font-medium text-foreground">Anlaşma yok</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Bir teklif kabul edildiğinde otomatik olarak burada görünür.
+      </p>
     </div>
   );
 }

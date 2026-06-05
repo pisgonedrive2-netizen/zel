@@ -1,4 +1,9 @@
-import { DEFAULT_KASA_ID, type Kasa, type KasaTransaction } from "@/store/store";
+import {
+  DEFAULT_KASA_ID,
+  calcKasaBalance,
+  type Kasa,
+  type KasaTransaction,
+} from "@/store/store";
 
 function balanceFor(rows: KasaTransaction[]) {
   return rows.reduce(
@@ -73,4 +78,67 @@ export function computeTronPanelMetrics(kasas: Kasa[], kasaTransactions: KasaTra
     harcamaTxCount: genelRows.length,
     tronAddress: tronKasa.tronAddress?.trim() ?? "",
   };
+}
+
+export type KasaDisplayBalance = {
+  /** Kullanıcıya gösterilen net bakiye (işletme / cüzdan mantığına göre). */
+  balance: number;
+  /** Ham defter bakiyesi (o kasadaki tüm hareketler). */
+  ledgerBalance: number;
+  /** Kısa açıklama (TRON düşümü vb.). */
+  sublabel?: string;
+};
+
+/**
+ * Kasa seçici ve özet kartlarda gösterilecek bakiye.
+ * Genel Kasa: dahil edilmiş TRON giderleri düşülmüş işletme bakiyesi.
+ * TRON cüzdan: zincir üzerindeki toplam (giriş − çıkış).
+ */
+export function getKasaDisplayBalance(
+  kasa: Kasa,
+  kasas: Kasa[],
+  kasaTransactions: KasaTransaction[],
+  panel: ReturnType<typeof computeTronPanelMetrics> | null,
+): KasaDisplayBalance {
+  const ledgerBalance = calcKasaBalance(kasaTransactions, undefined, kasa.id);
+
+  if (panel?.genelKasa?.id === kasa.id) {
+    const balance = panel.harcamaKasaWithTron;
+    const sublabel =
+      panel.includedTronOut > 0
+        ? `defter ${formatUsdtShort(ledgerBalance)} · TRON −${formatUsdtShort(panel.includedTronOut)}`
+        : undefined;
+    return { balance, ledgerBalance, sublabel };
+  }
+
+  if (panel?.tronKasa?.id === kasa.id) {
+    return {
+      balance: panel.tronTotal,
+      ledgerBalance,
+      sublabel: `Ramiz cüzdan ${formatUsdtShort(panel.ramizWallet)}`,
+    };
+  }
+
+  return { balance: ledgerBalance, ledgerBalance };
+}
+
+function formatUsdtShort(n: number): string {
+  return (
+    n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) +
+    " USDT"
+  );
+}
+
+/** Tüm kasaların gösterim bakiyelerinin toplamı (çift sayım yapmaz). */
+export function sumKasaDisplayBalances(
+  kasas: Kasa[],
+  kasaTransactions: KasaTransaction[],
+): number {
+  const panel = computeTronPanelMetrics(kasas, kasaTransactions);
+  return kasas
+    .filter((k) => !k.archived)
+    .reduce(
+      (s, k) => s + getKasaDisplayBalance(k, kasas, kasaTransactions, panel).balance,
+      0,
+    );
 }

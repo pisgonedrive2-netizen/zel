@@ -13,6 +13,8 @@ export type AchievementSyncResponse = {
   ok: boolean;
   reels?: WeekBrandReel[];
   summary?: AchievementSyncSummary;
+  rapidApiEnabled?: boolean;
+  accountsReady?: number;
   error?: string;
   warning?: string;
 };

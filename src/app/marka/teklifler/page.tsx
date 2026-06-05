@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Eye,
   Inbox,
@@ -11,6 +12,7 @@ import {
   Clock,
   CheckCircle2,
   DollarSign,
+  FileStack,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
@@ -21,7 +23,10 @@ import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, Select } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
+import { fetchOfferTemplates } from "@/lib/marka-igaming-api";
+import type { BrandOfferTemplate } from "@/types/brand-igaming";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { fetchOffers, isPoolNotReadyError } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
@@ -59,6 +64,8 @@ export default function MarkaTekliflerPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<StatusTab>("active");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<BrandOfferTemplate[]>([]);
+  const [templateId, setTemplateId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +89,18 @@ export default function MarkaTekliflerPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    fetchOfferTemplates(brandId)
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, [brandId]);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === templateId) ?? null,
+    [templates, templateId]
+  );
 
   const brandOffersFiltered = useMemo(
     () => (brandId ? offers.filter((o) => o.brandId === brandId) : offers),
@@ -179,7 +198,56 @@ export default function MarkaTekliflerPage() {
                 Yenile
               </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {templates.length > 0 && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FileStack size={14} className="text-[#FF6B00]" />
+                    <span className="text-xs font-semibold text-foreground">
+                      Teklif şablonu
+                    </span>
+                  </div>
+                  <Field label="Şablon seç">
+                    <Select
+                      value={templateId}
+                      onChange={(e) => setTemplateId(e.target.value)}
+                      options={[
+                        { value: "", label: "Şablon seçin…" },
+                        ...templates.map((t) => ({ value: t.id, label: t.name })),
+                      ]}
+                    />
+                  </Field>
+                  {selectedTemplate && (
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>
+                        <span className="font-medium text-foreground">Tip:</span>{" "}
+                        {BRAND_OFFER_TYPE_LABELS[
+                          selectedTemplate.offerType as keyof typeof BRAND_OFFER_TYPE_LABELS
+                        ] ?? selectedTemplate.offerType}
+                        {selectedTemplate.commissionModel && (
+                          <> · {selectedTemplate.commissionModel}</>
+                        )}
+                      </p>
+                      {selectedTemplate.defaultBudgetUsd != null && (
+                        <p>
+                          <span className="font-medium text-foreground">Bütçe:</span>{" "}
+                          {fmtBrandMoney(selectedTemplate.defaultBudgetUsd, "USD")}
+                        </p>
+                      )}
+                      <p>
+                        <span className="font-medium text-foreground">Teslimat:</span>{" "}
+                        {selectedTemplate.deliverables.length} kalem
+                      </p>
+                      <Link
+                        href="/marka/havuz"
+                        className="inline-block text-[#FF6B00] hover:underline font-medium"
+                      >
+                        Havuzdan teklif başlat →
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex gap-1 overflow-x-auto border-b border-border">
                 {TABS.map((t) => {
                   const count = offers.filter((o) =>

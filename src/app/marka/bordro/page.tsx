@@ -15,17 +15,28 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Select, NumberInput, FormGrid } from "@/components/ui/field";
 import { fetchStaff } from "@/lib/brand-personnel-api";
 import {
-  fetchPayrollItems, savePayrollItem, deletePayrollItem, markStaffPayrollPaid,
+  fetchPayrollItems,
+  fetchPayrollComponentPayments,
+  savePayrollItem,
+  deletePayrollItem,
+  markStaffPayrollPaid,
+  markPayrollComponentPaid,
 } from "@/lib/brand-payroll-api";
+import { fetchPayrollRuns, savePayrollRun } from "@/lib/brand-igaming-api";
+import type { BrandPayrollRun } from "@/types/brand-igaming";
+import { PAYROLL_RUN_STATUS_LABELS } from "@/types/brand-igaming";
 import {
   downloadProfessionalCsv, summarySection, numberedDetailSection,
 } from "@/lib/professional-csv";
 import {
   STAFF_CURRENCY_SYMBOL,
   PAYROLL_ITEM_TYPE_LABELS,
+  PAYROLL_COMPONENT_LABELS,
   PAYROLL_DEDUCTION_TYPES,
+  type BrandPayrollComponentPayment,
   type BrandPayrollItem,
   type BrandStaff,
+  type PayrollComponentKey,
   type PayrollItemType,
   type StaffCurrency,
 } from "@/types/brand-personnel";
@@ -39,6 +50,20 @@ const isDeduction = (t: PayrollItemType) => (PAYROLL_DEDUCTION_TYPES as readonly
 function staffBaseComp(s: BrandStaff): number {
   const breakdown = (s.baseSalary ?? 0) + (s.rentSupport ?? 0) + (s.mealAllowance ?? 0);
   return breakdown > 0 ? breakdown : s.monthlyCost;
+}
+
+function staffFixedComponents(s: BrandStaff): { key: PayrollComponentKey; label: string; amount: number }[] {
+  const rows: { key: PayrollComponentKey; label: string; amount: number }[] = [];
+  const base = s.baseSalary ?? 0;
+  const rent = s.rentSupport ?? 0;
+  const meal = s.mealAllowance ?? 0;
+  if (base > 0) rows.push({ key: "base_salary", label: PAYROLL_COMPONENT_LABELS.base_salary, amount: base });
+  if (rent > 0) rows.push({ key: "rent", label: PAYROLL_COMPONENT_LABELS.rent, amount: rent });
+  if (meal > 0) rows.push({ key: "meal", label: PAYROLL_COMPONENT_LABELS.meal, amount: meal });
+  if (rows.length === 0 && s.monthlyCost > 0) {
+    rows.push({ key: "base_salary", label: PAYROLL_COMPONENT_LABELS.base_salary, amount: s.monthlyCost });
+  }
+  return rows;
 }
 
 type CurrencyTotals = { gross: number; deduction: number; net: number; paid: number; pending: number };
@@ -60,6 +85,8 @@ export default function MarkaBordroPage() {
 
   const [staff, setStaff] = useState<BrandStaff[]>([]);
   const [items, setItems] = useState<BrandPayrollItem[]>([]);
+  const [components, setComponents] = useState<BrandPayrollComponentPayment[]>([]);
+  const [payrollRun, setPayrollRun] = useState<BrandPayrollRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -72,12 +99,16 @@ export default function MarkaBordroPage() {
     setLoading(true);
     setError(null);
     try {
-      const [s, it] = await Promise.all([
+      const [s, it, comp, runs] = await Promise.all([
         fetchStaff(brandId),
         fetchPayrollItems(brandId, month).catch(() => [] as BrandPayrollItem[]),
+        fetchPayrollComponentPayments(brandId, month).catch(() => [] as BrandPayrollComponentPayment[]),
+        fetchPayrollRuns(brandId, month).catch(() => [] as BrandPayrollRun[]),
       ]);
       setStaff(s);
       setItems(it);
+      setComponents(comp);
+      setPayrollRun(runs[0] ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Yüklenemedi");
     } finally {
@@ -111,9 +142,21 @@ export default function MarkaBordroPage() {
   }, [items]);
 
   /** Bir personelin ay özeti: brüt, kesinti, net, ödeme durumu. */
+  const componentsByStaff = useMemo(() => {
+    const map = new Map<string, BrandPayrollComponentPayment[]>();
+    for (const c of components) {
+      const arr = map.get(c.staffId);
+      if (arr) arr.push(c);
+      else map.set(c.staffId, [c]);
+    }
+    return map;
+  }, [components]);
+
   const staffSummary = useCallback(
     (s: BrandStaff) => {
       const its = itemsByStaff.get(s.id) ?? [];
+      const fixed = staffFixedComponents(s);
+      const compPaid = componentsByStaff.get(s.id) ?? [];
       const base = staffBaseComp(s);
       let earnings = 0;
       let deductions = 0;
@@ -123,11 +166,25 @@ export default function MarkaBordroPage() {
       }
       const gross = base + earnings;
       const net = gross - deductions;
+      const payableFlags: boolean[] = [];
+      for (const f of fixed) {
+        const st = compPaid.find((c) => c.component === f.key);
+        payableFlags.push(st?.paid ?? false);
+      }
+      for (const it of its) {
+        if (!isDeduction(it.type)) payableFlags.push(it.paid);
+      }
       const paidState: "paid" | "partial" | "none" =
-        its.length > 0 ? (its.every((it) => it.paid) ? "paid" : "partial") : "none";
-      return { base, earnings, deductions, gross, net, items: its, paidState };
+        payableFlags.length === 0
+          ? "none"
+          : payableFlags.every(Boolean)
+            ? "paid"
+            : payableFlags.some(Boolean)
+              ? "partial"
+              : "none";
+      return { base, earnings, deductions, gross, net, items: its, paidState, fixed, compPaid };
     },
-    [itemsByStaff]
+    [itemsByStaff, componentsByStaff]
   );
 
   const totals = useMemo(() => {
@@ -207,6 +264,23 @@ export default function MarkaBordroPage() {
       void load();
     } catch (ex) {
       setError(ex instanceof Error ? ex.message : "Silinemedi");
+    }
+  };
+
+  const toggleComponentPaid = async (
+    s: BrandStaff,
+    component: PayrollComponentKey,
+    paid: boolean,
+  ) => {
+    if (!brandId) return;
+    setBusyStaff(s.id);
+    try {
+      await markPayrollComponentPaid(brandId, s.id, month, component, paid);
+      void load();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Güncellenemedi");
+    } finally {
+      setBusyStaff(null);
     }
   };
 
@@ -294,6 +368,27 @@ export default function MarkaBordroPage() {
         {error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
         )}
+
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div>
+              <p className="text-sm font-semibold">Ay kapanış batch ({monthTitle})</p>
+              <p className="text-xs text-muted-foreground">
+                Durum: {payrollRun ? PAYROLL_RUN_STATUS_LABELS[payrollRun.status] : "Taslak (henüz oluşturulmadı)"}
+              </p>
+            </div>
+            {!readOnly && brandId && (
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => void savePayrollRun({ brandId, month, status: "review" }).then((r) => { setPayrollRun(r); setToast("İncelemeye alındı"); })}>
+                  İncelemeye al
+                </Button>
+                <Button size="sm" onClick={() => void savePayrollRun({ brandId, month, status: "approved", id: payrollRun?.id }).then((r) => { setPayrollRun(r); setToast("Batch onaylandı"); })}>
+                  Onayla
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Para birimi bazlı toplamlar */}
         {totals.length > 0 && (
@@ -386,11 +481,50 @@ export default function MarkaBordroPage() {
                           )}
                         </div>
 
-                        {/* Maaş bileşeni satırı */}
-                        <div className="mb-2 flex items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-sm">
-                          <span className="text-muted-foreground">Sabit maaş bileşeni</span>
-                          <span className="font-medium tabular-nums">{money(s.currency, sum.base)}</span>
-                        </div>
+                        {/* Sabit bileşenler — kalem bazlı ödeme */}
+                        {sum.fixed.length > 0 && (
+                          <div className="mb-2 space-y-1.5">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Sabit bileşenler
+                            </p>
+                            {sum.fixed.map((f) => {
+                              const st = sum.compPaid.find((c) => c.component === f.key);
+                              const isCompPaid = st?.paid ?? false;
+                              return (
+                                <div
+                                  key={f.key}
+                                  className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+                                >
+                                  <span className="min-w-0 flex-1 text-muted-foreground">{f.label}</span>
+                                  <span className="font-medium tabular-nums shrink-0">
+                                    {money(s.currency, f.amount)}
+                                  </span>
+                                  {readOnly ? (
+                                    isCompPaid ? (
+                                      <CheckCircle2 size={15} className="text-green-600 shrink-0" />
+                                    ) : (
+                                      <Clock size={15} className="text-muted-foreground shrink-0" />
+                                    )
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => void toggleComponentPaid(s, f.key, !isCompPaid)}
+                                      className="shrink-0"
+                                      title={isCompPaid ? "Ödendi (geri al)" : "Ödendi işaretle"}
+                                      disabled={busyStaff === s.id}
+                                    >
+                                      {isCompPaid ? (
+                                        <CheckCircle2 size={15} className="text-green-600" />
+                                      ) : (
+                                        <Clock size={15} className="text-muted-foreground hover:text-foreground" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
 
                         {sum.items.length === 0 ? (
                           <p className="py-2 text-center text-xs text-muted-foreground">Bu ay için ek kalem yok.</p>

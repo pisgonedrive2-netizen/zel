@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Twitch,
@@ -13,6 +13,8 @@ import {
   ChevronRight,
   CalendarDays,
   Maximize2,
+  AlertTriangle,
+  Megaphone,
 } from "lucide-react";
 import {
   useStore,
@@ -57,8 +59,11 @@ import {
   scopeBrandActivityData,
 } from "@/lib/brand-activity-dates";
 import { planDaysWithoutShare } from "@/lib/marka-content-alerts";
-import { AlertTriangle } from "lucide-react";
-
+import { fetchCalendarEvents } from "@/lib/marka-igaming-api";
+import {
+  BRAND_CALENDAR_EVENT_LABELS,
+  type BrandCalendarEvent,
+} from "@/types/brand-igaming";
 const STATUS_COLORS: Record<WeeklyPlan["status"], string> = {
   planned:
     "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/50 dark:border-blue-500/40 dark:text-blue-100",
@@ -109,6 +114,7 @@ export default function MarkaTakvimPage() {
   const thisWeek = weekStartOf(todayDateLocal());
   const [weekView, setWeekView] = useState(thisWeek);
   const [fullscreen, setFullscreen] = useState(false);
+  const [brandEvents, setBrandEvents] = useState<BrandCalendarEvent[]>([]);
   // Takvim saat dilimi — saatler Türkiye saatinde saklanır, seçilen ülkeye çevrilir.
   const [tz, setTz] = useState(BASE_TIMEZONE);
   const tt = (hhmm?: string) => (hhmm ? formatConverted(convertFromBase(hhmm, tz)) : "");
@@ -156,6 +162,30 @@ export default function MarkaTakvimPage() {
   );
 
   const weekDays = useMemo(() => weekDayIsosFromStart(weekView), [weekView]);
+
+  const loadBrandEvents = useCallback(async () => {
+    if (!brandId || weekDays.length === 0) return;
+    try {
+      const events = await fetchCalendarEvents(brandId, weekDays[0], weekDays[6]);
+      setBrandEvents(events);
+    } catch {
+      setBrandEvents([]);
+    }
+  }, [brandId, weekDays]);
+
+  useEffect(() => {
+    void loadBrandEvents();
+  }, [loadBrandEvents]);
+
+  const eventsByDate = useMemo(() => {
+    const map = new Map<string, BrandCalendarEvent[]>();
+    for (const ev of brandEvents) {
+      const list = map.get(ev.eventDate) ?? [];
+      list.push(ev);
+      map.set(ev.eventDate, list);
+    }
+    return map;
+  }, [brandEvents]);
 
   const empById = useMemo(() => new Map(yayincilar.map((e) => [e.id, e])), [yayincilar]);
 
@@ -331,6 +361,7 @@ export default function MarkaTakvimPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2">
                   {weekDays.map((iso, i) => {
                     const dayPlans = weekPlans.filter((p) => p.date === iso);
+                    const dayBrandEvents = eventsByDate.get(iso) ?? [];
                     const isToday = iso === todayDateLocal();
                     return (
                       <div
@@ -354,9 +385,26 @@ export default function MarkaTakvimPage() {
                             />
                           )}
                         </p>
-                        {dayPlans.length === 0 ? (
+                        {dayBrandEvents.length > 0 && (
+                          <div className="mb-1.5 space-y-0.5 border-b border-border/60 pb-1.5">
+                            {dayBrandEvents.map((ev) => (
+                              <div
+                                key={ev.id}
+                                className="flex items-start gap-1 rounded border border-[#FF6B00]/30 bg-[#FF6B00]/10 px-1 py-0.5 text-[9px] text-[#FF6B00] dark:text-[#FB923C]"
+                                title={ev.notes || ev.title}
+                              >
+                                <Megaphone size={9} className="shrink-0 mt-0.5" />
+                                <span className="line-clamp-2 font-medium leading-tight">
+                                  {ev.title}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {dayPlans.length === 0 && dayBrandEvents.length === 0 && (
                           <span className="text-[10px] text-muted-foreground/40">—</span>
-                        ) : (
+                        )}
+                        {dayPlans.length > 0 && (
                           <div className="space-y-1">
                             {dayPlans.map((p) => {
                               const emp = empById.get(p.employeeId);
@@ -400,6 +448,38 @@ export default function MarkaTakvimPage() {
               )}
             </CardContent>
           </Card>
+
+          {brandEvents.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Megaphone size={14} className="text-[#FF6B00]" />
+                  Marka operasyon takvimi
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Kampanya, uyumluluk ve lansman olayları (bu hafta)
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1.5 text-xs">
+                  {brandEvents.map((ev) => (
+                    <li
+                      key={ev.id}
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-border px-2 py-1.5"
+                    >
+                      <span className="tabular-nums text-muted-foreground">
+                        {ev.eventDate.slice(8, 10)}.{ev.eventDate.slice(5, 7)}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {BRAND_CALENDAR_EVENT_LABELS[ev.eventType]}
+                      </Badge>
+                      <span className="font-medium">{ev.title}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           {planGaps.length > 0 && (
             <div className="rounded-lg border border-amber-300/70 bg-amber-50/80 dark:bg-amber-950/30 px-3 py-2.5 text-xs text-amber-900 dark:text-amber-100">

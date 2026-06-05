@@ -23,10 +23,13 @@ export function AchievementLinkSyncBar({
   employeeId,
   employeeName,
   compact = false,
+  onSynced,
 }: {
   employeeId: string;
   employeeName?: string;
   compact?: boolean;
+  /** Senkron sonrası takvim/store yenileme (ör. /takvim). */
+  onSynced?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -38,6 +41,11 @@ export function AchievementLinkSyncBar({
     try {
       const res = await syncStreamerAchievementFromAccounts(employeeId);
       if (res.reels?.length) mergeReelsIntoStore(res.reels, employeeId);
+      onSynced?.();
+      if (res.warning) {
+        setHint(res.warning);
+        return;
+      }
       const s = res.summary;
       if (s) {
         setHint(
@@ -48,7 +56,6 @@ export function AchievementLinkSyncBar({
       } else {
         setHint("Senkron tamamlandı.");
       }
-      if (res.warning) setHint((h) => (h ? `${h} · ${res.warning}` : res.warning ?? null));
     } catch (err) {
       setHint(err instanceof Error ? err.message : "Senkron başarısız");
     } finally {

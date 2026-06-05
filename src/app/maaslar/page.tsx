@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, Pencil, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Clock,
-  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt,
+  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -20,7 +20,9 @@ import {
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { fmt, shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
-import { expenseReviewStatus, settlementLabel, isPayrollSettled } from "@/lib/content-expense";
+import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from "@/lib/content-expense";
+import { ContentExpensesBulkModal } from "@/components/content-expenses-bulk-modal";
+import { PayrollLinesPayModal } from "@/components/payroll-lines-pay-modal";
 import { payrollDueShort, payrollMonthLongTitle } from "@/lib/payroll-dates";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,9 +45,19 @@ import {
   type SalaryReportRow,
   type SalaryUpcomingRow,
 } from "@/lib/monthly-exports";
+import {
+  buildPayrollPaymentLines,
+  formatPayrollLineStatusSummary,
+  payrollPaymentPhase,
+  sumUnpaidPayrollLines,
+  type PayrollLineItem,
+} from "@/lib/payroll-lines";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function prevMonth(m: string) { return shiftCalendarMonthYm(m, -1); }
+const CONTENT_INLINE_MAX = 3;
+/** Bu sayıdan fazla kalemde liste kartta gösterilmez — yalnızca modal. */
+const PAYROLL_LINES_INLINE_MAX = 0;
 function nextMonth(m: string) { return shiftCalendarMonthYm(m, 1); }
 const MONTH_NAMES = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 function monthLabel(m: string) { const [y, mo] = m.split("-"); return `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y}`; }
@@ -304,7 +316,7 @@ function EmployeeDetailRow({
   const { advances, salaryExtras, paymentStatuses, contentExpenses, kasas, kasaTransactions,
     updateEmployee, addAdvance, updateAdvance, deleteAdvance,
     addSalaryExtra, updateSalaryExtra, deleteSalaryExtra,
-    payEmployeeSalary, unpayEmployeeSalary,
+    payEmployeeSalary, unpayEmployeeSalary, payPayrollLine, unpayPayrollLine,
     payContentExpense, settleContentExpenseToPayroll, unsettleContentExpenseFromPayroll,
   } = useStore();
   const { user } = useAuth();
@@ -313,7 +325,11 @@ function EmployeeDetailRow({
 
   const [advModal, setAdvModal]     = useState<"new" | Advance | null>(null);
   const [extraModal, setExtraModal] = useState<"new" | SalaryExtra | null>(null);
-  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [payTarget, setPayTarget] = useState<
+    { mode: "line"; line: PayrollLineItem } | { mode: "all" } | null
+  >(null);
+  const [contentPayModalOpen, setContentPayModalOpen] = useState(false);
+  const [payrollLinesModalOpen, setPayrollLinesModalOpen] = useState(false);
 
   const active = isPayrollActive(employee, month);
   const upcoming = isPayrollUpcoming(employee, month);
@@ -325,7 +341,24 @@ function EmployeeDetailRow({
   const netBase    = calcNetPayable(employee, month, advances, salaryExtras, paymentStatuses);
   const net        = calcPayrollPayoutDue(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const status     = paymentStatuses.find(p => p.employeeId === employee.id && p.month === month);
-  const isPaid     = status?.paid ?? false;
+  const payrollLines = useMemo(
+    () =>
+      buildPayrollPaymentLines(
+        employee,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      ),
+    [employee, month, advances, salaryExtras, contentExpenses, paymentStatuses],
+  );
+  const paymentPhase = payrollPaymentPhase(payrollLines);
+  const isFullyPaid = paymentPhase === "full";
+  const isPartial = paymentPhase === "partial";
+  const unpaidLineTotal = sumUnpaidPayrollLines(payrollLines);
+  const paidLineCount = payrollLines.filter((l) => l.paid).length;
+  const hasManyPayrollLines = payrollLines.length > PAYROLL_LINES_INLINE_MAX;
   const openAdv    = calcOpenAdvanceBalance(employee, prevMonth(month), salaryExtras);
   const openAdvAfter = calcOpenAdvanceBalance(employee, month, salaryExtras);
 
@@ -376,7 +409,24 @@ function EmployeeDetailRow({
   const pendingContentCount = monthContentExpenses.filter(
     (e) => expenseReviewStatus(e) === "pending" || expenseReviewStatus(e) === "needs_info",
   ).length;
-  const hasManyContent = monthContentExpenses.length >= 5;
+  const hasManyContent = monthContentExpenses.length > CONTENT_INLINE_MAX;
+  const payableContentCount = monthContentExpenses.filter(isUnsettledApprovedContent).length;
+  const payableContentTotal = monthContentExpenses
+    .filter(isUnsettledApprovedContent)
+    .reduce((s, e) => s + e.amountUsd, 0);
+
+  const payContentFromKasaBulk = (
+    ids: string[],
+    opts: { kasaId: string; paidDate: string },
+  ) => {
+    for (const id of ids) {
+      payContentExpense({
+        contentExpenseId: id,
+        kasaId: opts.kasaId,
+        paidDate: opts.paidDate,
+      });
+    }
+  };
   const [cardOpen, setCardOpen] = useState(!hasManyContent);
 
   return (
@@ -384,7 +434,8 @@ function EmployeeDetailRow({
       <div className={`rounded-xl border transition-colors ${
         upcoming               ? "border-violet-400/40 bg-violet-50/30 dark:border-violet-500/35 dark:bg-violet-950/20" :
         !active                ? "border-border bg-muted/40 opacity-70" :
-        isPaid                 ? "border-green-500/30 bg-green-50/40 dark:border-green-500/40 dark:bg-green-950/25" :
+        isFullyPaid            ? "border-green-500/30 bg-green-50/40 dark:border-green-500/40 dark:bg-green-950/25" :
+        isPartial              ? "border-amber-400/50 bg-amber-50/35 dark:border-amber-500/40 dark:bg-amber-950/25" :
         "border-border bg-card"
       }`}>
         {/* Employee header row — tıklanınca kart gövdesi açılır/kapanır */}
@@ -482,7 +533,7 @@ function EmployeeDetailRow({
             </p>
             <p className={`text-xl font-bold tabular-nums ${
               upcoming ? "text-violet-700 dark:text-violet-300" :
-              !active ? "text-muted-foreground" : isPaid ? "text-green-600" : "text-foreground"
+              !active ? "text-muted-foreground" : isFullyPaid ? "text-green-600" : isPartial ? "text-amber-700 dark:text-amber-300" : "text-foreground"
             }`}>
               {active ? fmt(net) : upcoming ? fmt(firstPayrollNet) : "—"}
             </p>
@@ -666,120 +717,108 @@ function EmployeeDetailRow({
               </span>
             }
             summary={`${fmt(monthContentTotal)}${pendingContentCount > 0 ? ` · ${pendingContentCount} bekliyor` : ""}`}
-            defaultOpen={monthContentExpenses.length <= 3}
+            defaultOpen={!hasManyContent}
             trailing={
-              <button
-                type="button"
-                className="text-[10px] text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                onClick={() =>
-                  router.push(`/icerik-harcamalari?employee=${employee.id}&month=${month}`)
-                }
-              >
-                <ExternalLink size={10} />
-                Tümü
-              </button>
+              <div className="flex items-center gap-2">
+                {!readOnly && user?.role === "admin" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-6 text-[10px] px-2 bg-violet-600 hover:bg-violet-500 text-white border-0"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setContentPayModalOpen(true);
+                    }}
+                  >
+                    Ödemeleri yönet
+                  </Button>
+                )}
+                <button
+                  type="button"
+                  className="text-[10px] text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    router.push(`/icerik-harcamalari?employee=${employee.id}&month=${month}`);
+                  }}
+                >
+                  <ExternalLink size={10} />
+                  Tümü
+                </button>
+              </div>
             }
           >
-            <div className="overflow-x-auto -mx-1 max-h-[min(320px,50vh)] overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-muted-foreground border-b border-border/50">
-                    <th className="text-left py-1 pr-2 font-medium">Tarih</th>
-                    <th className="text-left py-1 pr-2 font-medium">Marka</th>
-                    <th className="text-left py-1 pr-2 font-medium">Kategori</th>
-                    <th className="text-left py-1 pr-2 font-medium max-w-[120px]">Açıklama</th>
-                    <th className="text-right py-1 pr-2 font-medium">USD</th>
-                    <th className="text-left py-1 pr-2 font-medium">Durum</th>
-                    <th className="text-left py-1 font-medium">Ödeme</th>
-                    {!readOnly && user?.role === "admin" && (
-                      <th className="text-right py-1 font-medium">İşlem</th>
+            {hasManyContent ? (
+              <div className="space-y-2.5">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {monthContentExpenses.length} harcama bu kartta listelenmiyor.
+                  {payableContentCount > 0 && (
+                    <>
+                      {" "}
+                      <strong className="text-green-700 dark:text-green-400 tabular-nums">
+                        {payableContentCount} tanesi kasadan ödenebilir ({fmt(payableContentTotal)})
+                      </strong>
+                    </>
+                  )}
+                </p>
+                <ul className="space-y-1 text-xs border border-border/50 rounded-md divide-y divide-border/40">
+                  {monthContentExpenses.slice(0, 4).map((e) => (
+                    <li key={e.id} className="flex justify-between gap-2 px-2.5 py-1.5">
+                      <span className="min-w-0 truncate text-muted-foreground">
+                        {e.date} · {e.brandName} · {e.description || e.category}
+                      </span>
+                      <span className="shrink-0 tabular-nums font-medium">{fmt(e.amountUsd)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {monthContentExpenses.length > 4 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    +{monthContentExpenses.length - 4} kayıt daha…
+                  </p>
+                )}
+                {!readOnly && user?.role === "admin" && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-500 text-white border-0"
+                    onClick={() => setContentPayModalOpen(true)}
+                  >
+                    <Receipt size={13} />
+                    Ödemeleri yönet
+                    {payableContentCount > 0 && (
+                      <span className="opacity-90">
+                        · {payableContentCount} ödenebilir
+                      </span>
                     )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthContentExpenses.map((e) => {
-                    const st = expenseReviewStatus(e);
-                    return (
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-muted-foreground border-b border-border/50">
+                      <th className="text-left py-1 pr-2 font-medium">Tarih</th>
+                      <th className="text-left py-1 pr-2 font-medium">Marka</th>
+                      <th className="text-right py-1 pr-2 font-medium">USD</th>
+                      <th className="text-left py-1 font-medium">Durum</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthContentExpenses.map((e) => (
                       <tr key={e.id} className="border-b border-border/30 last:border-0">
                         <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">{e.date}</td>
-                        <td className="py-1.5 pr-2 whitespace-nowrap">{e.brandName}</td>
-                        <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">{e.category}</td>
-                        <td className="py-1.5 pr-2 truncate max-w-[140px]" title={e.description}>
-                          {e.description}
+                        <td className="py-1.5 pr-2 truncate max-w-[180px]" title={e.description}>
+                          {e.brandName} · {e.description || e.category}
                         </td>
                         <td className="py-1.5 pr-2 text-right tabular-nums font-medium">{fmt(e.amountUsd)}</td>
-                        <td className="py-1.5 pr-2 whitespace-nowrap">
-                          {st === "pending" && <span className="text-amber-600">İncelemede</span>}
-                          {st === "needs_info" && <span className="text-orange-600">Bilgi</span>}
-                          {st === "approved" && <span className="text-blue-600">Onaylı</span>}
-                          {st === "rejected" && <span className="text-red-600">Red</span>}
-                          {st === "cancelled" && <span className="text-muted-foreground">İptal</span>}
-                        </td>
-                        <td className="py-1.5 pr-2 text-[10px] text-muted-foreground whitespace-nowrap">
-                          {settlementLabel(e)}
-                        </td>
-                        {!readOnly && user?.role === "admin" && (
-                          <td className="py-1.5 text-right whitespace-nowrap">
-                            {st === "pending" && (
-                              <button
-                                type="button"
-                                className="text-[10px] text-amber-700 hover:underline"
-                                onClick={() =>
-                                  router.push(`/icerik-harcamalari?review=${e.id}`)
-                                }
-                              >
-                                İncele
-                              </button>
-                            )}
-                            {st === "approved" && !isPayrollSettled(e) && !e.paid && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="text-[10px] text-green-700 hover:underline mr-2"
-                                  onClick={() => {
-                                    const kasa =
-                                      kasas.find((k) => k.isDefault && !k.archived) ??
-                                      kasas.find((k) => !k.archived);
-                                    if (!kasa) return;
-                                    payContentExpense({
-                                      contentExpenseId: e.id,
-                                      kasaId: kasa.id,
-                                      paidDate: new Date().toISOString().slice(0, 10),
-                                    });
-                                  }}
-                                >
-                                  Kasa
-                                </button>
-                                <button
-                                  type="button"
-                                  className="text-[10px] text-violet-700 hover:underline"
-                                  onClick={() => settleContentExpenseToPayroll(e.id)}
-                                >
-                                  Maaş
-                                </button>
-                              </>
-                            )}
-                            {isPayrollSettled(e) && (
-                              <button
-                                type="button"
-                                className="text-[10px] text-muted-foreground hover:underline"
-                                onClick={() => {
-                                  if (window.confirm("Bordro bağlantısı kaldırılsın mı?")) {
-                                    unsettleContentExpenseFromPayroll(e.id);
-                                  }
-                                }}
-                              >
-                                Geri al
-                              </button>
-                            )}
-                          </td>
-                        )}
+                        <td className="py-1.5 text-[10px] text-muted-foreground">{settlementLabel(e)}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <p className="text-[10px] text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
               <span>Bekleyen onaylı: <strong className="tabular-nums">{fmt(contentAprv)}</strong></span>
               <span>Bordroya işli: <strong className="tabular-nums text-violet-700">{fmt(contentPayroll)}</strong></span>
@@ -835,57 +874,118 @@ function EmployeeDetailRow({
           </PayrollCardSection>
         )}
 
-        {/* Payment toggle */}
-        {active && (
-          <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs">
-              {isPaid ? (
-                <>
-                  <CheckCircle2 size={13} className="text-green-600" />
-                  <span className="text-green-700 font-medium">Ödendi</span>
-                  {status?.paidDate && <span className="text-muted-foreground">· {status.paidDate}</span>}
-                  {status?.kasaTxId && (() => {
-                    const tx = kasaTransactions.find((t) => t.id === status.kasaTxId);
-                    if (!tx) return null;
-                    const kasaName = kasas.find((k) => k.id === tx.kasaId)?.name ?? tx.kasaId;
-                    return (
-                      <span className="text-muted-foreground">· kasadan: {kasaName}</span>
-                    );
-                  })()}
-                </>
-              ) : (
-                <><Clock size={13} className="text-amber-600" /><span className="text-amber-700">Ödeme bekliyor · {payrollDueShort(month, employee.paymentDay)}</span></>
-              )}
-            </div>
-            {!readOnly && (
-              isPaid ? (
+        {active && payrollLines.length > 0 && (
+          <PayrollCardSection
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                <Wallet size={11} />
+                Ödeme kalemleri ({payrollLines.length})
+              </span>
+            }
+            summary={
+              isFullyPaid
+                ? `Tamamlandı · ${fmt(paidOut > 0 ? paidOut : net)}`
+                : isPartial
+                  ? `${formatPayrollLineStatusSummary(payrollLines)} · kalan ${fmt(unpaidLineTotal)}`
+                  : `Bekliyor · ${fmt(unpaidLineTotal || net)}`
+            }
+            defaultOpen={!hasManyPayrollLines}
+            trailing={
+              !readOnly ? (
                 <Button
+                  type="button"
                   size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    if (window.confirm(
-                      "Ödeme geri alınsın mı? Bağlı kasa hareketi de silinecek."
-                    )) {
-                      unpayEmployeeSalary(employee.id, month);
-                    }
+                  variant="default"
+                  className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-500 text-white border-0"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setPayrollLinesModalOpen(true);
                   }}
                 >
-                  Geri Al
+                  Yönet
                 </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  className="h-7 text-xs bg-green-600 hover:bg-green-500 border-0 text-white"
-                  onClick={() => setPayModalOpen(true)}
-                  disabled={net <= 0}
-                  title={net <= 0 ? "Net ödeme tutarı 0 — önce avans/kesinti veya temel maaşı kontrol edin." : undefined}
-                >
-                  Ödeme Yap
-                </Button>
-              )
+              ) : undefined
+            }
+          >
+            {hasManyPayrollLines ? (
+              <div className="space-y-2.5">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {payrollLines.length} ödeme kalemi kartta listelenmiyor.
+                  {unpaidLineTotal > 0 && (
+                    <>
+                      {" "}
+                      <strong className="text-amber-800 dark:text-amber-200 tabular-nums">
+                        Kalan {fmt(unpaidLineTotal)}
+                      </strong>
+                      {" "}
+                      ({payrollLines.length - paidLineCount} bekliyor)
+                    </>
+                  )}
+                </p>
+                <ul className="space-y-1 text-xs border border-border/50 rounded-md divide-y divide-border/40">
+                  {payrollLines.slice(0, 3).map((line) => (
+                    <li key={line.lineId} className="flex justify-between gap-2 px-2.5 py-1.5">
+                      <span className="min-w-0 truncate text-muted-foreground">
+                        {line.label}
+                      </span>
+                      <span className="shrink-0 tabular-nums font-medium flex items-center gap-1">
+                        {fmt(line.amountUsd)}
+                        {line.paid ? (
+                          <CheckCircle2 size={10} className="text-green-600" />
+                        ) : (
+                          <Clock size={10} className="text-amber-600" />
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {payrollLines.length > 3 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    +{payrollLines.length - 3} kalem daha…
+                  </p>
+                )}
+                {!readOnly && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-500 text-white border-0"
+                    onClick={() => setPayrollLinesModalOpen(true)}
+                  >
+                    <Wallet size={13} />
+                    Ödemeleri yönet
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {payrollLines.map((line) => (
+                  <div
+                    key={line.lineId}
+                    className={cn(
+                      "flex justify-between gap-2 text-xs rounded-md border px-2.5 py-1.5",
+                      line.paid
+                        ? "border-green-200/60 bg-green-50/30 dark:border-green-500/30"
+                        : "border-border bg-muted/15",
+                    )}
+                  >
+                    <span className="truncate text-muted-foreground">{line.label}</span>
+                    <span className="tabular-nums font-medium shrink-0">{fmt(line.amountUsd)}</span>
+                  </div>
+                ))}
+                {!readOnly && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full h-7 text-xs mt-1"
+                    onClick={() => setPayrollLinesModalOpen(true)}
+                  >
+                    Tüm kalemleri aç
+                  </Button>
+                )}
+              </div>
             )}
-          </div>
+          </PayrollCardSection>
         )}
         </>
         )}
@@ -904,27 +1004,118 @@ function EmployeeDetailRow({
           onDelete={extraModal !== "new" && extraModal !== null ? () => { deleteSalaryExtra(extraModal.id); setExtraModal(null); } : undefined}
           onClose={() => setExtraModal(null)} />
       </Modal>
-      <Modal open={payModalOpen} onClose={() => setPayModalOpen(false)} title="Maaş Ödemesi" size="md">
+      <PayrollLinesPayModal
+        open={payrollLinesModalOpen}
+        onClose={() => setPayrollLinesModalOpen(false)}
+        employee={employee}
+        month={month}
+        payrollLines={payrollLines}
+        kasas={kasas}
+        kasaTransactions={kasaTransactions}
+        status={status}
+        netPayable={net}
+        readOnly={readOnly}
+        isFullyPaid={isFullyPaid}
+        isPartial={isPartial}
+        onPayLine={(line) => {
+          setPayrollLinesModalOpen(false);
+          setPayTarget({ mode: "line", line });
+        }}
+        onPayAll={() => {
+          setPayrollLinesModalOpen(false);
+          setPayTarget({ mode: "all" });
+        }}
+        onUnpayLine={(lineId, label) => {
+          if (
+            window.confirm(
+              `"${label}" ödemesi geri alınsın mı? Bağlı kasa hareketi silinir.`,
+            )
+          ) {
+            unpayPayrollLine(employee.id, month, lineId);
+          }
+        }}
+        onUnpayAll={() => {
+          if (
+            window.confirm(
+              "Tüm ödemeler geri alınsın mı? Bağlı kasa hareketleri silinir.",
+            )
+          ) {
+            unpayEmployeeSalary(employee.id, month);
+            setPayrollLinesModalOpen(false);
+          }
+        }}
+      />
+
+      <ContentExpensesBulkModal
+        open={contentPayModalOpen}
+        onClose={() => setContentPayModalOpen(false)}
+        employee={employee}
+        month={month}
+        expenses={monthContentExpenses}
+        kasas={kasas}
+        kasaTransactions={kasaTransactions}
+        readOnly={readOnly}
+        isAdmin={user?.role === "admin"}
+        onPayFromKasa={payContentFromKasaBulk}
+        onSettleToPayroll={settleContentExpenseToPayroll}
+        onUnsettlePayroll={unsettleContentExpenseFromPayroll}
+        onOpenReview={(id) => {
+          setContentPayModalOpen(false);
+          router.push(`/icerik-harcamalari?review=${id}`);
+        }}
+      />
+
+      <Modal
+        open={payTarget !== null}
+        onClose={() => setPayTarget(null)}
+        title={payTarget?.mode === "line" ? `Ödeme · ${payTarget.line.label}` : "Maaş Ödemesi (tüm kalemler)"}
+        size="md"
+      >
         <PaySalaryForm
+          key={
+            payTarget?.mode === "line"
+              ? payTarget.line.lineId
+              : payTarget?.mode === "all"
+                ? "all"
+                : "closed"
+          }
           employeeName={employee.name}
           month={month}
-          netAmount={net}
+          netAmount={
+            payTarget?.mode === "line" ? payTarget.line.amountUsd : net
+          }
+          lineLabel={payTarget?.mode === "line" ? payTarget.line.label : undefined}
           kasas={kasas}
           kasaTransactions={kasaTransactions}
           onSave={(d) => {
-            payEmployeeSalary({
-              employeeId: employee.id,
-              month,
-              amountUsd: d.amountUsd,
-              kasaId: d.kasaId,
-              paidDate: d.paidDate,
-              feeUsd: d.feeUsd,
-              notes: d.notes,
-              proof: d.proof,
-              paidBy: currentUserId,
-            });
+            if (payTarget?.mode === "line") {
+              payPayrollLine({
+                employeeId: employee.id,
+                month,
+                lineId: payTarget.line.lineId,
+                amountUsd: d.amountUsd,
+                kasaId: d.kasaId,
+                paidDate: d.paidDate,
+                feeUsd: d.feeUsd,
+                notes: d.notes,
+                proof: d.proof,
+                paidBy: currentUserId,
+              });
+            } else {
+              payEmployeeSalary({
+                employeeId: employee.id,
+                month,
+                amountUsd: d.amountUsd,
+                kasaId: d.kasaId,
+                paidDate: d.paidDate,
+                feeUsd: d.feeUsd,
+                notes: d.notes,
+                proof: d.proof,
+                paidBy: currentUserId,
+              });
+            }
           }}
-          onClose={() => setPayModalOpen(false)}
+          onClose={() => setPayTarget(null)}
         />
       </Modal>
     </>
@@ -933,11 +1124,12 @@ function EmployeeDetailRow({
 
 // ── Pay salary modal ──────────────────────────────────────────────────────
 function PaySalaryForm({
-  employeeName, month, netAmount, kasas, kasaTransactions, onSave, onClose,
+  employeeName, month, netAmount, lineLabel, kasas, kasaTransactions, onSave, onClose,
 }: {
   employeeName: string;
   month: string;
   netAmount: number;
+  lineLabel?: string;
   kasas: Kasa[];
   kasaTransactions: KasaTransaction[];
   onSave: (d: {
@@ -988,7 +1180,17 @@ function PaySalaryForm({
     >
       <div className="grid gap-4">
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{employeeName}</span> · {month} bordrosu · net ödeme önerisi{" "}
+          <span className="font-medium text-foreground">{employeeName}</span> · {month} bordrosu
+          {lineLabel ? (
+            <>
+              {" "}
+              · kalem: <span className="font-medium text-foreground">{lineLabel}</span>
+            </>
+          ) : (
+            " · tüm kalemler"
+          )}
+          {" "}
+          · önerilen tutar{" "}
           <span className="tabular-nums font-medium text-foreground">{fmt(netAmount)}</span>
         </div>
         <FormGrid>

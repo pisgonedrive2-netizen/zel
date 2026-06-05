@@ -26,6 +26,19 @@ function slugPlatform(platform: string): SocialPlatform | null {
   return null;
 }
 
+export async function countActivePersonalAccounts(employeeId: string): Promise<number> {
+  const db = getSupabaseAdmin();
+  const { data: accounts, error } = await db
+    .from("streamer_accounts")
+    .select("platform")
+    .eq("employee_id", employeeId)
+    .eq("status", "active");
+  if (error) throw new Error(error.message);
+  return ((accounts ?? []) as { platform: string }[]).filter((a) =>
+    ACHIEVEMENT_PLATFORMS.has(slugPlatform(a.platform) ?? "")
+  ).length;
+}
+
 function stablePersonalReelId(accountId: string, externalRef: string): string {
   const ref = externalRef.replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
   return `wr-sa-${accountId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12)}-${ref}`;

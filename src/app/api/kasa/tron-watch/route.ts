@@ -22,11 +22,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
 
-  const cfg = getTronWatchConfig();
+  const cfg = await getTronWatchConfig();
   if (!cfg) {
     return NextResponse.json({
       ok: false,
-      error: "TRON_WATCH_ADDRESS tanımlı değil",
+      error: "TRON adresi tanımlı değil (kasa kaydı veya env)",
     }, { status: 503 });
   }
 

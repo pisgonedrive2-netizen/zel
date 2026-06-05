@@ -17,6 +17,7 @@ import { useStore } from "@/store/store";
 export function KasaTronSyncEffect() {
   const user = useAuth((s) => s.user);
   const running = useRef(false);
+  const failUntil = useRef(0);
 
   useEffect(() => {
     if (!isSupabaseClientMode()) return;
@@ -25,6 +26,7 @@ export function KasaTronSyncEffect() {
     const run = async () => {
       if (running.current) return;
       if (document.visibilityState === "hidden") return;
+      if (Date.now() < failUntil.current) return;
       const { kasas, kasaTransactions } = useStore.getState();
       const tronKasa = findPrimaryTronKasa(kasas, kasaTransactions);
       if (!tronKasa?.tronAddress) return;
@@ -36,31 +38,40 @@ export function KasaTronSyncEffect() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             kasaId: tronKasa.id,
+            tronAddress: tronKasa.tronAddress,
             recentDays: TRON_BACKGROUND_RECENT_DAYS,
             triggeredBy: "background-sync",
           }),
         });
-        if (syncRes.ok) {
-          const syncJson = (await syncRes.json()) as { imported?: number; ok?: boolean };
-          if ((syncJson.imported ?? 0) > 0) {
-            const boot = await fetch("/api/bootstrap", {
-              credentials: "include",
-              cache: "no-store",
-            });
-            if (boot.ok) {
-              const data = (await boot.json()) as {
-                kasaTransactions?: typeof kasaTransactions;
-                kasas?: typeof kasas;
-              };
-              if (data.kasaTransactions) {
-                useStore.setState({ kasaTransactions: data.kasaTransactions });
-              }
-              if (data.kasas) {
-                useStore.setState({ kasas: data.kasas });
-              }
+        if (!syncRes.ok) {
+          const errJson = (await syncRes.json().catch(() => ({}))) as { error?: string };
+          console.warn(
+            "[tron-sync] arka plan:",
+            errJson.error ?? `HTTP ${syncRes.status}`
+          );
+          failUntil.current = Date.now() + 15 * 60 * 1000;
+          return;
+        }
+        failUntil.current = 0;
+        const syncJson = (await syncRes.json()) as { imported?: number; ok?: boolean };
+        if ((syncJson.imported ?? 0) > 0) {
+          const boot = await fetch("/api/bootstrap", {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (boot.ok) {
+            const data = (await boot.json()) as {
+              kasaTransactions?: typeof kasaTransactions;
+              kasas?: typeof kasas;
+            };
+            if (data.kasaTransactions) {
+              useStore.setState({ kasaTransactions: data.kasaTransactions });
             }
-            await refreshNotificationsFromServer();
+            if (data.kasas) {
+              useStore.setState({ kasas: data.kasas });
+            }
           }
+          await refreshNotificationsFromServer();
         }
 
         await fetch("/api/kasa/tron-watch", {

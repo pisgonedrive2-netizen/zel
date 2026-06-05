@@ -18,6 +18,16 @@ import {
 } from "@/lib/merge-viewership-hydrate";
 import { isoToLocalDateOnly, localNoonTimestampIso, normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
+import {
+  buildPayrollLinePlan,
+  buildPayrollPaymentLines,
+  isPayrollFullyPaid,
+  markAllLinesPaid,
+  removeLinePaidRecord,
+  sumPaidPayrollLines,
+  upsertLinePaidRecord,
+  type PayrollLinePaidRecord,
+} from "@/lib/payroll-lines";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -99,6 +109,8 @@ export interface MonthPaymentStatus {
   approvedAt?: string;
   /** Bu maaş ödemesini temsil eden kasa hareketinin id'si (varsa). */
   kasaTxId?: string;
+  /** Kalem bazlı ödemeler (temel maaş, kira, prim vb.). */
+  linePayments?: import("@/lib/payroll-lines").PayrollLinePaidRecord[];
 }
 
 export interface ExternalCompany {
@@ -258,6 +270,16 @@ export interface BrandMonthlyStats {
   depositAmount: number;
   withdrawalAmount: number;
   currency: "TRY" | "USD" | "EUR";
+  /** Brüt oyun geliri (GGR). */
+  ggr?: number;
+  /** Net oyun geliri (NGR). */
+  ngr?: number;
+  /** Aktif oyuncu sayısı (aylık). */
+  activePlayers?: number;
+  /** Bonus maliyeti. */
+  bonusCost?: number;
+  /** Toplam affiliate komisyonu. */
+  commissionTotal?: number;
   /** Canlı yayın demo oyun bakiyesi — aylık tahsis. */
   liveDemoAllocated: number;
   /** Kalan demo bakiye (oyun için). */
@@ -298,6 +320,8 @@ export interface Brand {
   monthlyTarget?: number;
   /** Bağlı olduğu organizasyon (kiracı). Faz 0 multi-tenant. */
   organizationId?: string;
+  /** Onaylanan B2B başvurudan oluşturulduysa başvuru id — landing marquee'de gösterilmez. */
+  createdFromRequestId?: string;
 }
 
 export type OrgType = "agency" | "brand" | "network";
@@ -703,6 +727,8 @@ export interface StreamerPoolProfile {
   coverUrl?: string;
   status: "draft" | "published" | "paused" | "closed";
   visibility: "public" | "brand_only" | "invite_only";
+  igamingTags: string[];
+  restrictedMarkets: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -937,6 +963,23 @@ interface AppStore {
 
   /** "Geri al" — bağlı kasa hareketini siler, ödeme durumunu beklemeye çeker. */
   unpayEmployeeSalary: (employeeId: string, month: string) => void;
+
+  /** Tek bordro kalemini öde (temel maaş, kira, prim vb.). */
+  payPayrollLine: (args: {
+    employeeId: string;
+    month: string;
+    lineId: string;
+    amountUsd: number;
+    kasaId: string;
+    paidDate: string;
+    feeUsd?: number;
+    notes?: string;
+    proof?: string;
+    paidBy?: string;
+  }) => void;
+
+  /** Tek kalemin ödemesini geri al (kasa hareketi silinir). */
+  unpayPayrollLine: (employeeId: string, month: string, lineId: string) => void;
 
   // Company
   addCompany: (c: Omit<ExternalCompany, "id">) => void;
@@ -1963,7 +2006,7 @@ export function reconcileRentExtrasForAllEmployees(
 // Store implementasyonu
 // ─────────────────────────────────────────────────────────────────────────────
 
-const storeCreator: StateCreator<AppStore> = (set) => ({
+const storeCreator: StateCreator<AppStore> = (set, get) => ({
       employees:           initialEmployees,
       advances:            initialAdvances,
       salaryExtras:        initialSalaryExtras,
@@ -2145,14 +2188,16 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             s.kasas[0];
           if (!targetKasa) return {};
 
-          // Eski bir kasa hareketi varsa (önceki ödendi → geri al → yeniden öde
-          // akışı için), önce onu güvenli şekilde temizle.
           const existing = s.paymentStatuses.find(
             (p) => p.employeeId === employeeId && p.month === month
           );
-          const trimmedTx = existing?.kasaTxId
-            ? s.kasaTransactions.filter((t) => t.id !== existing.kasaTxId)
-            : s.kasaTransactions;
+          const lineTxIds = new Set(
+            (existing?.linePayments ?? [])
+              .map((lp) => lp.kasaTxId)
+              .filter((id): id is string => Boolean(id)),
+          );
+          if (existing?.kasaTxId) lineTxIds.add(existing.kasaTxId);
+          const trimmedTx = s.kasaTransactions.filter((t) => !lineTxIds.has(t.id));
 
           const txId = uid();
           const monthLabel = formatPayrollMonthLabel(month);
@@ -2163,22 +2208,35 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             direction: "out",
             amountUsd,
             feeUsd,
-            purpose: `${employee.name} · ${monthLabel} maaş ödemesi`,
+            purpose: `${employee.name} · ${monthLabel} maaş ödemesi (tüm kalemler)`,
             counterparty: employee.name,
             proof,
             notes,
           };
 
+          const plan = buildPayrollLinePlan(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+          );
+          const linePayments = markAllLinesPaid(
+            plan.map((p) => ({ ...p, paid: false })),
+            { paidDate, paidBy, kasaTxId: txId },
+          );
           const now = new Date().toISOString();
           const baseStatus: MonthPaymentStatus = {
             employeeId,
             month,
-            paid: true,
+            paid: plan.length === 0 || linePayments.length >= plan.length,
             paidDate,
             paidBy,
             approvedAt: now,
             kasaTxId: txId,
+            linePayments,
           };
+
           const paymentStatuses = existing
             ? s.paymentStatuses.map((p) =>
                 p.employeeId === employeeId && p.month === month ? baseStatus : p
@@ -2196,9 +2254,12 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
           const existing = s.paymentStatuses.find(
             (p) => p.employeeId === employeeId && p.month === month
           );
-          const kasaTransactions = existing?.kasaTxId
-            ? s.kasaTransactions.filter((t) => t.id !== existing.kasaTxId)
-            : s.kasaTransactions;
+          const removeIds = new Set<string>();
+          if (existing?.kasaTxId) removeIds.add(existing.kasaTxId);
+          for (const lp of existing?.linePayments ?? []) {
+            if (lp.kasaTxId) removeIds.add(lp.kasaTxId);
+          }
+          const kasaTransactions = s.kasaTransactions.filter((t) => !removeIds.has(t.id));
           const paymentStatuses = s.paymentStatuses.map((p) =>
             p.employeeId === employeeId && p.month === month
               ? {
@@ -2208,6 +2269,147 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
                   paidBy: undefined,
                   approvedAt: undefined,
                   kasaTxId: undefined,
+                  linePayments: [],
+                }
+              : p
+          );
+          return { kasaTransactions, paymentStatuses };
+        }),
+
+      payPayrollLine: ({
+        employeeId, month, lineId, amountUsd, kasaId, paidDate,
+        feeUsd = 0, notes = "", proof = "", paidBy,
+      }) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          const targetKasa =
+            s.kasas.find((k) => k.id === kasaId && !k.archived) ??
+            s.kasas.find((k) => k.isDefault && !k.archived) ??
+            s.kasas[0];
+          if (!targetKasa) return {};
+
+          const plan = buildPayrollLinePlan(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+          );
+          const line = plan.find((l) => l.lineId === lineId);
+          if (!line) return {};
+
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month
+          );
+          const prevLine = existing?.linePayments?.find((lp) => lp.lineId === lineId);
+          const trimmedTx = prevLine?.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== prevLine.kasaTxId)
+            : s.kasaTransactions;
+
+          const txId = uid();
+          const monthLabel = formatPayrollMonthLabel(month);
+          const newTx: KasaTransaction = {
+            id: txId,
+            kasaId: targetKasa.id,
+            date: `${paidDate}T00:00`,
+            direction: "out",
+            amountUsd,
+            feeUsd,
+            purpose: `${employee.name} · ${monthLabel} · ${line.label}`,
+            counterparty: employee.name,
+            proof,
+            notes,
+          };
+
+          const record: PayrollLinePaidRecord = {
+            lineId: line.lineId,
+            kind: line.kind,
+            label: line.label,
+            amountUsd,
+            refId: line.refId,
+            paid: true,
+            paidDate,
+            paidBy,
+            kasaTxId: txId,
+          };
+          const linePayments = upsertLinePaidRecord(
+            existing?.linePayments,
+            record,
+          );
+          const lines = buildPayrollPaymentLines(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            [{
+              employeeId,
+              month,
+              paid: false,
+              linePayments,
+            }],
+          );
+          const fullyPaid = isPayrollFullyPaid(lines);
+          const now = new Date().toISOString();
+          const baseStatus: MonthPaymentStatus = {
+            employeeId,
+            month,
+            paid: fullyPaid,
+            paidDate: fullyPaid ? paidDate : existing?.paidDate,
+            paidBy: fullyPaid ? paidBy : existing?.paidBy,
+            approvedAt: fullyPaid ? now : existing?.approvedAt,
+            kasaTxId: fullyPaid ? txId : existing?.kasaTxId,
+            linePayments,
+          };
+
+          const paymentStatuses = existing
+            ? s.paymentStatuses.map((p) =>
+                p.employeeId === employeeId && p.month === month ? baseStatus : p
+              )
+            : [...s.paymentStatuses, baseStatus];
+
+          return {
+            kasaTransactions: [...trimmedTx, newTx],
+            paymentStatuses,
+          };
+        }),
+
+      unpayPayrollLine: (employeeId, month, lineId) =>
+        set((s) => {
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month
+          );
+          if (!existing) return {};
+          const removed = existing.linePayments?.find((lp) => lp.lineId === lineId);
+          const kasaTransactions = removed?.kasaTxId
+            ? s.kasaTransactions.filter((t) => t.id !== removed.kasaTxId)
+            : s.kasaTransactions;
+          const linePayments = removeLinePaidRecord(existing.linePayments, lineId);
+          const employee = s.employees.find((e) => e.id === employeeId);
+          const fullyPaid = employee
+            ? isPayrollFullyPaid(
+                buildPayrollPaymentLines(
+                  employee,
+                  month,
+                  s.advances,
+                  s.salaryExtras,
+                  s.contentExpenses,
+                  [{ ...existing, paid: false, linePayments }],
+                ),
+              )
+            : false;
+
+          const paymentStatuses = s.paymentStatuses.map((p) =>
+            p.employeeId === employeeId && p.month === month
+              ? {
+                  ...p,
+                  paid: fullyPaid,
+                  paidDate: fullyPaid ? p.paidDate : undefined,
+                  paidBy: fullyPaid ? p.paidBy : undefined,
+                  approvedAt: fullyPaid ? p.approvedAt : undefined,
+                  kasaTxId: fullyPaid ? p.kasaTxId : undefined,
+                  linePayments,
                 }
               : p
           );
@@ -2547,6 +2749,11 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
             depositAmount: Math.max(0, Number(stats.depositAmount) || 0),
             withdrawalAmount: Math.max(0, Number(stats.withdrawalAmount) || 0),
             currency: stats.currency ?? "USD",
+            ggr: Math.max(0, Number(stats.ggr) || 0),
+            ngr: Math.max(0, Number(stats.ngr) || 0),
+            activePlayers: Math.max(0, Math.floor(stats.activePlayers || 0)),
+            bonusCost: Math.max(0, Number(stats.bonusCost) || 0),
+            commissionTotal: Math.max(0, Number(stats.commissionTotal) || 0),
             liveDemoAllocated: Math.max(0, Number(stats.liveDemoAllocated) || 0),
             liveDemoRemaining: Math.max(0, Number(stats.liveDemoRemaining) || 0),
             liveDemoNotes: stats.liveDemoNotes ?? "",
@@ -2688,26 +2895,47 @@ const storeCreator: StateCreator<AppStore> = (set) => ({
         flushKasaData();
         return { kasaTransactions: [...s.kasaTransactions, row] };
       }),
-      updateKasaTransaction: (id, t) => set((s) => {
-        const kasaTransactions = s.kasaTransactions.map((x) => (x.id === id ? { ...x, ...t } : x));
-        const row = kasaTransactions.find((x) => x.id === id);
-        if (row) persistKasaTxImmediate(row);
-        flushKasaData();
-        return { kasaTransactions };
-      }),
-      bulkSetKasaCountInGenel: (ids, include) => set((s) => {
-        const idSet = new Set(ids);
-        if (idSet.size === 0) return {};
-        const kasaTransactions = s.kasaTransactions.map((x) =>
-          idSet.has(x.id) ? { ...x, countInGenel: include } : x
-        );
-        if (isSupabaseClientMode()) {
-          const list = Array.from(idSet);
-          queueMicrotask(() => void bulkUpdateKasaCountInGenel(list, include));
+      updateKasaTransaction: (id, t) => {
+        const onlyCountInGenel =
+          t.countInGenel !== undefined &&
+          Object.keys(t).length === 1;
+        if (onlyCountInGenel) {
+          get().bulkSetKasaCountInGenel([id], Boolean(t.countInGenel));
+          return;
         }
-        flushKasaData();
-        return { kasaTransactions };
-      }),
+        set((s) => {
+          const prev = s.kasaTransactions.find((x) => x.id === id);
+          if (!prev) return {};
+          const row = { ...prev, ...t };
+          const kasaTransactions = s.kasaTransactions.map((x) =>
+            x.id === id ? row : x
+          );
+          if (isSupabaseClientMode()) {
+            persistKasaTxImmediate(row);
+            flushKasaData();
+          }
+          return { kasaTransactions };
+        });
+      },
+      bulkSetKasaCountInGenel: (ids, include) => {
+        const idSet = new Set(ids.filter(Boolean));
+        if (idSet.size === 0) return;
+        set((s) => ({
+          kasaTransactions: s.kasaTransactions.map((x) =>
+            idSet.has(x.id) ? { ...x, countInGenel: include } : x
+          ),
+        }));
+        if (!isSupabaseClientMode()) return;
+        const list = Array.from(idSet);
+        void bulkUpdateKasaCountInGenel(list, include).then((r) => {
+          if (r.ok) return;
+          set((s) => ({
+            kasaTransactions: s.kasaTransactions.map((x) =>
+              idSet.has(x.id) ? { ...x, countInGenel: !include } : x
+            ),
+          }));
+        });
+      },
       deleteKasaTransaction: (id)    => {
         if (isSupabaseClientMode()) {
           queueMicrotask(() => void removeKasaTransaction(id));
@@ -3410,9 +3638,21 @@ export function salaryPaidOutForMonth(
   month: string,
   advances: Advance[],
   extras: SalaryExtra[],
-  paymentStatuses: MonthPaymentStatus[]
+  paymentStatuses: MonthPaymentStatus[],
+  contentExpenses: ContentExpense[] = [],
 ): number {
   if (!isPayrollActive(employee, month)) return 0;
+  const lines = buildPayrollPaymentLines(
+    employee,
+    month,
+    advances,
+    extras,
+    contentExpenses,
+    paymentStatuses,
+  );
+  if (lines.length > 0 && lines.some((l) => l.paid)) {
+    return sumPaidPayrollLines(lines);
+  }
   const st = paymentStatuses.find((p) => p.employeeId === employee.id && p.month === month);
   if (!st?.paid) return 0;
   return calcNetPayable(employee, month, advances, extras, paymentStatuses);

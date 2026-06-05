@@ -46,6 +46,10 @@ export function AchievementBrandSyncBar({
     try {
       const res = await syncMarkaAchievementFromAccounts(brandId, employeeId);
       if (res.reels?.length) mergeBrandReelsIntoStore(res.reels, brandId);
+      if (res.warning) {
+        setHint(res.warning);
+        return;
+      }
       const s = res.summary;
       if (s) {
         setHint(
@@ -56,7 +60,6 @@ export function AchievementBrandSyncBar({
       } else {
         setHint("Senkron tamamlandı.");
       }
-      if (res.warning) setHint((h) => (h ? `${h} · ${res.warning}` : res.warning ?? null));
     } catch (err) {
       setHint(err instanceof Error ? err.message : "Senkron başarısız");
     } finally {

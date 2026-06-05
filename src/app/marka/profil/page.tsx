@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Building2, Check, Eye, Loader2, Save, Target } from "lucide-react";
+import { Building2, Check, Eye, Loader2, Save, Target, Globe, Shield } from "lucide-react";
 import { useStore } from "@/store/store";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Textarea, FormGrid } from "@/components/ui/field";
+import { fetchIgamingProfile, saveIgamingProfile } from "@/lib/brand-igaming-api";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -28,6 +29,7 @@ export default function MarkaProfilPage() {
   const updateBrand = useStore((s) => s.updateBrand);
 
   const [form, setForm] = useState({ name: "", shortName: "", category: "", notes: "" });
+  const [igaming, setIgaming] = useState({ licenseJurisdiction: "", restrictedGeos: "", timezone: "Europe/Istanbul", defaultCurrency: "USD" });
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,19 @@ export default function MarkaProfilPage() {
       });
     }
   }, [brand]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    void fetchIgamingProfile(brandId).then((p) => {
+      if (!p) return;
+      setIgaming({
+        licenseJurisdiction: p.licenseJurisdiction ?? "",
+        restrictedGeos: (p.restrictedGeos ?? []).join(", "),
+        timezone: String(p.igamingSettings?.timezone ?? "Europe/Istanbul"),
+        defaultCurrency: String(p.igamingSettings?.defaultCurrency ?? "USD"),
+      });
+    }).catch(() => {});
+  }, [brandId]);
 
   const dirty = useMemo(() => {
     if (!brand) return false;
@@ -92,6 +107,24 @@ export default function MarkaProfilPage() {
       setSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kayıt başarısız");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveIgaming = async () => {
+    if (!brandId || readOnly) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await saveIgamingProfile(brandId, {
+        licenseJurisdiction: igaming.licenseJurisdiction.trim(),
+        restrictedGeos: igaming.restrictedGeos.split(",").map((g) => g.trim()).filter(Boolean),
+        igamingSettings: { timezone: igaming.timezone, defaultCurrency: igaming.defaultCurrency },
+      });
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "iGaming ayarları kaydedilemedi");
     } finally {
       setBusy(false);
     }
@@ -229,6 +262,36 @@ export default function MarkaProfilPage() {
                   <Button type="button" onClick={() => void save()} disabled={busy || !dirty} className="gap-1.5">
                     {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                     Kaydet
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2"><Shield size={16} /> iGaming ayarları</CardTitle>
+              <CardDescription>Lisans, kısıtlı coğrafyalar ve operasyonel tercihler.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <FormGrid>
+                <Field label="Lisans yargı alanı">
+                  <Input value={igaming.licenseJurisdiction} onChange={(e) => setIgaming((f) => ({ ...f, licenseJurisdiction: e.target.value }))} placeholder="Malta, Curaçao, UK…" disabled={readOnly} />
+                </Field>
+                <Field label="Kısıtlı ülkeler" hint="Virgülle ayırın (ISO kod)">
+                  <Input value={igaming.restrictedGeos} onChange={(e) => setIgaming((f) => ({ ...f, restrictedGeos: e.target.value }))} placeholder="US, FR, DE" disabled={readOnly} />
+                </Field>
+                <Field label="Saat dilimi">
+                  <Input value={igaming.timezone} onChange={(e) => setIgaming((f) => ({ ...f, timezone: e.target.value }))} disabled={readOnly} />
+                </Field>
+                <Field label="Varsayılan para birimi">
+                  <Input value={igaming.defaultCurrency} onChange={(e) => setIgaming((f) => ({ ...f, defaultCurrency: e.target.value }))} disabled={readOnly} />
+                </Field>
+              </FormGrid>
+              {!readOnly && (
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" onClick={() => void saveIgaming()} disabled={busy} className="gap-1.5">
+                    <Globe size={14} /> iGaming kaydet
                   </Button>
                 </div>
               )}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Download,
   FileSpreadsheet,
@@ -63,6 +63,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import { BrandRiskSummary } from "@/components/marka-igaming/brand-risk-summary";
+import { useBrandIgaming } from "@/hooks/use-brand-igaming";
 
 export default function MarkaOperasyonPage() {
   const {
@@ -78,6 +80,8 @@ export default function MarkaOperasyonPage() {
   const { user, brandId, brand, month, navMonth, canViewBrand, monthTitle, isAdminView } = portal;
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const izlenmeHref = markaHref("/marka/izlenmeler", month);
+  const [granularity, setGranularity] = useState<"monthly" | "weekly" | "daily">("monthly");
+  const { compliance } = useBrandIgaming(brandId, month);
 
   const statsRow = brandId
     ? findBrandMonthlyStats(brandMonthlyStats, brandId, month)
@@ -109,6 +113,16 @@ export default function MarkaOperasyonPage() {
     [prevStatsRow, prevHasStats, prevMonthExpense]
   );
   const liveDemo = statsRow ? deriveLiveDemoUsage(statsRow) : null;
+
+  const riskSignals = useMemo(() => {
+    if (!metrics || !prevMetrics) return { depositSpike: false, withdrawalSpike: false };
+    const depDelta = computeDelta(metrics.totalDeposit, prevMetrics.totalDeposit);
+    const wdrDelta = computeDelta(metrics.totalWithdrawal, prevMetrics.totalWithdrawal);
+    return {
+      depositSpike: depDelta?.pct != null && depDelta.pct >= 40,
+      withdrawalSpike: wdrDelta?.pct != null && wdrDelta.pct >= 40,
+    };
+  }, [metrics, prevMetrics]);
 
   const insights = useMemo(
     () => (metrics && liveDemo ? generateOperationInsights(metrics, prevMetrics, liveDemo) : []),
@@ -196,6 +210,83 @@ export default function MarkaOperasyonPage() {
           </div>
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Granülarite:{" "}
+              <span className="font-medium text-foreground">
+                {granularity === "monthly" ? "Aylık" : granularity === "weekly" ? "Haftalık" : "Günlük"}
+              </span>
+              {granularity !== "monthly" && (
+                <span className="ml-1 text-muted-foreground/80">
+                  (brand_player_events API hazır olunca aktif)
+                </span>
+              )}
+            </p>
+            <div className="flex rounded-lg border border-border p-0.5">
+              {(
+                [
+                  ["monthly", "Aylık"],
+                  ["weekly", "Haftalık"],
+                  ["daily", "Günlük"],
+                ] as const
+              ).map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={granularity === value ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  onClick={() => setGranularity(value)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BrandRiskSummary
+              complianceChecks={compliance}
+              depositSpike={riskSignals.depositSpike}
+              withdrawalSpike={riskSignals.withdrawalSpike}
+            />
+            {statsRow && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">iGaming derinlik</CardTitle>
+                  <CardDescription>
+                    GGR, NGR, aktif oyuncu ve bonus maliyeti — {monthTitle}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-3">
+                    <DepthStat
+                      label="GGR"
+                      value={fmtBrandMoney(statsRow.ggr ?? 0, cur)}
+                      delta={computeDelta(statsRow.ggr ?? 0, prevStatsRow?.ggr)}
+                    />
+                    <DepthStat
+                      label="NGR"
+                      value={fmtBrandMoney(statsRow.ngr ?? 0, cur)}
+                      delta={computeDelta(statsRow.ngr ?? 0, prevStatsRow?.ngr)}
+                    />
+                    <DepthStat
+                      label="Aktif oyuncu"
+                      value={fmtBrandCount(statsRow.activePlayers ?? 0)}
+                      delta={computeDelta(statsRow.activePlayers ?? 0, prevStatsRow?.activePlayers)}
+                    />
+                    <DepthStat
+                      label="Bonus maliyeti"
+                      value={fmtBrandMoney(statsRow.bonusCost ?? 0, cur)}
+                      delta={computeDelta(statsRow.bonusCost ?? 0, prevStatsRow?.bonusCost)}
+                      invertDelta
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
           <MarkaContentOverviewCard
             brandId={brandId}
@@ -537,6 +628,28 @@ function DeltaBadge({
       <Icon size={11} />
       {label}
     </span>
+  );
+}
+
+function DepthStat({
+  label,
+  value,
+  delta,
+  invertDelta,
+}: {
+  label: string;
+  value: string;
+  delta?: MetricDelta | null;
+  invertDelta?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-border/80 bg-muted/25 px-3 py-2.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <p className="text-lg font-bold tabular-nums">{value}</p>
+        <DeltaBadge delta={delta} invert={invertDelta} />
+      </div>
+    </div>
   );
 }
 

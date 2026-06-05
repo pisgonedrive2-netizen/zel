@@ -2,9 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowRight, ArrowLeft, Check, Loader2, Rocket, Building2, Palette, Target,
+  Shield, Plug, TrendingUp, Send,
 } from "lucide-react";
+import { fetchOnboardingProgress, saveOnboardingStep } from "@/lib/brand-igaming-api";
+import { ONBOARDING_STEPS } from "@/types/brand-igaming";
 import { useAuth } from "@/store/auth";
 import { useStore, type Organization } from "@/store/store";
 import { Button } from "@/components/ui/button";
@@ -46,6 +50,7 @@ export default function MarkaOnboardingPage() {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [igamingSteps, setIgamingSteps] = useState<Array<{ key: string; label: string; href: string; done: boolean }>>([]);
   const [form, setForm] = useState({
     name: "",
     primaryColor: "#FF6B00",
@@ -73,6 +78,12 @@ export default function MarkaOnboardingPage() {
   useEffect(() => {
     if (org && org.onboardingCompleted) router.replace("/marka/anasayfa");
   }, [org, router]);
+
+  useEffect(() => {
+    const bid = user?.brandId ?? brand?.id;
+    if (!bid) return;
+    void fetchOnboardingProgress(bid).then((r) => setIgamingSteps(r.steps)).catch(() => setIgamingSteps(ONBOARDING_STEPS.map((s) => ({ ...s, done: false }))));
+  }, [user?.brandId, brand?.id]);
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => {
     setForm((f) => ({ ...f, [k]: v }));
@@ -107,6 +118,10 @@ export default function MarkaOnboardingPage() {
             : b
         ),
       }));
+      const bid = user?.brandId ?? brand?.id;
+      if (bid) {
+        await saveOnboardingStep(bid, "license_info", true).catch(() => {});
+      }
       router.replace("/marka/anasayfa");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kaydedilemedi");
@@ -244,11 +259,15 @@ export default function MarkaOnboardingPage() {
                 <SummaryRow label="Aylık hedef" value={form.brandMonthlyTarget ? form.brandMonthlyTarget.toLocaleString("tr-TR") : "—"} />
                 <SummaryRow label="Para birimi" value={form.defaultCurrency} />
                 <SummaryRow label="Saat dilimi" value={form.timezone} />
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-muted-foreground">Tema</span>
-                  <span className="h-4 w-4 rounded-full" style={{ background: form.primaryColor }} />
-                  <span className="font-mono text-xs">{form.primaryColor}</span>
-                </div>
+              </div>
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <p className="text-sm font-medium">iGaming program checklist</p>
+                {(igamingSteps.length ? igamingSteps : ONBOARDING_STEPS.map((s) => ({ ...s, done: false }))).map((s) => (
+                  <div key={s.key} className="flex items-center justify-between text-sm">
+                    <Link href={s.href} className="text-primary underline">{s.label}</Link>
+                    {s.done ? <Check size={14} className="text-green-600" /> : <span className="text-xs text-muted-foreground">Bekliyor</span>}
+                  </div>
+                ))}
               </div>
               {error && (
                 <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">

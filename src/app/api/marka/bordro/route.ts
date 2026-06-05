@@ -8,14 +8,22 @@ import {
   hasOrgCapability,
   writeAudit,
 } from "@/lib/org-access";
+import { findBrandStaffById } from "@/lib/db/brand-personnel-repo";
 import {
   fetchBrandPayrollItems,
+  fetchBrandPayrollComponentPayments,
   findBrandPayrollItemById,
   upsertBrandPayrollItem,
+  upsertBrandPayrollComponentPayment,
   deleteBrandPayrollItem,
   setStaffMonthPaid,
 } from "@/lib/db/brand-payroll-repo";
-import type { BrandPayrollItem, PayrollItemType, StaffCurrency } from "@/types/brand-personnel";
+import type {
+  BrandPayrollItem,
+  PayrollComponentKey,
+  PayrollItemType,
+  StaffCurrency,
+} from "@/types/brand-personnel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +31,9 @@ export const dynamic = "force-dynamic";
 const CURRENCY: readonly StaffCurrency[] = ["USD", "EUR", "TRY"];
 const PAYROLL_TYPES: readonly PayrollItemType[] = [
   "advance", "bonus", "deduction", "rent", "meal", "other",
+];
+const PAYROLL_COMPONENTS: readonly PayrollComponentKey[] = [
+  "base_salary", "rent", "meal",
 ];
 function pick<T extends string>(v: unknown, allowed: readonly T[], fb: T): T {
   const s = String(v ?? "");
@@ -53,11 +64,15 @@ export async function GET(req: Request) {
   const guard = ensureBrandAccess(session, requested ?? null, "read");
   if (guard) return guard;
   try {
-    const items = await fetchBrandPayrollItems(
-      scopeIds(session, requested),
-      isMonth(month) ? month : undefined,
-    );
-    return NextResponse.json({ items });
+    const ids = scopeIds(session, requested);
+    const monthFilter = isMonth(month) ? month : undefined;
+    if (url.searchParams.get("components") === "1") {
+      const components = await fetchBrandPayrollComponentPayments(ids, monthFilter);
+      return NextResponse.json({ components });
+    }
+    const items = await fetchBrandPayrollItems(ids, monthFilter);
+    const components = await fetchBrandPayrollComponentPayments(ids, monthFilter);
+    return NextResponse.json({ items, components });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Bordro verisi alınamadı";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -84,6 +99,30 @@ export async function POST(req: Request) {
   const today = now.slice(0, 10);
 
   try {
+    if (body.kind === "mark_component") {
+      const staffId = String(body.staffId ?? "").trim();
+      const month = String(body.month ?? "").trim();
+      const component = pick(body.component, PAYROLL_COMPONENTS, "base_salary");
+      if (!staffId || !isMonth(month)) {
+        return NextResponse.json({ error: "staffId ve geçerli month gerekli" }, { status: 400 });
+      }
+      const paid = body.paid !== false;
+      await upsertBrandPayrollComponentPayment({
+        brandId,
+        staffId,
+        month,
+        component,
+        paid,
+        paidDate: paid ? today : undefined,
+      });
+      await writeAudit(
+        session,
+        "brand_payroll_component_mark",
+        `staff=${staffId} brand=${brandId} month=${month} ${component} paid=${paid}`,
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     // Bir personelin ay bazlı tüm kalemlerini ödendi/bekliyor işaretle.
     if (body.kind === "mark_paid") {
       const staffId = String(body.staffId ?? "").trim();
@@ -93,6 +132,26 @@ export async function POST(req: Request) {
       }
       const paid = body.paid !== false;
       await setStaffMonthPaid(brandId, staffId, month, paid, paid ? today : null);
+      const staff = await findBrandStaffById(staffId);
+      if (staff && staff.brandId === brandId) {
+        const comps: { key: PayrollComponentKey; amount: number }[] = [];
+        if ((staff.baseSalary ?? 0) > 0) comps.push({ key: "base_salary", amount: staff.baseSalary! });
+        if ((staff.rentSupport ?? 0) > 0) comps.push({ key: "rent", amount: staff.rentSupport! });
+        if ((staff.mealAllowance ?? 0) > 0) comps.push({ key: "meal", amount: staff.mealAllowance! });
+        if (comps.length === 0 && staff.monthlyCost > 0) {
+          comps.push({ key: "base_salary", amount: staff.monthlyCost });
+        }
+        for (const c of comps) {
+          await upsertBrandPayrollComponentPayment({
+            brandId,
+            staffId,
+            month,
+            component: c.key,
+            paid,
+            paidDate: paid ? today : undefined,
+          });
+        }
+      }
       await writeAudit(session, "brand_payroll_mark_paid", `staff=${staffId} brand=${brandId} month=${month} paid=${paid}`);
       return NextResponse.json({ ok: true });
     }

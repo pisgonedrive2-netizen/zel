@@ -78,6 +78,7 @@ export default function MarkaFaturalarPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<InvoiceForm>(emptyInvoice);
   const [busy, setBusy] = useState(false);
+  const [linePreview, setLinePreview] = useState("Örnek kalem: Affiliate komisyon · 1 × $500");
 
   const [cur, setCur] = useState<AccCurrency>("USD");
   const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>("all");
@@ -423,6 +424,9 @@ export default function MarkaFaturalarPage() {
               </p>
             )}
             <Field label="Notlar"><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} /></Field>
+            <Field label="Fatura kalemleri" hint="Kayıt sonrası kalem detayı eklenebilir (brand_invoice_lines)">
+              <Input value={linePreview} onChange={(e) => setLinePreview(e.target.value)} placeholder="Açıklama · adet × birim fiyat" />
+            </Field>
             <FormActions onCancel={() => setOpen(false)} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
           </form>
         </Modal>

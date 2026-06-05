@@ -106,7 +106,29 @@ export function salaryExtraToRow(e: SalaryExtra) {
   };
 }
 
+function parseLinePayments(raw: unknown): MonthPaymentStatus["linePayments"] {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((x) => x && typeof x === "object")
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      return {
+        lineId: str(o.lineId ?? o.line_id),
+        kind: str(o.kind) as import("@/lib/payroll-lines").PayrollLineKind,
+        label: str(o.label),
+        amountUsd: Number(o.amountUsd ?? o.amount_usd) || 0,
+        refId: o.refId || o.ref_id ? str(o.refId ?? o.ref_id) : undefined,
+        paid: o.paid === true || o.paid === "true",
+        paidDate: o.paidDate || o.paid_date ? str(o.paidDate ?? o.paid_date).slice(0, 10) : undefined,
+        paidBy: o.paidBy || o.paid_by ? str(o.paidBy ?? o.paid_by) : undefined,
+        kasaTxId: o.kasaTxId || o.kasa_tx_id ? str(o.kasaTxId ?? o.kasa_tx_id) : undefined,
+      };
+    })
+    .filter((r) => r.lineId && r.paid);
+}
+
 export function paymentStatusFromRow(r: Record<string, unknown>): MonthPaymentStatus {
+  const linePayments = parseLinePayments(r.line_payments);
   return {
     employeeId: str(r.employee_id),
     month: str(r.month),
@@ -115,6 +137,7 @@ export function paymentStatusFromRow(r: Record<string, unknown>): MonthPaymentSt
     paidBy: r.paid_by ? str(r.paid_by) : undefined,
     approvedAt: r.approved_at ? str(r.approved_at) : undefined,
     kasaTxId: r.kasa_tx_id ? str(r.kasa_tx_id) : undefined,
+    linePayments: linePayments?.length ? linePayments : undefined,
   };
 }
 
@@ -127,6 +150,7 @@ export function paymentStatusToRow(p: MonthPaymentStatus) {
     paid_by: p.paidBy ?? null,
     approved_at: p.approvedAt ?? null,
     kasa_tx_id: p.kasaTxId ?? null,
+    line_payments: p.linePayments?.length ? p.linePayments : [],
   };
 }
 
@@ -412,6 +436,9 @@ export function brandFromRow(r: Record<string, unknown>): Brand {
     notes: str(r.notes),
     monthlyTarget: r.monthly_target != null ? Number(r.monthly_target) : undefined,
     organizationId: r.organization_id ? str(r.organization_id) : undefined,
+    createdFromRequestId: r.created_from_request_id
+      ? str(r.created_from_request_id)
+      : undefined,
   };
 }
 
@@ -622,6 +649,11 @@ export function brandMonthlyStatsFromRow(r: Record<string, unknown>): BrandMonth
     depositAmount: num(r.deposit_amount),
     withdrawalAmount: num(r.withdrawal_amount),
     currency: cur === "TRY" || cur === "EUR" ? cur : "USD",
+    ggr: num(r.ggr),
+    ngr: num(r.ngr),
+    activePlayers: Number(r.active_players ?? 0),
+    bonusCost: num(r.bonus_cost),
+    commissionTotal: num(r.commission_total),
     liveDemoAllocated: num(r.live_demo_allocated),
     liveDemoRemaining: num(r.live_demo_remaining),
     liveDemoNotes: str(r.live_demo_notes),
@@ -643,6 +675,11 @@ export function brandMonthlyStatsToRow(s: BrandMonthlyStats) {
     deposit_amount: s.depositAmount,
     withdrawal_amount: s.withdrawalAmount,
     currency: s.currency,
+    ggr: s.ggr ?? 0,
+    ngr: s.ngr ?? 0,
+    active_players: s.activePlayers ?? 0,
+    bonus_cost: s.bonusCost ?? 0,
+    commission_total: s.commissionTotal ?? 0,
     live_demo_allocated: s.liveDemoAllocated ?? 0,
     live_demo_remaining: s.liveDemoRemaining ?? 0,
     live_demo_notes: s.liveDemoNotes ?? "",
@@ -1303,6 +1340,8 @@ export function streamerPoolProfileFromRow(r: Record<string, unknown>): Streamer
     coverUrl: r.cover_url ? str(r.cover_url) : undefined,
     status: pickEnum(r.status, ALLOWED_POOL_STATUS, "draft"),
     visibility: pickEnum(r.visibility, ALLOWED_POOL_VISIBILITY, "public"),
+    igamingTags: toStringArray(r.igaming_tags),
+    restrictedMarkets: toStringArray(r.restricted_markets),
     createdAt: str(r.created_at),
     updatedAt: str(r.updated_at),
   };
@@ -1327,6 +1366,8 @@ export function streamerPoolProfileToRow(p: StreamerPoolProfile) {
     cover_url: p.coverUrl ?? null,
     status: p.status,
     visibility: p.visibility,
+    igaming_tags: p.igamingTags ?? [],
+    restricted_markets: p.restrictedMarkets ?? [],
   };
 }
 

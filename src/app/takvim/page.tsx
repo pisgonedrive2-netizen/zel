@@ -23,6 +23,7 @@ import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin
 import { StreamerOperationsHub } from "@/components/takvim/streamer-operations-hub";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
+import { syncStreamerAchievementFromAccounts } from "@/lib/achievement-api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -293,7 +294,47 @@ export default function TakvimPage() {
   const [fullscreen, setFullscreen] = useState(false);
   // Takvim saat dilimi — saatler Türkiye saatinde saklanır, seçilen ülkeye çevrilir.
   const [tz, setTz] = useState(BASE_TIMEZONE);
+  const [accountSyncEmpId, setAccountSyncEmpId] = useState<string | null>(null);
   const tt = (hhmm: string) => formatConverted(convertFromBase(hhmm, tz));
+
+  const isPersonalSocialPlatform = (platform: string) => {
+    const p = platform.toLowerCase();
+    return p.includes("youtube") || p.includes("instagram") || p.includes("tiktok");
+  };
+
+  const kontrolPersonalAccounts = async (empId: string) => {
+    setAccountSyncEmpId(empId);
+    try {
+      const res = await syncStreamerAchievementFromAccounts(empId);
+      const reels = res.reels ?? [];
+      if (reels.length > 0) {
+        useStore.setState((s) => {
+          const others = s.weekBrandReels.filter((r) => r.employeeId !== empId);
+          const byId = new Map(others.map((r) => [r.id, r]));
+          for (const r of reels) byId.set(r.id, r);
+          return { weekBrandReels: [...byId.values()] };
+        });
+      }
+      if (res.warning) {
+        window.alert(res.warning);
+      } else if (res.summary) {
+        window.alert(
+          `${res.summary.synced} içerik · ${res.summary.attempted} hesap` +
+            (res.summary.failed > 0 ? ` · ${res.summary.failed} hata` : "")
+        );
+      }
+      setPlanEmpId(empId);
+      setTimeout(() => {
+        document
+          .getElementById("plan-achievement")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Kontrol başarısız");
+    } finally {
+      setAccountSyncEmpId(null);
+    }
+  };
 
   // Bildirimden gelen yönlendirme: /takvim?employee=ID&week=YYYY-MM-DD
   const searchParams = useSearchParams();
@@ -774,15 +815,32 @@ export default function TakvimPage() {
                     </div>
                   </div>
                 </button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 text-xs gap-1 shrink-0"
-                  onClick={() => setAccountModal({ mode: "new", employeeId: emp.id })}
-                >
-                  <Plus size={12} /> Hesap
-                </Button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {allAccounts.some(
+                    (a) => a.status === "active" && isPersonalSocialPlatform(a.platform)
+                  ) && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] gap-1"
+                      disabled={accountSyncEmpId === emp.id}
+                      title="YouTube / Instagram / TikTok ana hesaplarını API ile kontrol et"
+                      onClick={() => void kontrolPersonalAccounts(emp.id)}
+                    >
+                      {accountSyncEmpId === emp.id ? "…" : "Kontrol et"}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => setAccountModal({ mode: "new", employeeId: emp.id })}
+                  >
+                    <Plus size={12} /> Hesap
+                  </Button>
+                </div>
               </CardHeader>
 
               {accounts.length > 0 && (
@@ -916,6 +974,7 @@ export default function TakvimPage() {
               <AchievementLinkSyncBar
                 employeeId={planEmployeeId}
                 employeeName={planStreamerName}
+                onSynced={() => setPlanEmpId(planEmployeeId)}
               />
               <PostActivityCalendar
                 embedded

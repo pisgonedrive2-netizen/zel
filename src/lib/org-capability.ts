@@ -9,7 +9,15 @@
 import { READ_ONLY_ORG_ROLES, TEAM_MANAGER_ORG_ROLES } from "@/lib/org-roles";
 import type { OrgRole } from "@/store/store";
 
-export type OrgCapability = "finance" | "hr" | "crm" | "team";
+export type OrgCapability =
+  | "finance"
+  | "hr"
+  | "crm"
+  | "team"
+  | "compliance"
+  | "affiliate_api"
+  | "streamer_contracts"
+  | "bonus_ops";
 
 /**
  * Marka kullanıcısının org rolüne göre bir modülü GÖRÜP göremeyeceği (nav görünürlüğü).
@@ -34,6 +42,15 @@ export function clientHasOrgCapability(
   if (capability === "finance") return orgRole === "finance";
   if (capability === "hr") return orgRole === "hr";
   if (capability === "crm") return orgRole === "marketing" || orgRole === "finance";
+  if (capability === "compliance") {
+    return orgRole === "marketing" || orgRole === "admin" || orgRole === "owner";
+  }
+  if (capability === "affiliate_api" || capability === "bonus_ops") {
+    return orgRole === "marketing" || orgRole === "finance" || orgRole === "admin" || orgRole === "owner";
+  }
+  if (capability === "streamer_contracts") {
+    return orgRole === "marketing" || orgRole === "hr" || orgRole === "admin" || orgRole === "owner";
+  }
   return false;
 }
 

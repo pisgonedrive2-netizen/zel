@@ -108,7 +108,15 @@ export function brandWriteFilter(
 /** org_role bazlı yetki: belirli modüllere kimler yazabilir? */
 export function hasOrgCapability(
   session: SessionPayload,
-  capability: "finance" | "hr" | "crm" | "admin"
+  capability:
+    | "finance"
+    | "hr"
+    | "crm"
+    | "admin"
+    | "compliance"
+    | "affiliate_api"
+    | "streamer_contracts"
+    | "bonus_ops"
 ): boolean {
   if (session.role === "admin") return true;
   if (session.role !== "brand") return false;
@@ -120,6 +128,15 @@ export function hasOrgCapability(
   if (capability === "finance") return role === "finance";
   if (capability === "hr") return role === "hr";
   if (capability === "crm") return role === "marketing" || role === "finance";
+  if (capability === "compliance") {
+    return role === "marketing" || role === "admin" || role === "owner";
+  }
+  if (capability === "affiliate_api" || capability === "bonus_ops") {
+    return role === "marketing" || role === "finance" || role === "admin" || role === "owner";
+  }
+  if (capability === "streamer_contracts") {
+    return role === "marketing" || role === "hr" || role === "admin" || role === "owner";
+  }
   return false;
 }
 

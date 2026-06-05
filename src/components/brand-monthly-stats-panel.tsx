@@ -128,6 +128,11 @@ export function BrandMonthlyStatsPanel({
       depositCount: parseIntField(String(form.depositCount)),
       depositAmount: parseMoneyField(String(form.depositAmount)),
       withdrawalAmount: parseMoneyField(String(form.withdrawalAmount)),
+      ggr: parseMoneyField(String(form.ggr ?? 0)),
+      ngr: parseMoneyField(String(form.ngr ?? 0)),
+      activePlayers: parseIntField(String(form.activePlayers ?? 0)),
+      bonusCost: parseMoneyField(String(form.bonusCost ?? 0)),
+      commissionTotal: parseMoneyField(String(form.commissionTotal ?? 0)),
       currency: form.currency,
       liveDemoAllocated: parseMoneyField(String(form.liveDemoAllocated)),
       liveDemoRemaining: parseMoneyField(String(form.liveDemoRemaining)),
@@ -461,6 +466,66 @@ export function BrandMonthlyStatsPanel({
                       ...f,
                       withdrawalAmount: parseMoneyField(e.target.value),
                     }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  GGR ({currencySymbol(form.currency)})
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.ggr || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ggr: parseMoneyField(e.target.value) }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  NGR ({currencySymbol(form.currency)})
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.ngr || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, ngr: parseMoneyField(e.target.value) }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">Aktif oyuncu</label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.activePlayers || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      activePlayers: parseIntField(e.target.value),
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Bonus maliyeti ({currencySymbol(form.currency)})
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-8 mt-1 text-sm tabular-nums"
+                  value={form.bonusCost || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, bonusCost: parseMoneyField(e.target.value) }))
                   }
                 />
               </div>

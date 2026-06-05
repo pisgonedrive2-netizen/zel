@@ -120,19 +120,29 @@ export default function MarkaMuhasebePage() {
   const pnl = useMemo(() => {
     let income = 0;
     let expense = 0;
+    let ggr = 0;
+    let bonusCost = 0;
+    let affiliateCommission = 0;
+    let influencerCogs = 0;
     const byCat: Record<string, number> = {};
     for (const e of ledger) {
       if (e.currency !== cur) continue;
       if (scope === "month" && ym(e.entryDate) !== month) continue;
       if (e.direction === "income") {
         income += e.amount;
+        const cat = e.category.toLowerCase();
+        if (cat.includes("ggr") || cat.includes("operatör geliri")) ggr += e.amount;
       } else {
         expense += e.amount;
         byCat[e.category || "Diğer"] = (byCat[e.category || "Diğer"] ?? 0) + e.amount;
+        const cat = e.category.toLowerCase();
+        if (cat.includes("bonus")) bonusCost += e.amount;
+        else if (cat.includes("affiliate")) affiliateCommission += e.amount;
+        else if (cat.includes("yayıncı") || cat.includes("influencer")) influencerCogs += e.amount;
       }
     }
     const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-    return { income, expense, net: income - expense, cats };
+    return { income, expense, net: income - expense, cats, ggr, bonusCost, affiliateCommission, influencerCogs };
   }, [ledger, cur, scope, month]);
 
   // Son 6 ay trendi (seçili para birimi)
@@ -355,6 +365,30 @@ export default function MarkaMuhasebePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* iGaming P&L kırılımı */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">iGaming P&L kırılımı</CardTitle>
+            <CardDescription>{scope === "month" ? monthTitle : "Tüm zamanlar"} · {cur}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+              {[
+                { label: "GGR / operatör geliri", value: pnl.ggr, tone: "text-green-600" },
+                { label: "Bonus maliyeti", value: pnl.bonusCost, tone: "text-red-600" },
+                { label: "Affiliate komisyon", value: pnl.affiliateCommission, tone: "text-red-600" },
+                { label: "Influencer COGS", value: pnl.influencerCogs, tone: "text-red-600" },
+              ].map((row) => (
+                <div key={row.label} className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">{row.label}</p>
+                  <p className={`font-semibold tabular-nums ${row.tone}`}>{CUR_SYMBOL[cur]}{fmt(row.value)}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">Net: {CUR_SYMBOL[cur]}{fmt(pnl.net)} (gelir − gider)</p>
+          </CardContent>
+        </Card>
 
         {/* Kategori kırılımı + trend */}
         <div className="grid gap-3 lg:grid-cols-2">

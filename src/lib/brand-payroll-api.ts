@@ -1,4 +1,9 @@
-import type { BrandDepartment, BrandPayrollItem } from "@/types/brand-personnel";
+import type {
+  BrandDepartment,
+  BrandPayrollComponentPayment,
+  BrandPayrollItem,
+  PayrollComponentKey,
+} from "@/types/brand-personnel";
 
 async function jsonOrThrow<T>(res: Response, fallback: string): Promise<T> {
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -42,6 +47,39 @@ export async function fetchPayrollItems(brandId?: string, month?: string): Promi
   const res = await fetch(`/api/marka/bordro${qs}`, { credentials: "include", cache: "no-store" });
   const data = await jsonOrThrow<{ items?: BrandPayrollItem[] }>(res, "Bordro alınamadı");
   return data.items ?? [];
+}
+
+export async function fetchPayrollComponentPayments(
+  brandId?: string,
+  month?: string,
+): Promise<BrandPayrollComponentPayment[]> {
+  const params = new URLSearchParams();
+  if (brandId) params.set("brandId", brandId);
+  if (month) params.set("month", month);
+  params.set("components", "1");
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`/api/marka/bordro${qs}`, { credentials: "include", cache: "no-store" });
+  const data = await jsonOrThrow<{ components?: BrandPayrollComponentPayment[] }>(
+    res,
+    "Bordro bileşenleri alınamadı",
+  );
+  return data.components ?? [];
+}
+
+export async function markPayrollComponentPaid(
+  brandId: string,
+  staffId: string,
+  month: string,
+  component: PayrollComponentKey,
+  paid: boolean,
+): Promise<void> {
+  const res = await fetch("/api/marka/bordro", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "mark_component", brandId, staffId, month, component, paid }),
+  });
+  await jsonOrThrow<{ ok: boolean }>(res, "Bileşen ödeme durumu güncellenemedi");
 }
 
 export async function savePayrollItem(input: Partial<BrandPayrollItem>): Promise<BrandPayrollItem> {

@@ -7,6 +7,7 @@ import {
   TRON_REQUEST_GAP_MS,
 } from "@/lib/tron-grid-config";
 import { calcKasaBalance, type Kasa, type KasaTransaction } from "@/store/store";
+import { parseTrc20UsdtAmount } from "@/lib/tron-amount";
 
 const USDT_TRC20 = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const DEFAULT_SYNC_FROM = "2025-04-01";
@@ -110,10 +111,19 @@ async function fetchTrc20Page(opts: {
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     await sleep(TRON_REQUEST_GAP_MS);
-    const res = await fetch(url.toString(), {
-      headers: opts.headers,
-      signal: AbortSignal.timeout(25_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: opts.headers,
+        signal: AbortSignal.timeout(25_000),
+      });
+    } catch (netErr) {
+      const hint =
+        netErr instanceof Error ? netErr.message : "ağ hatası";
+      throw new Error(
+        `TronGrid bağlantısı kurulamadı (${hint}). TRONGRID_API_KEY ve sunucu ağ erişimini kontrol edin.`
+      );
+    }
     if (res.ok) {
       const json = (await res.json()) as {
         data?: TronTrc20Tx[];
@@ -164,6 +174,8 @@ function resolveMinTimestamp(opts: {
   syncFrom: string;
   recentDays?: number;
   lastImportedMs: number | null;
+  /** Kullanıcı tarih seçtiyse incremental sınırı yok say (tam geçmiş çekimi). */
+  forceFromDate?: boolean;
 }): number {
   const syncFromTs = new Date(`${opts.syncFrom}T00:00:00Z`).getTime();
   const recentDays = opts.recentDays ?? 0;
@@ -171,6 +183,8 @@ function resolveMinTimestamp(opts: {
     recentDays > 0
       ? Date.now() - recentDays * 24 * 3_600_000
       : syncFromTs;
+
+  if (opts.forceFromDate) return syncFromTs;
 
   if (recentDays > 0 || opts.lastImportedMs) {
     const overlapMs = 12 * 3_600_000;
@@ -223,7 +237,7 @@ async function collectTrc20Transfers(opts: {
 /** TronGrid TRC20 transferlerini kasa hareketlerine dönüştürür. */
 export async function syncTronTransfersForKasa(
   kasa: Kasa,
-  opts?: { syncFrom?: string; recentDays?: number }
+  opts?: { syncFrom?: string; recentDays?: number; forceFromDate?: boolean }
 ): Promise<TronSyncResult> {
   const configured = await ensureTronKasaConfigured(kasa);
   const address = normalizeTronAddr(configured.tronAddress ?? "");
@@ -246,6 +260,7 @@ export async function syncTronTransfersForKasa(
     syncFrom,
     recentDays: effectiveRecentDays,
     lastImportedMs,
+    forceFromDate: opts?.forceFromDate,
   });
 
   const maxPagesPerPass = isFullFromDate ? TRON_PAGES_FULL : TRON_PAGES_INCREMENTAL;
@@ -264,10 +279,11 @@ export async function syncTronTransfersForKasa(
     (existing ?? []).map((r) => String((r as { tron_tx_id: string }).tron_tx_id))
   );
 
-  const { data: globalDup } = await db
+  const { data: globalDup, error: globalDupErr } = await db
     .from("kasa_transactions")
     .select("tron_tx_id")
     .not("tron_tx_id", "is", null);
+  if (globalDupErr) throw new Error(`Mevcut TRON tx listesi: ${globalDupErr.message}`);
   const globalSeen = new Set(
     (globalDup ?? []).map((r) => String((r as { tron_tx_id: string }).tron_tx_id))
   );
@@ -297,9 +313,8 @@ export async function syncTronTransfersForKasa(
       skipped++;
       continue;
     }
-    const decimals = tx.token_info?.decimals ?? 6;
-    const amount = Number(tx.value) / 10 ** decimals;
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const amount = parseTrc20UsdtAmount(tx.value, tx.token_info?.decimals);
+    if (amount == null) {
       skipped++;
       continue;
     }
@@ -322,7 +337,7 @@ export async function syncTronTransfersForKasa(
     if (direction === "in") totalIn += rounded;
     else totalOut += rounded;
 
-    const iso = new Date(tx.block_timestamp).toISOString().slice(0, 16);
+    const iso = new Date(tx.block_timestamp).toISOString();
     const counterparty = direction === "in" ? tx.from : tx.to;
     newTxs.push({
       tronTxId: tx.transaction_id,
@@ -355,17 +370,22 @@ export async function syncTronTransfersForKasa(
   if (rows.length > 0) {
     const { error } = await db.from("kasa_transactions").insert(rows);
     if (error) {
-      if (!error.message.includes("duplicate") && !error.message.includes("unique")) {
-        throw new Error(`Kasa hareketi kaydı: ${error.message}`);
-      }
+      const msg = error.message ?? String(error);
+      const dup =
+        msg.includes("duplicate") ||
+        msg.includes("unique") ||
+        msg.includes("23505");
+      if (!dup) throw new Error(`Kasa hareketi kaydı: ${msg}`);
       for (const row of rows) {
         const { error: oneErr } = await db.from("kasa_transactions").insert(row);
+        if (!oneErr) continue;
+        const oneMsg = oneErr.message ?? String(oneErr);
         if (
-          oneErr &&
-          !oneErr.message.includes("duplicate") &&
-          !oneErr.message.includes("unique")
+          !oneMsg.includes("duplicate") &&
+          !oneMsg.includes("unique") &&
+          !oneMsg.includes("23505")
         ) {
-          throw new Error(oneErr.message);
+          throw new Error(oneMsg);
         }
       }
     }

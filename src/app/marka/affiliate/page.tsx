@@ -43,6 +43,18 @@ import { PartnerDetailModal } from "@/components/affiliate/partner-detail-modal"
 import { AffiliateDailyTrend } from "@/components/marka/affiliate-daily-trend";
 import { computeAffiliateMonthInsights } from "@/lib/marka-brand-insights";
 import {
+  computePartnerQualityScore,
+  fetchAffiliateTiers,
+  fetchBrandCampaigns,
+} from "@/lib/marka-igaming-api";
+import {
+  CAMPAIGN_STATUS_LABELS,
+  CAMPAIGN_TYPE_LABELS,
+  DEFAULT_AFFILIATE_TIERS,
+  type AffiliateTier,
+  type BrandCampaign,
+} from "@/types/brand-igaming";
+import {
   commissionLabel,
   payoutStatusBadgeClass,
   payoutStatusLabel,
@@ -98,6 +110,8 @@ export default function MarkaAffiliatePage() {
     payout: AffiliatePayout | null;
   }>({ open: false, payout: null });
   const [detailPartnerId, setDetailPartnerId] = useState<string | null>(null);
+  const [tiers, setTiers] = useState<AffiliateTier[]>([]);
+  const [campaigns, setCampaigns] = useState<BrandCampaign[]>([]);
 
   const partners = useMemo(
     () => (brandId ? affiliatePartners.filter((p) => p.brandId === brandId) : []),
@@ -165,6 +179,41 @@ export default function MarkaAffiliatePage() {
     };
   }, [brandId, month]);
 
+  useEffect(() => {
+    if (!brandId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [tiersRes, campaignsRes] = await Promise.all([
+          fetchAffiliateTiers(brandId).catch(() =>
+            DEFAULT_AFFILIATE_TIERS.map((t, i) => ({
+              id: `tier-${brandId}-${i}`,
+              brandId,
+              ...t,
+            }))
+          ),
+          fetchBrandCampaigns(brandId).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setTiers(tiersRes);
+        setCampaigns(campaignsRes);
+      } catch {
+        if (!cancelled) {
+          setTiers(
+            DEFAULT_AFFILIATE_TIERS.map((t, i) => ({
+              id: `tier-${brandId}-${i}`,
+              brandId,
+              ...t,
+            }))
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId]);
+
   const affiliateInsights = useMemo(
     () =>
       brandId
@@ -210,7 +259,7 @@ export default function MarkaAffiliatePage() {
           }),
           { clicks: 0, registrations: 0, ftd: 0, commission: 0 }
         );
-        return { partner: p, ...sum };
+        return { partner: p, ...sum, qualityScore: computePartnerQualityScore(sum.clicks, sum.registrations, sum.ftd) };
       })
       .sort((a, b) => b.commission - a.commission);
   }, [partners, statsForMonth]);
@@ -412,6 +461,74 @@ export default function MarkaAffiliatePage() {
             </Card>
           )}
 
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Komisyon kademeleri</CardTitle>
+                <CardDescription>affiliate_tiers — FTD eşiğine göre komisyon</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {tiers.map((tier) => (
+                    <div
+                      key={tier.id}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{tier.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Min. {fmtBrandCount(tier.minFtd)} FTD
+                          {tier.carryover ? " · devreden" : ""}
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="tabular-nums">
+                        %{tier.commissionPct}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Kampanyalar</CardTitle>
+                <CardDescription>
+                  {campaigns.length === 0
+                    ? "Henüz kampanya kaydı yok"
+                    : `${campaigns.length} kampanya`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {campaigns.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    Promo kod ve landing varyantları burada listelenecek.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {campaigns.slice(0, 5).map((c) => (
+                      <li
+                        key={c.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-2.5 py-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{c.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {CAMPAIGN_TYPE_LABELS[c.campaignType]}
+                            {c.promoCode ? ` · ${c.promoCode}` : ""}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {CAMPAIGN_STATUS_LABELS[c.status]}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Partner listesi */}
           <Card>
             <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -464,6 +581,7 @@ export default function MarkaAffiliatePage() {
                         <th className="py-2 pr-3 text-right font-medium">Tıklama</th>
                         <th className="py-2 pr-3 text-right font-medium">Kayıt</th>
                         <th className="py-2 pr-3 text-right font-medium">FTD</th>
+                        <th className="py-2 pr-3 text-right font-medium">Kalite</th>
                         <th className="py-2 pr-3 text-right font-medium">Komisyon</th>
                         {canWrite && <th className="py-2 pr-1 text-right font-medium">İşlem</th>}
                       </tr>
@@ -522,6 +640,9 @@ export default function MarkaAffiliatePage() {
                           </td>
                           <td className="py-2 pr-3 text-right tabular-nums">
                             {fmtBrandCount(row.ftd)}
+                          </td>
+                          <td className="py-2 pr-3 text-right">
+                            <QualityScoreBadge score={row.qualityScore} />
                           </td>
                           <td className="py-2 pr-3 text-right tabular-nums font-medium">
                             {fmtBrandMoney(row.commission, row.partner.currency)}
@@ -769,6 +890,23 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
       <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
     </div>
+  );
+}
+
+function QualityScoreBadge({ score }: { score: number }) {
+  const tone =
+    score >= 75
+      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200"
+      : score >= 50
+        ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200"
+        : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200";
+  return (
+    <span
+      className={`inline-flex min-w-[2.25rem] justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${tone}`}
+      title="Kalite skoru (operatör/computed)"
+    >
+      {score}
+    </span>
   );
 }
 

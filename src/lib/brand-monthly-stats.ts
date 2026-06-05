@@ -9,6 +9,11 @@ const EMPTY: Omit<BrandMonthlyStats, "id" | "brandId" | "month"> = {
   depositCount: 0,
   depositAmount: 0,
   withdrawalAmount: 0,
+  ggr: 0,
+  ngr: 0,
+  activePlayers: 0,
+  bonusCost: 0,
+  commissionTotal: 0,
   // USD platformun ana metriği; markalar genel olarak USD bazlı rapor veriyor.
   // Brand kullanıcısı isterse TRY/EUR seçebilir; PDF/CSV ve KPI'lar form.currency'ye göre çıkar.
   currency: "USD",
@@ -49,6 +54,11 @@ export function hasBrandMonthlyStatsData(s: BrandMonthlyStats): boolean {
     s.depositCount > 0 ||
     s.depositAmount > 0 ||
     s.withdrawalAmount > 0 ||
+    (s.ggr ?? 0) > 0 ||
+    (s.ngr ?? 0) > 0 ||
+    (s.activePlayers ?? 0) > 0 ||
+    (s.bonusCost ?? 0) > 0 ||
+    (s.commissionTotal ?? 0) > 0 ||
     s.liveDemoAllocated > 0 ||
     s.liveDemoRemaining > 0 ||
     Boolean(s.liveDemoNotes.trim()) ||

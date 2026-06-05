@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TronNewTx } from "@/lib/tron-sync";
+import { parseTrc20UsdtAmount } from "@/lib/tron-amount";
 
 const USDT_TRC20 = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const MAX_PAGES = 40;
@@ -41,21 +42,16 @@ function addrsEqual(a: string, b: string): boolean {
   return x.toLowerCase() === y.toLowerCase();
 }
 
-/** İzlenen cüzdan — iş kasasından ayrı (TRON_WATCH_ADDRESS öncelikli). */
-export function getTronWatchConfig(): TronWatchConfig | null {
-  const address = normalizeTronAddr(
-    process.env.TRON_WATCH_ADDRESS?.trim() ||
-      process.env.TRON_KASA_ADDRESS?.trim() ||
-      ""
-  );
-  if (!address) return null;
-  const syncFrom =
-    process.env.TRON_WATCH_FROM?.trim() ||
-    process.env.TRON_SYNC_FROM?.trim() ||
-    DEFAULT_SYNC_FROM;
-  const label =
-    process.env.TRON_WATCH_LABEL?.trim() || "TRON cüzdan";
-  return { address, syncFrom, label };
+/** İzlenen cüzdan — env veya kasa kaydındaki TRON adresi. */
+export async function getTronWatchConfig(): Promise<TronWatchConfig | null> {
+  const { resolveTronConfig } = await import("@/lib/tron-config");
+  const cfg = await resolveTronConfig();
+  if (!cfg.watchAddress) return null;
+  return {
+    address: cfg.watchAddress,
+    syncFrom: cfg.watchSyncFrom ?? DEFAULT_SYNC_FROM,
+    label: cfg.watchLabel,
+  };
 }
 
 type FetchPass = "outgoing" | "incoming";
@@ -97,10 +93,10 @@ async function fetchTrc20Page(opts: {
 export async function watchTronWallet(opts?: {
   recentDays?: number;
 }): Promise<TronWatchResult> {
-  const cfg = getTronWatchConfig();
+  const cfg = await getTronWatchConfig();
   if (!cfg) {
     throw new Error(
-      "TRON_WATCH_ADDRESS tanımlı değil — Vercel ortam değişkenine izlenecek cüzdan adresini ekleyin."
+      "TRON adresi yok — kasa ayarlarından TRON adresi kaydedin veya TRON_WATCH_ADDRESS / TRON_KASA_ADDRESS env tanımlayın."
     );
   }
 
@@ -156,9 +152,8 @@ export async function watchTronWallet(opts?: {
       skipped++;
       continue;
     }
-    const decimals = tx.token_info?.decimals ?? 6;
-    const amount = Number(tx.value) / 10 ** decimals;
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const amount = parseTrc20UsdtAmount(tx.value, tx.token_info?.decimals);
+    if (amount == null) {
       skipped++;
       continue;
     }

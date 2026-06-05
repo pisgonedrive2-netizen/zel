@@ -11,6 +11,7 @@ import {
   Video,
   Heart,
   FileVideo,
+  ShieldAlert,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
@@ -46,6 +47,12 @@ import {
   type BrandPostStatus,
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
+import { fetchPostApprovals } from "@/lib/marka-igaming-api";
+import {
+  BRAND_POST_APPROVAL_LABELS,
+  type BrandContentViolation,
+  type BrandPostApproval,
+} from "@/types/brand-igaming";
 
 export default function MarkaPostlarPage() {
   const portal = useMarkaPortal();
@@ -64,6 +71,12 @@ export default function MarkaPostlarPage() {
   const [statusFilter, setStatusFilter] = useState<BrandPostStatus | "">("");
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [approvalsByPost, setApprovalsByPost] = useState<
+    Map<string, BrandPostApproval>
+  >(new Map());
+  const [violationsByPost, setViolationsByPost] = useState<
+    Map<string, BrandContentViolation[]>
+  >(new Map());
 
   const load = useCallback(async () => {
     if (!brandId) return;
@@ -92,6 +105,28 @@ export default function MarkaPostlarPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!brandId) return;
+    fetchPostApprovals(brandId)
+      .then(({ approvals, violations }) => {
+        const aMap = new Map<string, BrandPostApproval>();
+        for (const a of approvals) aMap.set(a.postId, a);
+        setApprovalsByPost(aMap);
+        const vMap = new Map<string, BrandContentViolation[]>();
+        for (const v of violations) {
+          if (!v.postId) continue;
+          const list = vMap.get(v.postId) ?? [];
+          list.push(v);
+          vMap.set(v.postId, list);
+        }
+        setViolationsByPost(vMap);
+      })
+      .catch(() => {
+        setApprovalsByPost(new Map());
+        setViolationsByPost(new Map());
+      });
+  }, [brandId, posts.length]);
 
   const filteredPosts = useMemo(() => {
     return posts.filter((p) => {
@@ -311,11 +346,16 @@ export default function MarkaPostlarPage() {
                       <th className="px-3 py-2 text-right font-medium">İzlenme</th>
                       <th className="px-3 py-2 text-right font-medium">Beğeni</th>
                       <th className="px-3 py-2 font-medium">Durum</th>
+                      <th className="px-3 py-2 font-medium">Onay</th>
+                      <th className="px-3 py-2 font-medium">Uyumluluk</th>
                       <th className="px-3 py-2 text-right font-medium">Eylem</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredPosts.map((post) => (
+                    {filteredPosts.map((post) => {
+                      const approval = approvalsByPost.get(post.id);
+                      const violations = violationsByPost.get(post.id) ?? [];
+                      return (
                       <tr
                         key={post.id}
                         className="border-b last:border-0 hover:bg-muted/40"
@@ -369,6 +409,50 @@ export default function MarkaPostlarPage() {
                           </Badge>
                         </td>
                         <td className="px-3 py-2">
+                          {approval ? (
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "border text-[10px]",
+                                approval.status === "approved"
+                                  ? "border-[#22C55E]/50 text-[#16A34A]"
+                                  : approval.status === "rejected"
+                                    ? "border-red-300 text-red-700"
+                                    : "border-amber-300 text-amber-800"
+                              )}
+                            >
+                              {BRAND_POST_APPROVAL_LABELS[approval.status]}
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {violations.length > 0 ? (
+                            <div className="flex flex-col gap-0.5">
+                              {violations.map((v) => (
+                                <Badge
+                                  key={v.id}
+                                  variant="outline"
+                                  className={cn(
+                                    "gap-0.5 text-[10px] w-fit",
+                                    v.severity === "block"
+                                      ? "border-red-400 text-red-700"
+                                      : v.severity === "warn"
+                                        ? "border-amber-300 text-amber-800"
+                                        : ""
+                                  )}
+                                >
+                                  <ShieldAlert size={9} />
+                                  {v.violationType}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">Temiz</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
                           <div className="flex items-center justify-end gap-1">
                             <a
                               href={post.url}
@@ -406,7 +490,8 @@ export default function MarkaPostlarPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

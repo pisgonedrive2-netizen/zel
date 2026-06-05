@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type {
-  ContactStatus, CrmContact, CrmCurrency, CrmDeal, CrmInteraction, DealStage, InteractionType,
+  CommissionModel, ContactStatus, CrmContact, CrmCurrency, CrmDeal, CrmInteraction, DealStage, InteractionType,
 } from "@/types/crm";
 
 const str = (v: unknown, d = ""): string => (v == null ? d : String(v));
@@ -20,6 +20,7 @@ function strArr(v: unknown): string[] {
 const CONTACT_STATUS: readonly ContactStatus[] = ["lead", "active", "vip", "passive", "lost"];
 const DEAL_STAGE: readonly DealStage[] = ["lead", "qualified", "proposal", "won", "lost"];
 const CURRENCY: readonly CrmCurrency[] = ["USD", "EUR", "TRY"];
+const COMMISSION_MODEL: readonly CommissionModel[] = ["cpa", "revshare", "hybrid", "flat"];
 const INTERACTION: readonly InteractionType[] = ["note", "call", "email", "meeting", "whatsapp", "telegram"];
 
 // ── Contacts ─────────────────────────────────────────────────────────────
@@ -97,6 +98,10 @@ function dealFromRow(r: Record<string, unknown>): CrmDeal {
     currency: pick(r.currency, CURRENCY, "USD"),
     probability: Math.min(100, Math.max(0, num(r.probability))),
     expectedClose: r.expected_close ? str(r.expected_close) : undefined,
+    expectedFtd: r.expected_monthly_ftd != null ? num(r.expected_monthly_ftd) : undefined,
+    commissionModel: r.commission_model
+      ? pick(r.commission_model, COMMISSION_MODEL, "cpa")
+      : undefined,
     affiliatePartnerId: r.affiliate_partner_id ? str(r.affiliate_partner_id) : undefined,
     brandDealId: r.brand_deal_id ? str(r.brand_deal_id) : undefined,
     notes: str(r.notes),
@@ -115,6 +120,8 @@ function dealToRow(d: CrmDeal) {
     currency: d.currency,
     probability: d.probability,
     expected_close: d.expectedClose ?? null,
+    expected_monthly_ftd: d.expectedFtd ?? 0,
+    commission_model: d.commissionModel ?? null,
     affiliate_partner_id: d.affiliatePartnerId ?? null,
     brand_deal_id: d.brandDealId ?? null,
     notes: d.notes,

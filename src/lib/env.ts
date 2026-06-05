@@ -29,13 +29,26 @@ export function getSessionSecret(): string {
  * RapidAPI (link otomatik yenileme — YouTube / TikTok / Instagram)
  * ------------------------------------------------------------------------ */
 
+/** Tek RapidAPI anahtarı — YouTube / Instagram / TikTok host'ları için ortak. */
+export function resolveRapidApiKey(): string | undefined {
+  for (const name of ["RAPIDAPI_KEY", "RAPID_API_KEY", "X_RAPIDAPI_KEY"] as const) {
+    const key = process.env[name]?.trim();
+    if (key && key.length > 10) return key;
+  }
+  return undefined;
+}
+
 export function isRapidApiEnabled(): boolean {
-  return Boolean(process.env.RAPIDAPI_KEY && process.env.RAPIDAPI_KEY.length > 10);
+  return Boolean(resolveRapidApiKey());
 }
 
 export function getRapidApiKey(): string {
-  const key = process.env.RAPIDAPI_KEY;
-  if (!key) throw new Error("RAPIDAPI_KEY is not set");
+  const key = resolveRapidApiKey();
+  if (!key) {
+    throw new Error(
+      "RAPIDAPI_KEY tanımlı değil (.env.local veya Vercel ortam değişkeni — youtube138, instagram-api-fast-reliable-data-scraper, tiktok-scraper7)"
+    );
+  }
   return key;
 }
 

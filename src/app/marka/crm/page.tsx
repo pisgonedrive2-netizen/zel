@@ -19,8 +19,8 @@ import {
   fetchCrm, saveContact, saveDeal, deleteCrm,
 } from "@/lib/crm-api";
 import {
-  CONTACT_STATUS_LABELS, DEAL_STAGE_LABELS,
-  type ContactStatus, type CrmContact, type CrmCurrency, type CrmDeal, type DealStage,
+  CONTACT_STATUS_LABELS, DEAL_STAGE_LABELS, COMMISSION_MODEL_LABELS,
+  type ContactStatus, type CrmContact, type CrmCurrency, type CrmDeal, type DealStage, type CommissionModel,
 } from "@/types/crm";
 import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
 import { computeCrmInsights } from "@/lib/marka-brand-insights";
@@ -50,6 +50,7 @@ const emptyContact = {
 const emptyDeal = {
   id: "", title: "", contactId: "", stage: "lead" as DealStage, value: 0,
   currency: "USD" as CrmCurrency, probability: 50, expectedClose: "",
+  expectedFtd: 0, commissionModel: "" as CommissionModel | "",
   affiliatePartnerId: "", brandDealId: "", notes: "",
 };
 
@@ -162,6 +163,8 @@ export default function MarkaCrmPage() {
         currency: dealForm.currency,
         probability: dealForm.probability,
         expectedClose: dealForm.expectedClose || undefined,
+        expectedFtd: dealForm.expectedFtd > 0 ? dealForm.expectedFtd : undefined,
+        commissionModel: dealForm.commissionModel || undefined,
         affiliatePartnerId: dealForm.affiliatePartnerId || undefined,
         brandDealId: dealForm.brandDealId || undefined,
         notes: dealForm.notes,
@@ -202,6 +205,7 @@ export default function MarkaCrmPage() {
     setDealForm({
       id: d.id, title: d.title, contactId: d.contactId ?? "", stage: d.stage, value: d.value,
       currency: d.currency, probability: d.probability, expectedClose: d.expectedClose ?? "",
+      expectedFtd: d.expectedFtd ?? 0, commissionModel: d.commissionModel ?? "",
       affiliatePartnerId: d.affiliatePartnerId ?? "", brandDealId: d.brandDealId ?? "", notes: d.notes,
     });
     setDealOpen(true);
@@ -362,6 +366,11 @@ export default function MarkaCrmPage() {
                         <span className="text-xs font-semibold tabular-nums">{CUR_SYMBOL[d.currency]}{d.value.toLocaleString("tr-TR")}</span>
                         <span className="text-[10px] text-muted-foreground">%{d.probability}</span>
                       </div>
+                      {(d.expectedFtd != null && d.expectedFtd > 0) && (
+                        <p className="mt-1 text-[10px] text-violet-600 dark:text-violet-300 tabular-nums">
+                          ~{d.expectedFtd} FTD/ay{d.commissionModel ? ` · ${COMMISSION_MODEL_LABELS[d.commissionModel]}` : ""}
+                        </p>
+                      )}
                       {(d.affiliatePartnerId || d.brandDealId) && (
                         <p className="mt-1 flex items-center gap-1 text-[10px] text-violet-600 dark:text-violet-300"><Link2 size={10} /> bağlı</p>
                       )}
@@ -490,6 +499,11 @@ export default function MarkaCrmPage() {
             </Field>
             <Field label="Olasılık (%)"><NumberInput value={dealForm.probability} onChange={(v) => setDealForm((f) => ({ ...f, probability: Math.min(100, Math.max(0, v)) }))} min={0} max={100} /></Field>
             <Field label="Tahmini kapanış"><Input type="date" value={dealForm.expectedClose} onChange={(e) => setDealForm((f) => ({ ...f, expectedClose: e.target.value }))} /></Field>
+            <Field label="Beklenen aylık FTD"><NumberInput value={dealForm.expectedFtd} onChange={(v) => setDealForm((f) => ({ ...f, expectedFtd: v }))} min={0} /></Field>
+            <Field label="Komisyon modeli">
+              <Select value={dealForm.commissionModel} onChange={(e) => setDealForm((f) => ({ ...f, commissionModel: e.target.value as CommissionModel | "" }))}
+                options={[{ value: "", label: "—" }, ...(Object.keys(COMMISSION_MODEL_LABELS) as CommissionModel[]).map((m) => ({ value: m, label: COMMISSION_MODEL_LABELS[m] }))]} />
+            </Field>
             <Field label="Affiliate partner (bağla)">
               <Select value={dealForm.affiliatePartnerId} onChange={(e) => setDealForm((f) => ({ ...f, affiliatePartnerId: e.target.value }))}
                 options={[{ value: "", label: "—" }, ...brandPartners.map((p) => ({ value: p.id, label: p.name }))]} />

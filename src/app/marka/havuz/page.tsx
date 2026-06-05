@@ -31,11 +31,15 @@ import { cn } from "@/lib/utils";
 import { fetchStreamerPool, isPoolNotReadyError } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import { OfferFormModal } from "@/components/streamer-pool/offer-form-modal";
+import { ComplianceChecklistModal } from "@/components/marka/compliance-checklist-modal";
 import type { StreamerPoolProfile } from "@/store/store";
 import type { StreamerPoolFilters } from "@/types/streamer-pool";
+import { IGAMING_TAG_LABELS } from "@/types/brand-igaming";
 
 const LANGUAGES = ["tr", "en", "de", "ru", "es"] as const;
 const COUNTRIES = ["TR", "DE", "AZ", "RU", "NL", "UK", "US"] as const;
+const IGAMING_TAGS = Object.keys(IGAMING_TAG_LABELS);
+const RESTRICTED_MARKETS = ["US", "UK", "FR", "DE", "TR", "NL", "RU", "ES"] as const;
 
 export default function MarkaHavuzPage() {
   const portal = useMarkaPortal();
@@ -57,6 +61,14 @@ export default function MarkaHavuzPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<StreamerPoolProfile | null>(
     null
+  );
+  const [complianceProfile, setComplianceProfile] = useState<StreamerPoolProfile | null>(
+    null
+  );
+  const [igamingTagFilter, setIgamingTagFilter] = useState<string>("");
+  const [restrictedMarketFilter, setRestrictedMarketFilter] = useState<string>("");
+  const [minAvgViewsFilter, setMinAvgViewsFilter] = useState<number | undefined>(
+    undefined
   );
 
   const load = useCallback(async () => {
@@ -88,6 +100,24 @@ export default function MarkaHavuzPage() {
     return Array.from(set).sort();
   }, [profiles]);
 
+  const displayedProfiles = useMemo(() => {
+    return profiles.filter((p) => {
+      if (igamingTagFilter && !(p.igamingTags ?? []).includes(igamingTagFilter)) {
+        return false;
+      }
+      if (
+        restrictedMarketFilter &&
+        (p.restrictedMarkets ?? []).includes(restrictedMarketFilter)
+      ) {
+        return false;
+      }
+      if (minAvgViewsFilter != null && (p.avgViews ?? 0) < minAvgViewsFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [profiles, igamingTagFilter, restrictedMarketFilter, minAvgViewsFilter]);
+
   function applySearch() {
     setFilters((f) => ({ ...f, search: searchInput.trim() || undefined }));
   }
@@ -102,22 +132,30 @@ export default function MarkaHavuzPage() {
   function clearFilters() {
     setFilters({});
     setSearchInput("");
+    setIgamingTagFilter("");
+    setRestrictedMarketFilter("");
+    setMinAvgViewsFilter(undefined);
   }
 
   const hasActiveFilters = useMemo(() => {
-    return Object.values(filters).some(
-      (v) => v !== undefined && v !== null && v !== ""
+    return (
+      Object.values(filters).some(
+        (v) => v !== undefined && v !== null && v !== ""
+      ) ||
+      !!igamingTagFilter ||
+      !!restrictedMarketFilter ||
+      minAvgViewsFilter != null
     );
-  }, [filters]);
+  }, [filters, igamingTagFilter, restrictedMarketFilter, minAvgViewsFilter]);
 
   const poolSummary = useMemo(() => {
-    const followers = profiles.reduce((s, p) => s + (p.followersTotal ?? 0), 0);
-    const avgViews = profiles.length
-      ? profiles.reduce((s, p) => s + (p.avgViews ?? 0), 0) / profiles.length
+    const followers = displayedProfiles.reduce((s, p) => s + (p.followersTotal ?? 0), 0);
+    const avgViews = displayedProfiles.length
+      ? displayedProfiles.reduce((s, p) => s + (p.avgViews ?? 0), 0) / displayedProfiles.length
       : 0;
-    const cats = new Set(profiles.flatMap((p) => p.categories));
-    return { count: profiles.length, followers, avgViews, categories: cats.size };
-  }, [profiles]);
+    const cats = new Set(displayedProfiles.flatMap((p) => p.categories));
+    return { count: displayedProfiles.length, followers, avgViews, categories: cats.size };
+  }, [displayedProfiles]);
 
   const storeSlice = useMemo(
     () => ({
@@ -351,6 +389,37 @@ export default function MarkaHavuzPage() {
                       placeholder="—"
                     />
                   </Field>
+                  <Field label="iGaming etiketi">
+                    <Select
+                      value={igamingTagFilter}
+                      onChange={(e) => setIgamingTagFilter(e.target.value)}
+                      options={[
+                        { value: "", label: "Tümü" },
+                        ...IGAMING_TAGS.map((t) => ({
+                          value: t,
+                          label: IGAMING_TAG_LABELS[t] ?? t,
+                        })),
+                      ]}
+                    />
+                  </Field>
+                  <Field label="Pazar (yasaklı olmayan)">
+                    <Select
+                      value={restrictedMarketFilter}
+                      onChange={(e) => setRestrictedMarketFilter(e.target.value)}
+                      options={[
+                        { value: "", label: "Tümü" },
+                        ...RESTRICTED_MARKETS.map((c) => ({ value: c, label: c })),
+                      ]}
+                    />
+                  </Field>
+                  <Field label="Min ort. izlenme">
+                    <OptionalNumberInput
+                      value={minAvgViewsFilter}
+                      onChange={setMinAvgViewsFilter}
+                      min={0}
+                      placeholder="—"
+                    />
+                  </Field>
                 </div>
               )}
             </CardContent>
@@ -368,18 +437,18 @@ export default function MarkaHavuzPage() {
               <Loader2 size={14} className="animate-spin" />
               Havuz yükleniyor…
             </div>
-          ) : profiles.length === 0 ? (
+          ) : displayedProfiles.length === 0 ? (
             <EmptyPool notReady={notReady} />
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {profiles.map((p) => (
+              {displayedProfiles.map((p) => (
                 <MarkaPoolCard
                   key={p.id}
                   profile={p}
                   brandId={brandId}
                   monthYm={month}
                   storeSlice={storeSlice}
-                  onOfferClick={(profile) => setSelectedProfile(profile)}
+                  onOfferClick={(profile) => setComplianceProfile(profile)}
                 />
               ))}
             </div>
@@ -388,12 +457,29 @@ export default function MarkaHavuzPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
               <Users size={11} />
-              {profiles.length} yayıncı listeleniyor
+              {displayedProfiles.length} yayıncı listeleniyor
+              {displayedProfiles.length !== profiles.length && (
+                <span className="text-muted-foreground/80">
+                  ({profiles.length} toplam)
+                </span>
+              )}
             </span>
             {hasActiveFilters && (
               <span>Filtreler aktif — temizlemek için "Temizle"</span>
             )}
           </div>
+
+          <ComplianceChecklistModal
+            open={complianceProfile !== null}
+            onClose={() => setComplianceProfile(null)}
+            streamerName={complianceProfile?.displayName ?? ""}
+            onConfirm={() => {
+              if (complianceProfile) {
+                setSelectedProfile(complianceProfile);
+                setComplianceProfile(null);
+              }
+            }}
+          />
 
           <OfferFormModal
             open={selectedProfile !== null}

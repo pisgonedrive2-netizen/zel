@@ -9,7 +9,7 @@ import {
   deleteCrmContact, deleteCrmDeal, insertCrmInteraction,
 } from "@/lib/db/crm-repo";
 import type {
-  ContactStatus, CrmContact, CrmCurrency, CrmDeal, DealStage, InteractionType,
+  ContactStatus, CrmContact, CrmCurrency, CrmDeal, DealStage, InteractionType, CommissionModel,
 } from "@/types/crm";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 const CONTACT_STATUS: readonly ContactStatus[] = ["lead", "active", "vip", "passive", "lost"];
 const DEAL_STAGE: readonly DealStage[] = ["lead", "qualified", "proposal", "won", "lost"];
 const CURRENCY: readonly CrmCurrency[] = ["USD", "EUR", "TRY"];
+const COMMISSION: readonly CommissionModel[] = ["cpa", "revshare", "hybrid", "flat"];
 const INTERACTION: readonly InteractionType[] = ["note", "call", "email", "meeting", "whatsapp", "telegram"];
 function pick<T extends string>(v: unknown, allowed: readonly T[], fb: T): T {
   const s = String(v ?? "");
@@ -80,6 +81,11 @@ export async function POST(req: Request) {
         currency: pick(body.currency, CURRENCY, "USD"),
         probability: Math.min(100, Math.max(0, Number(body.probability) || 0)),
         expectedClose: String(body.expectedClose ?? "").trim() || undefined,
+        expectedFtd: Math.max(0, Number(body.expectedFtd) || 0) || undefined,
+        commissionModel: (() => {
+          const m = String(body.commissionModel ?? "").trim();
+          return COMMISSION.includes(m as CommissionModel) ? (m as CommissionModel) : undefined;
+        })(),
         affiliatePartnerId: String(body.affiliatePartnerId ?? "").trim() || undefined,
         brandDealId: String(body.brandDealId ?? "").trim() || undefined,
         notes: String(body.notes ?? ""),

@@ -38,6 +38,24 @@ export interface BrandDepartment {
 
 export type PayrollItemType = "advance" | "bonus" | "deduction" | "rent" | "meal" | "other";
 
+/** Sabit maaş bileşeni (baz / kira / yemek) — ayrı ödeme takibi. */
+export type PayrollComponentKey = "base_salary" | "rent" | "meal";
+
+export const PAYROLL_COMPONENT_LABELS: Record<PayrollComponentKey, string> = {
+  base_salary: "Temel maaş",
+  rent: "Kira desteği",
+  meal: "Yemek yardımı",
+};
+
+export interface BrandPayrollComponentPayment {
+  brandId: string;
+  staffId: string;
+  month: string;
+  component: PayrollComponentKey;
+  paid: boolean;
+  paidDate?: string;
+}
+
 /** Aylık bordro kalemi (avans, prim, kesinti, kira/yemek ek, diğer). */
 export interface BrandPayrollItem {
   id: string;

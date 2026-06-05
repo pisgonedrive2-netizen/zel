@@ -42,6 +42,16 @@ import {
   scopeBrandActivityData,
 } from "@/lib/brand-activity-dates";
 import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
+import { BrandExecutiveKpis } from "@/components/marka-igaming/brand-executive-kpis";
+import { BrandAffiliateFunnel } from "@/components/marka-igaming/brand-affiliate-funnel";
+import { BrandKpiTargetsBar } from "@/components/marka-igaming/brand-kpi-targets-bar";
+import {
+  BrandActionQueue,
+  buildActionQueueItems,
+} from "@/components/marka-igaming/brand-action-queue";
+import { useBrandIgaming } from "@/hooks/use-brand-igaming";
+import { deriveLiveDemoUsage } from "@/lib/brand-monthly-stats";
+import type { ExecutiveKpiSnapshot } from "@/types/brand-igaming";
 
 function monthDayLabel(iso: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -210,8 +220,108 @@ export default function MarkaAnasayfaPage() {
     (sum, s) => sum + (s.clicks ?? 0),
     0
   );
+  const affiliateMonthRegistrations = brandAffiliateStatsMonth.reduce(
+    (sum, s) => sum + (s.registrations ?? 0),
+    0
+  );
   const hasAffiliateData =
     brandAffiliatePartners.length > 0 || brandAffiliateStatsMonth.length > 0;
+
+  const igaming = useBrandIgaming(brandId, month);
+
+  const executiveCurrent = useMemo((): ExecutiveKpiSnapshot => {
+    if (igaming.dashboard) {
+      return {
+        ftd: igaming.dashboard.ftd,
+        activePlayers: igaming.dashboard.activePlayers,
+        depositAmount: igaming.dashboard.depositAmount,
+        withdrawalAmount: igaming.dashboard.withdrawalAmount,
+        ngr: igaming.dashboard.ngr,
+        commission: igaming.dashboard.commission,
+      };
+    }
+    return {
+      ftd: statsRow?.firstTimeDepositors ?? 0,
+      activePlayers: statsRow?.activePlayers ?? 0,
+      depositAmount: statsRow?.depositAmount ?? 0,
+      withdrawalAmount: statsRow?.withdrawalAmount ?? 0,
+      ngr: statsRow?.ngr ?? 0,
+      commission: affiliateMonthCommission,
+    };
+  }, [igaming.dashboard, statsRow, affiliateMonthCommission]);
+
+  const executivePrevious = useMemo((): ExecutiveKpiSnapshot | null => {
+    if (!igaming.prevDashboard) return null;
+    return {
+      ftd: igaming.prevDashboard.ftd,
+      activePlayers: igaming.prevDashboard.activePlayers,
+      depositAmount: igaming.prevDashboard.depositAmount,
+      withdrawalAmount: igaming.prevDashboard.withdrawalAmount,
+      ngr: igaming.prevDashboard.ngr,
+      commission: igaming.prevDashboard.commission,
+    };
+  }, [igaming.prevDashboard]);
+
+  const liveDemoUsage = statsRow ? deriveLiveDemoUsage(statsRow) : null;
+
+  const operasyonHref = markaHref("/marka/operasyon", month);
+  const takvimHref = markaHref("/marka/takvim", month);
+  const odemelerHref = markaHref("/marka/odemeler", month);
+  const izlenmeHref = markaHref("/marka/izlenmeler", month);
+  const bildirimlerHref = markaHref("/marka/bildirimler", month);
+
+  const actionQueueItems = useMemo(() => {
+    const pendingOfferCount =
+      igaming.dashboard?.pendingOffers ??
+      (brandId
+        ? brandOffers.filter(
+            (o) =>
+              o.brandId === brandId &&
+              (o.status === "pending" || o.status === "negotiating")
+          ).length
+        : 0);
+    const openCompliance =
+      igaming.dashboard?.openCompliance ??
+      igaming.compliance.filter((c) => c.status === "pending").length;
+    const complianceOverdue = igaming.compliance.filter(
+      (c) =>
+        c.status === "pending" &&
+        c.dueDate &&
+        c.dueDate < new Date().toISOString().slice(0, 10)
+    ).length;
+    const affiliateAnomaly =
+      affiliateMonthRegistrations > 0 &&
+      affiliateMonthFtd / affiliateMonthRegistrations < 0.05 &&
+      affiliateMonthRegistrations >= 20;
+
+    return buildActionQueueItems({
+      pendingOffers: pendingOfferCount,
+      openCompliance,
+      complianceOverdue,
+      lowDemoBalance: liveDemoUsage?.low ?? false,
+      demoRemaining: statsRow?.liveDemoRemaining,
+      demoCurrency: currency,
+      affiliateAnomaly,
+      hrefs: {
+        offers: "/marka/teklifler",
+        compliance: "/marka/profil",
+        operasyon: operasyonHref,
+        affiliate: markaHref("/marka/affiliate", month),
+      },
+    });
+  }, [
+    igaming.dashboard,
+    igaming.compliance,
+    brandId,
+    brandOffers,
+    liveDemoUsage,
+    statsRow,
+    currency,
+    operasyonHref,
+    month,
+    affiliateMonthRegistrations,
+    affiliateMonthFtd,
+  ]);
 
   // Bildirimler (marka rolüne ait + brand kullanıcısı eşleşmesi)
   const targetUserId = useMemo(() => {
@@ -289,12 +399,6 @@ export default function MarkaAnasayfaPage() {
     .filter((s) => !s.optional)
     .every((s) => s.done);
 
-  const operasyonHref = markaHref("/marka/operasyon", month);
-  const takvimHref = markaHref("/marka/takvim", month);
-  const odemelerHref = markaHref("/marka/odemeler", month);
-  const izlenmeHref = markaHref("/marka/izlenmeler", month);
-  const bildirimlerHref = markaHref("/marka/bildirimler", month);
-
   return (
     <MarkaPageGuard
       user={user}
@@ -339,6 +443,36 @@ export default function MarkaAnasayfaPage() {
             }}
             compact
           />
+
+          <BrandExecutiveKpis
+            monthTitle={monthTitle}
+            currency={currency}
+            current={executiveCurrent}
+            previous={executivePrevious}
+            loading={igaming.loading}
+          />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <BrandAffiliateFunnel
+              clicks={igaming.dashboard?.affiliateClicks ?? affiliateMonthClicks}
+              registrations={
+                igaming.dashboard?.affiliateRegistrations ?? affiliateMonthRegistrations
+              }
+              ftd={igaming.dashboard?.affiliateFtd ?? affiliateMonthFtd}
+              monthTitle={monthTitle}
+            />
+            <BrandKpiTargetsBar
+              monthTitle={monthTitle}
+              currency={currency}
+              targets={igaming.targets}
+              actual={{
+                ftd: executiveCurrent.ftd,
+                ngr: executiveCurrent.ngr,
+                depositAmount: executiveCurrent.depositAmount,
+                registrations: statsRow?.newRegistrations ?? 0,
+              }}
+            />
+          </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
             <div className="space-y-4">
@@ -525,7 +659,8 @@ export default function MarkaAnasayfaPage() {
               />
             </div>
 
-            <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:max-h-[760px]">
+            <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:max-h-[760px] space-y-4">
+              <BrandActionQueue items={actionQueueItems} monthTitle={monthTitle} />
               <BrandActivityFeed
                 notifications={brandNotifications}
                 href={bildirimlerHref}

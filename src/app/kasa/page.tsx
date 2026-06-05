@@ -4,13 +4,21 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
-  Banknote, Archive, Link2, Activity, CalendarRange, FileSpreadsheet, FileText,
+  Banknote, Archive, Link2, Activity, CalendarRange, FileSpreadsheet, FileText, RefreshCw,
 } from "lucide-react";
 import {
   useStore, calcKasaBalance,
   type Kasa, type KasaTransaction, DEFAULT_KASA_ID,
 } from "@/store/store";
-import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
+import {
+  computeTronPanelMetrics,
+  getKasaDisplayBalance,
+  sumKasaDisplayBalances,
+} from "@/lib/kasa-tron-metrics";
+import {
+  isTronReflectedInGenelView,
+  transactionsForGenelKasaView,
+} from "@/lib/kasa-genel-view";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
 import { fmt } from "@/lib/data";
@@ -35,7 +43,13 @@ import {
 } from "recharts";
 
 function fmtUsdt(n: number) {
-  return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + " USDT";
+  return fmtToken(n, "USDT");
+}
+function fmtToken(n: number, symbol: string) {
+  return (
+    n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) +
+    ` ${symbol}`
+  );
 }
 function shortTxid(t?: string) {
   if (!t) return null;
@@ -51,6 +65,62 @@ const KASA_KIND_OPTIONS: Array<{ value: Kasa["kind"]; label: string }> = [
   { value: "cash",    label: "Nakit" },
   { value: "other",   label: "Diğer" },
 ];
+
+// ── Satır içi karşı taraf düzenleme ───────────────────────────────────────
+function InlineCounterparty({
+  value,
+  readOnly,
+  onSave,
+}: {
+  value: string;
+  readOnly: boolean;
+  onSave: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  if (readOnly) {
+    return <span className="text-xs text-muted-foreground">{value || "—"}</span>;
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="group text-left text-xs text-muted-foreground hover:text-foreground max-w-[160px] truncate"
+        title={value ? `${value} — düzenlemek için tıkla` : "Kime gitti? — tıkla ve yaz"}
+      >
+        {value || <span className="italic text-amber-700/80 dark:text-amber-300/90">Kime gitti?</span>}
+        <Pencil size={10} className="inline ml-1 opacity-0 group-hover:opacity-60" />
+      </button>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        setEditing(false);
+        if (draft.trim() !== value.trim()) onSave(draft.trim());
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setDraft(value);
+          setEditing(false);
+        }
+      }}
+      placeholder="Alıcı / gönderici"
+      className="h-7 w-full min-w-[120px] max-w-[200px] rounded border border-border bg-background px-2 text-xs"
+    />
+  );
+}
 
 // ── Copy button ───────────────────────────────────────────────────────────
 function Copyable({ text }: { text: string }) {
@@ -272,6 +342,19 @@ export default function KasaPage() {
   const [filter, setFilter]             = useState<"all" | "in" | "out">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "tron-auto" | "manual">("all");
   const [genelFilter, setGenelFilter] = useState<"all" | "included" | "excluded">("all");
+  const [genelToggleBusy, setGenelToggleBusy] = useState<string | null>(null);
+
+  const toggleGenelInclusion = useCallback(
+    (t: KasaTransaction) => {
+      if (readOnly || genelToggleBusy) return;
+      const next = !Boolean(t.countInGenel);
+      setGenelToggleBusy(t.id);
+      bulkSetKasaCountInGenel([t.id], next);
+      setGenelToggleBusy(null);
+    },
+    [readOnly, genelToggleBusy, bulkSetKasaCountInGenel],
+  );
+
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [tronGenelCutoff, setTronGenelCutoff] = useState("");
@@ -301,55 +384,117 @@ export default function KasaPage() {
     watchAddress: string | null;
     watchSyncFrom: string | null;
     watchLabel: string;
+    watchSource: string | null;
     tronAddress: string | null;
     tronSyncFrom: string | null;
     envAddress: string;
     probeOk: boolean;
     probeMessage: string;
     probeLatencyMs: number;
+    walletBalances: {
+      trx: number;
+      usdt: number;
+      usdc: number;
+      fetchedAt: string;
+    } | null;
   } | null>(null);
+  const [tronInfoLoading, setTronInfoLoading] = useState(false);
+
+  const loadTronInfo = useCallback(async () => {
+    setTronInfoLoading(true);
+    try {
+      const r = await fetch("/api/kasa/tron-info", { credentials: "include" });
+      const j = r.ok ? await r.json() : null;
+      if (j?.ok) setTronInfo(j);
+    } catch {
+      /* ignore */
+    } finally {
+      setTronInfoLoading(false);
+    }
+  }, []);
+
+  const refreshWalletBalances = useCallback(async (address: string) => {
+    const addr = address.trim();
+    if (!addr) return;
+    setTronInfoLoading(true);
+    try {
+      const r = await fetch(
+        `/api/kasa/tron-balances?address=${encodeURIComponent(addr)}`,
+        { credentials: "include" }
+      );
+      const j = r.ok ? await r.json() : null;
+      if (j?.ok && j.balances) {
+        setTronInfo((prev) =>
+          prev
+            ? { ...prev, walletBalances: j.balances }
+            : {
+                apiKeySet: false,
+                watchAddress: null,
+                watchSyncFrom: null,
+                watchLabel: "",
+                watchSource: null,
+                tronAddress: addr,
+                tronSyncFrom: null,
+                envAddress: "",
+                probeOk: false,
+                probeMessage: "",
+                probeLatencyMs: 0,
+                walletBalances: j.balances,
+              }
+        );
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setTronInfoLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/kasa/tron-info", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!cancelled && j?.ok) setTronInfo(j);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void loadTronInfo();
+  }, [loadTronInfo]);
 
   const selectedKasa = useMemo(
     () => (selectedKasaId === "all" ? null : kasas.find((k) => k.id === selectedKasaId)),
     [kasas, selectedKasaId]
   );
 
-  const syncTronForKasa = async (opts?: { useResyncFrom?: boolean; recentDays?: number }) => {
-    if (!selectedKasa?.tronAddress) {
+  const [tronSyncHint, setTronSyncHint] = useState<string | null>(null);
+
+  const syncTronForKasa = async (
+    targetKasa?: (typeof kasas)[number],
+    opts?: { useResyncFrom?: boolean; recentDays?: number; fullHistory?: boolean }
+  ) => {
+    const kasa = targetKasa ?? selectedKasa ?? undefined;
+    if (!kasa?.tronAddress) {
       window.alert("Önce kasa ayarlarından TRON adresi kaydedin.");
       return;
     }
-    const fromDate = opts?.useResyncFrom && tronResyncFrom
-      ? tronResyncFrom
-      : selectedKasa.tronSyncFrom;
+    if (targetKasa) setSelectedKasaId(targetKasa.id);
+    const fromDate =
+      opts?.useResyncFrom && (tronResyncFrom || kasa.tronSyncFrom)
+        ? tronResyncFrom || kasa.tronSyncFrom
+        : kasa.tronSyncFrom;
     if (!fromDate) {
       window.alert("Takip başlangıç tarihi gerekli (kasa ayarları veya geçmiş çekim alanı).");
       return;
     }
     setTronSyncing(true);
+    setTronSyncHint(null);
     try {
       const res = await fetch("/api/kasa/tron-sync", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kasaId: selectedKasa.id,
+          kasaId: kasa.id,
           syncFrom: fromDate,
-          persistSyncFrom: Boolean(opts?.useResyncFrom && tronResyncFrom),
+          tronAddress: kasa.tronAddress,
+          tronSyncFrom: kasa.tronSyncFrom || fromDate,
+          persistSyncFrom: Boolean(opts?.useResyncFrom),
+          forceFromDate: Boolean(opts?.useResyncFrom || opts?.fullHistory),
           recentDays: opts?.recentDays,
+          triggeredBy: "kasa-page",
         }),
       });
       const json = (await res.json()) as {
@@ -389,6 +534,10 @@ export default function KasaPage() {
         await refreshNotificationsFromServer();
       }
       const bal = json.balanceUsd != null ? fmtUsdt(json.balanceUsd) : "—";
+      setTronSyncHint(
+        `${json.imported ?? 0} yeni hareket · bakiye ${bal}` +
+          (json.truncated ? " · kısmi çekim (tekrar deneyin)" : "")
+      );
       window.alert(
         [
           `${json.imported ?? 0} yeni TRON hareketi eklendi (${json.skipped ?? 0} atlandı).`,
@@ -409,7 +558,9 @@ export default function KasaPage() {
           .join("\n")
       );
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "TRON senkron hatası");
+      const msg = e instanceof Error ? e.message : "TRON senkron hatası";
+      setTronSyncHint(msg);
+      window.alert(msg);
     } finally {
       setTronSyncing(false);
     }
@@ -427,12 +578,30 @@ export default function KasaPage() {
     return firstActive?.id ?? DEFAULT_KASA_ID;
   }, [visibleKasas]);
 
-  const txnsForSelected = useMemo(
-    () => selectedKasaId === "all"
-      ? kasaTransactions
-      : kasaTransactions.filter((t) => t.kasaId === selectedKasaId),
-    [kasaTransactions, selectedKasaId]
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions]
   );
+  const tronKasa = tronPanel?.tronKasa ?? null;
+  const genelKasaId = tronPanel?.genelKasa?.id;
+
+  useEffect(() => {
+    const addr = tronPanel?.tronAddress?.trim();
+    if (!addr || tronInfo?.walletBalances) return;
+    void refreshWalletBalances(addr);
+  }, [tronPanel?.tronAddress, tronInfo?.walletBalances, refreshWalletBalances]);
+
+  const txnsForSelected = useMemo(() => {
+    if (selectedKasaId === "all") return kasaTransactions;
+    if (genelKasaId && selectedKasaId === genelKasaId) {
+      return transactionsForGenelKasaView(
+        kasaTransactions,
+        genelKasaId,
+        tronPanel?.tronKasa?.id
+      );
+    }
+    return kasaTransactions.filter((t) => t.kasaId === selectedKasaId);
+  }, [kasaTransactions, selectedKasaId, genelKasaId, tronPanel?.tronKasa?.id]);
 
   const availableMonths = useMemo(
     () => listAvailableMonths(txnsForSelected.map((t) => t.date)),
@@ -501,34 +670,42 @@ export default function KasaPage() {
     }));
   }, [withBalance]);
 
-  // Her kasa için özet kart verisi.
   const perKasaSummary = useMemo(
-    () => visibleKasas
-      .filter((k) => !k.archived)
-      .map((k) => ({
-        kasa: k,
-        balance: calcKasaBalance(kasaTransactions, undefined, k.id),
-        count:   kasaTransactions.filter((t) => t.kasaId === k.id).length,
-      })),
+    () =>
+      visibleKasas
+        .filter((k) => !k.archived)
+        .map((k) => {
+          const display = getKasaDisplayBalance(k, kasas, kasaTransactions, tronPanel);
+          return {
+            kasa: k,
+            balance: display.balance,
+            ledgerBalance: display.ledgerBalance,
+            sublabel: display.sublabel,
+            count: kasaTransactions.filter((t) => t.kasaId === k.id).length,
+            isTronWallet: tronPanel?.tronKasa.id === k.id,
+            isGenelKasa: tronPanel?.genelKasa?.id === k.id,
+          };
+        }),
+    [visibleKasas, kasaTransactions, kasas, tronPanel]
+  );
+
+  const totalDisplayBalance = useMemo(
+    () => sumKasaDisplayBalances(visibleKasas.filter((k) => !k.archived), kasaTransactions),
     [visibleKasas, kasaTransactions]
   );
 
-  const tronPanel = useMemo(
-    () => computeTronPanelMetrics(kasas, kasaTransactions),
-    [kasas, kasaTransactions]
-  );
-  const tronKasa = tronPanel?.tronKasa ?? null;
-
-  // Genel Kasa görünümünde, dahil edilmiş TRON harcamaları işletme gideri olarak
-  // düşülür (kartta gösterilen bakiye). "Tümü" görünümünde TRON harcaması zaten
-  // TRON kasa bakiyesinde sayıldığı için ayrıca düşülmez.
   const currentBalanceDisplay = useMemo(() => {
-    const genelKasaId = tronPanel?.genelKasa?.id;
-    if (genelKasaId && selectedKasaId === genelKasaId) {
-      return currentBalance - (tronPanel?.includedTronOut ?? 0);
+    if (selectedKasaId === "all") return totalDisplayBalance;
+    const row = perKasaSummary.find((x) => x.kasa.id === selectedKasaId);
+    return row?.balance ?? currentBalance;
+  }, [selectedKasaId, totalDisplayBalance, perKasaSummary, currentBalance]);
+
+  const currentLedgerBalance = useMemo(() => {
+    if (selectedKasaId === "all") {
+      return calcKasaBalance(kasaTransactions);
     }
     return currentBalance;
-  }, [currentBalance, selectedKasaId, tronPanel?.genelKasa?.id, tronPanel?.includedTronOut]);
+  }, [selectedKasaId, kasaTransactions, currentBalance]);
 
   // TRON harcamalarını topluca Genel Kasa giderine dahil et / hariç tut.
   const setAllTronGenelInclusion = (include: boolean) => {
@@ -588,9 +765,20 @@ export default function KasaPage() {
       if (sourceFilter === "tron-auto") return isTronAuto(t);
       return !isTronAuto(t);
     };
+    const viewingGenel = Boolean(genelKasaId && selectedKasaId === genelKasaId);
     const genelMatches = (t: KasaTransaction) => {
       if (genelFilter === "all") return true;
-      if (t.direction !== "out") return false;
+      if (t.direction !== "out") return true;
+      if (
+        viewingGenel &&
+        tronPanel &&
+        isTronReflectedInGenelView(t, genelKasaId, tronPanel.tronKasa.id)
+      ) {
+        return genelFilter === "included";
+      }
+      if (viewingGenel && genelKasaId && t.kasaId === genelKasaId) {
+        return true;
+      }
       return genelFilter === "included" ? Boolean(t.countInGenel) : !t.countInGenel;
     };
     return [...withBalance].reverse().filter(t =>
@@ -604,7 +792,17 @@ export default function KasaPage() {
         t.counterparty.toLowerCase().includes(search.toLowerCase()) ||
         t.notes.toLowerCase().includes(search.toLowerCase()))
     );
-  }, [withBalance, filter, sourceFilter, genelFilter, search, selectedKasaId, tronPanel?.tronKasa.id, tronTxView]);
+  }, [
+    withBalance,
+    filter,
+    sourceFilter,
+    genelFilter,
+    search,
+    selectedKasaId,
+    genelKasaId,
+    tronPanel?.tronKasa.id,
+    tronTxView,
+  ]);
 
   const kasaNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -734,37 +932,37 @@ export default function KasaPage() {
               : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
           }`}
         >
-          Tümü ({fmtUsdt(calcKasaBalance(kasaTransactions))})
+          Tümü ({fmtUsdt(totalDisplayBalance)})
         </button>
-        {perKasaSummary.map(({ kasa, balance, count }) => {
-          const isTron = Boolean(kasa.tronAddress);
+        {perKasaSummary.map(({ kasa, balance, ledgerBalance, sublabel, count, isTronWallet, isGenelKasa }) => {
           const active = selectedKasaId === kasa.id;
+          const titleParts = [
+            !readOnly ? "Çift tıklayarak düzenle" : "",
+            isGenelKasa && ledgerBalance !== balance
+              ? `Defter bakiyesi: ${fmtUsdt(ledgerBalance)}`
+              : "",
+            sublabel ?? "",
+          ].filter(Boolean);
           return (
             <button
               key={kasa.id}
               onClick={() => setSelectedKasaId(kasa.id)}
               onDoubleClick={() => !readOnly && setKasaModal(kasa)}
-              title={!readOnly ? "Çift tıklayarak düzenle" : undefined}
-              className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
+              title={titleParts.length > 0 ? titleParts.join(" · ") : undefined}
+              className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 flex-wrap max-w-full ${
                 active
-                  ? isTron
+                  ? isTronWallet
                     ? "bg-emerald-600 text-white border-emerald-600"
                     : "bg-blue-600 text-white border-blue-600"
-                  : isTron
+                  : isTronWallet
                     ? "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/40"
                     : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
               }`}
             >
               {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
-              {isTron && <Link2 size={11} className="shrink-0 opacity-80" />}
+              {isTronWallet && <Link2 size={11} className="shrink-0 opacity-80" />}
               {kasa.name}
-              <span className="opacity-70 tabular-nums">· {fmtUsdt(balance)}</span>
-              {isTron && tronPanel && tronPanel.tronKasa.id === kasa.id && (
-                <span className="opacity-70 text-[10px]">
-                  (Ramiz {fmtUsdt(tronPanel.ramizWallet)} / Harcama{" "}
-                  {fmtUsdt(tronPanel.harcamaKasa)})
-                </span>
-              )}
+              <span className="opacity-90 tabular-nums font-medium">· {fmtUsdt(balance)}</span>
               <span className="opacity-50 text-[10px]">({count})</span>
             </button>
           );
@@ -826,6 +1024,18 @@ export default function KasaPage() {
                           <Copyable text={tronPanel.tronAddress} />
                         </p>
                       ) : null}
+                      {tronInfo?.walletBalances ? (
+                        <p className="mt-1.5 tabular-nums text-[10px] leading-relaxed text-blue-900/90 dark:text-blue-200/90">
+                          <span className="text-muted-foreground">Zincir: </span>
+                          USDT <strong>{fmtToken(tronInfo.walletBalances.usdt, "USDT")}</strong>
+                          {" · "}
+                          USDC <strong>{fmtToken(tronInfo.walletBalances.usdc, "USDC")}</strong>
+                          {" · "}
+                          TRX <strong>{fmtToken(tronInfo.walletBalances.trx, "TRX")}</strong>
+                        </p>
+                      ) : tronPanel.tronAddress && tronInfoLoading ? (
+                        <p className="mt-1 text-[10px] text-muted-foreground">Zincir bakiyesi yükleniyor…</p>
+                      ) : null}
                     </div>
                     <div className="rounded-md border border-amber-300/40 bg-amber-500/5 px-2.5 py-2">
                       <p className="text-muted-foreground">{genelName} · harcama kasası</p>
@@ -852,6 +1062,64 @@ export default function KasaPage() {
                       )}
                     </div>
                   </div>
+                  {tronPanel.tronAddress ? (
+                    <div className="mt-2 rounded-md border border-violet-300/50 bg-violet-500/5 px-2.5 py-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium text-violet-900 dark:text-violet-200">
+                          Cüzdan bakiyesi (zincir · TronGrid)
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                              void loadTronInfo();
+                              if (tronPanel.tronAddress) {
+                                void refreshWalletBalances(tronPanel.tronAddress);
+                              }
+                            }}
+                            disabled={tronInfoLoading}
+                            className="inline-flex items-center gap-1 rounded-md border border-border/70 px-2 py-0.5 text-[10px] hover:bg-card disabled:opacity-50"
+                            title="USDT, USDC ve TRX bakiyesini yenile"
+                          >
+                            <RefreshCw
+                              size={10}
+                              className={tronInfoLoading ? "animate-spin" : undefined}
+                            />
+                            Yenile
+                          </button>
+                      </div>
+                      {tronInfo?.walletBalances ? (
+                        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+                          <span>
+                            <span className="text-muted-foreground">USDT </span>
+                            <strong>{fmtToken(tronInfo.walletBalances.usdt, "USDT")}</strong>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">USDC </span>
+                            <strong>{fmtToken(tronInfo.walletBalances.usdc, "USDC")}</strong>
+                          </span>
+                          <span>
+                            <span className="text-muted-foreground">TRX </span>
+                            <strong>{fmtToken(tronInfo.walletBalances.trx, "TRX")}</strong>
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-muted-foreground">
+                          Zincir bakiyesi alınamadı. TRONGRID_API_KEY ve cüzdan adresini kontrol edin.
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        USDT hareketleri kasaya otomatik yazılır. USDC yalnızca canlı bakiye olarak gösterilir;
+                        USDC transferleri henüz senkron edilmez.
+                        {tronInfo?.walletBalances?.fetchedAt ? (
+                          <>
+                            {" "}
+                            ·{" "}
+                            {new Date(tronInfo.walletBalances.fetchedAt).toLocaleString("tr-TR")}
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
+                  ) : null}
                   <p className="text-xs mt-2 flex flex-wrap items-center gap-3">
                     {tronInfo?.watchAddress && tronInfo.watchAddress !== tronPanel.tronAddress && (
                       <span className="text-muted-foreground">
@@ -863,6 +1131,9 @@ export default function KasaPage() {
                   </p>
                   <p className="text-[11px] text-muted-foreground mt-1">
                     Cüzdandan yeni çıkış/giriş olduğunda kasa hareketleri arka planda otomatik güncellenir.
+                    {tronSyncHint && (
+                      <span className="block mt-1 text-foreground/90">{tronSyncHint}</span>
+                    )}
                   </p>
                 </div>
                 {!readOnly && (
@@ -881,10 +1152,7 @@ export default function KasaPage() {
                       size="sm"
                       className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
                       disabled={tronSyncing}
-                      onClick={() => {
-                        setSelectedKasaId(tronKasa.id);
-                        void syncTronForKasa({ recentDays: 7 });
-                      }}
+                      onClick={() => void syncTronForKasa(tronKasa, { recentDays: 7 })}
                     >
                       {tronSyncing ? "Çekiliyor…" : "Son 7 gün çek"}
                     </Button>
@@ -895,10 +1163,7 @@ export default function KasaPage() {
                       className="h-8 text-xs"
                       disabled={tronSyncing}
                       title="Kasa ayarındaki başlangıçtan beri tüm USDT giriş/çıkış"
-                      onClick={() => {
-                        setSelectedKasaId(tronKasa.id);
-                        void syncTronForKasa();
-                      }}
+                      onClick={() => void syncTronForKasa(tronKasa, { fullHistory: true })}
                     >
                       Tüm geçmiş
                     </Button>
@@ -958,7 +1223,7 @@ export default function KasaPage() {
                     className="h-7 text-xs"
                     disabled={tronSyncing}
                     title="Seçilen tarihten itibaren çek ve kasa ayarına kaydet"
-                    onClick={() => void syncTronForKasa({ useResyncFrom: true })}
+                    onClick={() => void syncTronForKasa(tronKasa, { useResyncFrom: true })}
                   >
                     Tarihten itibaren çek
                   </Button>
@@ -1073,10 +1338,19 @@ export default function KasaPage() {
                   Bildirim izleme · {tronInfo.watchLabel || "TRON cüzdan"}
                 </p>
                 {tronInfo.watchAddress ? (
-                  <Copyable text={tronInfo.watchAddress} />
+                  <>
+                    <Copyable text={tronInfo.watchAddress} />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {tronInfo.watchSource === "kasa-db"
+                        ? "Kaynak: kasa kaydı (Cüzdan ayarı)"
+                        : tronInfo.watchSource === "env-watch"
+                          ? "Kaynak: TRON_WATCH_ADDRESS env"
+                          : "Kaynak: TRON_KASA_ADDRESS env"}
+                    </p>
+                  </>
                 ) : (
                   <p className="text-amber-700 dark:text-amber-400">
-                    TRON_WATCH_ADDRESS tanımlı değil (Vercel env)
+                    TRON adresi yok — TRON kasasında &quot;Cüzdan ayarı&quot;ndan adres kaydedin
                   </p>
                 )}
               </div>
@@ -1088,7 +1362,8 @@ export default function KasaPage() {
               </div>
               <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 sm:col-span-2 lg:col-span-4">
                 <p className="text-muted-foreground mb-1 text-[10px]">
-                  Otomatik bildirim ~60 sn&apos;de bir kontrol eder; kasa bakiyesine yazmaz.
+                  Otomatik bildirim ~5 dk&apos;da bir kontrol eder. &quot;Son 7 gün çek&quot; kasa
+                  hareketlerini TronGrid ile yazar.
                 </p>
               </div>
             </div>
@@ -1103,9 +1378,9 @@ export default function KasaPage() {
             <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
           </p>
           <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalanceDisplay)}</p>
-          {currentBalanceDisplay !== currentBalance && (
+          {currentBalanceDisplay !== currentLedgerBalance && tronPanel && tronPanel.includedTronOut > 0 && (
             <p className="mt-0.5 text-[10px] text-blue-700/70 dark:text-blue-300/70">
-              TRON dahil · {fmtUsdt(tronPanel?.includedTronOut ?? 0)} harcama düşüldü
+              Defter {fmtUsdt(currentLedgerBalance)} · TRON gider −{fmtUsdt(tronPanel.includedTronOut)}
             </p>
           )}
         </div>
@@ -1163,6 +1438,14 @@ export default function KasaPage() {
           Maaş ödemeleri ve diğer planlı giderler ilgili kasadan otomatik düşülür.
         </p>
       </div>
+
+      {genelKasaId && selectedKasaId === genelKasaId && (tronPanel?.includedTronCount ?? 0) > 0 && (
+        <div className="mb-3 rounded-xl border border-amber-300/50 bg-amber-50/60 dark:border-amber-500/35 dark:bg-amber-950/30 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-100">
+          <strong>{tronPanel.includedTronCount}</strong> TRON cüzdan harcaması &quot;Dahil&quot; olarak
+          işaretlendi — aşağıdaki listede <strong>tarih, açıklama ve tutar</strong> ile Genel Kasa
+          giderlerinde görünür (Ramiz cüzdan satırı).
+        </div>
+      )}
 
       {/* Filtreler */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
@@ -1247,7 +1530,20 @@ export default function KasaPage() {
                     <span className="text-[10px] opacity-60">{t.date.slice(11, 16)}</span>
                   </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    {kasaNameById.get(t.kasaId) ?? t.kasaId}
+                    {isTronReflectedInGenelView(
+                      t,
+                      genelKasaId,
+                      tronPanel?.tronKasa?.id
+                    ) && selectedKasaId === genelKasaId ? (
+                      <span className="flex flex-col gap-0.5">
+                        <span>{tronPanel?.tronKasa?.name ?? "TRON"}</span>
+                        <span className="text-[10px] text-amber-700 dark:text-amber-300">
+                          → {kasaNameById.get(genelKasaId!) ?? "Genel Kasa"}
+                        </span>
+                      </span>
+                    ) : (
+                      kasaNameById.get(t.kasaId) ?? t.kasaId
+                    )}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {tronPanel?.tronKasa.id === t.kasaId && t.autoImported ? (
@@ -1290,7 +1586,15 @@ export default function KasaPage() {
                     </p>
                     {t.notes && <p className="text-[11px] text-muted-foreground truncate max-w-[300px]">{t.notes}</p>}
                   </td>
-                  <td className="px-3 py-2.5 text-muted-foreground text-xs whitespace-nowrap">{t.counterparty || "—"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap min-w-[120px]">
+                    <InlineCounterparty
+                      value={t.counterparty}
+                      readOnly={readOnly}
+                      onSave={(next) =>
+                        updateKasaTransaction(t.id, { counterparty: next })
+                      }
+                    />
+                  </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {t.proof ? (
                       t.proof.startsWith("http") ? (
@@ -1309,20 +1613,26 @@ export default function KasaPage() {
                     {t.direction === "out" ? (
                       <button
                         type="button"
-                        disabled={readOnly}
-                        onClick={() => updateKasaTransaction(t.id, { countInGenel: !t.countInGenel })}
+                        disabled={readOnly || genelToggleBusy === t.id}
+                        onClick={() => toggleGenelInclusion(t)}
                         title={
                           t.countInGenel
-                            ? "Genel Kasa giderine dahil — çıkarmak için tıkla"
-                            : "Genel Kasa giderine dahil değil — eklemek için tıkla"
+                            ? "Genel Kasa giderinden düşülüyor — hariç tutmak için tıkla"
+                            : "Genel Kasa bakiyesinden düşülsün (işletme gideri) — dahil et"
                         }
                         className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
                           t.countInGenel
                             ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-200"
-                            : "border-border text-muted-foreground hover:bg-accent"
-                        } ${readOnly ? "cursor-default opacity-60" : ""}`}
+                            : "border-border text-muted-foreground hover:border-amber-300/60 hover:bg-amber-50/50 dark:hover:bg-amber-950/30"
+                        } ${readOnly || genelToggleBusy === t.id ? "cursor-default opacity-60" : ""}`}
                       >
-                        {t.countInGenel ? <Check size={10} /> : <Plus size={10} />}
+                        {genelToggleBusy === t.id ? (
+                          <span className="opacity-70">…</span>
+                        ) : t.countInGenel ? (
+                          <Check size={10} />
+                        ) : (
+                          <Plus size={10} />
+                        )}
                         {t.countInGenel ? "Dahil" : "Hariç"}
                       </button>
                     ) : (
@@ -1416,9 +1726,27 @@ export default function KasaPage() {
         {kasaModal && (
           <KasaAccountForm
             initial={kasaModal === "new" ? undefined : kasaModal}
-            onSave={(d) => {
-              if (kasaModal === "new") addKasa(d);
-              else updateKasa(kasaModal.id, d);
+            onSave={async (d) => {
+              if (kasaModal === "new") {
+                addKasa(d);
+                const created = useStore.getState().kasas.at(-1);
+                if (created?.id) {
+                  await fetch("/api/kasa/account", {
+                    method: "POST",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ ...d, id: created.id }),
+                  }).catch(() => undefined);
+                }
+              } else {
+                updateKasa(kasaModal.id, d);
+                await fetch("/api/kasa/account", {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ...d, id: kasaModal.id }),
+                }).catch(() => undefined);
+              }
             }}
             onDelete={
               kasaModal !== "new" && kasaModal.id !== DEFAULT_KASA_ID

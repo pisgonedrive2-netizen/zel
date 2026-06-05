@@ -213,6 +213,8 @@ export default function YayinciProfilPage() {
     coverUrl: profile?.coverUrl,
     status: draft.status,
     visibility: draft.visibility,
+    igamingTags: profile?.igamingTags ?? [],
+    restrictedMarkets: profile?.restrictedMarkets ?? [],
     createdAt: profile?.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

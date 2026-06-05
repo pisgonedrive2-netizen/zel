@@ -767,6 +767,16 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
 }
 
 export async function deleteAppUser(id: string) {
+  const users = await fetchUsers();
+  const target = users.find((u) => u.id === id);
+  if (target?.role === "brand" && target.brandId) {
+    const { isBrandOwnerUser, purgeBrandTenant } = await import("@/lib/db/purge-brand-tenant");
+    const owner = await isBrandOwnerUser(id, target.brandId);
+    if (owner) {
+      await purgeBrandTenant(target.brandId);
+      return;
+    }
+  }
   const { error } = await getSupabaseAdmin().from("app_users").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

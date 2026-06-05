@@ -440,6 +440,10 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             }
             removeCachedAdminPin(id);
             await refreshUsersFromServer();
+            if (prev?.role === "brand" && prev.brandId) {
+              const { useStore } = await import("@/store/store");
+              useStore.getState().deleteBrand(prev.brandId);
+            }
           } catch {
             return {
               ok: false as const,

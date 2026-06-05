@@ -837,7 +837,10 @@ export default function LoginPage() {
 
   const marqueeBrands = useMemo(() => {
     const source = storeBrands.length > 0 ? storeBrands : initialBrands;
-    const active = source.filter((b) => b.status === "active" || b.status === "paused");
+    const active = source.filter(
+      (b) =>
+        (b.status === "active" || b.status === "paused") && !b.createdFromRequestId
+    );
     const list = (active.length > 0 ? active : initialBrands.filter((b) => b.status === "active")).map(
       (b) => ({ id: b.id, name: b.name, shortName: b.shortName })
     );

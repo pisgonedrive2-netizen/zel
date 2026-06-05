@@ -3,7 +3,10 @@ import { isRapidApiEnabled, isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { weekBrandReelFromRow } from "@/lib/db/mappers";
-import { syncEmployeePersonalAccounts } from "@/lib/social-api/streamer-achievement-sync";
+import {
+  countActivePersonalAccounts,
+  syncEmployeePersonalAccounts,
+} from "@/lib/social-api/streamer-achievement-sync";
 import type { WeekBrandReel } from "@/store/store";
 
 export const runtime = "nodejs";
@@ -36,18 +39,37 @@ export async function POST(req: NextRequest) {
   }
 
   if (!isRapidApiEnabled()) {
+    const accountsReady = await countActivePersonalAccounts(employeeId);
+    const reels = await loadPersonalReels(employeeId);
     return NextResponse.json({
       ok: true,
-      reels: await loadPersonalReels(employeeId),
-      summary: { attempted: 0, synced: 0, skipped: 0, failed: 0, errors: [] },
-      warning: "RAPIDAPI_KEY yok — kişisel hesap taraması yapılamadı.",
+      reels,
+      rapidApiEnabled: false,
+      accountsReady,
+      summary: {
+        attempted: accountsReady,
+        synced: reels.length,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      },
+      warning:
+        accountsReady > 0
+          ? "RAPIDAPI_KEY tanımlı değil — .env.local veya Vercel’e RapidAPI anahtarını ekleyin (YouTube / Instagram / TikTok aynı anahtar)."
+          : "Hesaplarım’da aktif YouTube, Instagram veya TikTok hesabı yok.",
     });
   }
 
   const summary = await syncEmployeePersonalAccounts(employeeId);
   const reels = await loadPersonalReels(employeeId);
 
-  return NextResponse.json({ ok: true, reels, summary });
+  return NextResponse.json({
+    ok: true,
+    reels,
+    summary,
+    rapidApiEnabled: true,
+    accountsReady: summary.attempted,
+  });
 }
 
 async function loadPersonalReels(employeeId: string): Promise<WeekBrandReel[]> {

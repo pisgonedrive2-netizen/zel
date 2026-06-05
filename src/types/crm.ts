@@ -22,6 +22,8 @@ export interface CrmContact {
   updatedAt: string;
 }
 
+export type CommissionModel = "cpa" | "revshare" | "hybrid" | "flat";
+
 export interface CrmDeal {
   id: string;
   brandId: string;
@@ -32,12 +34,21 @@ export interface CrmDeal {
   currency: CrmCurrency;
   probability: number;
   expectedClose?: string;
+  expectedFtd?: number;
+  commissionModel?: CommissionModel;
   affiliatePartnerId?: string;
   brandDealId?: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export const COMMISSION_MODEL_LABELS: Record<CommissionModel, string> = {
+  cpa: "CPA",
+  revshare: "RevShare",
+  hybrid: "Hibrit",
+  flat: "Sabit ücret",
+};
 
 export interface CrmInteraction {
   id: string;

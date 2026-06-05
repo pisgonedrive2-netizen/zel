@@ -10,11 +10,14 @@ import {
   Eye,
   FileSignature,
   Handshake,
+  Link2,
   Loader2,
   Pencil,
   Plus,
   RefreshCcw,
+  Target,
   Trash2,
+  TrendingUp,
   Video,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
@@ -63,6 +66,12 @@ import {
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
 import { deliverableGaps } from "@/lib/marka-content-alerts";
+import { fetchDealMilestones, fetchDealTracking } from "@/lib/marka-igaming-api";
+import {
+  BRAND_MILESTONE_STATUS_LABELS,
+  type BrandDealMilestone,
+  type BrandDealTrackingLink,
+} from "@/types/brand-igaming";
 
 /** `GET /api/marka/anlasmalar/[id]/posts` yanıtındaki deliverable ilerleme satırı. */
 type DeliverableProgress = {
@@ -113,6 +122,8 @@ export default function MarkaAnlasmaDetayPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [postModalOpen, setPostModalOpen] = useState(false);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [milestones, setMilestones] = useState<BrandDealMilestone[]>([]);
+  const [trackingLinks, setTrackingLinks] = useState<BrandDealTrackingLink[]>([]);
 
   const load = useCallback(async () => {
     if (!dealId) return;
@@ -120,14 +131,22 @@ export default function MarkaAnlasmaDetayPage() {
     setError(null);
     setNotReady(false);
     try {
-      const [d, p, match] = await Promise.all([
+      const [d, p, match, ms, links] = await Promise.all([
         fetchDealDetail(dealId),
         fetchPosts({ dealId }),
         fetchDealDeliverableMatch(dealId).catch(() => null),
+        brandId
+          ? fetchDealMilestones(brandId, dealId).catch(() => [] as BrandDealMilestone[])
+          : Promise.resolve([] as BrandDealMilestone[]),
+        brandId
+          ? fetchDealTracking(brandId, dealId).catch(() => [] as BrandDealTrackingLink[])
+          : Promise.resolve([] as BrandDealTrackingLink[]),
       ]);
       setDeal(d);
       setPosts(p);
       setDeliverableMatch(match);
+      setMilestones(ms);
+      setTrackingLinks(links);
     } catch (err) {
       if (isPoolNotReadyError(err)) {
         setNotReady(true);
@@ -137,7 +156,7 @@ export default function MarkaAnlasmaDetayPage() {
     } finally {
       setLoading(false);
     }
-  }, [dealId]);
+  }, [dealId, brandId]);
 
   useEffect(() => {
     void load();
@@ -242,6 +261,17 @@ export default function MarkaAnlasmaDetayPage() {
                 match={deliverableMatch}
                 resolveEmployeeName={resolveEmployeeName}
               />
+
+              <PerformanceVsPlan
+                deal={deal}
+                posts={posts}
+                match={deliverableMatch}
+                trackingLinks={trackingLinks}
+              />
+
+              <TrackingLinksSection links={trackingLinks} />
+
+              <MilestonesPanel milestones={milestones} />
 
               <MarkaDealAchievementPanel
                 deal={deal}
@@ -702,6 +732,211 @@ function PostRow({
         )}
       </div>
     </li>
+  );
+}
+
+function PerformanceVsPlan({
+  deal,
+  posts,
+  match,
+  trackingLinks,
+}: {
+  deal: BrandDeal;
+  posts: BrandPost[];
+  match: DeliverableProgress[] | null;
+  trackingLinks: BrandDealTrackingLink[];
+}) {
+  const plannedPosts = deal.deliverables.reduce((s, d) => s + d.count, 0);
+  const actualPosts = posts.length;
+  const plannedViews = deal.deliverables.reduce((s, d) => s + d.count * 50000, 0);
+  const actualViews = posts.reduce((s, p) => s + Number(p.views), 0);
+  const attributedFtd = trackingLinks.reduce((s, l) => s + l.attributedFtd, 0);
+  const rows = [
+    { label: "Post", planned: plannedPosts, actual: actualPosts },
+    { label: "İzlenme (tahmini)", planned: plannedViews, actual: actualViews },
+    { label: "FTD (attrib.)", planned: 0, actual: attributedFtd },
+  ];
+  const matchComplete =
+    match?.filter((m) => m.target > 0 && m.matched >= m.target).length ?? 0;
+  const matchTotal = match?.length ?? deal.deliverables.length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <TrendingUp size={14} className="text-[#3B82F6]" />
+          Performans vs plan
+        </CardTitle>
+        <CardDescription>
+          Planlanan teslimat ve gerçekleşen metrikler · {matchComplete}/{matchTotal}{" "}
+          deliverable tamam
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-2 text-left font-medium">Metrik</th>
+                <th className="py-2 text-right font-medium">Plan</th>
+                <th className="py-2 text-right font-medium">Gerçekleşen</th>
+                <th className="py-2 text-right font-medium">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const pct =
+                  r.planned > 0
+                    ? Math.min(100, Math.round((r.actual / r.planned) * 100))
+                    : r.actual > 0
+                      ? 100
+                      : 0;
+                return (
+                  <tr key={r.label} className="border-b last:border-0">
+                    <td className="py-2 font-medium">{r.label}</td>
+                    <td className="py-2 text-right tabular-nums text-muted-foreground">
+                      {r.planned.toLocaleString("tr-TR")}
+                    </td>
+                    <td className="py-2 text-right tabular-nums font-semibold">
+                      {r.actual.toLocaleString("tr-TR")}
+                    </td>
+                    <td className="py-2 text-right tabular-nums">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px]",
+                          pct >= 100
+                            ? "border-[#22C55E]/50 text-[#16A34A]"
+                            : pct >= 50
+                              ? "border-amber-300 text-amber-800"
+                              : ""
+                        )}
+                      >
+                        {pct}%
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrackingLinksSection({ links }: { links: BrandDealTrackingLink[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Link2 size={14} className="text-[#FF6B00]" />
+          Takip linkleri
+        </CardTitle>
+        <CardDescription>UTM, promo kod ve affiliate alt-id</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {links.length === 0 ? (
+          <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-4 py-6 text-center">
+            Henüz takip linki tanımlanmamış.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {links.map((link) => (
+              <li
+                key={link.id}
+                className="rounded-lg border border-border bg-card p-3 text-xs space-y-1.5"
+              >
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block truncate font-medium text-[#3B82F6] hover:underline"
+                >
+                  {link.url}
+                </a>
+                <div className="flex flex-wrap gap-1.5">
+                  {link.promoCode && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Promo: {link.promoCode}
+                    </Badge>
+                  )}
+                  {link.utmSource && (
+                    <Badge variant="outline" className="text-[10px]">
+                      utm_source={link.utmSource}
+                    </Badge>
+                  )}
+                  {link.utmCampaign && (
+                    <Badge variant="outline" className="text-[10px]">
+                      utm_campaign={link.utmCampaign}
+                    </Badge>
+                  )}
+                  {link.externalRef && (
+                    <Badge variant="outline" className="text-[10px]">
+                      ref={link.externalRef}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-muted-foreground tabular-nums">
+                  {link.attributedFtd} FTD · {fmtBrandMoney(link.attributedDeposit, "USD")}{" "}
+                  deposit
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MilestonesPanel({ milestones }: { milestones: BrandDealMilestone[] }) {
+  return (
+    <Card id="milestones">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Target size={14} className="text-[#22C55E]" />
+          Kilometre taşları
+        </CardTitle>
+        <CardDescription>Tarih, KPI ve ödeme bağlantıları</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {milestones.length === 0 ? (
+          <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-4 py-6 text-center">
+            Bu anlaşma için kilometre taşı kaydı yok.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {milestones.map((m) => (
+              <li
+                key={m.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2.5 text-sm"
+              >
+                <div>
+                  <p className="font-medium">{m.title}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {m.dueDate ? fmtDateOnly(m.dueDate) : "Tarih yok"}
+                    {m.kpiType && (
+                      <>
+                        {" "}
+                        · {m.kpiType}: {m.kpiActual ?? 0}/{m.kpiTarget ?? "—"}
+                      </>
+                    )}
+                    {m.paymentAmount != null && (
+                      <> · Ödeme: {fmtBrandMoney(m.paymentAmount, "USD")}</>
+                    )}
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-[10px]">
+                  {BRAND_MILESTONE_STATUS_LABELS[m.status]}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

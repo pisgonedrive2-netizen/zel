@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -23,6 +23,9 @@ import { MarkaMonthNav } from "@/components/marka-month-nav";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { fmtBrandMoney } from "@/lib/brand-monthly-stats";
+import { fetchPaymentSchedules } from "@/lib/brand-igaming-api";
+import type { BrandPaymentSchedule } from "@/types/brand-igaming";
+import { PAYMENT_SCHEDULE_STATUS_LABELS } from "@/types/brand-igaming";
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 function monthLabel(ym: string) {
@@ -121,6 +124,18 @@ export default function MarkaOdemelerPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [brandSchedules, setBrandSchedules] = useState<BrandPaymentSchedule[]>([]);
+
+  const loadSchedules = useCallback(async () => {
+    if (!brandId) return;
+    try {
+      setBrandSchedules(await fetchPaymentSchedules(brandId));
+    } catch {
+      setBrandSchedules([]);
+    }
+  }, [brandId]);
+
+  useEffect(() => { void loadSchedules(); }, [loadSchedules]);
 
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -263,7 +278,30 @@ export default function MarkaOdemelerPage() {
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
 
-          {!hasData ? (
+          {brandSchedules.length > 0 && (
+            <Card className="border-violet-200/60 dark:border-violet-500/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Influencer ödeme takvimi</CardTitle>
+                <CardDescription>brand_payment_schedules · anlaşma milestone bağlantılı</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {brandSchedules.slice(0, 12).map((s) => (
+                  <div key={s.id} className="flex justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                    <div>
+                      <p className="font-medium tabular-nums">{s.dueDate}</p>
+                      <p className="text-xs text-muted-foreground">{s.notes || (s.dealId ? `Anlaşma: ${s.dealId}` : "—")}</p>
+                    </div>
+                    <div className="text-right">
+                      <Badge variant="outline" className="text-[10px]">{PAYMENT_SCHEDULE_STATUS_LABELS[s.status]}</Badge>
+                      <p className="font-semibold tabular-nums">{fmtBrandMoney(s.amountUsd, "USD")}</p>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {!hasData && brandSchedules.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center gap-2 py-14 text-center">
                 <Wallet size={28} className="text-muted-foreground" />

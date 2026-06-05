@@ -25,6 +25,10 @@ import {
   Bell,
   Banknote,
   Building2,
+  Zap,
+  Shield,
+  Plug,
+  FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
@@ -61,7 +65,11 @@ const NAV: readonly NavItem[] = [
   { href: "/marka/postlar", label: "Postlar", icon: Video, group: "İzlenme" },
 
   { href: "/marka/affiliate", label: "Affiliate", icon: TrendingUp, group: "Büyüme" },
+  { href: "/marka/kampanyalar", label: "Kampanyalar", icon: Zap, group: "Büyüme" },
   { href: "/marka/crm", label: "CRM", icon: Contact, group: "Büyüme", cap: "crm" },
+  { href: "/marka/uyumluluk", label: "Uyumluluk", icon: Shield, group: "Genel" },
+  { href: "/marka/entegrasyon", label: "Entegrasyon", icon: Plug, group: "Genel" },
+  { href: "/marka/raporlar", label: "Raporlar", icon: FileSpreadsheet, group: "Genel" },
 
   { href: "/marka/personel", label: "Personel", icon: Briefcase, group: "Ekip", cap: "hr" },
   { href: "/marka/departmanlar", label: "Departmanlar", icon: Building2, group: "Ekip", cap: "hr" },

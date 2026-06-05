@@ -14,7 +14,9 @@ import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormActions } from "@/components/ui/field";
 import { fetchStaff } from "@/lib/brand-personnel-api";
 import { fetchDepartments, saveDepartment, deleteDepartment } from "@/lib/brand-payroll-api";
+import { fetchDepartmentBudgets, saveDepartmentBudget } from "@/lib/brand-igaming-api";
 import type { BrandDepartment, BrandStaff } from "@/types/brand-personnel";
+import type { BrandDepartmentBudget } from "@/types/brand-igaming";
 import { MarkaStatGrid } from "@/components/marka/marka-stat-grid";
 import { computeDepartmentInsights } from "@/lib/marka-brand-insights";
 import { fmtBrandCount } from "@/lib/brand-monthly-stats";
@@ -22,10 +24,11 @@ import { fmtBrandCount } from "@/lib/brand-monthly-stats";
 const emptyForm = { id: "", name: "", description: "", leadStaffId: "" };
 
 export default function MarkaDepartmanlarPage() {
-  const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
+  const { user, brandId, brand, canViewBrand, isAdminView, month } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
 
   const [departments, setDepartments] = useState<BrandDepartment[]>([]);
+  const [budgets, setBudgets] = useState<BrandDepartmentBudget[]>([]);
   const [staff, setStaff] = useState<BrandStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,18 +42,20 @@ export default function MarkaDepartmanlarPage() {
     setLoading(true);
     setError(null);
     try {
-      const [d, s] = await Promise.all([
+      const [d, s, b] = await Promise.all([
         fetchDepartments(brandId),
         fetchStaff(brandId).catch(() => [] as BrandStaff[]),
+        fetchDepartmentBudgets(brandId, month).catch(() => [] as BrandDepartmentBudget[]),
       ]);
       setDepartments(d);
       setStaff(s);
+      setBudgets(b);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Yüklenemedi");
     } finally {
       setLoading(false);
     }
-  }, [brandId]);
+  }, [brandId, month]);
 
   useEffect(() => {
     void load();
@@ -80,6 +85,26 @@ export default function MarkaDepartmanlarPage() {
     () => computeDepartmentInsights(departments, staff, memberCount),
     [departments, staff, memberCount]
   );
+
+  const budgetForDept = useCallback(
+    (deptId: string) => budgets.find((b) => b.departmentId === deptId),
+    [budgets],
+  );
+
+  const saveBudget = async (deptId: string, planned: number) => {
+    if (!brandId) return;
+    const existing = budgetForDept(deptId);
+    await saveDepartmentBudget({
+      id: existing?.id,
+      brandId,
+      departmentId: deptId,
+      month,
+      plannedAmount: planned,
+      actualAmount: existing?.actualAmount ?? 0,
+      currency: "USD",
+    });
+    void load();
+  };
 
   const staffName = (id?: string) => (id ? staff.find((s) => s.id === id)?.name : undefined);
 
@@ -245,6 +270,32 @@ export default function MarkaDepartmanlarPage() {
                     {d.description && (
                       <p className="text-xs text-muted-foreground">{d.description}</p>
                     )}
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 px-2.5 py-2 text-xs">
+                      <p className="font-medium text-foreground">{month} bütçe envelope</p>
+                      {(() => {
+                        const b = budgetForDept(d.id);
+                        return b ? (
+                          <p className="tabular-nums text-muted-foreground">
+                            Plan: ${b.plannedAmount.toLocaleString("tr-TR")} · Gerçek: ${b.actualAmount.toLocaleString("tr-TR")}
+                          </p>
+                        ) : (
+                          <p className="text-muted-foreground">Plan tanımlı değil</p>
+                        );
+                      })()}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="mt-1 text-primary underline"
+                          onClick={() => {
+                            const cur = budgetForDept(d.id)?.plannedAmount ?? 0;
+                            const v = window.prompt("Aylık marketing spend cap (USD)", String(cur));
+                            if (v != null && !Number.isNaN(Number(v))) void saveBudget(d.id, Number(v));
+                          }}
+                        >
+                          Bütçe düzenle
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5 border-t border-border/60 pt-2.5 text-xs text-muted-foreground">
                       <UserCog size={12} />
                       {lead ? <span>Yönetici: <span className="font-medium text-foreground">{lead}</span></span> : <span>Yönetici atanmadı</span>}

@@ -110,6 +110,14 @@ export function normalizeProfileBody(
       body.visibility !== undefined
         ? pickEnum(body.visibility, ALLOWED_VISIBILITY, existing?.visibility ?? "public")
         : existing?.visibility ?? "public",
+    igamingTags:
+      body.igamingTags !== undefined
+        ? toStringArray(body.igamingTags)
+        : existing?.igamingTags ?? [],
+    restrictedMarkets:
+      body.restrictedMarkets !== undefined
+        ? toStringArray(body.restrictedMarkets)
+        : existing?.restrictedMarkets ?? [],
     createdAt: existing?.createdAt ?? nowIso,
     updatedAt: nowIso,
   };

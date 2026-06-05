@@ -21,6 +21,11 @@ import { monthLabelTr } from "@/lib/month-label";
 import { last12MonthsYm, shortMonthLabel, currentCalendarYear } from "@/lib/calendar-months";
 import { totalViewsForMonth, fmtCompactViews } from "@/lib/brand-month-metrics";
 import { payrollDueCaption, payrollMonthLongTitle, paymentWindowCalendarPhrase } from "@/lib/payroll-dates";
+import {
+  buildPayrollPaymentLines,
+  isPayrollFullyPaid,
+  sumUnpaidPayrollLines,
+} from "@/lib/payroll-lines";
 import { motion } from "framer-motion";
 import {
   DollarSign, TrendingUp, TrendingDown, Users,
@@ -110,12 +115,35 @@ export default function OzetPage() {
     0
   );
 
-  // Bekleyen ödemeler
-  const bekleyenler = bordrolu.filter(e => {
-    const status = paymentStatuses.find(p => p.employeeId === e.id && p.month === currentMonth);
+  // Bekleyen ödemeler (tam ödenmemiş veya kısmi)
+  const bekleyenler = bordrolu.filter((e) => {
+    const lines = buildPayrollPaymentLines(
+      e,
+      currentMonth,
+      advances,
+      salaryExtras,
+      contentExpenses,
+      paymentStatuses,
+    );
+    if (lines.length > 0) return !isPayrollFullyPaid(lines);
+    const status = paymentStatuses.find((p) => p.employeeId === e.id && p.month === currentMonth);
     return !status?.paid;
   });
-  const bekleyenTutar = bekleyenler.reduce((s, e) => s + calcNetPayable(e, currentMonth, advances, salaryExtras, paymentStatuses), 0);
+  const bekleyenTutar = bekleyenler.reduce((s, e) => {
+    const lines = buildPayrollPaymentLines(
+      e,
+      currentMonth,
+      advances,
+      salaryExtras,
+      contentExpenses,
+      paymentStatuses,
+    );
+    if (lines.length > 0) {
+      const unpaid = sumUnpaidPayrollLines(lines);
+      return s + (unpaid > 0 ? unpaid : calcNetPayable(e, currentMonth, advances, salaryExtras, paymentStatuses));
+    }
+    return s + calcNetPayable(e, currentMonth, advances, salaryExtras, paymentStatuses);
+  }, 0);
   const acikAvansToplam = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, currentMonth, salaryExtras), 0);
 
   const kasaOzeti = useMemo(() => {
@@ -135,7 +163,7 @@ export default function OzetPage() {
       tumKasalar: calcKasaBalance(kasaTransactions),
       genelKasaAdi: genelKasa?.name ?? "Genel Kasa",
       tronKasaAdi: tronPanel?.tronKasa.name ?? "TRON Cüzdan",
-      genelIslem: genelRows.length,
+      genelIslem: genelRows.length + (tronPanel?.includedTronCount ?? 0),
       tronIslem: tronPanel?.autoTxCount ?? 0,
     };
   }, [kasas, kasaTransactions]);

@@ -51,6 +51,11 @@ import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { PlanWeekBoard, PlanHistoryPanel } from "@/components/streamer/weekly-plan-calendar";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { payrollDueShort, payrollDueCaption } from "@/lib/payroll-dates";
+import {
+  buildPayrollPaymentLines,
+  formatPayrollLineStatusSummary,
+  payrollPaymentPhase,
+} from "@/lib/payroll-lines";
 import { reloadStreamerExpensesFromServer } from "@/lib/reload-streamer-expenses";
 import {
   downloadBrandMonthCsv,
@@ -1315,7 +1320,24 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const net          = calcNetPayable(me, month, advances, salaryExtras, paymentStatuses);
   const openAdvNow   = calcOpenAdvanceBalance(me, month, salaryExtras);
   const repaidTotal  = calcAdvanceRepaid(me.id, "9999-12", salaryExtras);
-  const paid         = paymentStatuses.find(p => p.employeeId === me.id && p.month === month)?.paid ?? false;
+  const monthStatus  = paymentStatuses.find(p => p.employeeId === me.id && p.month === month);
+  const payrollLines = useMemo(
+    () =>
+      active
+        ? buildPayrollPaymentLines(
+            me,
+            month,
+            advances,
+            salaryExtras,
+            contentExpenses,
+            paymentStatuses,
+          )
+        : [],
+    [active, me, month, advances, salaryExtras, contentExpenses, paymentStatuses],
+  );
+  const paymentPhase = payrollPaymentPhase(payrollLines);
+  const paid         = paymentPhase === "full";
+  const partialPay   = paymentPhase === "partial";
 
   // ── İçerik harcamaları ──
   // Yayıncının kendi tüm gönderileri (geri çekilen/reddedilenler dahil — listede gösterilsin diye).
@@ -1439,13 +1461,25 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       ...contentExpenses.filter(e => e.employeeId === me.id).map(e => e.month),
     ])).sort((a, b) => b.localeCompare(a));
     return months.map(m => {
+      const lines = isPayrollActive(me, m)
+        ? buildPayrollPaymentLines(
+            me,
+            m,
+            advances,
+            salaryExtras,
+            contentExpenses,
+            paymentStatuses,
+          )
+        : [];
+      const phase = payrollPaymentPhase(lines);
       return {
         month:       m,
         baseSalary:  isPayrollActive(me, m) ? me.baseSalary : 0,
         rentMonth:   isPayrollActive(me, m) ? getRentForMonth(me, m, salaryExtras) : 0,
         net:         calcNetPayable(me, m, advances, salaryExtras, paymentStatuses),
         openAdv:     calcOpenAdvanceBalance(me, m, salaryExtras),
-        paid:        paymentStatuses.find(p => p.employeeId === me.id && p.month === m)?.paid ?? false,
+        paid:        phase === "full",
+        partial:     phase === "partial",
         contentAprv: sumApprovedContentExpenses(contentExpenses, me.id, m),
         planned:     plannedPayrollPlusApprovedContent(me, m, advances, salaryExtras, paymentStatuses, contentExpenses),
         paidOut:     totalCashOutPaidForMonth(me, m, advances, salaryExtras, paymentStatuses, contentExpenses),
@@ -1956,7 +1990,11 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             </p>
             <p className="text-[11px] text-blue-700/80 dark:text-blue-300/90 mt-0.5">
               {paid ? (
-                <span className="inline-flex items-center gap-1"><CheckCircle2 size={10} /> Maaş ödemesi işaretlendi</span>
+                <span className="inline-flex items-center gap-1"><CheckCircle2 size={10} /> Tüm kalemler ödendi</span>
+              ) : partialPay ? (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={10} /> {formatPayrollLineStatusSummary(payrollLines)}
+                </span>
               ) : active ? "Maaş ödemesi bekliyor" : "Bordro aktif değil"}
             </p>
           </CardContent>
@@ -2040,10 +2078,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               <CardDescription>
                 {paid ? (
                   <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
-                    <CheckCircle2 size={12} /> Bu ay ödendi
-                    {paymentStatuses.find(p => p.employeeId === me.id && p.month === month)?.paidDate && (
-                      <span> · {paymentStatuses.find(p => p.employeeId === me.id && p.month === month)?.paidDate}</span>
-                    )}
+                    <CheckCircle2 size={12} /> Bu ay tamamlandı
+                    {monthStatus?.paidDate && <span> · {monthStatus.paidDate}</span>}
+                  </span>
+                ) : partialPay ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                    <Clock size={12} /> {formatPayrollLineStatusSummary(payrollLines)}
                   </span>
                 ) : active ? (
                   <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
@@ -2083,6 +2123,26 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 {advTaken > 0 && <Row label="Bu Ay Alınan Avans" value={`− ${fmt(advTaken)}`} negative />}
                 <Separator className="my-2" />
                 <Row label="Net ödenecek (maaş)" value={fmt(net)} bold />
+                {active && payrollLines.length > 0 && (
+                  <div className="mt-3 space-y-1.5 rounded-lg border border-border/60 bg-muted/25 px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                      Ödeme durumu (kalem bazlı)
+                    </p>
+                    {payrollLines.map((line) => (
+                      <div key={line.lineId} className="flex justify-between gap-3 text-xs">
+                        <span className="text-muted-foreground truncate">{line.label}</span>
+                        <span className="shrink-0 inline-flex items-center gap-1.5">
+                          <span className="tabular-nums font-medium">{fmt(line.amountUsd)}</span>
+                          {line.paid ? (
+                            <CheckCircle2 size={12} className="text-green-600" />
+                          ) : (
+                            <Clock size={12} className="text-amber-600" />
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {month === "2026-05" && empDeductions.some((d) => /plan geçişi/i.test(d.description)) && (
                   <p className="text-[11px] text-muted-foreground rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 leading-relaxed">
                     Mayıs plan geçişi: yarım dönem maaş kesintisi (
@@ -2092,7 +2152,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                     harcaması değildir; maaş bordrosu satırıdır.
                   </p>
                 )}
-                {active && !paid && (
+                {active && !paid && !partialPay && (
                   <p className="text-[11px] text-muted-foreground">
                     {payrollDueCaption(month, me.paymentDay)}
                   </p>
@@ -3314,6 +3374,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                             {h.paid ? (
                               <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50 dark:text-green-300 dark:border-green-500/45 dark:bg-green-950/40 gap-1 text-[10px]">
                                 <CheckCircle2 size={9} /> Ödendi
+                              </Badge>
+                            ) : h.partial ? (
+                              <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/45 dark:bg-amber-950/40 gap-1 text-[10px]">
+                                <Clock size={9} /> Kısmi
                               </Badge>
                             ) : (
                               <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/45 dark:bg-amber-950/40 gap-1 text-[10px]">

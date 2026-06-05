@@ -4,7 +4,10 @@ import { getSession } from "@/lib/session";
 import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { weekBrandReelFromRow } from "@/lib/db/mappers";
-import { syncEmployeePersonalAccounts } from "@/lib/social-api/streamer-achievement-sync";
+import {
+  countActivePersonalAccounts,
+  syncEmployeePersonalAccounts,
+} from "@/lib/social-api/streamer-achievement-sync";
 import { notifyBrandContentPublished } from "@/lib/marka-brand-notify";
 import type { WeekBrandReel } from "@/store/store";
 
@@ -64,12 +67,27 @@ export async function POST(req: NextRequest) {
   }
 
   if (!isRapidApiEnabled()) {
+    let accountsReady = 0;
+    for (const eid of employeeIds) {
+      accountsReady += await countActivePersonalAccounts(eid);
+    }
     const reels = await loadBrandPersonalReels(brandId, filterEmployeeId);
     return NextResponse.json({
       ok: true,
       reels,
-      summary: { attempted: 0, synced: 0, skipped: 0, failed: 0, errors: [] },
-      warning: "RAPIDAPI_KEY yok — kişisel hesap taraması yapılamadı.",
+      rapidApiEnabled: false,
+      accountsReady,
+      summary: {
+        attempted: accountsReady,
+        synced: reels.length,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      },
+      warning:
+        accountsReady > 0
+          ? "RAPIDAPI_KEY tanımlı değil — .env.local veya Vercel’e RapidAPI anahtarını ekleyin."
+          : "Partner yayıncılarda aktif kişisel hesap yok.",
     });
   }
 
@@ -101,7 +119,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ ok: true, reels, summary: merged });
+  return NextResponse.json({
+    ok: true,
+    reels,
+    summary: merged,
+    rapidApiEnabled: true,
+    accountsReady: merged.attempted,
+  });
 }
 
 async function loadBrandPersonalReels(

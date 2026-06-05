@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { Bell, CheckCheck, Filter, Inbox, Trash2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
@@ -17,6 +17,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { fetchNotificationRules, saveNotificationRule } from "@/lib/brand-igaming-api";
+import { NOTIFICATION_EVENT_TYPES } from "@/types/brand-igaming";
+import { clientIsReadOnly } from "@/lib/org-capability";
 
 const TYPE_LABEL: Record<AppNotification["type"], string> = {
   expense_submitted:  "Harcama gönderildi",
@@ -48,9 +51,22 @@ export default function MarkaBildirimlerPage() {
   const { users } = useAuth();
   const portal = useMarkaPortal();
   const { user, brandId, brand, canViewBrand, isAdminView } = portal;
+  const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const { notifications } = useStore();
   const [showRead, setShowRead] = useState(true);
   const [typeFilter, setTypeFilter] = useState<"" | AppNotification["type"]>("");
+  const [rules, setRules] = useState<Awaited<ReturnType<typeof fetchNotificationRules>>>([]);
+
+  const loadRules = useCallback(async () => {
+    if (!brandId) return;
+    try {
+      setRules(await fetchNotificationRules(brandId));
+    } catch {
+      setRules([]);
+    }
+  }, [brandId]);
+
+  useEffect(() => { void loadRules(); }, [loadRules]);
 
   // Admin impersonation modunda asıl marka kullanıcısının bildirimlerini filtreliyoruz;
   // gerçek brand rolünde ise oturumdaki kullanıcının kendi bildirimleri.
@@ -141,6 +157,43 @@ export default function MarkaBildirimlerPage() {
           accent="text-violet-700 dark:text-violet-300"
         />
       </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Bildirim kuralları</CardTitle>
+          <CardDescription>FTD hedef altı, compliance breach, payout ready…</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {NOTIFICATION_EVENT_TYPES.map((ev) => {
+            const rule = rules.find((r) => r.eventType === ev.value);
+            return (
+              <div key={ev.value} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                <span>{ev.label}</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px]">{rule?.channel ?? "in_app"}</Badge>
+                  {!readOnly && brandId && (
+                    <Button
+                      size="sm"
+                      variant={rule?.enabled ? "secondary" : "outline"}
+                      className="h-7 text-[10px]"
+                      onClick={() => void saveNotificationRule({
+                        id: rule?.id,
+                        brandId,
+                        eventType: ev.value,
+                        channel: rule?.channel ?? "in_app",
+                        enabled: !(rule?.enabled ?? false),
+                        threshold: rule?.threshold ?? {},
+                      }).then(() => void loadRules())}
+                    >
+                      {rule?.enabled ? "Açık" : "Kapalı"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
 
       {typeCounts.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

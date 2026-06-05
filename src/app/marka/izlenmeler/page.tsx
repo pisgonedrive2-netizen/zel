@@ -1,8 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
-import { ExternalLink, Download, FileSpreadsheet, Target, LayoutGrid, Users, Filter, Pencil, Check, X } from "lucide-react";
+import {
+  ExternalLink,
+  Download,
+  FileSpreadsheet,
+  Target,
+  LayoutGrid,
+  Users,
+  Filter,
+  Pencil,
+  Check,
+  X,
+  Globe2,
+  ShieldCheck,
+} from "lucide-react";
 import { useStore } from "@/store/store";
 import { BrandLogo } from "@/components/brand-logo";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
@@ -31,6 +44,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { SocialPlatformIcon, platformAccentClass } from "@/components/social-platform-icon";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { ViewDotCard } from "@/components/view-dot-card";
@@ -43,6 +57,9 @@ import {
   reelDisplayDate,
   scopeBrandActivityData,
 } from "@/lib/brand-activity-dates";
+import { fetchTrackingDomains } from "@/lib/marka-igaming-api";
+import type { BrandTrackingDomain } from "@/types/brand-igaming";
+import { fmtDateTime } from "@/lib/fmt-date";
 
 const CARD_PREVIEW_LIMIT = 5;
 
@@ -88,8 +105,16 @@ export default function MarkaIzlenmelerPage() {
   const [linkOwnerId, setLinkOwnerId] = useState("all");
   const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
   const [linkMonthOnly, setLinkMonthOnly] = useState(true);
+  const [trackingDomains, setTrackingDomains] = useState<BrandTrackingDomain[]>([]);
 
   const todayYm = toYearMonthLocal(new Date());
+
+  useEffect(() => {
+    if (!brandId) return;
+    fetchTrackingDomains(brandId)
+      .then(setTrackingDomains)
+      .catch(() => setTrackingDomains([]));
+  }, [brandId]);
 
   const linksForBrand = useMemo(
     () => brandLinks.filter((l) => l.brandId === brandId),
@@ -334,6 +359,55 @@ export default function MarkaIzlenmelerPage() {
               size="sm"
             />
           </div>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Globe2 size={16} className="text-[#FF6B00]" />
+                Affiliate takip domainleri
+              </CardTitle>
+              <CardDescription>
+                Landing ve yönlendirme domainleri · SSL ve son kontrol
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {trackingDomains.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
+                  Henüz takip domaini kaydı yok.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {trackingDomains.map((d) => (
+                    <li
+                      key={d.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-medium truncate">{d.domain}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[10px] shrink-0",
+                            d.sslOk
+                              ? "border-[#22C55E]/50 text-[#16A34A]"
+                              : "border-red-300 text-red-700"
+                          )}
+                        >
+                          <ShieldCheck size={10} className="mr-0.5 inline" />
+                          SSL {d.sslOk ? "OK" : "Hata"}
+                        </Badge>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        {d.lastCheckedAt
+                          ? fmtDateTime(d.lastCheckedAt)
+                          : "Kontrol yok"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
           <CollapsibleSection
             defaultOpen

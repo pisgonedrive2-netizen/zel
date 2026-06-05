@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { kasaAccountFromRow } from "@/lib/db/mappers";
+import { isSupabaseEnabled } from "@/lib/env";
+import { resolveTronConfig } from "@/lib/tron-config";
+import { fetchTronWalletOnChainBalances } from "@/lib/tron-wallet-balances";
+
 async function probeTronGrid(apiKey: string | undefined) {
   const start = Date.now();
   try {
@@ -36,28 +38,22 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
 
+  if (!isSupabaseEnabled()) {
+    return NextResponse.json({ ok: false, error: "Supabase yapılandırılmamış" }, { status: 503 });
+  }
+
   const apiKeySet = Boolean(process.env.TRONGRID_API_KEY?.trim());
-  const watchAddress =
-    process.env.TRON_WATCH_ADDRESS?.trim() ||
-    process.env.TRON_KASA_ADDRESS?.trim() ||
-    "";
-  const watchSyncFrom =
-    process.env.TRON_WATCH_FROM?.trim() ||
-    process.env.TRON_SYNC_FROM?.trim() ||
-    "";
-  const watchLabel = process.env.TRON_WATCH_LABEL?.trim() || "TRON cüzdan";
   const envAddress = process.env.TRON_KASA_ADDRESS?.trim() ?? "";
   const envSyncFrom = process.env.TRON_SYNC_FROM?.trim() ?? "";
 
-  const { data: kasas } = await getSupabaseAdmin()
-    .from("kasas")
-    .select("*")
-    .eq("archived", false)
-    .order("order_index", { ascending: true });
+  const resolved = await resolveTronConfig();
+  const tronAddress = resolved.kasaAddress ?? envAddress ?? null;
+  const apiKey = process.env.TRONGRID_API_KEY?.trim();
 
-  const list = (kasas ?? []).map((r) => kasaAccountFromRow(r as Record<string, unknown>));
-  const primary =
-    list.find((k) => k.isDefault) ?? list.find((k) => k.tronAddress) ?? list[0];
+  let walletBalances: Awaited<ReturnType<typeof fetchTronWalletOnChainBalances>> = null;
+  if (tronAddress) {
+    walletBalances = await fetchTronWalletOnChainBalances(tronAddress, apiKey);
+  }
 
   let probeOk = false;
   let probeMessage = "";
@@ -68,24 +64,26 @@ export async function GET() {
     probeMessage = probe.message;
     probeLatencyMs = probe.latencyMs;
   } else {
-    probeMessage = "TRONGRID_API_KEY tanımlı değil";
+    probeMessage = "TRONGRID_API_KEY tanımlı değil — .env.local veya Vercel env ekleyin";
   }
 
   return NextResponse.json({
     ok: true,
     syncIntervalMinutes: 5,
-    estimatedMonthlyRequests: "~50k (cron 5 dk + manuel; 100k limit içinde)",
+    estimatedMonthlyRequests: "~15k (günlük cron + kasa arka plan + manuel)",
     apiKeySet,
-    watchOnly: Boolean(watchAddress),
-    watchAddress: watchAddress || null,
-    watchSyncFrom: watchSyncFrom || null,
-    watchLabel,
+    watchOnly: Boolean(resolved.watchAddress),
+    watchAddress: resolved.watchAddress,
+    watchSyncFrom: resolved.watchSyncFrom,
+    watchLabel: resolved.watchLabel,
+    watchSource: resolved.watchSource,
     envAddress,
     envSyncFrom,
-    primaryKasaId: primary?.id ?? null,
-    primaryKasaName: primary?.name ?? null,
-    tronAddress: primary?.tronAddress ?? envAddress ?? null,
-    tronSyncFrom: primary?.tronSyncFrom ?? envSyncFrom ?? null,
+    primaryKasaId: resolved.primaryKasaId,
+    primaryKasaName: resolved.primaryKasaName,
+    tronAddress,
+    tronSyncFrom: resolved.kasaSyncFrom ?? envSyncFrom ?? null,
+    walletBalances,
     probeOk,
     probeMessage,
     probeLatencyMs,

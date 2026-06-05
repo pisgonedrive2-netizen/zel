@@ -16,6 +16,8 @@ import { Field, Input, Select, Textarea, FormActions } from "@/components/ui/fie
 import {
   fetchStaff, fetchTracking, saveTask, saveShift, deleteTracking,
 } from "@/lib/brand-personnel-api";
+import { fetchIgamingTasks, saveIgamingTask } from "@/lib/brand-igaming-api";
+import type { BrandIgamingTask } from "@/types/brand-igaming";
 import {
   TASK_PRIORITY_LABELS, TASK_STATUS_LABELS, STAFF_CURRENCY_SYMBOL,
   shiftHours, formatHours, hourlyRate,
@@ -60,6 +62,7 @@ export default function MarkaTakipPage() {
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [tasks, setTasks] = useState<BrandStaffTask[]>([]);
+  const [brandTasks, setBrandTasks] = useState<BrandIgamingTask[]>([]);
   const [shifts, setShifts] = useState<BrandStaffShift[]>([]);
   const [staff, setStaff] = useState<BrandStaff[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,10 +81,15 @@ export default function MarkaTakipPage() {
     setLoading(true);
     setError(null);
     try {
-      const [tracking, st] = await Promise.all([fetchTracking(brandId), fetchStaff(brandId)]);
+      const [tracking, st, bt] = await Promise.all([
+        fetchTracking(brandId),
+        fetchStaff(brandId),
+        fetchIgamingTasks(brandId).catch(() => [] as BrandIgamingTask[]),
+      ]);
       setTasks(tracking.tasks);
       setShifts(tracking.shifts);
       setStaff(st);
+      setBrandTasks(bt);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Yüklenemedi");
     } finally {
@@ -466,6 +474,35 @@ export default function MarkaTakipPage() {
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Marka geneli görevler (brand_tasks) */}
+        <Card>
+          <CardContent className="py-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Marka görevleri</h2>
+              <Badge variant="outline" className="text-[10px]">{brandTasks.length}</Badge>
+            </div>
+            {brandTasks.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Kampanya / operasyon görevi yok.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {brandTasks.slice(0, 8).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                    <div>
+                      <p className="font-medium">{t.title}</p>
+                      <p className="text-[10px] text-muted-foreground">{t.status} · {t.priority}{t.dueDate ? ` · ${t.dueDate}` : ""}</p>
+                    </div>
+                    {!readOnly && t.status !== "done" && (
+                      <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => void saveIgamingTask({ ...t, brandId: brandId!, status: "done" }).then(() => void load())}>
+                        Tamamla
+                      </Button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>

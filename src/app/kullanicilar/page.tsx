@@ -1441,7 +1441,11 @@ export default function UsersPage() {
                           </button>
                           {currentUser?.id !== u.id && !locked ? (
                             <button onClick={async () => {
-                              if (confirm(`${u.name} kullanıcısını silmek istiyor musun?`)) {
+                              if (confirm(
+                                u.role === "brand" && u.brandId
+                                  ? `${u.name} silinsin mi? Marka sahibi ise marka ve tüm verileri sistemden kaldırılır.`
+                                  : `${u.name} kullanıcısını silmek istiyor musun?`
+                              )) {
                                 const r = await deleteUser(u.id);
                                 if (!r.ok) setFlash(r.reason);
                               }

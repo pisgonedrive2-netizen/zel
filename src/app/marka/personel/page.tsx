@@ -233,6 +233,8 @@ export default function MarkaPersonelPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {brand?.name} ekibini yönetin · {kpis.counts.active} aktif / {kpis.total} toplam
+              {" · "}
+              <Link href="/marka/departmanlar" className="text-primary underline">Departman bütçeleri</Link>
             </p>
           </div>
           <div className="flex gap-2">
