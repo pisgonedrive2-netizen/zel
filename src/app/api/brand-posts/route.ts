@@ -19,6 +19,7 @@ import {
   pickEnum,
 } from "@/lib/brand-offer-shared";
 import type { AppNotification, BrandPost } from "@/store/store";
+import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,11 +85,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ posts });
     }
     if (session.role === "brand") {
-      if (!session.brandId) {
+      const brandId = resolveBrandId(session, queryBrandId);
+      if (!brandId) {
         return NextResponse.json({ error: "Marka oturumu eksik" }, { status: 403 });
       }
+      const guard = ensureBrandAccess(session, brandId, "read");
+      if (guard) return guard;
       const posts = await fetchBrandPosts({
-        brandId: session.brandId,
+        brandId,
         employeeId: queryEmployeeId,
         dealId,
         platform,
@@ -157,7 +161,9 @@ export async function POST(req: Request) {
 
   // Marka ve employee zorunlulukları role'a göre çözümlenir.
   const brandId =
-    session.role === "brand" ? session.brandId ?? "" : String(body.brandId ?? "").trim();
+    session.role === "brand"
+      ? resolveBrandId(session, body.brandId) ?? ""
+      : String(body.brandId ?? "").trim();
   if (!brandId) return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
 
   let employeeId: string | undefined;

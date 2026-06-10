@@ -2,6 +2,13 @@ import { getRapidApiKey } from "@/lib/env";
 import { SOCIAL_PLANS, type SocialPlatform } from "./config";
 import type { DetectedPlatform } from "./platform-detect";
 import { pickPublishedAtIso } from "./published-at";
+import {
+  enrichRichLinkDetails,
+  resolveInstagramShareUrl,
+  type PremiumEnrichment,
+} from "./premium-enrichment";
+
+export type { PremiumEnrichment } from "./premium-enrichment";
 
 export interface FetchedMetrics {
   views: number | null;
@@ -300,14 +307,23 @@ async function fetchInstagramProfile(username: string): Promise<unknown> {
 
 /** Gönderi / reel — önce shortcode; olmazsa tam URL (paylaşım linkleri). */
 async function fetchInstagramPost(shortcode: string, sourceUrl?: string): Promise<unknown> {
+  let url = sourceUrl?.trim();
+  if (url && /\/share\//i.test(url)) {
+    url = await resolveInstagramShareUrl(url);
+  }
   try {
     return await rapidApiGet("instagram", "/post", { shortcode });
   } catch (err) {
-    const url = sourceUrl?.trim();
     if (!url) throw err;
     try {
       return await rapidApiGet("instagram", "/post", { url });
     } catch {
+      if (/\/share\//i.test(sourceUrl ?? "")) {
+        const resolved = await resolveInstagramShareUrl(sourceUrl!);
+        if (resolved !== sourceUrl) {
+          return await rapidApiGet("instagram", "/post", { url: resolved });
+        }
+      }
       throw err;
     }
   }
@@ -478,6 +494,8 @@ export interface RichLinkDetails {
   extras?: Record<string, number | string | null | undefined>;
   /** Ham API cevabı — debug için saklanır. */
   raw?: unknown;
+  /** Premium API zenginleştirmesi (yorumlar, ilgili içerik, müzik/challenge). */
+  premium?: PremiumEnrichment;
 }
 
 function strOrUndef(v: unknown): string | undefined {
@@ -564,7 +582,12 @@ async function richYouTube(detected: DetectedPlatform): Promise<RichLinkDetails>
       raw,
     };
   }
-  const raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
+  let raw: unknown;
+  try {
+    raw = await rapidApiGet("youtube", "/v2/video-details", { video_id: detected.externalRef });
+  } catch {
+    raw = await rapidApiGet("youtube", "/video/details/", { id: detected.externalRef });
+  }
   const r = raw as Record<string, unknown>;
   const stats = ((r.stats ?? r.statistics ?? r) as Record<string, unknown>);
   const desc = strOrUndef(r.description);
@@ -765,10 +788,24 @@ async function richTikTok(detected: DetectedPlatform): Promise<RichLinkDetails> 
   };
 }
 
-/** Zengin metadata + metrik döner. 1 RapidAPI çağrısı yapar. */
-export async function fetchRichDetailsForLink(detected: DetectedPlatform): Promise<RichLinkDetails> {
-  if (detected.platform === "youtube") return richYouTube(detected);
-  if (detected.platform === "instagram") return richInstagram(detected);
-  if (detected.platform === "tiktok") return richTikTok(detected);
-  throw new RapidApiError(detected.platform, 0, "Bilinmeyen platform");
+export interface FetchRichDetailsOptions {
+  /** Yorumlar, ilgili içerik, son gönderiler vb. (ek kota tüketir). */
+  includePremium?: boolean;
+}
+
+/** Zengin metadata + metrik döner. Varsayılan 1 RapidAPI çağrısı; premium ile ek istekler. */
+export async function fetchRichDetailsForLink(
+  detected: DetectedPlatform,
+  options?: FetchRichDetailsOptions
+): Promise<RichLinkDetails> {
+  let details: RichLinkDetails;
+  if (detected.platform === "youtube") details = await richYouTube(detected);
+  else if (detected.platform === "instagram") details = await richInstagram(detected);
+  else if (detected.platform === "tiktok") details = await richTikTok(detected);
+  else throw new RapidApiError(detected.platform, 0, "Bilinmeyen platform");
+
+  if (options?.includePremium !== false) {
+    details.premium = await enrichRichLinkDetails(detected, details);
+  }
+  return details;
 }

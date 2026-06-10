@@ -10,6 +10,7 @@ import {
   APP_SNAPSHOT_KEYS,
   reconcileRentExtrasForAllEmployees,
   mergeCanonicalContentExpenses,
+  mergeCanonicalPaymentStatuses,
   mergeCanonicalSalaryExtras,
   reconcilePayrollSettledContentExtras,
   type AppHydratePayload,
@@ -332,6 +333,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         salaryExtras = mergeCanonicalSalaryExtras(salaryExtras);
         salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
         patch.salaryExtras = salaryExtras;
+        patch.paymentStatuses = mergeCanonicalPaymentStatuses(
+          (patch.paymentStatuses ?? useStore.getState().paymentStatuses) as import("@/store/store").MonthPaymentStatus[],
+        );
         useStore.setState(patch);
         try {
           const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {

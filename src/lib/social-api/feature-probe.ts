@@ -32,13 +32,13 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
       if (featureId === "video_comments") return { id: "dQw4w9WgXcQ" };
       if (featureId === "video_related") return { id: "dQw4w9WgXcQ" };
       if (featureId === "search") return { query: "foxstream", type: "video" };
-      if (featureId === "trending") return { geo: "TR" };
+      if (featureId === "trending") return { geo: "TR", hl: "tr" };
       break;
     case "instagram":
       if (featureId === "profile") return { username: "instagram" };
       if (featureId === "post") return { shortcode: "DLUWkieNc0f" };
       if (featureId === "resolve_share") {
-        return { url: "https://www.instagram.com/p/DLUWkieNc0f/" };
+        return { url: "https://www.instagram.com/share/reel/_beaXQNap" };
       }
       if (featureId === "user_feed" || featureId === "user_reels" || featureId === "user_stories") {
         return { user_id: "25025320" };
@@ -64,7 +64,9 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
       }
       if (featureId === "search_user") return { keywords: "tiktok", count: "5" };
       if (featureId === "trending_videos") return { country_code: "TR", count: "5" };
-      if (featureId === "music_detail") return { music_id: "7148334302027676418" };
+      if (featureId === "music_detail") {
+        return { url: "https://www.tiktok.com/music/Bad-Habits-6974398592418809857" };
+      }
       if (featureId === "challenge_detail") return { challenge_name: "fyp" };
       break;
   }

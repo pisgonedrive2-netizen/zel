@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/brand-logo";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -541,6 +542,16 @@ export default function IzlenmePage() {
         snapshotCount={linkSnapshots.length}
         linkCount={brandLinks.filter((l) => l.url?.trim()).length}
         viewMonth={viewMonth}
+      />
+
+      <BrandLinkViewershipSummary
+        className="mb-4"
+        links={scopedLinks}
+        snapshots={linkSnapshots}
+        viewMonth={viewMonth}
+        todayYm={todayYm}
+        title="Tüm markalar — link izlenme özeti"
+        compact
       />
 
       {monthFilterHidesData && (

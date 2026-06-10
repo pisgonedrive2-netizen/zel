@@ -10,6 +10,28 @@ function ymGte(a: string, b: string): boolean {
   return a >= b;
 }
 
+function ymGt(a: string, b: string): boolean {
+  return a > b;
+}
+
+function calcCarryForward(
+  employeeId: string,
+  currentMonth: string,
+  advances: Advance[],
+  paymentStatuses: MonthPaymentStatus[],
+): number {
+  return advances
+    .filter((a) => {
+      if (a.employeeId !== employeeId) return false;
+      if (!ymGt(currentMonth, a.month)) return false;
+      const paid = paymentStatuses.find(
+        (p) => p.employeeId === employeeId && p.month === a.month && p.paid,
+      );
+      return !paid;
+    })
+    .reduce((s, a) => s + a.amount, 0);
+}
+
 function isPayrollActive(employee: Employee, month: string): boolean {
   return employee.status === "active" && ymGte(month, employee.payrollStartMonth);
 }
@@ -113,23 +135,41 @@ export function buildPayrollLinePlan(
   advances: Advance[],
   extras: SalaryExtra[],
   contentExpenses: ContentExpense[],
+  paymentStatuses: MonthPaymentStatus[] = [],
 ): Omit<PayrollLineItem, "paid" | "paidDate" | "paidBy" | "kasaTxId">[] {
   if (!isPayrollActive(employee, month)) return [];
 
   const empExtras = extras.filter(
     (e) => e.employeeId === employee.id && e.month === month,
   );
+  const empAdvances = advances.filter(
+    (a) => a.employeeId === employee.id && a.month === month,
+  );
+  const totalDeduc = empExtras
+    .filter((e) => e.type === "deduction")
+    .reduce((s, e) => s + e.amount, 0);
+  const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
+  const carryFwd = calcCarryForward(
+    employee.id,
+    month,
+    advances,
+    paymentStatuses,
+  );
+  const netBaseSalary = Math.max(
+    0,
+    employee.baseSalary - totalDeduc - totalAdvance - carryFwd,
+  );
   const lines: Omit<
     PayrollLineItem,
     "paid" | "paidDate" | "paidBy" | "kasaTxId"
   >[] = [];
 
-  if (employee.baseSalary > 0) {
+  if (netBaseSalary > 0) {
     lines.push({
       lineId: "base",
       kind: "base_salary",
       label: "Temel maaş",
-      amountUsd: employee.baseSalary,
+      amountUsd: netBaseSalary,
     });
   }
 
@@ -229,6 +269,7 @@ export function buildPayrollPaymentLines(
     advances,
     extras,
     contentExpenses,
+    paymentStatuses,
   );
   const st = statusFor(employee.id, month, paymentStatuses);
   return applyStoredPayments(plan, st?.linePayments, st?.paid ?? false);
@@ -272,12 +313,16 @@ export function formatPayrollLineStatusSummary(lines: PayrollLineItem[]): string
   return `${paidLabels} ödendi · ${unpaidLabels} bekliyor`;
 }
 
-function shortLineLabel(line: PayrollLineItem): string {
+export function shortPayrollLineLabel(line: Pick<PayrollLineItem, "kind" | "label">): string {
   if (line.kind === "base_salary") return "Maaş";
   if (line.kind === "rent") return "Kira";
   if (line.kind === "content_payroll") return "İçerik";
   if (line.kind === "bonus") return "Prim";
   return line.label.split("·")[0]?.trim() || line.label;
+}
+
+function shortLineLabel(line: PayrollLineItem): string {
+  return shortPayrollLineLabel(line);
 }
 
 export function linePaymentsToRecords(lines: PayrollLineItem[]): PayrollLinePaidRecord[] {

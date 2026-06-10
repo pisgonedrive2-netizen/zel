@@ -3,97 +3,34 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowUpRight,
-  LayoutDashboard,
-  BarChart3,
-  Users,
-  Send,
-  Handshake,
-  CalendarDays,
-  Eye,
-  Video,
-  TrendingUp,
-  Contact,
-  Briefcase,
-  ClipboardList,
-  Settings,
-  Calculator,
-  FileText,
-  Wallet,
-  UserCog,
-  Bell,
-  Banknote,
-  Building2,
-  Zap,
-  Shield,
-  Plug,
-  FileSpreadsheet,
-} from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { markaHref } from "@/lib/use-marka-view-month";
-import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
+import { clientHasOrgCapability } from "@/lib/org-capability";
+import { MARKA_NAV_GROUP_ORDER, MARKA_NAV_ITEMS, type MarkaNavGroup } from "@/lib/marka-nav";
+import { markaNavIcon } from "@/lib/marka-nav-icons";
+import { isMainAdmin } from "@/lib/user-guards";
 
-type NavGroup =
-  | "Genel"
-  | "İş Birliği"
-  | "İzlenme"
-  | "Büyüme"
-  | "Ekip"
-  | "Finans"
-  | "Hesap";
+type NavGroup = MarkaNavGroup;
 
 type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   group: NavGroup;
-  cap?: OrgCapability;
+  cap?: (typeof MARKA_NAV_ITEMS)[number]["cap"];
 };
 
-const NAV: readonly NavItem[] = [
-  { href: "/marka/anasayfa", label: "Anasayfa", icon: LayoutDashboard, group: "Genel" },
-  { href: "/marka/operasyon", label: "Operasyon özeti", icon: BarChart3, group: "Genel" },
+const NAV: readonly NavItem[] = MARKA_NAV_ITEMS.map((item) => ({
+  href: item.href,
+  label: item.label,
+  icon: markaNavIcon(item.icon),
+  group: item.group,
+  cap: item.cap,
+}));
 
-  { href: "/marka/havuz", label: "Yayıncı havuzu", icon: Users, group: "İş Birliği" },
-  { href: "/marka/teklifler", label: "Teklifler", icon: Send, group: "İş Birliği" },
-  { href: "/marka/anlasmalar", label: "Anlaşmalar", icon: Handshake, group: "İş Birliği" },
-  { href: "/marka/takvim", label: "Yayıncı takvimi", icon: CalendarDays, group: "İş Birliği" },
-
-  { href: "/marka/izlenmeler", label: "İzlenmeler", icon: Eye, group: "İzlenme" },
-  { href: "/marka/postlar", label: "Postlar", icon: Video, group: "İzlenme" },
-
-  { href: "/marka/affiliate", label: "Affiliate", icon: TrendingUp, group: "Büyüme" },
-  { href: "/marka/kampanyalar", label: "Kampanyalar", icon: Zap, group: "Büyüme" },
-  { href: "/marka/crm", label: "CRM", icon: Contact, group: "Büyüme", cap: "crm" },
-  { href: "/marka/uyumluluk", label: "Uyumluluk", icon: Shield, group: "Genel" },
-  { href: "/marka/entegrasyon", label: "Entegrasyon", icon: Plug, group: "Genel" },
-  { href: "/marka/raporlar", label: "Raporlar", icon: FileSpreadsheet, group: "Genel" },
-
-  { href: "/marka/personel", label: "Personel", icon: Briefcase, group: "Ekip", cap: "hr" },
-  { href: "/marka/departmanlar", label: "Departmanlar", icon: Building2, group: "Ekip", cap: "hr" },
-  { href: "/marka/takip", label: "Görev & Takip", icon: ClipboardList, group: "Ekip", cap: "hr" },
-  { href: "/marka/ekip", label: "Ekip & yetkiler", icon: Settings, group: "Ekip", cap: "team" },
-
-  { href: "/marka/muhasebe", label: "Muhasebe", icon: Calculator, group: "Finans", cap: "finance" },
-  { href: "/marka/faturalar", label: "Faturalar", icon: FileText, group: "Finans", cap: "finance" },
-  { href: "/marka/bordro", label: "Bordro", icon: Banknote, group: "Finans", cap: "finance" },
-  { href: "/marka/odemeler", label: "Ödeme planı", icon: Wallet, group: "Finans" },
-
-  { href: "/marka/profil", label: "Marka profili", icon: UserCog, group: "Hesap" },
-  { href: "/marka/bildirimler", label: "Bildirimler", icon: Bell, group: "Hesap" },
-];
-
-const GROUP_ORDER: NavGroup[] = [
-  "Genel",
-  "İş Birliği",
-  "İzlenme",
-  "Büyüme",
-  "Ekip",
-  "Finans",
-  "Hesap",
-];
+const GROUP_ORDER = MARKA_NAV_GROUP_ORDER;
 
 function groupForPath(pathname: string, items: readonly NavItem[]): NavGroup {
   const hit = [...items]
@@ -112,7 +49,10 @@ export function MarkaSubnav() {
   const pathname = usePathname();
   const { user, month, isAdminView, brandId } = useMarkaPortal();
   const orgRole = isAdminView ? "admin" : user?.orgRole;
-  const navItems = NAV.filter((item) => !item.cap || clientHasOrgCapability(orgRole, item.cap));
+  const mainAdmin = user ? isMainAdmin(user) : false;
+  const navItems = NAV.filter(
+    (item) => !item.cap || clientHasOrgCapability(orgRole, item.cap, { isMainAdmin: mainAdmin })
+  );
 
   const pathGroup = useMemo(() => groupForPath(pathname, navItems), [pathname, navItems]);
   const activeItem = useMemo(() => activeItemForPath(pathname, navItems), [pathname, navItems]);

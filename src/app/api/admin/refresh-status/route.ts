@@ -130,6 +130,7 @@ export async function GET(_req: NextRequest) {
             linksWithError: platformHealth.linksWithError,
             throttledLinks: platformHealth.throttledLinks,
             staleTrackedLinks: platformHealth.staleTrackedLinks,
+            linkMaintenance: platformHealth.linkMaintenance,
             lastSuccessAt: platformHealth.lastSuccessAt,
             lastErrorAt: platformHealth.lastErrorAt,
             lastError: platformHealth.lastError,

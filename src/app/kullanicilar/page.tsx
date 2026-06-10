@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, Trash2, KeyRound, Copy, Check, Eye, EyeOff,
@@ -23,6 +23,7 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmtDateTime, fmtDateShort } from "@/lib/fmt-date";
 import { cacheAdminPin, mergeUsersWithPinCache } from "@/lib/admin-pin-cache";
 import { isMainAdmin } from "@/lib/user-guards";
+import { MainAdminPrivilegesCard } from "@/components/main-admin-privileges-card";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
@@ -725,7 +726,7 @@ const TAB_ID_TO_PARAM: Record<KullanicilarTab, string> = {
   "streamer-registrations": "yayinci-basvurulari",
 };
 
-export default function UsersPage() {
+function UsersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
@@ -1129,6 +1130,10 @@ export default function UsersPage() {
         )}
       </div>
 
+      {currentUser && isMainAdmin(currentUser) && tab === "users" && (
+        <MainAdminPrivilegesCard className="mb-4" />
+      )}
+
       {/* Sekme barı — Kullanıcılar / Marka Başvuruları */}
       {currentUser?.role === "admin" && (
         <div
@@ -1507,5 +1512,17 @@ export default function UsersPage() {
         {pinModal && <PinDisplayModal user={pinModal.user} pin={pinModal.pin} onClose={() => setPinModal(null)} />}
       </Modal>
     </div>
+  );
+}
+
+export default function UsersPageWithSuspense() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-muted-foreground">Kullanıcılar yükleniyor…</div>
+      }
+    >
+      <UsersPage />
+    </Suspense>
   );
 }

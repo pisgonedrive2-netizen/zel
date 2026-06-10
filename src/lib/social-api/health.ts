@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { SOCIAL_PLANS, type SocialPlatform } from "./config";
 import { isTransientApiError } from "./error-classify";
+import { linkMaintenanceConcern } from "./health-summary";
 
 /** brand_links.platform değerleri (Türkçe / slug karışık). */
 export function platformLinkLabels(platform: SocialPlatform): string[] {
@@ -22,6 +23,8 @@ export interface PlatformHealth {
   throttledLinks: number;
   /** 24 saatten eski veya hiç kontrol edilmemiş otomatik takip linkleri. */
   staleTrackedLinks: number;
+  /** Eski link / bakım ihtiyacı (API bağlantısından bağımsız). */
+  linkMaintenance: boolean;
   lastSuccessAt: string | null;
   lastErrorAt: string | null;
   /** Son toplu çalıştırma özet hatası (link yenileme). */
@@ -163,19 +166,34 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
       : null;
 
     let status: PlatformHealth["status"] = "unknown";
+    const maintenance = linkMaintenanceConcern({
+      tracked: issues.tracked,
+      linksWithError,
+      staleTrackedLinks,
+    });
 
+    // Genel durum: API bağlantısı + kalıcı link hataları (eski link sayısı ayrı metrik).
     if (connectivityStatus === "ok") {
-      if (linksWithError > 0 || throttledLinks > 0 || staleTrackedLinks > 3) status = "warn";
-      else status = "ok";
+      status = linksWithError > 0 ? "warn" : "ok";
     } else if (connectivityStatus === "warn") {
       status = "warn";
+    } else if (connectivityStatus === "unknown") {
+      if (issues.tracked === 0) {
+        status = "ok";
+      } else if (linksWithError > 0) {
+        status = "warn";
+      } else if (platformRuns.length > 0 && totalSuccess === 0 && totalFail > 0) {
+        status = "warn";
+      } else {
+        status = "ok";
+      }
     } else if (platformRuns.length > 0 && totalSuccess === 0 && totalFail > 0) {
-      status = connectivityStatus === "unknown" ? "warn" : "error";
+      status = "error";
     } else {
       status = "unknown";
     }
 
-    if (totalFail > 0 && totalSuccess === 0 && connectivityStatus !== "ok") {
+    if (totalFail > 0 && totalSuccess === 0 && connectivityStatus === "warn") {
       status = "error";
     }
 
@@ -187,6 +205,7 @@ export async function getPlatformHealth(): Promise<PlatformHealth[]> {
       linksWithError,
       throttledLinks,
       staleTrackedLinks,
+      linkMaintenance: maintenance,
       lastSuccessAt,
       lastErrorAt,
       lastError,

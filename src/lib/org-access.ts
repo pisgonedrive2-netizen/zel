@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { SessionPayload } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { isMainAdminSession } from "@/lib/user-guards";
 import { READ_ONLY_ORG_ROLES, TEAM_MANAGER_ORG_ROLES } from "@/lib/org-roles";
 import type { OrgRole } from "@/store/store";
 
@@ -22,13 +23,14 @@ export function canReadBrandData(session: SessionPayload): boolean {
 
 /** Org rolü salt-okunur mu? (marka denetçisi / görüntüleyici → yazamaz) */
 export function isBrandReadOnly(session: SessionPayload): boolean {
+  if (isMainAdminSession(session)) return false;
   if (session.role !== "brand") return false;
   const role = (session.orgRole ?? "") as OrgRole;
   return READ_ONLY_ORG_ROLES.has(role);
 }
 
 export function canWriteBrandData(session: SessionPayload): boolean {
-  if (session.role === "admin") return true;
+  if (isMainAdminSession(session) || session.role === "admin") return true;
   // Marka denetçisi/görüntüleyicisi salt-okunur: yazma yok.
   if (session.role === "brand") return !isBrandReadOnly(session);
   return false;
@@ -36,7 +38,7 @@ export function canWriteBrandData(session: SessionPayload): boolean {
 
 /** Marka ekibini & ayarlarını yönetebilir mi? (owner/admin org rolü veya platform admini) */
 export function canManageOrgTeam(session: SessionPayload): boolean {
-  if (session.role === "admin") return true;
+  if (isMainAdminSession(session) || session.role === "admin") return true;
   if (session.role !== "brand") return false;
   return TEAM_MANAGER_ORG_ROLES.has((session.orgRole ?? "") as OrgRole);
 }
@@ -118,7 +120,7 @@ export function hasOrgCapability(
     | "streamer_contracts"
     | "bonus_ops"
 ): boolean {
-  if (session.role === "admin") return true;
+  if (isMainAdminSession(session) || session.role === "admin") return true;
   if (session.role !== "brand") return false;
   const role = session.orgRole ?? "";
   // Salt-okunur roller (denetçi/görüntüleyici) hiçbir yazma modülüne sahip değildir.
@@ -136,6 +138,29 @@ export function hasOrgCapability(
   }
   if (capability === "streamer_contracts") {
     return role === "marketing" || role === "hr" || role === "admin" || role === "owner";
+  }
+  return false;
+}
+
+/** Org capability yoksa 403 döner. */
+export function ensureOrgCapability(
+  session: SessionPayload,
+  capability: Parameters<typeof hasOrgCapability>[1]
+): NextResponse | null {
+  if (!hasOrgCapability(session, capability)) {
+    return NextResponse.json({ error: "Bu modül için yetkiniz yok" }, { status: 403 });
+  }
+  return null;
+}
+
+/** Marka kaynağına erişim (admin/auditor serbest, brand accessibleBrandIds). */
+export function canAccessBrandId(
+  session: SessionPayload,
+  brandId: string | null | undefined
+): boolean {
+  if (session.role === "admin" || session.role === "auditor") return true;
+  if (session.role === "brand" && brandId) {
+    return accessibleBrandIds(session).includes(brandId);
   }
   return false;
 }

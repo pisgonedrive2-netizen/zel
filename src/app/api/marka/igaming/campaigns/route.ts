@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
-import { ensureBrandAccess, resolveBrandId, writeAudit } from "@/lib/org-access";
+import { ensureBrandAccess, ensureOrgCapability, resolveBrandId, writeAudit } from "@/lib/org-access";
 import {
   deleteBrandCampaign,
   fetchBrandCampaigns,
@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
   if (!brandId) return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
   const guard = ensureBrandAccess(session, brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "bonus_ops");
+  if (capGuard) return capGuard;
   const name = String(body.name ?? "").trim();
   if (!name) return NextResponse.json({ error: "name gerekli" }, { status: 400 });
   const isNew = !(typeof body.id === "string" && body.id.startsWith("bc-"));
@@ -78,6 +80,8 @@ export async function PATCH(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: "Kampanya bulunamadı" }, { status: 404 });
   const guard = ensureBrandAccess(session, existing.brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "bonus_ops");
+  if (capGuard) return capGuard;
   const saved = await upsertBrandCampaign({ ...existing, ...body, id, brandId: existing.brandId });
   return NextResponse.json({ campaign: saved });
 }
@@ -92,6 +96,8 @@ export async function DELETE(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: "Kampanya bulunamadı" }, { status: 404 });
   const guard = ensureBrandAccess(session, existing.brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "bonus_ops");
+  if (capGuard) return capGuard;
   await deleteBrandCampaign(id);
   await writeAudit(session, "brand_campaign_deleted", `campaign=${id}`);
   return NextResponse.json({ ok: true });

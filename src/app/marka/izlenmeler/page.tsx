@@ -50,6 +50,7 @@ import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { Select } from "@/components/ui/field";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 import {
   buildBrandAggregatedActivity,
   buildBrandStreamerActivity,
@@ -334,6 +335,14 @@ export default function MarkaIzlenmelerPage() {
           </div>
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
+
+          <BrandLinkViewershipSummary
+            links={linksForBrand}
+            snapshots={linkSnapshots}
+            viewMonth={month}
+            todayYm={todayYm}
+            title="Tüm linkler · izlenme özeti"
+          />
 
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-3xl">
             <ViewDotCard

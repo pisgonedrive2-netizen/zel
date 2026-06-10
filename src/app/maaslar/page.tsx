@@ -49,6 +49,8 @@ import {
   buildPayrollPaymentLines,
   formatPayrollLineStatusSummary,
   payrollPaymentPhase,
+  shortPayrollLineLabel,
+  sumPaidPayrollLines,
   sumUnpaidPayrollLines,
   type PayrollLineItem,
 } from "@/lib/payroll-lines";
@@ -57,7 +59,7 @@ import {
 function prevMonth(m: string) { return shiftCalendarMonthYm(m, -1); }
 const CONTENT_INLINE_MAX = 3;
 /** Bu sayıdan fazla kalemde liste kartta gösterilmez — yalnızca modal. */
-const PAYROLL_LINES_INLINE_MAX = 0;
+const PAYROLL_LINES_INLINE_MAX = 4;
 function nextMonth(m: string) { return shiftCalendarMonthYm(m, 1); }
 const MONTH_NAMES = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 function monthLabel(m: string) { const [y, mo] = m.split("-"); return `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y}`; }
@@ -438,12 +440,13 @@ function EmployeeDetailRow({
         isPartial              ? "border-amber-400/50 bg-amber-50/35 dark:border-amber-500/40 dark:bg-amber-950/25" :
         "border-border bg-card"
       }`}>
-        {/* Employee header row — tıklanınca kart gövdesi açılır/kapanır */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border/60">
+        {/* Employee header — tutar ve ödeme aksiyonları dar kartlarda taşmasın diye iki satır */}
+        <div className="px-4 py-3 border-b border-border/60 space-y-2">
+        <div className="flex items-start gap-3 min-w-0">
           <button
             type="button"
             onClick={() => setCardOpen((o) => !o)}
-            className="shrink-0 p-0.5 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors"
+            className="shrink-0 p-0.5 rounded-md hover:bg-accent/50 text-muted-foreground transition-colors mt-0.5"
             aria-expanded={cardOpen}
             aria-label={cardOpen ? "Kartı daralt" : "Kartı genişlet"}
           >
@@ -511,7 +514,9 @@ function EmployeeDetailRow({
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+        </div>
+        <div className="flex flex-wrap items-end justify-between gap-2 pl-[calc(1.25rem+2.25rem)] sm:pl-[calc(1.25rem+2.25rem)]">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
             {canEnterPanel && (
               <Button
                 type="button"
@@ -527,23 +532,109 @@ function EmployeeDetailRow({
                 Panele gir
               </Button>
             )}
-          <div className="text-right">
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5">
-              {active ? "Net Ödenecek" : upcoming ? "İlk bordro" : "Bordro pasif"}
+            {active && !readOnly && payrollLines.length > 0 && (
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                {isFullyPaid ? (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] gap-1 w-fit text-green-700 border-green-500/40 bg-green-50/60 dark:text-green-300 dark:border-green-500/35 dark:bg-green-950/30"
+                  >
+                    <CheckCircle2 size={10} />
+                    Ödendi
+                    {status?.paidDate ? ` · ${status.paidDate}` : ""}
+                  </Badge>
+                ) : (
+                  <>
+                    {isPartial && (
+                      <p className="text-[10px] text-amber-800 dark:text-amber-200 leading-snug">
+                        {formatPayrollLineStatusSummary(payrollLines)}
+                        {" · "}
+                        <span className="tabular-nums">{fmt(sumPaidPayrollLines(payrollLines))}</span> ödendi
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {payrollLines
+                        .filter((l) => !l.paid)
+                        .map((line) => (
+                          <Button
+                            key={line.lineId}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px] px-2 max-w-full"
+                            onClick={() => setPayTarget({ mode: "line", line })}
+                          >
+                            <span className="truncate">{shortPayrollLineLabel(line)} · {fmt(line.amountUsd)}</span>
+                          </Button>
+                        ))}
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-500 text-white border-0 shrink-0"
+                        onClick={() => setPayTarget({ mode: "all" })}
+                        disabled={unpaidLineTotal <= 0 && net <= 0}
+                      >
+                        <Wallet size={11} />
+                        Tümünü öde
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="text-right shrink-0 min-w-0 max-w-[45%] sm:max-w-[9rem]">
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5 truncate">
+              {active
+                ? isFullyPaid
+                  ? "Net ödendi"
+                  : isPartial
+                    ? "Kalan"
+                    : "Net ödenecek"
+                : upcoming
+                  ? "İlk bordro"
+                  : "Bordro pasif"}
             </p>
-            <p className={`text-xl font-bold tabular-nums ${
-              upcoming ? "text-violet-700 dark:text-violet-300" :
-              !active ? "text-muted-foreground" : isFullyPaid ? "text-green-600" : isPartial ? "text-amber-700 dark:text-amber-300" : "text-foreground"
-            }`}>
-              {active ? fmt(net) : upcoming ? fmt(firstPayrollNet) : "—"}
+            <p
+              className={`font-bold tabular-nums leading-tight truncate ${
+                upcoming ? "text-violet-700 dark:text-violet-300" :
+                !active ? "text-muted-foreground" : isFullyPaid ? "text-green-600" : isPartial ? "text-amber-700 dark:text-amber-300" : "text-foreground"
+              }`}
+              style={{ fontSize: "clamp(0.875rem, 2.8vw, 1.25rem)" }}
+              title={
+                active
+                  ? isFullyPaid
+                    ? fmt(paidOut > 0 ? paidOut : net)
+                    : isPartial
+                      ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
+                      : fmt(net)
+                  : upcoming
+                    ? fmt(firstPayrollNet)
+                    : "—"
+              }
+            >
+              {active
+                ? isFullyPaid
+                  ? fmt(paidOut > 0 ? paidOut : net)
+                  : isPartial
+                    ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
+                    : fmt(net)
+                : upcoming
+                  ? fmt(firstPayrollNet)
+                  : "—"}
             </p>
+            {active && isPartial && paidOut > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums truncate">
+                Toplam {fmt(net)} · ödenen {fmt(paidOut)}
+              </p>
+            )}
             {upcoming && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
                 {monthLabelTr(employee.payrollStartMonth)} bordrosu
               </p>
             )}
           </div>
-          </div>
+        </div>
         </div>
 
         {/* Kapalı kart özeti */}
@@ -1068,7 +1159,13 @@ function EmployeeDetailRow({
       <Modal
         open={payTarget !== null}
         onClose={() => setPayTarget(null)}
-        title={payTarget?.mode === "line" ? `Ödeme · ${payTarget.line.label}` : "Maaş Ödemesi (tüm kalemler)"}
+        title={
+          payTarget?.mode === "line"
+            ? `Ödeme · ${payTarget.line.label}`
+            : isPartial
+              ? "Kalan kalemleri öde"
+              : "Maaş ödemesi (tüm kalemler)"
+        }
         size="md"
       >
         <PaySalaryForm
@@ -1082,7 +1179,11 @@ function EmployeeDetailRow({
           employeeName={employee.name}
           month={month}
           netAmount={
-            payTarget?.mode === "line" ? payTarget.line.amountUsd : net
+            payTarget?.mode === "line"
+              ? payTarget.line.amountUsd
+              : unpaidLineTotal > 0
+                ? unpaidLineTotal
+                : net
           }
           lineLabel={payTarget?.mode === "line" ? payTarget.line.label : undefined}
           kasas={kasas}

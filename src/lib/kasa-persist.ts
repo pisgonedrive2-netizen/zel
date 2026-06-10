@@ -63,6 +63,35 @@ export async function bulkUpdateKasaCountInGenel(
   }
 }
 
+export async function removeKasaAccount(
+  id: string,
+  opts?: { force?: boolean },
+): Promise<{ ok: boolean; archived?: boolean; deleted?: boolean; error?: string }> {
+  try {
+    const qs = new URLSearchParams({ id });
+    if (opts?.force) qs.set("force", "1");
+    const res = await fetch(`/api/kasa/account?${qs.toString()}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const err = data.error ?? `Kasa silinemedi (${res.status})`;
+      notifySyncError(err);
+      requestSyncFlush();
+      return { ok: false, error: err };
+    }
+    const data = (await res.json()) as { archived?: boolean; deleted?: boolean };
+    requestSyncFlush();
+    return { ok: true, archived: data.archived, deleted: data.deleted };
+  } catch (e) {
+    const err = e instanceof Error ? e.message : "Ağ hatası";
+    notifySyncError(err);
+    requestSyncFlush();
+    return { ok: false, error: err };
+  }
+}
+
 export async function removeKasaTransaction(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetch(`/api/kasa/transaction?id=${encodeURIComponent(id)}`, {

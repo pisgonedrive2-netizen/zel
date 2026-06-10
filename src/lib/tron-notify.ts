@@ -4,6 +4,7 @@ import { fmt } from "@/lib/data";
 import { fmtDateTime } from "@/lib/fmt-date";
 import type { AppNotification } from "@/store/store";
 import type { TronNewTx } from "@/lib/tron-sync";
+import { notificationHrefFor } from "@/lib/notification-href";
 
 async function insertNotifOnce(notif: AppNotification): Promise<void> {
   const db = getSupabaseAdmin();
@@ -32,7 +33,6 @@ export async function notifyTronWalletTransactions(args: {
   if (args.txs.length === 0) return 0;
 
   const now = new Date().toISOString();
-  const href = "/bildirimler";
   const walletShort = shortAddr(args.walletAddress);
   let sent = 0;
 
@@ -60,7 +60,7 @@ export async function notifyTronWalletTransactions(args: {
         refId: `tron-watch:${tx.tronTxId}:${forRole}`,
         createdAt: now,
         read: false,
-        href,
+        href: notificationHrefFor(forRole),
         triggeredBy: args.triggeredBy,
       });
       sent++;

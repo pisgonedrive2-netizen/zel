@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Check, Circle, ArrowRight, Rocket } from "lucide-react";
 
 export interface GettingStartedStep {
+  /** Benzersiz anahtar — aynı href'li birden fazla adım olabilir */
+  id: string;
   label: string;
   description: string;
   href: string;
@@ -57,7 +59,7 @@ export function BrandGettingStarted({
 
       <ul className="mt-4 space-y-1.5">
         {steps.map((step) => (
-          <li key={step.href}>
+          <li key={step.id}>
             <Link
               href={step.href}
               className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${

@@ -19,11 +19,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "RAPIDAPI_KEY yok" }, { status: 503 });
   }
   const secret = getCronSecret();
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json(
+      { ok: false, error: "CRON_SECRET tanımlı değil — cron devre dışı" },
+      { status: 503 }
+    );
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 401 });
   }
   const startedAt = new Date().toISOString();
   try {

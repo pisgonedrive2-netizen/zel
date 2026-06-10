@@ -7,6 +7,7 @@ import {
   Heart, Link2, Loader2, MessageCircle, Music2, RefreshCw, Search, Share2, Sparkles, Trash2, Youtube,
 } from "lucide-react";
 import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilities-card";
+import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
 import { useStore } from "@/store/store";
 import { useIsReadOnly, useAuth } from "@/store/auth";
@@ -497,6 +498,24 @@ export default function IzlenmeApiPage() {
               })}
               onQuotaUsed={() => void loadApiStatus()}
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {isAdmin && !readOnly && (
+        <Card className="mb-5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Search size={15} className="text-sky-600 dark:text-sky-300" />
+              Premium keşif
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Trend, arama ve hashtag/challenge sorguları — link detay modalında yorumlar, ilgili içerik,
+              müzik ve challenge bilgisi otomatik gelir.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SocialDiscoveryPanel onQuotaUsed={() => void loadApiStatus()} />
           </CardContent>
         </Card>
       )}

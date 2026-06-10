@@ -13,7 +13,7 @@ import {
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
   Send, Handshake, Video, TrendingUp, UserCog,
   Briefcase, ClipboardList, Contact, Calculator, FileText, Settings,
-  Banknote, Building2,
+  Banknote, Building2, Zap, Plug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
@@ -29,6 +29,10 @@ import {
   deleteNotificationsPersisted,
 } from "@/lib/notification-actions";
 import { fmtDateShort } from "@/lib/fmt-date";
+import { MARKA_NAV_ITEMS } from "@/lib/marka-nav";
+import { markaNavIcon } from "@/lib/marka-nav-icons";
+import { notificationsHrefForRole } from "@/lib/notification-href";
+import { isMainAdmin } from "@/lib/user-guards";
 
 type NavItem = {
   href:  string;
@@ -47,7 +51,11 @@ const ADMIN_NAV: NavItem[] = [
   { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro" },
   { href: "/kasa",                 label: "Kasa",               icon: Wallet,          group: "Bordro" },
   { href: "/takvim",               label: "Haftalık Takvim",    icon: CalendarDays,    group: "Yayın" },
-  { href: "/izlenme",              label: "Marka İzlenme",      icon: Eye,             group: "Yayın" },
+  { href: "/izlenme",              label: "İzlenme özeti",       icon: Eye,             group: "Yayın" },
+  { href: "/izlenme/markalar",     label: "Markalar",            icon: BarChart3,       group: "Yayın" },
+  { href: "/izlenme/grafikler",    label: "İzlenme grafikleri",  icon: Activity,      group: "Yayın" },
+  { href: "/izlenme/operatorler",  label: "Operatörler",         icon: Users,           group: "Yayın" },
+  { href: "/izlenme/api",          label: "API & keşif",         icon: Search,          group: "Yayın" },
   { href: "/icerik-harcamalari",   label: "İçerik Harcamaları", icon: Clapperboard,    group: "Yayın" },
   { href: "/dis-gelir",            label: "Dış Gelir (Geçmiş)", icon: ArrowUpRight,    group: "Muhasebe" },
   { href: "/ic-gelir",             label: "İç Gelir",           icon: FolderKanban,    group: "Muhasebe" },
@@ -64,6 +72,7 @@ const STREAMER_NAV: NavItem[] = [
   { href: "/yayinci/izlenmeler",     label: "İzlenmeler",         icon: Eye,             group: "Yayıncı" },
   { href: "/yayinci/hesaplar",       label: "Hesaplarım",         icon: Link2,           group: "Yayıncı" },
   { href: "/yayinci/marka-linkleri", label: "Marka Linkleri",     icon: Activity,        group: "Yayıncı" },
+  { href: "/yayinci/kesif",          label: "Premium Keşif",    icon: Search,          group: "Yayıncı" },
   { href: "/yayinci/gecmis",         label: "Geçmiş Aylar",       icon: CalendarRange,   group: "Yayıncı" },
   { href: "/yayinci/istatistikler",  label: "İstatistiklerim",    icon: BarChart3,       group: "Yayıncı" },
   // İş birliği (yeni B2B özellikleri)
@@ -75,38 +84,23 @@ const STREAMER_NAV: NavItem[] = [
 ];
 
 const AUDITOR_NAV: NavItem[] = [
-  { href: "/denetci",             label: "Denetim Özeti",     icon: Headphones,      group: "Denetim" },
-  { href: "/kasa",                label: "Kasa",              icon: Wallet,          group: "Denetim" },
-  { href: "/izlenme",             label: "Marka link & izlenme", icon: Eye,           group: "Denetim" },
-  { href: "/icerik-harcamalari",  label: "İçerik Harcamaları",icon: Clapperboard,    group: "Denetim" },
-  { href: "/maaslar",             label: "Maaşlar (Read)",    icon: Users,           group: "Denetim" },
-  { href: "/rapor",               label: "Ödeme Raporu",      icon: FileSpreadsheet, group: "Denetim" },
-  { href: "/giderler",            label: "Giderler",          icon: Receipt,         group: "Denetim" },
-  { href: "/bildirimler",         label: "Bildirim Merkezi",  icon: Bell,            group: "Denetim" },
+  { href: "/denetci",             label: "Denetim Özeti",     icon: Headphones,      group: "Kontrol" },
+  { href: "/kasa",                label: "Kasa",              icon: Wallet,          group: "Bordro" },
+  { href: "/izlenme",             label: "Marka link & izlenme", icon: Eye,           group: "Yayın" },
+  { href: "/icerik-harcamalari",  label: "İçerik Harcamaları",icon: Clapperboard,    group: "Yayın" },
+  { href: "/maaslar",             label: "Maaşlar (Read)",    icon: Users,           group: "Bordro" },
+  { href: "/rapor",               label: "Ödeme Raporu",      icon: FileSpreadsheet, group: "Bordro" },
+  { href: "/giderler",            label: "Giderler",          icon: Receipt,         group: "Muhasebe" },
+  { href: "/bildirimler",         label: "Bildirim Merkezi",  icon: Bell,            group: "Sistem" },
 ];
 
-const BRAND_NAV: NavItem[] = [
-  { href: "/marka/anasayfa",     label: "Anasayfa",          icon: LayoutDashboard, group: "Genel" },
-  { href: "/marka/operasyon",    label: "Operasyon özeti",   icon: BarChart3,       group: "Genel" },
-  { href: "/marka/havuz",        label: "Yayıncı havuzu",    icon: Users,           group: "İş Birliği" },
-  { href: "/marka/teklifler",    label: "Teklifler",         icon: Send,            group: "İş Birliği" },
-  { href: "/marka/anlasmalar",   label: "Anlaşmalar",        icon: Handshake,       group: "İş Birliği" },
-  { href: "/marka/takvim",       label: "Yayıncı takvimi",   icon: CalendarDays,    group: "İş Birliği" },
-  { href: "/marka/izlenmeler",   label: "İzlenmeler",        icon: Eye,             group: "İzlenme" },
-  { href: "/marka/postlar",      label: "Postlar",           icon: Video,           group: "İzlenme" },
-  { href: "/marka/affiliate",    label: "Affiliate",         icon: TrendingUp,      group: "Büyüme" },
-  { href: "/marka/crm",          label: "CRM",               icon: Contact,         group: "Büyüme", cap: "crm" },
-  { href: "/marka/personel",     label: "Personel",          icon: Briefcase,       group: "Ekip", cap: "hr" },
-  { href: "/marka/departmanlar", label: "Departmanlar",      icon: Building2,       group: "Ekip", cap: "hr" },
-  { href: "/marka/takip",        label: "Görev & Takip",     icon: ClipboardList,   group: "Ekip", cap: "hr" },
-  { href: "/marka/ekip",         label: "Ekip & yetkiler",   icon: Settings,        group: "Ekip", cap: "team" },
-  { href: "/marka/muhasebe",     label: "Muhasebe",          icon: Calculator,      group: "Finans", cap: "finance" },
-  { href: "/marka/faturalar",    label: "Faturalar",         icon: FileText,        group: "Finans", cap: "finance" },
-  { href: "/marka/bordro",       label: "Bordro",            icon: Banknote,        group: "Finans", cap: "finance" },
-  { href: "/marka/odemeler",     label: "Ödeme planı",       icon: Wallet,          group: "Finans" },
-  { href: "/marka/profil",       label: "Marka profili",     icon: UserCog,         group: "Hesap" },
-  { href: "/marka/bildirimler",  label: "Bildirimler",       icon: Bell,            group: "Hesap" },
-];
+const BRAND_NAV: NavItem[] = MARKA_NAV_ITEMS.map((item) => ({
+  href: item.href,
+  label: item.label,
+  icon: markaNavIcon(item.icon),
+  group: item.group,
+  cap: item.cap,
+}));
 
 export default function Sidebar() {
   const pathname   = usePathname();
@@ -178,9 +172,10 @@ export default function Sidebar() {
   // Marka modüllerinde org-capability gizleme: admin marka görünümünde tümü görünür,
   // marka kullanıcısı org rolüne göre (marka-subnav ile aynı mantık).
   const orgRole = adminViewingBrand ? "admin" : user?.orgRole;
+  const mainAdmin = user ? isMainAdmin(user) : false;
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
-    (!n.cap || clientHasOrgCapability(orgRole, n.cap))
+    (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: mainAdmin }))
   );
 
   const handleLogout = () => {
@@ -334,7 +329,7 @@ export default function Sidebar() {
             <div className="p-2 border-b border-sidebar-border flex justify-center">
               <button
                 type="button"
-                onClick={() => router.push("/bildirimler")}
+                onClick={() => router.push(notificationsHrefForRole(user.role))}
                 aria-label={`Bildirimler (${unreadCount} okunmamış)`}
                 className="relative inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent/40 transition-colors"
               >

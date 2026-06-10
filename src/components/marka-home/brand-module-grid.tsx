@@ -1,98 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  Compass,
-  Lock,
-  Users,
-  Send,
-  Handshake,
-  CalendarDays,
-  Eye,
-  Video,
-  TrendingUp,
-  Contact,
-  Briefcase,
-  ClipboardList,
-  Settings,
-  Calculator,
-  FileText,
-  Wallet,
-  Banknote,
-} from "lucide-react";
-import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
+import { ArrowUpRight, Compass, Lock } from "lucide-react";
+import { clientHasOrgCapability } from "@/lib/org-capability";
 import { markaHref } from "@/lib/use-marka-view-month";
 import { cn } from "@/lib/utils";
+import {
+  MARKA_NAV_GROUP_ORDER,
+  markaNavByGroup,
+  type MarkaModuleColor,
+  type MarkaNavItemDef,
+} from "@/lib/marka-nav";
+import { markaNavIcon } from "@/lib/marka-nav-icons";
+import { useAuth } from "@/store/auth";
+import { isMainAdmin } from "@/lib/user-guards";
 
-type ModuleColor = "orange" | "green" | "blue" | "pink" | "violet";
-
-interface ModuleItem {
-  href: string;
-  label: string;
-  description: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  color: ModuleColor;
-  cap?: OrgCapability;
-}
-
-interface ModuleSection {
-  title: string;
-  items: ModuleItem[];
-}
-
-// Sidebar BRAND_NAV / marka-subnav ile aynı gruplama ve sıralama mantığı.
-const SECTIONS: ModuleSection[] = [
-  {
-    title: "Genel",
-    items: [
-      { href: "/marka/anasayfa", label: "Anasayfa", description: "Özet KPI ve hızlı erişim", icon: Compass, color: "orange" },
-      { href: "/marka/operasyon", label: "Operasyon özeti", description: "Günlük operasyon ve aktivite", icon: TrendingUp, color: "orange" },
-    ],
-  },
-  {
-    title: "İş Birliği",
-    items: [
-      { href: "/marka/havuz", label: "Yayıncı havuzu", description: "Yayıncıları keşfet, filtrele ve teklif gönder", icon: Users, color: "orange" },
-      { href: "/marka/teklifler", label: "Teklifler", description: "Gönderdiğin teklifleri ve yanıtları yönet", icon: Send, color: "orange" },
-      { href: "/marka/anlasmalar", label: "Anlaşmalar", description: "Aktif iş birliği anlaşmaları ve şartlar", icon: Handshake, color: "orange" },
-      { href: "/marka/takvim", label: "Yayıncı takvimi", description: "Haftalık yayın planlarını gör", icon: CalendarDays, color: "orange" },
-    ],
-  },
-  {
-    title: "İzlenme",
-    items: [
-      { href: "/marka/izlenmeler", label: "İzlenmeler", description: "Link & sosyal platform izlenme takibi", icon: Eye, color: "blue" },
-      { href: "/marka/postlar", label: "Postlar", description: "Yayıncı içerik ve reel performansı", icon: Video, color: "blue" },
-    ],
-  },
-  {
-    title: "Büyüme",
-    items: [
-      { href: "/marka/affiliate", label: "Affiliate", description: "Partner komisyon, FTD ve tıklama takibi", icon: TrendingUp, color: "pink" },
-      { href: "/marka/crm", label: "CRM", description: "Lead, fırsat ve müşteri ilişkileri", icon: Contact, color: "pink", cap: "crm" },
-    ],
-  },
-  {
-    title: "Ekip",
-    items: [
-      { href: "/marka/personel", label: "Personel", description: "Personel kayıtları, roller ve detaylar", icon: Briefcase, color: "violet", cap: "hr" },
-      { href: "/marka/takip", label: "Görev & Takip", description: "Görev atama ve vardiya takibi", icon: ClipboardList, color: "violet", cap: "hr" },
-      { href: "/marka/ekip", label: "Ekip & yetkiler", description: "Ekip üyeleri ve rol yetkileri", icon: Settings, color: "violet", cap: "team" },
-    ],
-  },
-  {
-    title: "Finans",
-    items: [
-      { href: "/marka/muhasebe", label: "Muhasebe", description: "Gelir/gider defteri ve bakiye", icon: Calculator, color: "green", cap: "finance" },
-      { href: "/marka/faturalar", label: "Faturalar", description: "Fatura oluştur, gönder ve takip et", icon: FileText, color: "green", cap: "finance" },
-      { href: "/marka/bordro", label: "Bordro", description: "Maaş ve bordro kalemleri", icon: Banknote, color: "green", cap: "finance" },
-      { href: "/marka/odemeler", label: "Ödeme planı", description: "Taksit planı ve ödeme durumu", icon: Wallet, color: "green" },
-    ],
-  },
-];
-
-const COLOR: Record<ModuleColor, { icon: string; ring: string; hover: string }> = {
+const COLOR: Record<MarkaModuleColor, { icon: string; ring: string; hover: string }> = {
   orange: {
     icon: "bg-[#FF6B00]/15 text-[#FF6B00] dark:text-[#FF9A4D]",
     ring: "ring-[#FF6B00]/30",
@@ -120,6 +43,22 @@ const COLOR: Record<ModuleColor, { icon: string; ring: string; hover: string }> 
   },
 };
 
+function moduleItemsForRole(
+  orgRole: string | undefined | null,
+  mainAdmin: boolean
+): MarkaNavItemDef[] {
+  return Array.from(markaNavByGroup().entries())
+    .filter(([group]) => group !== "Hesap")
+    .flatMap(([, items]) =>
+      items.filter(
+        (item) =>
+          item.description &&
+          item.moduleColor &&
+          (!item.cap || clientHasOrgCapability(orgRole, item.cap, { isMainAdmin: mainAdmin }))
+      )
+    );
+}
+
 interface BrandModuleGridProps {
   /** Marka kullanıcısının org rolü (admin marka görünümünde "admin"). */
   orgRole: string | undefined | null;
@@ -133,14 +72,17 @@ interface BrandModuleGridProps {
  * kullanıcının yetkisi olmayan modüller hiç render edilmez (nav ile aynı kural).
  */
 export function BrandModuleGrid({ orgRole, month }: BrandModuleGridProps) {
-  const sections = SECTIONS.map((section) => ({
-    ...section,
-    items: section.items.filter(
-      (item) => !item.cap || clientHasOrgCapability(orgRole, item.cap)
-    ),
-  })).filter((section) => section.items.length > 0);
+  const { user } = useAuth();
+  const mainAdmin = user ? isMainAdmin(user) : false;
+  const allowed = moduleItemsForRole(orgRole, mainAdmin);
+  const sections = MARKA_NAV_GROUP_ORDER.filter((g) => g !== "Hesap")
+    .map((title) => ({
+      title,
+      items: allowed.filter((item) => item.group === title),
+    }))
+    .filter((section) => section.items.length > 0);
 
-  const total = sections.reduce((sum, s) => sum + s.items.length, 0);
+  const total = allowed.length;
 
   if (total === 0) return null;
 
@@ -168,7 +110,9 @@ export function BrandModuleGrid({ orgRole, month }: BrandModuleGridProps) {
             </p>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
               {section.items.map((item) => {
-                const c = COLOR[item.color];
+                const color = item.moduleColor ?? "orange";
+                const c = COLOR[color];
+                const Icon = markaNavIcon(item.icon);
                 return (
                   <Link
                     key={item.href}
@@ -185,7 +129,7 @@ export function BrandModuleGrid({ orgRole, month }: BrandModuleGridProps) {
                         c.ring
                       )}
                     >
-                      <item.icon size={16} />
+                      <Icon size={16} />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">

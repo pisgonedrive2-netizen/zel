@@ -5,6 +5,7 @@ import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
   Banknote, Archive, Link2, Activity, CalendarRange, FileSpreadsheet, FileText, RefreshCw,
+  Trash2,
 } from "lucide-react";
 import {
   useStore, calcKasaBalance,
@@ -136,11 +137,18 @@ function Copyable({ text }: { text: string }) {
 
 // ── Kasa hesabı (account) form ────────────────────────────────────────────
 function KasaAccountForm({
-  initial, onSave, onDelete, onClose,
+  initial,
+  txCount = 0,
+  onSave,
+  onArchive,
+  onForceDelete,
+  onClose,
 }: {
   initial?: Kasa;
+  txCount?: number;
   onSave: (k: Omit<Kasa, "id">) => void;
-  onDelete?: () => void;
+  onArchive?: () => void;
+  onForceDelete?: () => void;
   onClose: () => void;
 }) {
   const [form, setForm] = useState<Omit<Kasa, "id">>({
@@ -187,11 +195,18 @@ function KasaAccountForm({
           />
         </Field>
         <FormGrid>
-          <Field label="TRON adresi (TRC20)" hint="USDT cüzdan adresi — otomatik hareket çekimi">
+          <Field
+            label="TRON adresi (TRC20)"
+            hint={
+              form.kind === "usdt"
+                ? "USDT cüzdan — otomatik hareket çekimi bu kasaya yazılır"
+                : "Yalnızca USDT cüzdan kasasında kullanın; test/genel kasalara yazmayın"
+            }
+          >
             <Input
               value={form.tronAddress ?? ""}
               onChange={(e) => set("tronAddress", e.target.value)}
-              placeholder="TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE"
+              placeholder={form.kind === "usdt" ? "TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE" : "—"}
               className="font-mono text-xs"
             />
           </Field>
@@ -225,11 +240,39 @@ function KasaAccountForm({
           </label>
         </div>
       </div>
-      <FormActions
-        onCancel={onClose}
-        onDelete={initial && initial.id !== DEFAULT_KASA_ID ? onDelete : undefined}
-        submitLabel={initial ? "Güncelle" : "Kasa Ekle"}
-      />
+      {initial && initial.id !== DEFAULT_KASA_ID && (onArchive || onForceDelete) && (
+        <div className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs space-y-2">
+          <p className="font-medium text-destructive">Kasa yönetimi</p>
+          {txCount > 0 ? (
+            <p className="text-muted-foreground leading-snug">
+              Bu kasada <strong className="text-foreground">{txCount}</strong> hareket var.
+              Arşivlerseniz listeden gizlenir; kalıcı silme tüm hareketleri de siler.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">Hareket yok — test kasayı güvenle silebilirsiniz.</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {onArchive && (
+              <Button type="button" size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={onArchive}>
+                <Archive size={12} /> Arşivle
+              </Button>
+            )}
+            {onForceDelete && (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="h-8 text-xs gap-1"
+                onClick={onForceDelete}
+              >
+                <Trash2 size={12} />
+                {txCount > 0 ? "Kalıcı sil" : "Sil"}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      <FormActions onCancel={onClose} submitLabel={initial ? "Güncelle" : "Kasa Ekle"} />
     </form>
   );
 }
@@ -937,34 +980,46 @@ export default function KasaPage() {
         {perKasaSummary.map(({ kasa, balance, ledgerBalance, sublabel, count, isTronWallet, isGenelKasa }) => {
           const active = selectedKasaId === kasa.id;
           const titleParts = [
-            !readOnly ? "Çift tıklayarak düzenle" : "",
+            !readOnly ? "Düzenle" : "",
             isGenelKasa && ledgerBalance !== balance
               ? `Defter bakiyesi: ${fmtUsdt(ledgerBalance)}`
               : "",
             sublabel ?? "",
           ].filter(Boolean);
           return (
-            <button
-              key={kasa.id}
-              onClick={() => setSelectedKasaId(kasa.id)}
-              onDoubleClick={() => !readOnly && setKasaModal(kasa)}
-              title={titleParts.length > 0 ? titleParts.join(" · ") : undefined}
-              className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 flex-wrap max-w-full ${
-                active
-                  ? isTronWallet
-                    ? "bg-emerald-600 text-white border-emerald-600"
-                    : "bg-blue-600 text-white border-blue-600"
-                  : isTronWallet
-                    ? "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/40"
-                    : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
-              {isTronWallet && <Link2 size={11} className="shrink-0 opacity-80" />}
-              {kasa.name}
-              <span className="opacity-90 tabular-nums font-medium">· {fmtUsdt(balance)}</span>
-              <span className="opacity-50 text-[10px]">({count})</span>
-            </button>
+            <span key={kasa.id} className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setSelectedKasaId(kasa.id)}
+                title={titleParts.length > 0 ? titleParts.join(" · ") : undefined}
+                className={`px-3 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 flex-wrap max-w-full ${
+                  active
+                    ? isTronWallet
+                      ? "bg-emerald-600 text-white border-emerald-600"
+                      : "bg-blue-600 text-white border-blue-600"
+                    : isTronWallet
+                      ? "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/40"
+                      : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                {kasa.isDefault && <span className="text-[10px] opacity-70">★</span>}
+                {kasa.archived && <Archive size={10} className="shrink-0 opacity-70" />}
+                {isTronWallet && <Link2 size={11} className="shrink-0 opacity-80" />}
+                {kasa.name}
+                <span className="opacity-90 tabular-nums font-medium">· {fmtUsdt(balance)}</span>
+                <span className="opacity-50 text-[10px]">({count})</span>
+              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => setKasaModal(kasa)}
+                  className="p-1 rounded-md border border-border/70 text-muted-foreground hover:text-foreground hover:bg-accent"
+                  title={`${kasa.name} düzenle`}
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
+            </span>
           );
         })}
         {visibleKasas.some((k) => k.archived) && (
@@ -1726,31 +1781,68 @@ export default function KasaPage() {
         {kasaModal && (
           <KasaAccountForm
             initial={kasaModal === "new" ? undefined : kasaModal}
+            txCount={
+              kasaModal !== "new"
+                ? kasaTransactions.filter((t) => t.kasaId === kasaModal.id).length
+                : 0
+            }
             onSave={async (d) => {
+              const payload =
+                kasaModal === "new"
+                  ? d
+                  : {
+                      ...d,
+                      tronAddress: d.kind === "usdt" ? d.tronAddress : "",
+                    };
               if (kasaModal === "new") {
-                addKasa(d);
+                addKasa(payload);
                 const created = useStore.getState().kasas.at(-1);
                 if (created?.id) {
                   await fetch("/api/kasa/account", {
                     method: "POST",
                     credentials: "include",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...d, id: created.id }),
+                    body: JSON.stringify({ ...payload, id: created.id }),
                   }).catch(() => undefined);
                 }
               } else {
-                updateKasa(kasaModal.id, d);
+                updateKasa(kasaModal.id, payload);
                 await fetch("/api/kasa/account", {
                   method: "POST",
                   credentials: "include",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ ...d, id: kasaModal.id }),
+                  body: JSON.stringify({ ...payload, id: kasaModal.id }),
                 }).catch(() => undefined);
               }
             }}
-            onDelete={
+            onArchive={
               kasaModal !== "new" && kasaModal.id !== DEFAULT_KASA_ID
-                ? () => { deleteKasa(kasaModal.id); setKasaModal(null); }
+                ? () => {
+                    if (
+                      window.confirm(
+                        `"${kasaModal.name}" arşivlensin mi? Listeden gizlenir, hareketler kalır.`,
+                      )
+                    ) {
+                      deleteKasa(kasaModal.id);
+                      setKasaModal(null);
+                    }
+                  }
+                : undefined
+            }
+            onForceDelete={
+              kasaModal !== "new" && kasaModal.id !== DEFAULT_KASA_ID
+                ? () => {
+                    const n = kasaTransactions.filter((t) => t.kasaId === kasaModal.id).length;
+                    const msg =
+                      n > 0
+                        ? `"${kasaModal.name}" ve ${n} hareket kalıcı silinsin mi? Geri alınamaz.`
+                        : `"${kasaModal.name}" kalıcı silinsin mi?`;
+                    if (window.confirm(msg)) {
+                      deleteKasa(kasaModal.id, { force: true });
+                      if (selectedKasaId === kasaModal.id) setSelectedKasaId("all");
+                      setKasaModal(null);
+                    }
+                  }
                 : undefined
             }
             onClose={() => setKasaModal(null)}

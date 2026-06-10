@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, Radio, Building2, HelpCircle, Eye, EyeOff, type LucideIcon } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
 import { useStore, initialBrands } from "@/store/store";
-import { BrandMarquee } from "@/components/brand-marquee";
+import { BrandMarquee, filterCorePartnerBrands } from "@/components/brand-marquee";
 import {
   Dialog,
   DialogContent,
@@ -844,7 +844,10 @@ export default function LoginPage() {
     const list = (active.length > 0 ? active : initialBrands.filter((b) => b.status === "active")).map(
       (b) => ({ id: b.id, name: b.name, shortName: b.shortName })
     );
-    return list;
+    const core = filterCorePartnerBrands(list);
+    return core.length > 0 ? core : filterCorePartnerBrands(
+      initialBrands.map((b) => ({ id: b.id, name: b.name, shortName: b.shortName }))
+    );
   }, [storeBrands]);
 
   const [u, setU] = useState("");

@@ -354,32 +354,34 @@ export default function MarkaAnasayfaPage() {
     const hasOffers = brandId ? brandOffers.some((o) => o.brandId === brandId) : false;
     const hasAffiliate = brandAffiliatePartners.length > 0;
     const steps: GettingStartedStep[] = [
-      { label: "Marka profilini tamamla", description: "Kategori ve aylık hedef belirle", href: "/marka/profil", done: hasProfile },
-      { label: "Aylık KPI gir", description: "Kayıt, FTD, yatırım — bu ay", href: markaHref("/marka/operasyon", month), done: hasKpi },
-      { label: "İzlenme linklerini ekle", description: "Sosyal/yayın platform linkleri", href: markaHref("/marka/izlenmeler", month), done: hasLinks },
+      { id: "profile", label: "Marka profilini tamamla", description: "Kategori ve aylık hedef belirle", href: "/marka/profil", done: hasProfile },
+      { id: "kpi", label: "Aylık KPI gir", description: "Kayıt, FTD, yatırım — bu ay", href: markaHref("/marka/operasyon", month), done: hasKpi },
+      { id: "links", label: "İzlenme linklerini ekle", description: "Sosyal/yayın platform linkleri", href: markaHref("/marka/izlenmeler", month), done: hasLinks },
       {
+        id: "sharing-calendar",
         label: "Paylaşım takvimini senkronla",
-        description: "Marka linklerinden achievement doldur",
-        href: markaHref("/marka/izlenmeler", month),
+        description: "Yayıncı takvimi ve achievement senkronu",
+        href: markaHref("/marka/takvim", month),
         done: sharingDaysThisMonth > 0,
       },
-      { label: "Yayıncı havuzundan teklif gönder", description: "Doğru yayıncıyı bul ve teklif et", href: "/marka/havuz", done: hasOffers },
-      { label: "Affiliate partner ekle", description: "Partner performansını takip et", href: markaHref("/marka/affiliate", month), done: hasAffiliate },
+      { id: "premium-discovery", label: "Premium keşif dene", description: "Trend, hashtag ve rakip arama", href: "/marka/kesif", done: false, optional: true },
+      { id: "pool-offer", label: "Yayıncı havuzundan teklif gönder", description: "Doğru yayıncıyı bul ve teklif et", href: "/marka/havuz", done: hasOffers },
+      { id: "affiliate", label: "Affiliate partner ekle", description: "Partner performansını takip et", href: markaHref("/marka/affiliate", month), done: hasAffiliate },
     ];
 
     // Org rolüne/capability'sine göre modül kurulum adımları (isteğe bağlı CTA'lar).
     // Veri sinyali kolayca erişilemediğinden "tamamlandı" zorlanmaz.
     if (clientHasOrgCapability(orgRole, "hr")) {
-      steps.push({ label: "Personel ekle", description: "Ekibe ilk personeli tanımla", href: "/marka/personel", done: false, optional: true });
+      steps.push({ id: "personel", label: "Personel ekle", description: "Ekibe ilk personeli tanımla", href: "/marka/personel", done: false, optional: true });
     }
     if (clientHasOrgCapability(orgRole, "crm")) {
-      steps.push({ label: "CRM'e ilk lead'i gir", description: "Potansiyel müşteri ve fırsat takibi", href: "/marka/crm", done: false, optional: true });
+      steps.push({ id: "crm", label: "CRM'e ilk lead'i gir", description: "Potansiyel müşteri ve fırsat takibi", href: "/marka/crm", done: false, optional: true });
     }
     if (clientHasOrgCapability(orgRole, "finance")) {
-      steps.push({ label: "Muhasebeyi başlat", description: "Gelir/gider ve fatura takibi", href: "/marka/muhasebe", done: false, optional: true });
+      steps.push({ id: "finance", label: "Muhasebeyi başlat", description: "Gelir/gider ve fatura takibi", href: "/marka/muhasebe", done: false, optional: true });
     }
     if (clientHasOrgCapability(orgRole, "team")) {
-      steps.push({ label: "Ekip üyesi davet et", description: "Rol ve yetkilerle ekip kur", href: "/marka/ekip", done: false, optional: true });
+      steps.push({ id: "team", label: "Ekip üyesi davet et", description: "Rol ve yetkilerle ekip kur", href: "/marka/ekip", done: false, optional: true });
     }
 
     return steps;

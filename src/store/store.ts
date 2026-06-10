@@ -2,7 +2,12 @@ import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { requestSyncFlush } from "@/lib/sync-client";
-import { persistKasaTransaction, removeKasaTransaction, bulkUpdateKasaCountInGenel } from "@/lib/kasa-persist";
+import {
+  persistKasaTransaction,
+  removeKasaAccount,
+  removeKasaTransaction,
+  bulkUpdateKasaCountInGenel,
+} from "@/lib/kasa-persist";
 import {
   persistRowImmediate,
   removeRowImmediate,
@@ -16,7 +21,13 @@ import {
   mergeCanonicalBrandLinks,
   mergeLinkSnapshotsHydrate,
 } from "@/lib/merge-viewership-hydrate";
-import { isoToLocalDateOnly, localNoonTimestampIso, normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
+import {
+  isoToLocalDateOnly,
+  localNoonTimestampIso,
+  normalizeWeekAnchorIso,
+  shiftCalendarMonthYm,
+  weekStartFromDateIso,
+} from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import {
   buildPayrollLinePlan,
@@ -1080,7 +1091,7 @@ interface AppStore {
   // Kasa hesapları
   addKasa: (k: Omit<Kasa, "id">) => void;
   updateKasa: (id: string, k: Partial<Kasa>) => void;
-  deleteKasa: (id: string) => void;
+  deleteKasa: (id: string, opts?: { force?: boolean }) => void;
 
   // Kasa
   addKasaTransaction: (t: Omit<KasaTransaction, "id">) => void;
@@ -1263,7 +1274,7 @@ export const initialEmployees: Employee[] = [
     notes:
       "Maaş $3.000/ay + $500 ev kira desteği. " +
       "Nisan 2026 bordrosu nakit ödendi: $3.000 maaş + $500 kira + $1.600 telefon desteği (tek seferlik). " +
-      "Mayıs 2026 plan geçişi: 1 Haziran 2026'da 2 haftalık maaş ($1.500) + tam kira ($500) = $2.000 ödendi. " +
+      "Mayıs 2026 plan geçişi: 1 Haziran 2026'da yarım dönem maaş ($1.500) ödendi · kira ($500) ayrı onaylanır. " +
       "Haziran 2026'dan itibaren standart 1–5 takvimi: Haziran bordrosu (tam $3.500) 1–5 Temmuz 2026'da ödenir.",
     kind: "streamer",
   },
@@ -1413,7 +1424,14 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     description: "Ev kira desteği (Mayıs 2026 · ilk bordro)",
     type: "rent",
   });
-  ["2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"].forEach((m) => {
+  const acelyaStandardRentMonths: string[] = [];
+  for (let y = 2026; y <= 2027; y++) {
+    const startM = y === 2026 ? 6 : 1;
+    for (let m = startM; m <= 12; m++) {
+      acelyaStandardRentMonths.push(`${y}-${String(m).padStart(2, "0")}`);
+    }
+  }
+  acelyaStandardRentMonths.forEach((m) => {
     list.push({
       id: `se-acelya-rent-${m}`,
       employeeId: "emp-acelya",
@@ -1438,17 +1456,58 @@ function isLockedCanonicalRent(e: SalaryExtra): boolean {
   return e.type === "rent" && e.id in CANONICAL_RENT_BY_EXTRA_ID;
 }
 
+/** Kilitli ilk bordro kira ayından sonraki ay (Acelya: Haziran 2026). */
+function rentPropagateStartMonth(
+  employee: Employee,
+  salaryExtras: SalaryExtra[],
+): string {
+  const lockedMonths = salaryExtras
+    .filter(
+      (e) =>
+        e.employeeId === employee.id &&
+        e.type === "rent" &&
+        isLockedCanonicalRent(e),
+    )
+    .map((e) => e.month)
+    .sort();
+  if (lockedMonths.length === 0) return employee.payrollStartMonth;
+  return shiftCalendarMonthYm(lockedMonths[lockedMonths.length - 1]!, 1);
+}
+
+/** Standart dönem kira tutarı: kilitli aylar hariç en güncel kalem veya sözleşme. */
+function standardRentAmountForEmployee(
+  employee: Employee,
+  salaryExtras: SalaryExtra[],
+): number {
+  const from = rentPropagateStartMonth(employee, salaryExtras);
+  const rows = salaryExtras
+    .filter(
+      (e) =>
+        e.employeeId === employee.id &&
+        e.type === "rent" &&
+        ymGte(e.month, from) &&
+        !isLockedCanonicalRent(e),
+    )
+    .sort((a, b) => b.month.localeCompare(a.month));
+  return rows[0]?.amount ?? employee.rentSupport;
+}
+
 /** Kritik bordro kalemleri (Mayıs kira vb.) bootstrap/persist ile kaybolmaz. */
 export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[] {
   const byId = new Map(stored.map((e) => [e.id, e]));
   for (const seed of initialSalaryExtras) {
     const locked = CANONICAL_RENT_BY_EXTRA_ID[seed.id];
-    if (locked == null) continue;
-    const cur = byId.get(seed.id);
-    if (!cur) {
-      byId.set(seed.id, { ...seed, amount: locked });
-    } else if (cur.amount !== locked) {
-      byId.set(seed.id, { ...cur, amount: locked, description: seed.description });
+    if (locked != null) {
+      const cur = byId.get(seed.id);
+      if (!cur) {
+        byId.set(seed.id, { ...seed, amount: locked });
+      } else if (cur.amount !== locked) {
+        byId.set(seed.id, { ...cur, amount: locked, description: seed.description });
+      }
+      continue;
+    }
+    if (seed.type === "rent" && !byId.has(seed.id)) {
+      byId.set(seed.id, seed);
     }
   }
   return Array.from(byId.values());
@@ -1842,8 +1901,60 @@ const initialNotifications: AppNotification[] = [];
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
   { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },
   { employeeId: "emp-lucy",  month: "2026-04", paid: true, paidDate: "2026-04-30" },
-  { employeeId: "emp-lucy",  month: "2026-05", paid: true, paidDate: "2026-06-01" },
+  // Mayıs plan geçişi: yarım maaş ($1.500) ödendi · kira ($500) bekliyor.
+  {
+    employeeId: "emp-lucy",
+    month: "2026-05",
+    paid: false,
+    linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş",
+        amountUsd: 1500,
+        paid: true,
+        paidDate: "2026-06-01",
+      },
+    ],
+  },
 ];
+
+/** Eski tam-ödendi kayıtlarını kalem bazlı kısmi ödemeye yükseltir (Lucy Mayıs 2026). */
+export function mergeCanonicalPaymentStatuses(
+  stored: MonthPaymentStatus[],
+): MonthPaymentStatus[] {
+  const lucyMayPartial: MonthPaymentStatus = {
+    employeeId: "emp-lucy",
+    month: "2026-05",
+    paid: false,
+    linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş",
+        amountUsd: 1500,
+        paid: true,
+        paidDate: "2026-06-01",
+      },
+    ],
+  };
+  const idx = stored.findIndex(
+    (p) => p.employeeId === "emp-lucy" && p.month === "2026-05",
+  );
+  if (idx < 0) {
+    const hasLucyMay = initialPaymentStatuses.some(
+      (p) => p.employeeId === "emp-lucy" && p.month === "2026-05",
+    );
+    return hasLucyMay ? [...stored, lucyMayPartial] : stored;
+  }
+  const existing = stored[idx];
+  if (existing.paid && !(existing.linePayments?.length)) {
+    const next = [...stored];
+    next[idx] = lucyMayPartial;
+    return next;
+  }
+  return stored;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: kira propagasyonu
@@ -1977,26 +2088,29 @@ export function reconcileRentExtrasForAllEmployees(
   for (const emp of employees) {
     if (emp.rentSupport <= 0 || emp.status !== "active") continue;
 
+    const propagateFrom = rentPropagateStartMonth(emp, next);
+    const targetRent = standardRentAmountForEmployee(emp, next);
+
     const expectedRent = (e: SalaryExtra) =>
-      CANONICAL_RENT_BY_EXTRA_ID[e.id] ?? emp.rentSupport;
+      CANONICAL_RENT_BY_EXTRA_ID[e.id] ?? targetRent;
 
     const hasMismatch = next.some(
       (e) =>
         e.employeeId === emp.id &&
         e.type === "rent" &&
-        ymGte(e.month, emp.payrollStartMonth) &&
+        ymGte(e.month, propagateFrom) &&
         e.amount !== expectedRent(e)
     );
 
-    const hasAnyPostStart = next.some(
+    const hasAnyStandard = next.some(
       (e) =>
         e.employeeId === emp.id &&
         e.type === "rent" &&
-        ymGte(e.month, emp.payrollStartMonth)
+        ymGte(e.month, propagateFrom)
     );
 
-    if (hasMismatch || !hasAnyPostStart) {
-      next = propagateRentForEmployee(next, emp, emp.rentSupport, emp.payrollStartMonth);
+    if (hasMismatch || !hasAnyStandard) {
+      next = propagateRentForEmployee(next, emp, targetRent, propagateFrom);
     }
   }
   return next;
@@ -2099,8 +2213,52 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       deleteAdvance: (id)        => set((s) => ({ advances: s.advances.filter((x) => x.id !== id) })),
 
       // Salary extra
-      addSalaryExtra:    (e)     => set((s) => ({ salaryExtras: [...s.salaryExtras, { ...e, id: uid() }] })),
-      updateSalaryExtra: (id, e) => set((s) => ({ salaryExtras: s.salaryExtras.map((x) => (x.id === id ? { ...x, ...e } : x)) })),
+      addSalaryExtra: (e) =>
+        set((s) => {
+          let salaryExtras = [...s.salaryExtras, { ...e, id: uid() }];
+          if (e.type === "rent") {
+            const employee = s.employees.find((emp) => emp.id === e.employeeId);
+            const monthLocked = s.salaryExtras.some(
+              (x) =>
+                x.employeeId === e.employeeId &&
+                x.month === e.month &&
+                isLockedCanonicalRent(x),
+            );
+            if (employee && !monthLocked) {
+              salaryExtras = propagateRentForEmployee(
+                salaryExtras,
+                employee,
+                e.amount,
+                e.month,
+              );
+            }
+          }
+          return { salaryExtras };
+        }),
+      updateSalaryExtra: (id, e) =>
+        set((s) => {
+          const before = s.salaryExtras.find((x) => x.id === id);
+          let salaryExtras = s.salaryExtras.map((x) =>
+            x.id === id ? { ...x, ...e } : x
+          );
+          const after = salaryExtras.find((x) => x.id === id);
+          if (
+            after?.type === "rent" &&
+            !isLockedCanonicalRent(after) &&
+            typeof after.amount === "number"
+          ) {
+            const employee = s.employees.find((emp) => emp.id === after.employeeId);
+            if (employee) {
+              salaryExtras = propagateRentForEmployee(
+                salaryExtras,
+                employee,
+                after.amount,
+                after.month,
+              );
+            }
+          }
+          return { salaryExtras };
+        }),
       deleteSalaryExtra: (id) =>
         set((s) => {
           const extra = s.salaryExtras.find((x) => x.id === id);
@@ -2127,9 +2285,18 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         set((s) => {
           const employee = s.employees.find((e) => e.id === employeeId);
           if (!employee) return {};
-          return {
-            salaryExtras: applyRentToMonths(s.salaryExtras, employee, months, amount),
-          };
+          const sorted = [...new Set(months)].sort();
+          let salaryExtras = applyRentToMonths(s.salaryExtras, employee, sorted, amount);
+          const fromMonth = sorted[0];
+          if (fromMonth) {
+            salaryExtras = propagateRentForEmployee(
+              salaryExtras,
+              employee,
+              amount,
+              fromMonth,
+            );
+          }
+          return { salaryExtras };
         }),
       setEmployeeRentSupport: (employeeId, amount) =>
         set((s) => ({
@@ -2191,12 +2358,37 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           const existing = s.paymentStatuses.find(
             (p) => p.employeeId === employeeId && p.month === month
           );
+          const plan = buildPayrollLinePlan(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            s.paymentStatuses,
+          );
+          const currentLines = buildPayrollPaymentLines(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            existing ? [existing] : [],
+          );
+          const unpaidPlan = plan.filter(
+            (p) => !currentLines.find((l) => l.lineId === p.lineId && l.paid),
+          );
+          if (unpaidPlan.length === 0) return {};
+
+          const unpaidLineIds = new Set(unpaidPlan.map((p) => p.lineId));
           const lineTxIds = new Set(
             (existing?.linePayments ?? [])
+              .filter((lp) => unpaidLineIds.has(lp.lineId))
               .map((lp) => lp.kasaTxId)
               .filter((id): id is string => Boolean(id)),
           );
-          if (existing?.kasaTxId) lineTxIds.add(existing.kasaTxId);
+          if (existing?.kasaTxId && unpaidPlan.length === plan.length) {
+            lineTxIds.add(existing.kasaTxId);
+          }
           const trimmedTx = s.kasaTransactions.filter((t) => !lineTxIds.has(t.id));
 
           const txId = uid();
@@ -2208,32 +2400,33 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             direction: "out",
             amountUsd,
             feeUsd,
-            purpose: `${employee.name} · ${monthLabel} maaş ödemesi (tüm kalemler)`,
+            purpose:
+              unpaidPlan.length === plan.length
+                ? `${employee.name} · ${monthLabel} maaş ödemesi (tüm kalemler)`
+                : `${employee.name} · ${monthLabel} maaş ödemesi (kalan kalemler)`,
             counterparty: employee.name,
             proof,
             notes,
           };
 
-          const plan = buildPayrollLinePlan(
-            employee,
-            month,
-            s.advances,
-            s.salaryExtras,
-            s.contentExpenses,
+          const keptLinePayments = (existing?.linePayments ?? []).filter(
+            (lp) => lp.paid && !unpaidLineIds.has(lp.lineId),
           );
-          const linePayments = markAllLinesPaid(
-            plan.map((p) => ({ ...p, paid: false })),
+          const newLinePayments = markAllLinesPaid(
+            unpaidPlan.map((p) => ({ ...p, paid: false })),
             { paidDate, paidBy, kasaTxId: txId },
           );
+          const linePayments = [...keptLinePayments, ...newLinePayments];
+          const fullyPaid = linePayments.length >= plan.length && plan.length > 0;
           const now = new Date().toISOString();
           const baseStatus: MonthPaymentStatus = {
             employeeId,
             month,
-            paid: plan.length === 0 || linePayments.length >= plan.length,
-            paidDate,
-            paidBy,
-            approvedAt: now,
-            kasaTxId: txId,
+            paid: fullyPaid,
+            paidDate: fullyPaid ? paidDate : existing?.paidDate,
+            paidBy: fullyPaid ? paidBy : existing?.paidBy,
+            approvedAt: fullyPaid ? now : existing?.approvedAt,
+            kasaTxId: fullyPaid ? txId : existing?.kasaTxId,
             linePayments,
           };
 
@@ -2295,6 +2488,7 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             s.advances,
             s.salaryExtras,
             s.contentExpenses,
+            s.paymentStatuses,
           );
           const line = plan.find((l) => l.lineId === lineId);
           if (!line) return {};
@@ -2873,15 +3067,29 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           });
           return { kasas: next };
         }),
-      deleteKasa: (id) =>
+      deleteKasa: (id, opts) =>
         set((s) => {
-          if (id === DEFAULT_KASA_ID) return {}; // varsayılan silinmez
+          if (id === DEFAULT_KASA_ID) return {};
           const inUse = s.kasaTransactions.some((t) => t.kasaId === id);
-          if (inUse) {
-            // Bağlı hareketler varken silmek yerine arşivle.
+          const force = Boolean(opts?.force);
+
+          if (inUse && !force) {
+            if (isSupabaseClientMode()) {
+              queueMicrotask(() => void removeKasaAccount(id, { force: false }));
+            }
             return { kasas: s.kasas.map((x) => (x.id === id ? { ...x, archived: true } : x)) };
           }
-          return { kasas: s.kasas.filter((x) => x.id !== id) };
+
+          if (isSupabaseClientMode()) {
+            queueMicrotask(() => void removeKasaAccount(id, { force }));
+          }
+
+          return {
+            kasas: s.kasas.filter((x) => x.id !== id),
+            kasaTransactions: force
+              ? s.kasaTransactions.filter((t) => t.kasaId !== id)
+              : s.kasaTransactions,
+          };
         }),
 
       // Kasa
@@ -3306,6 +3514,11 @@ const storePersistConfig = {
         contentExpenses = payrollLinked.contentExpenses;
         salaryExtras = mergeCanonicalSalaryExtras(salaryExtras);
         salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
+        const paymentStatuses = mergeCanonicalPaymentStatuses(
+          Array.isArray(p.paymentStatuses)
+            ? p.paymentStatuses
+            : currentState.paymentStatuses,
+        );
         const brandsPersist = Array.isArray(p.brands) && p.brands.length > 0
           ? p.brands
           : currentState.brands;
@@ -3326,6 +3539,7 @@ const storePersistConfig = {
           ...p,
           employees,
           salaryExtras,
+          paymentStatuses,
           brandLinks: brandLinksMerged,
           linkSnapshots: linkSnapshotsMerged,
           brandViewership: brandViewershipMerged,

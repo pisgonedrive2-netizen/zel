@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, ExternalLink, Copy, Check, Link as LinkIcon,
@@ -191,7 +191,7 @@ function SlotForm({
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────
-export default function TakvimPage() {
+function TakvimPage() {
   const { user, users } = useAuth();
   const {
     employees, brands, streamerAccounts, scheduleSlots, weeklyPlans, weekBrandReels,
@@ -1169,6 +1169,18 @@ export default function TakvimPage() {
         empColor={empColor}
       />
     </div>
+  );
+}
+
+export default function TakvimPageWithSuspense() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-muted-foreground">Takvim yükleniyor…</div>
+      }
+    >
+      <TakvimPage />
+    </Suspense>
   );
 }
 

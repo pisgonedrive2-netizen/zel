@@ -3,6 +3,7 @@ import { verifyPin } from "@/lib/password";
 import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
+import { isMainAdminSession, MAIN_ADMIN_ID } from "@/lib/user-guards";
 import type {
   AppHydratePayload,
   Brand,
@@ -292,6 +293,52 @@ async function resolveSessionOrgContext(userId: string): Promise<{
   return { organizationId: orgId, orgRole, brandIds };
 }
 
+const MAIN_ADMIN_ORG_ID = "org-foxstream";
+const MAIN_ADMIN_MEMBER_ID = "om-u-admin";
+
+/** Ana yönetici için org üyeliğini owner + tüm markalar olacak şekilde garanti eder. */
+async function ensureMainAdminOrgMembership(userId: string): Promise<void> {
+  if (userId !== MAIN_ADMIN_ID) return;
+  const admin = getSupabaseAdmin();
+  await admin.from("organizations").upsert({
+    id: MAIN_ADMIN_ORG_ID,
+    name: "Foxstream Ajansı",
+    slug: "foxstream",
+    type: "agency",
+    status: "active",
+    plan: "agency",
+    primary_color: "#FF6B00",
+    locale: "tr",
+    timezone: "Europe/Istanbul",
+    default_currency: "USD",
+    onboarding_completed: true,
+  });
+  await admin.from("organization_members").upsert({
+    id: MAIN_ADMIN_MEMBER_ID,
+    organization_id: MAIN_ADMIN_ORG_ID,
+    user_id: userId,
+    org_role: "owner",
+    scope_all_brands: true,
+    title: "Ana Yönetici",
+  });
+}
+
+/** Orkun oturumuna tüm markalar + owner org rolü enjekte edilir. */
+export async function enrichSessionForMainAdmin(session: SessionPayload): Promise<SessionPayload> {
+  if (!isMainAdminSession(session)) return session;
+  await ensureMainAdminOrgMembership(session.userId).catch(() => {});
+  const admin = getSupabaseAdmin();
+  const { data: brandRows } = await admin.from("brands").select("id");
+  const brandIds = (brandRows ?? []).map((b) => String((b as Record<string, unknown>).id));
+  return {
+    ...session,
+    orgRole: "owner",
+    organizationId: session.organizationId ?? MAIN_ADMIN_ORG_ID,
+    brandIds: brandIds.length > 0 ? brandIds : session.brandIds,
+    brandId: session.brandId ?? brandIds[0],
+  };
+}
+
 export async function loginUser(username: string, pin: string): Promise<SessionPayload | null> {
   const un = username.toLowerCase().trim();
   const { data, error } = await getSupabaseAdmin()
@@ -317,7 +364,7 @@ export async function loginUser(username: string, pin: string): Promise<SessionP
     : org.brandIds && org.brandIds.length > 0
       ? org.brandIds[0]
       : undefined;
-  return {
+  const session: SessionPayload = {
     userId: String(row.id),
     username: String(row.username),
     name: String(row.name),
@@ -329,6 +376,7 @@ export async function loginUser(username: string, pin: string): Promise<SessionP
     orgRole: org.orgRole,
     brandIds: org.brandIds && org.brandIds.length > 0 ? org.brandIds : brandId ? [brandId] : undefined,
   };
+  return enrichSessionForMainAdmin(session);
 }
 
 export async function fetchUsers(): Promise<AppUser[]> {

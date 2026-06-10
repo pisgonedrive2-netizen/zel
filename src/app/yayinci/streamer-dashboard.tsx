@@ -82,6 +82,8 @@ import { ProofUploader } from "@/components/proof-uploader";
 import { canStreamerEditExpense, canStreamerWithdrawExpense, isActiveContentExpense } from "@/lib/content-expense";
 import { cn } from "@/lib/utils";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
+import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const monthLabel = (ym: string) =>
@@ -1153,7 +1155,7 @@ function AddWeekReelForm({
   );
 }
 
-export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "gecmis" | "bildirimler" | "istatistikler";
+export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "kesif" | "gecmis" | "bildirimler" | "istatistikler";
 
 // ── Page ─────────────────────────────────────────────────────────────────
 /**
@@ -2918,6 +2920,14 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             <AchievementLinkSyncBar employeeId={me.id} employeeName={me.name} />
           )}
 
+          <BrandLinkViewershipSummary
+            links={myBrandLinksForMonth}
+            snapshots={linkSnapshots}
+            viewMonth={month}
+            todayYm={toYearMonthLocal(new Date())}
+            title="Link izlenme özeti"
+          />
+
           <Card>
             <CardHeader className="space-y-4 pb-2">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -3335,6 +3345,22 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                   üzerinden yap. Bu sayfa çoğalan link detayları ve snapshot için.
                 </p>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {section === "kesif" && (
+        <div className="space-y-4 max-w-3xl">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Premium keşif</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Ülke ve dil filtreleriyle trend, arama ve hashtag keşfi. Her sorgu 1 API kotası kullanır.
+            </p>
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <SocialDiscoveryPanel />
             </CardContent>
           </Card>
         </div>

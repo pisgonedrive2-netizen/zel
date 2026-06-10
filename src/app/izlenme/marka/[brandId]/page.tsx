@@ -1,11 +1,10 @@
-import { use } from "react";
 import { BrandDetailClient } from "./brand-detail-client";
 
-export default function BrandDetailPage({
-  params,
-}: {
+type PageProps = {
   params: Promise<{ brandId: string }>;
-}) {
-  const { brandId } = use(params);
+};
+
+export default async function BrandDetailPage(props: PageProps) {
+  const { brandId } = await props.params;
   return <BrandDetailClient brandId={brandId} />;
 }

@@ -8,11 +8,13 @@ import {
   initialEmployees, initialAdvances, initialSalaryExtras, initialPaymentStatuses,
   initialCompanies, initialSponsorTransactions, initialBrands, initialBrandLinks,
   initialKasaTransactions, initialContentExpenses,
+  initialOrganizations, initialOrganizationMembers,
 } from "../src/store/store";
 import {
   employeeToRow, advanceToRow, salaryExtraToRow, paymentStatusToRow,
   companyToRow, sponsorTxToRow, brandToRow, brandLinkToRow,
   kasaToRow, contentExpenseToRow, appUserToRow,
+  organizationToRow, organizationMemberToRow,
 } from "../src/lib/db/mappers";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -50,6 +52,8 @@ async function main() {
   console.log("→ Supabase URL:", url);
   console.log("→ Veriler yazılıyor...");
 
+  await upsert("organizations",        initialOrganizations.map(organizationToRow));
+  await upsert("organization_members", initialOrganizationMembers.map(organizationMemberToRow));
   await upsert("employees",            initialEmployees.map(employeeToRow));
   await upsert("brands",               initialBrands.map(brandToRow));
   await upsert("external_companies",   initialCompanies.map(companyToRow));

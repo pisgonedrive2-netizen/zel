@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
+import { enrichSessionForMainAdmin } from "@/lib/db/repository";
 
 export async function GET() {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ user: null });
   }
-  const session = await getSession();
+  let session = await getSession();
   if (!session) return NextResponse.json({ user: null });
+  session = await enrichSessionForMainAdmin(session);
   return NextResponse.json({
     user: {
       id: session.userId,

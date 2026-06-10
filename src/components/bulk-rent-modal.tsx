@@ -45,7 +45,7 @@ export function BulkRentModal({
   const [toMonth, setToMonth] = useState(defaultFromMonth ?? todayYm);
   const [amount, setAmount] = useState(0);
   const [alsoContract, setAlsoContract] = useState(false);
-  const [alsoForward12, setAlsoForward12] = useState(false);
+  const [alsoForward12, setAlsoForward12] = useState(true);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
 
   const employee = bordrolu.find((e) => e.id === employeeId);
@@ -64,7 +64,7 @@ export function BulkRentModal({
     setToMonth(defaultFromMonth ?? todayYm);
     setMode("range");
     setAlsoContract(false);
-    setAlsoForward12(false);
+    setAlsoForward12(true);
     setPicked(new Set(defaultFromMonth ? [defaultFromMonth] : []));
   }, [open, defaultEmployeeId, defaultFromMonth, bordrolu, todayYm]);
 
@@ -102,10 +102,10 @@ export function BulkRentModal({
   const handleApply = () => {
     if (!employee || selectedMonths.length === 0) return;
     setRentForMonths(employee.id, selectedMonths, amount);
-    if (alsoForward12) {
-      const start = selectedMonths[0] ?? fromMonth;
-      syncRentSupportFromMonth(employee.id, start, amount);
-    } else if (alsoContract) {
+    if (alsoForward12 && selectedMonths[0]) {
+      syncRentSupportFromMonth(employee.id, selectedMonths[0], amount);
+    }
+    if (alsoContract) {
       setEmployeeRentSupport(employee.id, amount);
     }
     onClose();

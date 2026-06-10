@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { Activity, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 
+import { worstApiChipStatus, formatApiHealthSummary } from "@/lib/social-api/health-summary";
+
 type Status = "ok" | "warn" | "error" | "exhausted" | "unknown";
 
 interface PlatformBrief {
@@ -17,6 +19,11 @@ interface PlatformBrief {
   batchSizePerRun: number;
   health: {
     status: Status;
+    connectivityStatus?: Status;
+    linksWithError?: number;
+    throttledLinks?: number;
+    staleTrackedLinks?: number;
+    linkMaintenance?: boolean;
     successCount24h: number;
     errorCount24h: number;
     lastError: string | null;
@@ -71,16 +78,10 @@ export function ApiHealthChip({ embedded = false }: { embedded?: boolean }) {
     };
   }, [isAdmin]);
 
-  const worst = useMemo<Status>(() => {
-    if (!data) return "unknown";
-    const order: Status[] = ["exhausted", "error", "warn", "unknown", "ok"];
-    let best: Status = "ok";
-    for (const p of data.platforms) {
-      const s = p.batchSizePerRun === 0 ? "exhausted" : p.health?.status ?? "unknown";
-      if (order.indexOf(s) < order.indexOf(best)) best = s;
-    }
-    return best;
-  }, [data]);
+  const worst = useMemo(
+    () => worstApiChipStatus(data?.platforms ?? []),
+    [data]
+  );
 
   if (!isAdmin) return null;
   if (!data) return null;
@@ -92,24 +93,11 @@ export function ApiHealthChip({ embedded = false }: { embedded?: boolean }) {
 
   const meta = STYLES[worst];
 
-  // Hata özeti
-  const errored = data.platforms.filter((p) => (p.health?.errorCount24h ?? 0) > 0);
-  const exhausted = data.platforms.filter((p) => p.batchSizePerRun === 0);
-
-  const summary =
-    worst === "ok"
-      ? "Tüm API'lar çalışıyor"
-      : worst === "exhausted"
-        ? `${exhausted.map((p) => p.label).join(", ")} kotası doldu`
-        : worst === "error"
-          ? `${errored.map((p) => p.label).join(", ")} hata veriyor`
-          : worst === "warn"
-            ? "API'lar uyarı veriyor"
-            : "API durumu bilinmiyor";
+  const summary = formatApiHealthSummary(data.platforms, worst, { chip: true });
 
   return (
     <Link
-      href="/izlenme"
+      href="/izlenme/api"
       title={`API durumu — ${summary}`}
       className={`flex max-w-[min(calc(100vw-5rem),280px)] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] shadow-sm backdrop-blur ${
         embedded ? "" : "fixed right-[max(env(safe-area-inset-right),12px)] top-[max(calc(env(safe-area-inset-top)+48px),56px)] z-[55]"

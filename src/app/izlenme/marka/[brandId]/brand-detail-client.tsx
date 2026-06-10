@@ -58,6 +58,7 @@ import { Button } from "@/components/ui/button";
 import { ViewDotCard } from "@/components/view-dot-card";
 import { BrandMonthlyStatsPanel } from "@/components/brand-monthly-stats-panel";
 import { BrandLinksPanel } from "@/components/brand-links-panel";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 import { MarkaViewershipCharts } from "@/components/marka-viewership-charts";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Textarea, FormGrid, FormActions } from "@/components/ui/field";
@@ -436,6 +437,14 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
           )}
         </div>
       </div>
+
+      <BrandLinkViewershipSummary
+        links={allBrandLinks}
+        snapshots={linkSnapshots}
+        viewMonth={viewMonth}
+        todayYm={todayYm}
+        title={`${brand.name} · link izlenme özeti`}
+      />
 
       {/* KPI kartları */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

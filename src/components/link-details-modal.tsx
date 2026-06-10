@@ -54,6 +54,16 @@ interface RichLinkDetails {
   };
   hashtags?: string[];
   extras?: Record<string, number | string | null | undefined>;
+  premium?: {
+    engagementRate?: number | null;
+    verifiedCommentCount?: number | null;
+    extraApiCalls?: number;
+    recentComments?: Array<{ author?: string; text: string; likes?: number }>;
+    relatedVideos?: Array<{ title: string; views?: number | null; videoId?: string }>;
+    recentPosts?: Array<{ title?: string; url?: string; views?: number | null }>;
+    musicInfo?: { title?: string; author?: string; videoCount?: number | null };
+    challengeInfo?: { name?: string; viewCount?: number | null; userCount?: number | null };
+  };
 }
 
 interface ApiResponse {
@@ -289,7 +299,12 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <MetricTile icon={Eye} label="İzlenme" value={fmtNum(details.metrics.views)} accent="blue" />
               <MetricTile icon={Heart} label="Beğeni" value={fmtNum(details.metrics.likes)} accent="rose" />
-              <MetricTile icon={MessageCircle} label="Yorum" value={fmtNum(details.metrics.comments)} accent="amber" />
+              <MetricTile
+                icon={MessageCircle}
+                label="Yorum"
+                value={fmtNum(details.premium?.verifiedCommentCount ?? details.metrics.comments)}
+                accent="amber"
+              />
               <MetricTile
                 icon={Share2}
                 label={
@@ -301,6 +316,110 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
                 accent="violet"
               />
             </div>
+
+            {details.premium?.engagementRate != null && (
+              <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                  <Activity size={10} /> Etkileşim oranı (premium)
+                </p>
+                <p className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  %{details.premium.engagementRate.toLocaleString("tr-TR")}
+                </p>
+              </div>
+            )}
+
+            {details.premium?.musicInfo?.title && (
+              <div className="rounded border border-border/60 bg-card/60 px-3 py-2 text-xs">
+                <p className="text-[10px] uppercase text-muted-foreground mb-0.5 flex items-center gap-1">
+                  <Music size={10} /> Kullanılan ses
+                </p>
+                <p className="font-medium">{details.premium.musicInfo.title}</p>
+                {details.premium.musicInfo.videoCount != null && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {fmtNum(details.premium.musicInfo.videoCount)} video kullanımı
+                  </p>
+                )}
+              </div>
+            )}
+
+            {details.premium?.challengeInfo?.name && (
+              <div className="rounded border border-border/60 bg-card/60 px-3 py-2 text-xs">
+                <p className="text-[10px] uppercase text-muted-foreground mb-0.5 flex items-center gap-1">
+                  <Hash size={10} /> Challenge
+                </p>
+                <p className="font-medium">#{details.premium.challengeInfo.name}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {fmtNum(details.premium.challengeInfo.viewCount)} görüntülenme ·{" "}
+                  {fmtNum(details.premium.challengeInfo.userCount)} katılımcı
+                </p>
+              </div>
+            )}
+
+            {details.premium?.recentComments && details.premium.recentComments.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1">
+                  <MessageCircle size={10} /> Son yorumlar (premium)
+                </p>
+                <ul className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {details.premium.recentComments.map((c, i) => (
+                    <li
+                      key={i}
+                      className="rounded border border-border/60 bg-card/60 px-2 py-1.5 text-[11px]"
+                    >
+                      {c.author && <span className="font-medium text-foreground/90">{c.author}: </span>}
+                      <span className="text-foreground/80">{c.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {details.premium?.relatedVideos && details.premium.relatedVideos.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                  İlgili videolar (premium)
+                </p>
+                <ul className="space-y-1 text-[11px]">
+                  {details.premium.relatedVideos.map((v, i) => (
+                    <li key={i} className="truncate text-foreground/85">
+                      {v.title}
+                      {v.views != null && (
+                        <span className="text-muted-foreground"> · {fmtNum(v.views)}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {details.premium?.recentPosts && details.premium.recentPosts.length > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                  Son içerikler (premium)
+                </p>
+                <ul className="space-y-1 text-[11px]">
+                  {details.premium.recentPosts.map((p, i) => (
+                    <li key={i} className="truncate">
+                      {p.url ? (
+                        <a
+                          href={p.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {p.title ?? p.url}
+                        </a>
+                      ) : (
+                        <span>{p.title ?? "—"}</span>
+                      )}
+                      {p.views != null && (
+                        <span className="text-muted-foreground"> · {fmtNum(p.views)}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {details.description && (
               <div>
@@ -360,8 +479,8 @@ export function LinkDetailsModal({ link, open, onClose }: LinkDetailsModalProps)
         )}
 
         <p className="text-[10px] text-muted-foreground border-t border-border/40 pt-2 leading-relaxed">
-          Her çekim 1 kota tüketir. Başarılı olunca izlenme, beğeni, yorum ve paylaşım listeye
-          ve bu ayın snapshot kaydına yazılır — satırdaki &quot;bu ay yok&quot; kalkar.
+          Temel çekim 1 kota; premium özellikler (yorumlar, ilgili içerik, müzik/challenge) ek
+          istekler tüketir. Başarılı olunca metrikler listeye ve bu ayın snapshot kaydına yazılır.
         </p>
       </div>
     </Modal>

@@ -9,6 +9,7 @@ import {
   pickEnum,
 } from "@/lib/brand-offer-shared";
 import type { BrandDeal, BrandDealDeliverable } from "@/store/store";
+import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,11 +73,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ deals });
     }
     if (session.role === "brand") {
-      if (!session.brandId) {
+      const brandId = resolveBrandId(session, queryBrandId);
+      if (!brandId) {
         return NextResponse.json({ error: "Marka oturumu eksik" }, { status: 403 });
       }
+      const guard = ensureBrandAccess(session, brandId, "read");
+      if (guard) return guard;
       const deals = await fetchBrandDeals({
-        brandId: session.brandId,
+        brandId,
         employeeId: queryEmployeeId,
         status,
       });
@@ -136,7 +140,9 @@ export async function POST(req: Request) {
   }
 
   const brandId =
-    session.role === "brand" ? session.brandId ?? "" : String(body.brandId ?? "").trim();
+    session.role === "brand"
+      ? resolveBrandId(session, body.brandId) ?? ""
+      : String(body.brandId ?? "").trim();
   const employeeId = String(body.employeeId ?? "").trim();
   const title = String(body.title ?? "").trim();
 

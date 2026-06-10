@@ -46,7 +46,44 @@ describe("getRentForMonth", () => {
 });
 
 describe("reconcileRentExtrasForAllEmployees", () => {
-  it("fixes mismatched rent amounts from payroll start onward", () => {
+  it("Acelya: Mayıs kira kilitli kalır, Haziran+ sözleşme tutarına çekilir", () => {
+    const emp: Employee = {
+      ...acelya,
+      payrollStartMonth: "2026-05",
+    };
+    const extras: SalaryExtra[] = [
+      {
+        id: "se-acelya-rent-2026-05",
+        employeeId: "emp-acelya",
+        month: "2026-05",
+        amount: 1550,
+        description: "ilk bordro",
+        type: "rent",
+      },
+      {
+        id: "se-acelya-rent-2026-06",
+        employeeId: "emp-acelya",
+        month: "2026-06",
+        amount: 500,
+        description: "eski",
+        type: "rent",
+      },
+      {
+        id: "se-acelya-rent-2026-07",
+        employeeId: "emp-acelya",
+        month: "2026-07",
+        amount: 800,
+        description: "eski",
+        type: "rent",
+      },
+    ];
+    const fixed = reconcileRentExtrasForAllEmployees([emp], extras);
+    expect(fixed.find((e) => e.month === "2026-05")?.amount).toBe(1550);
+    expect(fixed.find((e) => e.month === "2026-06")?.amount).toBe(800);
+    expect(fixed.find((e) => e.month === "2026-07")?.amount).toBe(800);
+  });
+
+  it("syncs forward from the latest standard rent row when months disagree", () => {
     const extras: SalaryExtra[] = [
       {
         id: "se-acelya-rent-2026-06",
@@ -60,13 +97,18 @@ describe("reconcileRentExtrasForAllEmployees", () => {
         id: "se-acelya-rent-2026-07",
         employeeId: "emp-acelya",
         month: "2026-07",
-        amount: 500,
-        description: "eski",
+        amount: 800,
+        description: "güncel",
         type: "rent",
       },
     ];
     const fixed = reconcileRentExtrasForAllEmployees([acelya], extras);
+    expect(fixed.find((e) => e.month === "2026-06")?.amount).toBe(800);
+    expect(fixed.find((e) => e.month === "2026-07")?.amount).toBe(800);
+  });
+
+  it("fills missing rent months from contract rentSupport", () => {
+    const fixed = reconcileRentExtrasForAllEmployees([acelya], []);
     expect(fixed.find((e) => e.month === "2026-06")?.amount).toBe(650);
-    expect(fixed.find((e) => e.month === "2026-07")?.amount).toBe(650);
   });
 });

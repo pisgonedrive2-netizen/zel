@@ -16,6 +16,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { useStore, type Brand, type BrandLink, type Employee } from "@/store/store";
 import { linkViewsForMonth } from "@/lib/brand-month-metrics";
 import { LinkDetailsModal } from "@/components/link-details-modal";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 
 function monthTitleYm(ym: string) {
   return new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
@@ -215,6 +216,14 @@ export function BrandLinksPanel({
         {bulkMsg && (
           <p className="text-xs text-muted-foreground -mt-2">{bulkMsg}</p>
         )}
+
+        <BrandLinkViewershipSummary
+          links={links}
+          snapshots={linkSnapshots}
+          viewMonth={viewMonth}
+          todayYm={todayYm}
+          compact
+        />
 
         <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3">
           <Search size={14} className="text-muted-foreground shrink-0" />

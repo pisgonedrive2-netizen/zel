@@ -22,19 +22,32 @@ export function findGenelKasa(kasas: Kasa[]) {
 }
 
 export function findPrimaryTronKasa(kasas: Kasa[], kasaTransactions: KasaTransaction[]) {
-  const candidates = kasas.filter((k) => Boolean(k.tronAddress));
+  const candidates = kasas.filter(
+    (k) => Boolean(k.tronAddress?.trim()) && !k.archived,
+  );
   if (candidates.length === 0) return null;
+
+  const usdtKasas = candidates.filter((k) => k.kind === "usdt");
+  const pool =
+    usdtKasas.length > 0
+      ? usdtKasas
+      : candidates.filter(
+          (k) => !/test/i.test(k.name) && !k.id.toLowerCase().includes("test"),
+        );
+  const ranked = pool.length > 0 ? pool : candidates;
+
   const txCount = new Map<string, number>();
   for (const t of kasaTransactions) {
     txCount.set(t.kasaId, (txCount.get(t.kasaId) ?? 0) + 1);
   }
-  candidates.sort((a, b) => {
+  ranked.sort((a, b) => {
     const byCount = (txCount.get(b.id) ?? 0) - (txCount.get(a.id) ?? 0);
     if (byCount !== 0) return byCount;
-    if (a.archived !== b.archived) return a.archived ? 1 : -1;
+    if (a.kind === "usdt" && b.kind !== "usdt") return -1;
+    if (b.kind === "usdt" && a.kind !== "usdt") return 1;
     return a.name.localeCompare(b.name);
   });
-  return candidates[0] ?? null;
+  return ranked[0] ?? null;
 }
 
 /** Bir TRON hareketi Genel Kasa giderine dahil edilebilir mi? (çıkış hareketi). */

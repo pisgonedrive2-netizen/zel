@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
-import { isBrandReadOnly } from "@/lib/org-access";
+import { ensureBrandAccess, isBrandReadOnly, resolveBrandId } from "@/lib/org-access";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -29,16 +29,15 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as
     | { brandId?: string; monthlyTarget?: number | null }
     | null;
-  const brandId = String(body?.brandId ?? "").trim();
+  const brandId = resolveBrandId(session, String(body?.brandId ?? "").trim());
   if (!brandId) {
     return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
   }
 
-  if (session.role === "brand") {
-    if (!session.brandId || session.brandId !== brandId) {
-      return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
-    }
-  } else if (session.role !== "admin") {
+  if (session.role === "brand" || session.role === "admin") {
+    const guard = ensureBrandAccess(session, brandId, "write");
+    if (guard) return guard;
+  } else {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
 

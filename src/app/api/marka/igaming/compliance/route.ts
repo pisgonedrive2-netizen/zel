@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
-import { ensureBrandAccess, resolveBrandId, writeAudit } from "@/lib/org-access";
+import { ensureBrandAccess, ensureOrgCapability, resolveBrandId, writeAudit } from "@/lib/org-access";
 import {
   deleteBrandComplianceCheck,
   fetchBrandComplianceChecks,
@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
   if (!brandId) return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
   const guard = ensureBrandAccess(session, brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "compliance");
+  if (capGuard) return capGuard;
   const isNew = !(typeof body.id === "string" && body.id.startsWith("bcc-"));
   const check: BrandComplianceCheck = {
     id: isNew ? `bcc-${crypto.randomUUID().slice(0, 10)}` : body.id!,
@@ -73,6 +75,8 @@ export async function PATCH(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: "Kayıt bulunamadı" }, { status: 404 });
   const guard = ensureBrandAccess(session, existing.brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "compliance");
+  if (capGuard) return capGuard;
   const saved = await upsertBrandComplianceCheck({ ...existing, ...body, id, brandId: existing.brandId });
   return NextResponse.json({ check: saved });
 }
@@ -87,6 +91,8 @@ export async function DELETE(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: "Kayıt bulunamadı" }, { status: 404 });
   const guard = ensureBrandAccess(session, existing.brandId, "write");
   if (guard) return guard;
+  const capGuard = ensureOrgCapability(session, "compliance");
+  if (capGuard) return capGuard;
   await deleteBrandComplianceCheck(id);
   return NextResponse.json({ ok: true });
 }

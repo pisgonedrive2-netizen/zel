@@ -19,6 +19,7 @@ import {
   pickEnum,
 } from "@/lib/brand-offer-shared";
 import type { AppNotification, BrandOffer } from "@/store/store";
+import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,13 +64,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ offers });
     }
     if (session.role === "brand") {
-      if (!session.brandId) {
+      const brandId = resolveBrandId(session, queryBrandId);
+      if (!brandId) {
         return NextResponse.json({ error: "Marka oturumu eksik" }, { status: 403 });
       }
+      const guard = ensureBrandAccess(session, brandId, "read");
+      if (guard) return guard;
       const offers = await fetchBrandOffers({
-        brandId: session.brandId,
+        brandId,
         status,
-        // role=streamer talebi → markanın employeeIdsi filtresine gerek yok
         ...(roleParam === "streamer" || queryEmployeeId
           ? { employeeId: queryEmployeeId }
           : {}),
@@ -144,10 +147,11 @@ export async function POST(req: Request) {
     employeeId = String(body.employeeId ?? "").trim();
   } else if (session.role === "brand") {
     initiator = "brand";
-    if (!session.brandId) {
+    const resolved = resolveBrandId(session, body.brandId);
+    if (!resolved) {
       return NextResponse.json({ error: "Marka oturumu eksik" }, { status: 403 });
     }
-    brandId = session.brandId;
+    brandId = resolved;
     employeeId = String(body.employeeId ?? "").trim();
   } else {
     // streamer

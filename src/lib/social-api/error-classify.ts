@@ -28,6 +28,9 @@ export function isTransientApiError(message?: string | null): boolean {
     m.includes("econnreset") ||
     m.includes("aborted") ||
     m.includes("network error") ||
-    m.includes("fetch failed")
+    m.includes("fetch failed") ||
+    /\b503\b/.test(m) ||
+    m.includes("no available server") ||
+    m.includes("service unavailable")
   );
 }

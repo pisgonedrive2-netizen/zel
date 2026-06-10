@@ -12,6 +12,7 @@ import {
   ensureBrandScope,
   resolveBrandId,
 } from "@/lib/affiliate-access";
+import { canAccessBrandId } from "@/lib/org-access";
 import type { AffiliateDailyStat } from "@/store/store";
 
 export const runtime = "nodejs";
@@ -65,7 +66,7 @@ export async function GET(req: Request) {
   // partnerId verilmişse, brand role için partnerın brandId'si de doğrulanır.
   if (partnerId && session.role === "brand") {
     const partner = await findAffiliatePartnerById(partnerId);
-    if (!partner || partner.brandId !== session.brandId) {
+    if (!partner || !canAccessBrandId(session, partner.brandId)) {
       return NextResponse.json({ error: "Partner için yetkili değilsiniz" }, { status: 403 });
     }
   }
@@ -138,7 +139,7 @@ export async function POST(req: Request) {
       errors.push({ index: i, reason: "partner bulunamadı" });
       continue;
     }
-    if (session.role === "brand" && partner.brandId !== session.brandId) {
+    if (session.role === "brand" && !canAccessBrandId(session, partner.brandId)) {
       errors.push({ index: i, reason: "yetkisiz brand" });
       continue;
     }

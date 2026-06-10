@@ -34,11 +34,17 @@ export function MarkaPageGuard({
         <CardHeader>
           <CardTitle>Marka atanmamış</CardTitle>
           <CardDescription>
-            Hesabınıza marka bağlı değil. Yönetici{" "}
-            <Link href="/kullanicilar" className="text-primary underline">
-              Kullanıcılar
-            </Link>{" "}
-            sayfasından <strong>Marka</strong> rolü ve marka seçimi atamalıdır.
+            Hesabınıza marka bağlı değil. Ajans yöneticinizden{" "}
+            <strong>Marka</strong> rolü ve marka seçimi atanmasını isteyin.
+            {user?.role === "admin" && (
+              <>
+                {" "}
+                <Link href="/kullanicilar" className="text-primary underline">
+                  Kullanıcılar
+                </Link>{" "}
+                sayfasından atayabilirsiniz.
+              </>
+            )}
           </CardDescription>
         </CardHeader>
       </Card>

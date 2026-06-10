@@ -65,6 +65,7 @@ interface PlatformStatus {
     lastPingAt: string | null;
     linksWithError: number;
     staleTrackedLinks: number;
+    linkMaintenance?: boolean;
     lastSuccessAt: string | null;
     lastErrorAt: string | null;
     lastError: string | null;
@@ -771,14 +772,17 @@ export function AutoRefreshStatusPanel({
             const exhausted = p.batchSizePerRun === 0;
             const hStatus = p.health?.status ?? "unknown";
             const conn = p.health?.connectivityStatus ?? "unknown";
+            const needsLinkRefresh = p.health?.linkMaintenance ?? false;
             const isPinging = pingingPlatform === p.platform;
             const accent = exhausted
               ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
               : conn === "error"
                 ? "border-red-300 bg-red-50/30 dark:border-red-500/45 dark:bg-red-950/30"
-                : hStatus === "warn" || usagePct > 70
+                : conn === "warn" || hStatus === "error"
                   ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/45 dark:bg-amber-950/30"
-                  : "border-border bg-card";
+                  : needsLinkRefresh || usagePct > 70
+                    ? "border-amber-200/80 bg-amber-50/20 dark:border-amber-500/30 dark:bg-amber-950/20"
+                    : "border-border bg-card";
             return (
               <div key={p.platform} className={`rounded-lg border px-3 py-3 ${accent}`}>
                 <div className="flex items-center justify-between mb-2 gap-2">
@@ -822,6 +826,13 @@ export function AutoRefreshStatusPanel({
                     <Row label="Link hatası">
                       <span className="text-red-700 dark:text-red-300 font-medium">
                         {p.health?.linksWithError} link
+                      </span>
+                    </Row>
+                  )}
+                  {(p.health?.staleTrackedLinks ?? 0) > 0 && (
+                    <Row label="Yenileme bekleyen">
+                      <span className="text-amber-700 dark:text-amber-300 font-medium">
+                        {p.health?.staleTrackedLinks} link (24s+)
                       </span>
                     </Row>
                   )}

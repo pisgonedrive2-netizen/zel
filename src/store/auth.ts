@@ -2,7 +2,7 @@
 
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
-import { canApplyUserPatch, canDeleteUser } from "@/lib/user-guards";
+import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
 import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
@@ -42,7 +42,17 @@ export interface AppUser {
  * Denetim grubu için ayrı bir kullanıcı: `denetci` / `denetim2026`.
  */
 const INITIAL_USERS: AppUser[] = [
-  { id: "u-admin",   username: "orkun",   pin: "lanetkel2026", name: "Orkun Bey",     role: "admin",    avatar: "O", active: true },
+  {
+    id: "u-admin",
+    username: "orkun",
+    pin: "lanetkel2026",
+    name: "Orkun Bey",
+    role: "admin",
+    avatar: "O",
+    active: true,
+    organizationId: "org-foxstream",
+    orgRole: "owner",
+  },
   { id: "u-ramiz",   username: "ramiz",   pin: "ramiz1234",    name: "Ramiz",         role: "streamer", employeeId: "emp-ramiz",  avatar: "R", active: true },
   { id: "u-lucy",    username: "lucy",    pin: "lucy1234",     name: "Lucy",          role: "streamer", employeeId: "emp-lucy",   avatar: "L", active: true },
   { id: "u-acelya",  username: "acelya",  pin: "acelya1234",   name: "Açelya",        role: "streamer", employeeId: "emp-acelya", avatar: "A", active: true },
@@ -94,7 +104,7 @@ interface AuthState {
 
 /** Oturum kullanıcısını listedeki güncel profille eşle (sidebar / header). */
 function syncSessionUser(session: AppUser, row: AppUser): AppUser {
-  return {
+  const base: AppUser = {
     ...session,
     name: row.name,
     username: row.username,
@@ -111,6 +121,14 @@ function syncSessionUser(session: AppUser, row: AppUser): AppUser {
     orgRole: session.orgRole,
     brandIds: session.brandIds,
   };
+  if (isMainAdmin(base)) {
+    return {
+      ...base,
+      organizationId: base.organizationId ?? "org-foxstream",
+      orgRole: "owner",
+    };
+  }
+  return base;
 }
 
 const authCreator: StateCreator<AuthState> = (set, get) => {
@@ -563,6 +581,7 @@ export function landingFor(role: Role): string {
 
 /** UI'da CRUD butonlarını gizlemek için. */
 export function useIsReadOnly(): boolean {
-  const role = useAuth((s) => s.user?.role);
-  return role === "auditor";
+  const user = useAuth((s) => s.user);
+  if (user && isMainAdmin(user)) return false;
+  return user?.role === "auditor";
 }

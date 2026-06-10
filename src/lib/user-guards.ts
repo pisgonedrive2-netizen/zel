@@ -1,4 +1,5 @@
 import type { AppUser, Role } from "@/store/auth";
+import type { SessionPayload } from "@/lib/session";
 
 /**
  * Ana yönetici (kurucu) hesabının kimliği ve kullanıcı adı.
@@ -13,6 +14,15 @@ export const MAIN_ADMIN_USERNAME = "orkun";
 export function isMainAdmin(u: Pick<AppUser, "id" | "username"> | null | undefined): boolean {
   if (!u) return false;
   return u.id === MAIN_ADMIN_ID || u.username.toLowerCase().trim() === MAIN_ADMIN_USERNAME;
+}
+
+/** Oturum JWT'sinden ana yönetici kontrolü. */
+export function isMainAdminSession(session: SessionPayload | null | undefined): boolean {
+  if (!session) return false;
+  return (
+    session.userId === MAIN_ADMIN_ID ||
+    session.username.toLowerCase().trim() === MAIN_ADMIN_USERNAME
+  );
 }
 
 function countActiveRole(users: AppUser[], role: Role): number {

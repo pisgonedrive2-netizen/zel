@@ -7,6 +7,7 @@
 //  - YAZMA (org-access.ts): denetçi/görüntüleyici hiçbir şeyi yazamaz (salt-okunur).
 
 import { READ_ONLY_ORG_ROLES, TEAM_MANAGER_ORG_ROLES } from "@/lib/org-roles";
+import { isMainAdminPrincipal } from "@/lib/main-admin-privileges";
 import type { OrgRole } from "@/store/store";
 
 export type OrgCapability =
@@ -29,8 +30,10 @@ export type OrgCapability =
  */
 export function clientHasOrgCapability(
   orgRole: string | undefined | null,
-  capability: OrgCapability
+  capability: OrgCapability,
+  opts?: { isMainAdmin?: boolean }
 ): boolean {
+  if (opts?.isMainAdmin) return true;
   if (capability === "team") {
     if (!orgRole) return true; // eski oturum geri uyumu
     return TEAM_MANAGER_ORG_ROLES.has(orgRole as OrgRole);
@@ -55,13 +58,32 @@ export function clientHasOrgCapability(
 }
 
 /** Marka kullanıcısı salt-okunur mu? (denetçi/görüntüleyici → yazma kontrolleri gizlenir) */
-export function clientIsReadOnly(orgRole: string | undefined | null): boolean {
+export function clientIsReadOnly(
+  orgRole: string | undefined | null,
+  opts?: { isMainAdmin?: boolean }
+): boolean {
+  if (opts?.isMainAdmin) return false;
   if (!orgRole) return false;
   return READ_ONLY_ORG_ROLES.has(orgRole as OrgRole);
 }
 
 /** Ekip & ayar yönetebilir mi? */
-export function clientCanManageTeam(orgRole: string | undefined | null): boolean {
+export function clientCanManageTeam(
+  orgRole: string | undefined | null,
+  opts?: { isMainAdmin?: boolean }
+): boolean {
+  if (opts?.isMainAdmin) return true;
   if (!orgRole) return true;
   return TEAM_MANAGER_ORG_ROLES.has(orgRole as OrgRole);
+}
+
+/** AppUser veya session ile capability — ana yönetici her modülü görür. */
+export function clientHasOrgCapabilityForUser(
+  orgRole: string | undefined | null,
+  capability: OrgCapability,
+  user: { id: string; username: string } | null | undefined
+): boolean {
+  return clientHasOrgCapability(orgRole, capability, {
+    isMainAdmin: isMainAdminPrincipal(user ?? null),
+  });
 }

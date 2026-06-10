@@ -1,0 +1,61 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  LayoutDashboard,
+  BarChart3,
+  Users,
+  Send,
+  Handshake,
+  CalendarDays,
+  Eye,
+  Search,
+  Video,
+  TrendingUp,
+  Zap,
+  Contact,
+  Shield,
+  Plug,
+  FileSpreadsheet,
+  Briefcase,
+  Building2,
+  ClipboardList,
+  Settings,
+  Calculator,
+  FileText,
+  Banknote,
+  Wallet,
+  UserCog,
+  Bell,
+} from "lucide-react";
+import type { MarkaNavIconKey } from "./marka-nav";
+
+const ICON_MAP: Record<MarkaNavIconKey, LucideIcon> = {
+  LayoutDashboard,
+  BarChart3,
+  Users,
+  Send,
+  Handshake,
+  CalendarDays,
+  Eye,
+  Search,
+  Video,
+  TrendingUp,
+  Zap,
+  Contact,
+  Shield,
+  Plug,
+  FileSpreadsheet,
+  Briefcase,
+  Building2,
+  ClipboardList,
+  Settings,
+  Calculator,
+  FileText,
+  Banknote,
+  Wallet,
+  UserCog,
+  Bell,
+};
+
+export function markaNavIcon(key: MarkaNavIconKey): LucideIcon {
+  return ICON_MAP[key];
+}

@@ -8,6 +8,7 @@ import { persistLinkMetricsUpdate } from "@/lib/social-api/link-persist";
 import { linkUpdateFromPersisted } from "@/lib/social-api/link-store-sync";
 import { getMonthlyUsage, incrementUsage } from "@/lib/social-api/quota";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
+import { canAccessBrandId } from "@/lib/org-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
   if (session.role === "brand") {
-    if (!session.brandId || link.brand_id !== session.brandId) {
+    if (!canAccessBrandId(session, String(link.brand_id ?? ""))) {
       return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
     }
   }
@@ -98,9 +99,12 @@ export async function GET(
     );
   }
 
+  const includePremium = req.nextUrl.searchParams.get("premium") !== "0";
+
   try {
-    const details = await fetchRichDetailsForLink(detected);
-    await incrementUsage(detected.platform, 1);
+    const details = await fetchRichDetailsForLink(detected, { includePremium });
+    const extraCalls = details.premium?.extraApiCalls ?? 0;
+    await incrementUsage(detected.platform, 1 + extraCalls);
 
     if (thumbOnly) {
       return NextResponse.json({

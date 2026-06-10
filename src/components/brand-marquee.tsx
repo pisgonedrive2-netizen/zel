@@ -11,6 +11,22 @@ export type BrandMarqueeItem = {
 
 const PADISAH_BRAND_ID = "br-padi";
 
+/** Landing / partner şeridinde gösterilen çekirdek 5 marka. */
+export const CORE_PARTNER_BRAND_IDS = [
+  "br-padi",
+  "br-boffice",
+  "br-gala",
+  "br-hit",
+  "br-pipo",
+] as const;
+
+export function filterCorePartnerBrands(brands: BrandMarqueeItem[]): BrandMarqueeItem[] {
+  const byId = new Map(brands.map((b) => [b.id, b]));
+  return CORE_PARTNER_BRAND_IDS.map((id) => byId.get(id)).filter(
+    (b): b is BrandMarqueeItem => !!b
+  );
+}
+
 /** Marquee'de gösterilecek kısa isim (Padi → Padisah). */
 export function marqueeDisplayName(brand: BrandMarqueeItem): string {
   if (brand.id === PADISAH_BRAND_ID) return "Padisah";

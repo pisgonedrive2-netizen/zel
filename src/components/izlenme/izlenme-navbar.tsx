@@ -15,6 +15,7 @@ import { izlenmeHref } from "@/lib/use-izlenme-view-month";
 import { useStore } from "@/store/store";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
 import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
+import { worstApiChipStatus } from "@/lib/social-api/health-summary";
 
 interface PlatformHealthSummary {
   platform: string;
@@ -100,21 +101,23 @@ export function IzlenmeNavbar({
       const res = await fetch("/api/admin/refresh-status", { credentials: "include" });
       if (!res.ok) return;
       const data = await res.json();
-      const platforms = (data.platforms ?? []) as Array<{
+      const platformsRaw = (data.platforms ?? []) as Array<{
         platform: string;
         safeRemaining: number;
+        batchSizePerRun?: number;
         health?: {
           status?: string;
           connectivityStatus?: string;
+          linksWithError?: number;
           lastSuccessAt?: string | null;
         };
       }>;
       const summary: ApiRefreshSummary = {
         rapidApiEnabled: !!data.rapidApiEnabled,
         cronIntervalHours: Number(data.cronIntervalHours ?? 0),
-        totalSafeRemaining: platforms.reduce((s, p) => s + (p.safeRemaining ?? 0), 0),
+        totalSafeRemaining: platformsRaw.reduce((s, p) => s + (p.safeRemaining ?? 0), 0),
         worstStatus: "ok",
-        platforms: platforms.map((p) => ({
+        platforms: platformsRaw.map((p) => ({
           platform: p.platform,
           status: (p.health?.status as PlatformHealthSummary["status"]) ?? "unknown",
           connectivityStatus:
@@ -122,26 +125,25 @@ export function IzlenmeNavbar({
           safeRemaining: p.safeRemaining ?? 0,
         })),
         lastSuccessAt:
-          platforms
+          platformsRaw
             .map((p) => p.health?.lastSuccessAt ?? null)
             .filter((v): v is string => !!v)
             .sort((a, b) => b.localeCompare(a))[0] ?? null,
       };
-      const order: ApiRefreshSummary["worstStatus"][] = ["exhausted", "error", "warn", "unknown", "ok"];
-      const connOrder: PlatformHealthSummary["connectivityStatus"][] = ["error", "warn", "unknown", "ok"];
-      const worstConn =
-        connOrder.find((s) => summary.platforms.some((p) => p.connectivityStatus === s)) ?? "ok";
-      const worstLink =
-        order.find((s) => summary.platforms.some((p) => p.status === s)) ?? "ok";
-      if (worstConn === "error" || summary.platforms.some((p) => p.status === "exhausted")) {
-        summary.worstStatus = summary.platforms.some((p) => p.status === "exhausted")
-          ? "exhausted"
-          : "error";
-      } else if (worstConn === "warn" || worstConn === "unknown" || worstLink === "warn") {
-        summary.worstStatus = "warn";
-      } else {
-        summary.worstStatus = "ok";
-      }
+      summary.worstStatus = worstApiChipStatus(
+        platformsRaw.map((p) => ({
+          platform: p.platform,
+          label: p.platform,
+          batchSizePerRun: p.batchSizePerRun ?? 1,
+          health: p.health
+            ? {
+                status: (p.health.status as PlatformHealthSummary["status"]) ?? "unknown",
+                connectivityStatus: p.health.connectivityStatus as PlatformHealthSummary["connectivityStatus"],
+                linksWithError: p.health.linksWithError,
+              }
+            : null,
+        }))
+      );
       setApi(summary);
       setLastFetch(Date.now());
     } catch {

@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/store/auth";
@@ -41,7 +42,9 @@ export default function MarkaLayout({ children }: { children: React.ReactNode })
           </span>
         </div>
       )}
-      {children}
+      <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Yükleniyor…</div>}>
+        {children}
+      </Suspense>
     </div>
   );
 }
