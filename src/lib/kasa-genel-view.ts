@@ -1,6 +1,7 @@
 import type { KasaTransaction } from "@/store/store";
+import { isTronGenelToggleable } from "@/lib/kasa-tron-metrics";
 
-/** Genel Kasa ekranında listelenecek hareketler: defter + dahil TRON giderleri. */
+/** Genel Kasa ekranında listelenecek hareketler: defter + dahil TRON gelir/gider. */
 export function transactionsForGenelKasaView(
   kasaTransactions: KasaTransaction[],
   genelKasaId: string,
@@ -10,10 +11,7 @@ export function transactionsForGenelKasaView(
   if (!tronKasaId) return [...genelRows].sort((a, b) => a.date.localeCompare(b.date));
 
   const tronIncluded = kasaTransactions.filter(
-    (t) =>
-      t.kasaId === tronKasaId &&
-      t.direction === "out" &&
-      Boolean(t.countInGenel)
+    (t) => isTronGenelToggleable(t, tronKasaId) && Boolean(t.countInGenel)
   );
 
   return [...genelRows, ...tronIncluded].sort((a, b) => a.date.localeCompare(b.date));
@@ -25,11 +23,7 @@ export function isTronReflectedInGenelView(
   tronKasaId: string | undefined
 ): boolean {
   if (!genelKasaId || !tronKasaId) return false;
-  return (
-    t.kasaId === tronKasaId &&
-    t.direction === "out" &&
-    Boolean(t.countInGenel)
-  );
+  return isTronGenelToggleable(t, tronKasaId) && Boolean(t.countInGenel);
 }
 
 export function runningBalanceRows(rows: KasaTransaction[]) {

@@ -24,6 +24,11 @@ import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from
 import { ContentExpensesBulkModal } from "@/components/content-expenses-bulk-modal";
 import { PayrollLinesPayModal } from "@/components/payroll-lines-pay-modal";
 import { payrollDueShort, payrollMonthLongTitle } from "@/lib/payroll-dates";
+import {
+  computeTronPanelMetrics,
+  kasaPaymentBalance,
+  kasaSelectOptionLabel,
+} from "@/lib/kasa-tron-metrics";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -246,6 +251,35 @@ function ExtraForm({ employeeId, month, initial, onSave, onDelete, onClose }: {
 }
 
 /** Kart içi açılır/kapanır bölüm (uzun listeler için). */
+function PayrollStatCell({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "blue" | "green" | "amber" | "red" | "violet";
+}) {
+  const accentCls =
+    accent === "blue"
+      ? "text-blue-700 dark:text-blue-300"
+      : accent === "green"
+        ? "text-green-700 dark:text-green-300"
+        : accent === "amber"
+          ? "text-amber-700 dark:text-amber-300"
+          : accent === "red"
+            ? "text-red-700 dark:text-red-300"
+            : accent === "violet"
+              ? "text-violet-700 dark:text-violet-300"
+              : "text-foreground";
+  return (
+    <div className="px-3 py-2.5 min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">{label}</p>
+      <p className={`text-sm font-semibold tabular-nums truncate ${accentCls}`}>{value}</p>
+    </div>
+  );
+}
+
 function PayrollCardSection({
   title,
   summary,
@@ -412,10 +446,9 @@ function EmployeeDetailRow({
     (e) => expenseReviewStatus(e) === "pending" || expenseReviewStatus(e) === "needs_info",
   ).length;
   const hasManyContent = monthContentExpenses.length > CONTENT_INLINE_MAX;
+  const isHeavyCard = hasManyContent || hasManyPayrollLines;
   const payableContentCount = monthContentExpenses.filter(isUnsettledApprovedContent).length;
-  const payableContentTotal = monthContentExpenses
-    .filter(isUnsettledApprovedContent)
-    .reduce((s, e) => s + e.amountUsd, 0);
+  const payableContentTotal = monthContentExpenses.filter(isUnsettledApprovedContent).reduce((s, e) => s + e.amountUsd, 0);
 
   const payContentFromKasaBulk = (
     ids: string[],
@@ -429,7 +462,7 @@ function EmployeeDetailRow({
       });
     }
   };
-  const [cardOpen, setCardOpen] = useState(!hasManyContent);
+  const [cardOpen, setCardOpen] = useState(!isHeavyCard);
 
   return (
     <>
@@ -515,8 +548,8 @@ function EmployeeDetailRow({
             )}
           </div>
         </div>
-        <div className="flex flex-wrap items-end justify-between gap-2 pl-[calc(1.25rem+2.25rem)] sm:pl-[calc(1.25rem+2.25rem)]">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 pl-[calc(1.25rem+2.25rem)]">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
             {canEnterPanel && (
               <Button
                 type="button"
@@ -532,59 +565,35 @@ function EmployeeDetailRow({
                 Panele gir
               </Button>
             )}
-            {active && !readOnly && payrollLines.length > 0 && (
-              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                {isFullyPaid ? (
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] gap-1 w-fit text-green-700 border-green-500/40 bg-green-50/60 dark:text-green-300 dark:border-green-500/35 dark:bg-green-950/30"
-                  >
-                    <CheckCircle2 size={10} />
-                    Ödendi
-                    {status?.paidDate ? ` · ${status.paidDate}` : ""}
-                  </Badge>
-                ) : (
-                  <>
-                    {isPartial && (
-                      <p className="text-[10px] text-amber-800 dark:text-amber-200 leading-snug">
-                        {formatPayrollLineStatusSummary(payrollLines)}
-                        {" · "}
-                        <span className="tabular-nums">{fmt(sumPaidPayrollLines(payrollLines))}</span> ödendi
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-1">
-                      {payrollLines
-                        .filter((l) => !l.paid)
-                        .map((line) => (
-                          <Button
-                            key={line.lineId}
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-[10px] px-2 max-w-full"
-                            onClick={() => setPayTarget({ mode: "line", line })}
-                          >
-                            <span className="truncate">{shortPayrollLineLabel(line)} · {fmt(line.amountUsd)}</span>
-                          </Button>
-                        ))}
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-7 text-[10px] px-2 gap-1 bg-green-600 hover:bg-green-500 text-white border-0 shrink-0"
-                        onClick={() => setPayTarget({ mode: "all" })}
-                        disabled={unpaidLineTotal <= 0 && net <= 0}
-                      >
-                        <Wallet size={11} />
-                        Tümünü öde
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
+            {active && !readOnly && payrollLines.length > 0 && !isFullyPaid && (
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 text-[10px] gap-1 bg-green-600 hover:bg-green-500 text-white border-0"
+                onClick={() => setPayTarget({ mode: "all" })}
+                disabled={unpaidLineTotal <= 0 && net <= 0}
+              >
+                <Wallet size={11} />
+                Öde
+              </Button>
+            )}
+            {active && isFullyPaid && (
+              <Badge
+                variant="outline"
+                className="text-[10px] gap-1 w-fit text-green-700 border-green-500/40 bg-green-50/60 dark:text-green-300 dark:border-green-500/35 dark:bg-green-950/30"
+              >
+                <CheckCircle2 size={10} />
+                Ödendi{status?.paidDate ? ` · ${status.paidDate}` : ""}
+              </Badge>
+            )}
+            {active && isPartial && (
+              <Badge variant="outline" className="text-[10px] text-amber-800 border-amber-400/50 bg-amber-50/60 dark:text-amber-200">
+                Kısmi · {fmt(unpaidLineTotal)} kaldı
+              </Badge>
             )}
           </div>
-          <div className="text-right shrink-0 min-w-0 max-w-[45%] sm:max-w-[9rem]">
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5 truncate">
+          <div className="text-right shrink-0 min-w-0">
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wide mb-0.5">
               {active
                 ? isFullyPaid
                   ? "Net ödendi"
@@ -596,22 +605,11 @@ function EmployeeDetailRow({
                   : "Bordro pasif"}
             </p>
             <p
-              className={`font-bold tabular-nums leading-tight truncate ${
+              className={`font-bold tabular-nums leading-tight ${
                 upcoming ? "text-violet-700 dark:text-violet-300" :
                 !active ? "text-muted-foreground" : isFullyPaid ? "text-green-600" : isPartial ? "text-amber-700 dark:text-amber-300" : "text-foreground"
               }`}
-              style={{ fontSize: "clamp(0.875rem, 2.8vw, 1.25rem)" }}
-              title={
-                active
-                  ? isFullyPaid
-                    ? fmt(paidOut > 0 ? paidOut : net)
-                    : isPartial
-                      ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
-                      : fmt(net)
-                  : upcoming
-                    ? fmt(firstPayrollNet)
-                    : "—"
-              }
+              style={{ fontSize: "clamp(1rem, 2.5vw, 1.25rem)" }}
             >
               {active
                 ? isFullyPaid
@@ -623,16 +621,6 @@ function EmployeeDetailRow({
                   ? fmt(firstPayrollNet)
                   : "—"}
             </p>
-            {active && isPartial && paidOut > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums truncate">
-                Toplam {fmt(net)} · ödenen {fmt(paidOut)}
-              </p>
-            )}
-            {upcoming && (
-              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                {monthLabelTr(employee.payrollStartMonth)} bordrosu
-              </p>
-            )}
           </div>
         </div>
         </div>
@@ -665,58 +653,99 @@ function EmployeeDetailRow({
           </button>
         )}
 
+        {cardOpen && active && (
+          <div className="mx-4 mt-3 mb-1 rounded-xl border border-border/80 bg-muted/15 overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y sm:divide-y-0 divide-border/50">
+              <PayrollStatCell label="Temel maaş" value={fmt(employee.baseSalary)} />
+              {totalRent > 0 && (
+                <PayrollStatCell label="Kira desteği" value={fmt(totalRent)} accent="blue" />
+              )}
+              {totalDeduc > 0 && (
+                <PayrollStatCell label="Kesinti" value={`−${fmt(totalDeduc)}`} accent="red" />
+              )}
+              {contentPayroll > 0 && (
+                <PayrollStatCell label="İçerik (bordro)" value={fmt(contentPayroll)} accent="violet" />
+              )}
+              {carry > 0 && (
+                <PayrollStatCell label="Devir avans" value={`−${fmt(carry)}`} accent="amber" />
+              )}
+              <PayrollStatCell
+                label={isFullyPaid ? "Net ödendi" : isPartial ? "Kalan" : "Net ödenecek"}
+                value={
+                  isFullyPaid
+                    ? fmt(paidOut > 0 ? paidOut : net)
+                    : isPartial
+                      ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
+                      : fmt(net)
+                }
+                accent={isFullyPaid ? "green" : isPartial ? "amber" : undefined}
+              />
+            </div>
+            {(openAdv > 0 || isPartial || contentAprv > 0) && (
+              <div className="border-t border-border/50 px-3 py-2 text-[11px] text-muted-foreground space-y-1 bg-card/40">
+                {openAdv > 0 && (
+                  <p className="flex items-start gap-1.5">
+                    <AlertTriangle size={12} className="text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Açık avans <strong className="tabular-nums text-foreground">{fmt(openAdv)}</strong>
+                      {totalDeduc > 0 && openAdvAfter < openAdv && (
+                        <> · bu ay <strong className="tabular-nums">{fmt(openAdv - openAdvAfter)}</strong> kapanıyor</>
+                      )}
+                    </span>
+                  </p>
+                )}
+                {isPartial && (
+                  <p>
+                    Ödenen <strong className="tabular-nums text-green-700">{fmt(sumPaidPayrollLines(payrollLines))}</strong>
+                    {" · "}
+                    {formatPayrollLineStatusSummary(payrollLines)}
+                  </p>
+                )}
+                {contentAprv > 0 && (
+                  <p>
+                    Onaylı bekleyen içerik: <strong className="tabular-nums text-violet-700">{fmt(contentAprv)}</strong>
+                  </p>
+                )}
+              </div>
+            )}
+            {active && !readOnly && payrollLines.length > 0 && !isFullyPaid && (
+              <div className="border-t border-border/50 px-3 py-2.5 flex flex-wrap items-center gap-2 bg-card/30">
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Ödeme kalemleri
+                </span>
+                {payrollLines
+                  .filter((l) => !l.paid)
+                  .slice(0, isHeavyCard ? 2 : 4)
+                  .map((line) => (
+                    <Button
+                      key={line.lineId}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] px-2"
+                      onClick={() => setPayTarget({ mode: "line", line })}
+                    >
+                      {shortPayrollLineLabel(line)} · {fmt(line.amountUsd)}
+                    </Button>
+                  ))}
+                {(payrollLines.filter((l) => !l.paid).length > (isHeavyCard ? 2 : 4) || payrollLines.length > 1) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[10px] ml-auto"
+                    onClick={() => setPayrollLinesModalOpen(true)}
+                  >
+                    Tüm kalemler ({payrollLines.length})
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {cardOpen && (
         <>
-        {/* Calculation strip */}
-        {active && (
-          <div className="flex items-center gap-2 px-4 py-2.5 text-xs flex-wrap border-b border-border/40 bg-muted/30">
-            <span className="text-muted-foreground">{fmt(employee.baseSalary)} temel maaş</span>
-            {totalRent > 0 && (
-              <>
-                <span className="text-muted-foreground/40">+</span>
-                <span className="text-blue-600 font-medium">{fmt(totalRent)} kira desteği</span>
-                {rentFromExtrasOnly === 0 && employee.rentSupport > 0 && (
-                  <span className="text-muted-foreground text-[10px]" title="Kira kalemi yok; sözleşme tutarı net hesaba dahil">
-                    (sözleşme)
-                  </span>
-                )}
-              </>
-            )}
-            {carry > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-amber-600 font-medium">{fmt(carry)} devir avans</span></>}
-            {totalAdv > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-orange-600 font-medium">{fmt(totalAdv)} avans</span></>}
-            {totalBonus > 0 && <><span className="text-muted-foreground/40">+</span><span className="text-green-600 font-medium">{fmt(totalBonus)} prim</span></>}
-            {totalDeduc > 0 && <><span className="text-muted-foreground/40">−</span><span className="text-red-600 font-medium">{fmt(totalDeduc)} kesinti</span></>}
-            <span className="text-muted-foreground/40">=</span>
-            <span className="font-semibold text-foreground">{fmt(net)}</span>
-            {active && employee.kind !== "coordinator" && net !== netBase && (
-              <span className="text-muted-foreground/80 text-[10px] ml-2 hidden sm:inline">
-                · bordro {fmt(netBase)}
-                {contentPayroll > 0 ? ` · içerik bordro ${fmt(contentPayroll)}` : ""}
-                {contentAprv > 0 ? ` · bekleyen ${fmt(contentAprv)}` : ""}
-              </span>
-            )}
-            {active && employee.kind !== "coordinator" && (contentAprv > 0 || paidOut > 0) && net === netBase && (
-              <span className="text-muted-foreground/80 text-[10px] ml-2 hidden sm:inline">
-                {contentAprv > 0 ? ` · bekleyen içerik ${fmt(contentAprv)}` : ""}
-                · ödenen {fmt(paidOut)}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Outstanding advance banner */}
-        {openAdv > 0 && active && (
-          <div className="flex items-center gap-2 px-4 py-2 text-xs border-b border-border/40 bg-amber-50/60 dark:bg-amber-950/25">
-            <AlertTriangle size={12} className="text-amber-600 shrink-0" />
-            <span className="text-amber-700">
-              Önceki dönemden açık avans: <span className="font-semibold tabular-nums">{fmt(openAdv)}</span>
-              {totalDeduc > 0 && openAdvAfter < openAdv && (
-                <span className="text-muted-foreground"> · bu ay {fmt(openAdv - openAdvAfter)} kapatılıyor → kalan {fmt(openAdvAfter)}</span>
-              )}
-            </span>
-          </div>
-        )}
-
         <PayrollCardSection
           title="Avanslar & bordro kalemleri"
           summary={
@@ -724,7 +753,7 @@ function EmployeeDetailRow({
               ? `${empAdv.length + empExtras.length} kalem`
               : "Boş"
           }
-          defaultOpen={!hasManyContent && (empAdv.length > 0 || empExtras.length > 0)}
+          defaultOpen={false}
         >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
@@ -808,7 +837,7 @@ function EmployeeDetailRow({
               </span>
             }
             summary={`${fmt(monthContentTotal)}${pendingContentCount > 0 ? ` · ${pendingContentCount} bekliyor` : ""}`}
-            defaultOpen={!hasManyContent}
+            defaultOpen={false}
             trailing={
               <div className="flex items-center gap-2">
                 {!readOnly && user?.role === "admin" && (
@@ -923,7 +952,7 @@ function EmployeeDetailRow({
             tone="emerald"
             title="Bu ay ödenen ekstralar"
             summary={fmt(buAyEkstraToplam)}
-            defaultOpen={!hasManyContent}
+            defaultOpen={false}
           >
             <div className="space-y-1 text-xs">
               {empAdv.map((a) => (
@@ -980,7 +1009,7 @@ function EmployeeDetailRow({
                   ? `${formatPayrollLineStatusSummary(payrollLines)} · kalan ${fmt(unpaidLineTotal)}`
                   : `Bekliyor · ${fmt(unpaidLineTotal || net)}`
             }
-            defaultOpen={!hasManyPayrollLines}
+            defaultOpen={false}
             trailing={
               !readOnly ? (
                 <Button
@@ -1256,11 +1285,14 @@ function PaySalaryForm({
   const [notes, setNotes]         = useState("");
   const [proof, setProof]         = useState("");
 
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
+  );
+
   const balanceBefore = useMemo(
-    () => kasaTransactions
-      .filter((t) => t.kasaId === kasaId)
-      .reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0),
-    [kasaTransactions, kasaId]
+    () => kasaPaymentBalance(kasaId, kasas, kasaTransactions, tronPanel),
+    [kasas, kasaTransactions, kasaId, tronPanel],
   );
   const balanceAfter = balanceBefore - amountUsd - feeUsd;
   const lowBalance = balanceAfter < 0;
@@ -1302,7 +1334,7 @@ function PaySalaryForm({
               required
               options={activeKasas.map((k) => ({
                 value: k.id,
-                label: `${k.name} · ${fmt(kasaTransactions.filter((t) => t.kasaId === k.id).reduce((b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd), 0))}`,
+                label: kasaSelectOptionLabel(k, kasas, kasaTransactions, tronPanel),
               }))}
             />
           </Field>
@@ -1338,6 +1370,13 @@ function PaySalaryForm({
           {" → "}
           <span className="font-medium tabular-nums">{fmt(balanceAfter)}</span>
           {lowBalance && " · bakiye yetersiz"}
+          {tronPanel?.genelKasa?.id === kasaId && ((tronPanel.includedTronOut ?? 0) > 0 || (tronPanel.includedTronIn ?? 0) > 0) && (
+            <span className="block mt-1 opacity-90">
+              Genel Kasa işletme bakiyesi
+              {(tronPanel.includedTronOut ?? 0) > 0 && ` · TRON gider −${fmt(tronPanel.includedTronOut)}`}
+              {(tronPanel.includedTronIn ?? 0) > 0 && ` · TRON gelir +${fmt(tronPanel.includedTronIn)}`}
+            </span>
+          )}
         </div>
       </div>
       <FormActions onCancel={onClose} submitLabel="Onayla ve Kasadan Düş" />

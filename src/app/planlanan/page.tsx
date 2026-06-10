@@ -8,7 +8,6 @@ import {
 import {
   useStore,
   DEFAULT_KASA_ID,
-  calcKasaBalance,
   type PlannedItem,
   type PlannedItemPayment,
   type PlannedCategory,
@@ -18,6 +17,11 @@ import {
   type KasaTransaction,
 } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
+import {
+  computeTronPanelMetrics,
+  kasaPaymentBalance,
+  kasaSelectOptionLabel,
+} from "@/lib/kasa-tron-metrics";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmt, CHART_COLORS, MONTHS, netAylik, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { payrollMonthLongTitle } from "@/lib/payroll-dates";
@@ -346,8 +350,12 @@ function TransferForm({
   const [proof, setProof] = useState("");
   const [markCompleted, setMarkCompleted] = useState(amount >= remain);
   const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
+  );
   const balanceForSelected = selectedKasa
-    ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id)
+    ? kasaPaymentBalance(selectedKasa.id, kasas, kasaTransactions, tronPanel)
     : 0;
 
   return (
@@ -401,7 +409,10 @@ function TransferForm({
               <Select
                 value={kasaId}
                 onChange={(e) => setKasaId(e.target.value)}
-                options={activeKasas.map((k) => ({ value: k.id, label: k.name }))}
+                options={activeKasas.map((k) => ({
+                  value: k.id,
+                  label: kasaSelectOptionLabel(k, kasas, kasaTransactions, tronPanel),
+                }))}
               />
             </Field>
             <Field label="Fee ($)">

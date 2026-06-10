@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import {
   useStore,
-  calcKasaBalance,
   DEFAULT_KASA_ID,
   type ContentExpense,
   type Employee,
@@ -18,6 +17,11 @@ import {
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { logAudit } from "@/store/audit-log";
 import { fmt, defaultSnapshotDateInMonth, toYearMonthLocal } from "@/lib/data";
+import {
+  computeTronPanelMetrics,
+  kasaPaymentBalance,
+  kasaSelectOptionLabel,
+} from "@/lib/kasa-tron-metrics";
 import { fmtDateTime } from "@/lib/fmt-date";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -994,7 +998,13 @@ function ReviewForm({
   const [kasaId, setKasaId] = useState<string>(defaultKasaId);
   const [feeUsd, setFeeUsd] = useState<number>(0);
   const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
-  const balance = selectedKasa ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id) : 0;
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
+  );
+  const balance = selectedKasa
+    ? kasaPaymentBalance(selectedKasa.id, kasas, kasaTransactions, tronPanel)
+    : 0;
   const projected = balance - (expense.amountUsd || 0) - feeUsd;
   const isLow = settlement === "kasa" && projected < 0;
   const emp = employees.find(em => em.id === expense.employeeId);
@@ -1097,7 +1107,7 @@ function ReviewForm({
                       onChange={(e) => setKasaId(e.target.value)}
                       options={activeKasas.map((k) => ({
                         value: k.id,
-                        label: `${k.name} · ${fmt(calcKasaBalance(kasaTransactions, undefined, k.id))}`,
+                        label: kasaSelectOptionLabel(k, kasas, kasaTransactions, tronPanel),
                       }))}
                     />
                   )}

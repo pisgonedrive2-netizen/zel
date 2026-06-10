@@ -4,6 +4,9 @@ import {
   type Kasa,
   type KasaTransaction,
 } from "@/store/store";
+import { fmt } from "@/lib/data";
+
+export type TronPanelMetrics = ReturnType<typeof computeTronPanelMetrics>;
 
 function balanceFor(rows: KasaTransaction[]) {
   return rows.reduce(
@@ -50,9 +53,26 @@ export function findPrimaryTronKasa(kasas: Kasa[], kasaTransactions: KasaTransac
   return ranked[0] ?? null;
 }
 
-/** Bir TRON hareketi Genel Kasa giderine dahil edilebilir mi? (çıkış hareketi). */
+/** TRON cüzdan hareketi Genel Kasa ile eşleştirilebilir mi? (gelen veya giden). */
+export function isTronGenelToggleable(
+  t: KasaTransaction,
+  tronKasaId?: string,
+): boolean {
+  return Boolean(
+    tronKasaId &&
+      t.kasaId === tronKasaId &&
+      (t.direction === "in" || t.direction === "out"),
+  );
+}
+
+/** @deprecated Out-only alias; yeni kod `isTronGenelToggleable` kullanmalı. */
 export function isTronGenelEligible(t: KasaTransaction): boolean {
   return t.direction === "out";
+}
+
+function tronGenelSignedAmount(t: KasaTransaction): number {
+  if (t.direction === "in") return t.amountUsd;
+  return t.amountUsd + t.feeUsd;
 }
 
 /** TRON paneli: Ramiz cüzdanı (otomatik) + harcama kasası (Genel Kasa) ayrı gösterilir. */
@@ -67,10 +87,12 @@ export function computeTronPanelMetrics(kasas: Kasa[], kasaTransactions: KasaTra
     ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
     : [];
 
-  // TRON çıkış (harcama) hareketleri ve bunların Genel Kasa'ya dahil edilenleri.
-  const tronOutRows = tronRows.filter(isTronGenelEligible);
-  const includedRows = tronOutRows.filter((t) => t.countInGenel);
-  const includedTronOut = includedRows.reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
+  const tronOutRows = tronRows.filter((t) => t.direction === "out");
+  const tronInRows = tronRows.filter((t) => t.direction === "in");
+  const includedOutRows = tronOutRows.filter((t) => t.countInGenel);
+  const includedInRows = tronInRows.filter((t) => t.countInGenel);
+  const includedTronOut = includedOutRows.reduce((s, t) => s + tronGenelSignedAmount(t), 0);
+  const includedTronIn = includedInRows.reduce((s, t) => s + tronGenelSignedAmount(t), 0);
 
   const harcamaKasa = balanceFor(genelRows);
 
@@ -80,12 +102,17 @@ export function computeTronPanelMetrics(kasas: Kasa[], kasaTransactions: KasaTra
     tronTotal: balanceFor(tronRows),
     ramizWallet: balanceFor(autoRows.length > 0 ? autoRows : tronRows),
     harcamaKasa,
-    /** Genel Kasa bakiyesi + dahil edilen TRON harcamaları düşülmüş hali. */
-    harcamaKasaWithTron: harcamaKasa - includedTronOut,
-    /** Genel Kasa'ya dahil edilmiş TRON harcamalarının toplamı. */
+    /** Genel Kasa bakiyesi + dahil TRON gelir − dahil TRON gider. */
+    harcamaKasaWithTron: harcamaKasa - includedTronOut + includedTronIn,
+    /** Genel Kasa'ya dahil edilmiş TRON giderlerinin toplamı. */
     includedTronOut,
-    includedTronCount: includedRows.length,
+    /** Genel Kasa'ya dahil edilmiş TRON gelirlerinin toplamı. */
+    includedTronIn,
+    includedTronCount: includedOutRows.length + includedInRows.length,
+    includedTronOutCount: includedOutRows.length,
+    includedTronInCount: includedInRows.length,
     tronOutCount: tronOutRows.length,
+    tronInCount: tronInRows.length,
     tronTxCount: tronRows.length,
     autoTxCount: autoRows.length,
     harcamaTxCount: genelRows.length,
@@ -117,9 +144,16 @@ export function getKasaDisplayBalance(
 
   if (panel?.genelKasa?.id === kasa.id) {
     const balance = panel.harcamaKasaWithTron;
+    const parts: string[] = [];
+    if (panel.includedTronOut > 0) {
+      parts.push(`TRON gider −${formatUsdtShort(panel.includedTronOut)}`);
+    }
+    if (panel.includedTronIn > 0) {
+      parts.push(`TRON gelir +${formatUsdtShort(panel.includedTronIn)}`);
+    }
     const sublabel =
-      panel.includedTronOut > 0
-        ? `defter ${formatUsdtShort(ledgerBalance)} · TRON −${formatUsdtShort(panel.includedTronOut)}`
+      parts.length > 0
+        ? `defter ${formatUsdtShort(ledgerBalance)} · ${parts.join(" · ")}`
         : undefined;
     return { balance, ledgerBalance, sublabel };
   }
@@ -140,6 +174,35 @@ function formatUsdtShort(n: number): string {
     n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) +
     " USDT"
   );
+}
+
+/** Ödeme formlarında kullanılacak kullanılabilir bakiye (Genel Kasa'da TRON düşümü dahil). */
+export function kasaPaymentBalance(
+  kasaId: string,
+  kasas: Kasa[],
+  kasaTransactions: KasaTransaction[],
+  panel: TronPanelMetrics | null = computeTronPanelMetrics(kasas, kasaTransactions),
+): number {
+  const kasa = kasas.find((k) => k.id === kasaId);
+  if (!kasa) return 0;
+  return getKasaDisplayBalance(kasa, kasas, kasaTransactions, panel).balance;
+}
+
+/** Kasa seçici etiketi — kasa sayfasındaki işletme bakiyesi ile uyumlu. */
+export function kasaSelectOptionLabel(
+  kasa: Kasa,
+  kasas: Kasa[],
+  kasaTransactions: KasaTransaction[],
+  panel: TronPanelMetrics | null = computeTronPanelMetrics(kasas, kasaTransactions),
+): string {
+  const { balance, ledgerBalance } = getKasaDisplayBalance(kasa, kasas, kasaTransactions, panel);
+  if (panel?.genelKasa?.id === kasa.id && balance !== ledgerBalance) {
+    const hints: string[] = [];
+    if ((panel.includedTronOut ?? 0) > 0) hints.push(`gider −${fmt(panel.includedTronOut)}`);
+    if ((panel.includedTronIn ?? 0) > 0) hints.push(`gelir +${fmt(panel.includedTronIn)}`);
+    if (hints.length > 0) return `${kasa.name} · ${fmt(balance)} (TRON ${hints.join(", ")})`;
+  }
+  return `${kasa.name} · ${fmt(balance)}`;
 }
 
 /** Tüm kasaların gösterim bakiyelerinin toplamı (çift sayım yapmaz). */

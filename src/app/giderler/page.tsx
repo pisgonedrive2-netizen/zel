@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Plus, Pencil, Eye, Wallet, Tag, Filter, Search, CalendarRange, Trash2 } from "lucide-react";
 import {
   useStore,
-  calcKasaBalance,
   DEFAULT_KASA_ID,
   type ExpenseEntry,
   type Kasa,
@@ -12,6 +11,11 @@ import {
 } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
 import { fmt, CHART_COLORS } from "@/lib/data";
+import {
+  computeTronPanelMetrics,
+  kasaPaymentBalance,
+  kasaSelectOptionLabel,
+} from "@/lib/kasa-tron-metrics";
 import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
@@ -85,9 +89,16 @@ function ExpenseForm({
     setForm((f) => ({ ...f, [k]: v }));
 
   const selectedKasa = activeKasas.find((k) => k.id === kasaId) ?? activeKasas[0];
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
+  );
   const balance = useMemo(
-    () => (selectedKasa ? calcKasaBalance(kasaTransactions, undefined, selectedKasa.id) : 0),
-    [selectedKasa, kasaTransactions],
+    () =>
+      selectedKasa
+        ? kasaPaymentBalance(selectedKasa.id, kasas, kasaTransactions, tronPanel)
+        : 0,
+    [selectedKasa, kasas, kasaTransactions, tronPanel],
   );
   const projectedBalance = balance - (form.amount || 0) - (feeUsd || 0);
   const isLow = deductFromKasa && projectedBalance < 0;
@@ -174,7 +185,7 @@ function ExpenseForm({
                         onChange={(e) => setKasaId(e.target.value)}
                         options={activeKasas.map((k) => ({
                           value: k.id,
-                          label: `${k.name} · ${fmt(calcKasaBalance(kasaTransactions, undefined, k.id))}`,
+                          label: kasaSelectOptionLabel(k, kasas, kasaTransactions, tronPanel),
                         }))}
                       />
                     )}

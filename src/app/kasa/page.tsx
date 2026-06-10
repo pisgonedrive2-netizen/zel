@@ -14,6 +14,7 @@ import {
 import {
   computeTronPanelMetrics,
   getKasaDisplayBalance,
+  isTronGenelToggleable,
   sumKasaDisplayBalances,
 } from "@/lib/kasa-tron-metrics";
 import {
@@ -352,17 +353,25 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
         <Field label="Notlar">
           <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Ek bilgi..." />
         </Field>
-        {form.direction === "out" && (
-          <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-border"
-              checked={Boolean(form.countInGenel)}
-              onChange={(e) => set("countInGenel", e.target.checked)}
-            />
-            Genel Kasa / işletme giderine de dahil et
-          </label>
-        )}
+        {(() => {
+          const selectedKasaRow = kasas.find((k) => k.id === form.kasaId);
+          const canGenelToggle =
+            form.direction === "out" || Boolean(selectedKasaRow?.tronAddress?.trim());
+          if (!canGenelToggle) return null;
+          return (
+            <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border"
+                checked={Boolean(form.countInGenel)}
+                onChange={(e) => set("countInGenel", e.target.checked)}
+              />
+              {form.direction === "in"
+                ? "Genel Kasa / işletme gelirine dahil et"
+                : "Genel Kasa / işletme giderine de dahil et"}
+            </label>
+          );
+        })()}
       </div>
       <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : "İşlem Ekle"} />
     </form>
@@ -754,18 +763,20 @@ export default function KasaPage() {
   const setAllTronGenelInclusion = (include: boolean) => {
     if (!tronKasa) return;
     const targets = kasaTransactions.filter(
-      (t) => t.kasaId === tronKasa.id && t.direction === "out" && Boolean(t.countInGenel) !== include
+      (t) =>
+        isTronGenelToggleable(t, tronKasa.id) &&
+        Boolean(t.countInGenel) !== include
     );
     if (targets.length === 0) {
       window.alert(
         include
-          ? "Dahil edilecek yeni TRON harcaması yok."
-          : "Hariç tutulacak dahil edilmiş TRON harcaması yok."
+          ? "Dahil edilecek yeni TRON hareketi yok."
+          : "Hariç tutulacak dahil edilmiş TRON hareketi yok."
       );
       return;
     }
-    const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
-    if (!window.confirm(`${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
+    const verb = include ? "Genel Kasa'ya dahil edilecek" : "Genel Kasa'dan çıkarılacak";
+    if (!window.confirm(`${targets.length} TRON hareketi ${verb}. Onaylıyor musun?`)) return;
     bulkSetKasaCountInGenel(targets.map((t) => t.id), include);
   };
 
@@ -786,17 +797,16 @@ export default function KasaPage() {
     }
     const targets = kasaTransactions.filter(
       (t) =>
-        t.kasaId === tronKasa.id &&
-        t.direction === "out" &&
+        isTronGenelToggleable(t, tronKasa.id) &&
         new Date(t.date).getTime() > cutoffMs &&
         Boolean(t.countInGenel) !== include
     );
     if (targets.length === 0) {
-      window.alert("Bu tarihten sonra güncellenecek TRON harcaması yok.");
+      window.alert("Bu tarihten sonra güncellenecek TRON hareketi yok.");
       return;
     }
     const labelDt = new Date(tronGenelCutoff).toLocaleString("tr-TR");
-    const verb = include ? "Genel Kasa giderine dahil edilecek" : "Genel Kasa giderinden çıkarılacak";
+    const verb = include ? "Genel Kasa'ya dahil edilecek" : "Genel Kasa'dan çıkarılacak";
     if (!window.confirm(`${labelDt} sonrasındaki ${targets.length} TRON harcaması ${verb}. Onaylıyor musun?`)) return;
     bulkSetKasaCountInGenel(targets.map((t) => t.id), include);
   };
@@ -811,7 +821,6 @@ export default function KasaPage() {
     const viewingGenel = Boolean(genelKasaId && selectedKasaId === genelKasaId);
     const genelMatches = (t: KasaTransaction) => {
       if (genelFilter === "all") return true;
-      if (t.direction !== "out") return true;
       if (
         viewingGenel &&
         tronPanel &&
@@ -820,7 +829,10 @@ export default function KasaPage() {
         return genelFilter === "included";
       }
       if (viewingGenel && genelKasaId && t.kasaId === genelKasaId) {
-        return true;
+        return genelFilter === "included" ? Boolean(t.countInGenel) : true;
+      }
+      if (tronPanel && isTronGenelToggleable(t, tronPanel.tronKasa.id)) {
+        return genelFilter === "included" ? Boolean(t.countInGenel) : !t.countInGenel;
       }
       return genelFilter === "included" ? Boolean(t.countInGenel) : !t.countInGenel;
     };
@@ -1097,21 +1109,22 @@ export default function KasaPage() {
                       <p className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
                         {fmtUsdt(tronPanel.harcamaKasa)}
                       </p>
-                      {tronPanel.includedTronOut > 0 ? (
+                      {(tronPanel.includedTronOut > 0 || tronPanel.includedTronIn > 0) ? (
                         <>
                           <p className="text-[11px] text-amber-700/90 dark:text-amber-300/90 tabular-nums mt-0.5">
                             TRON dahil: <strong>{fmtUsdt(tronPanel.harcamaKasaWithTron)}</strong>
                           </p>
                           <p className="text-[10px] text-muted-foreground">
-                            {tronPanel.harcamaTxCount} işlem · {tronPanel.includedTronCount} TRON harcaması
-                            dahil (−{fmtUsdt(tronPanel.includedTronOut)})
+                            {tronPanel.harcamaTxCount} işlem · {tronPanel.includedTronCount} TRON dahil
+                            {tronPanel.includedTronOut > 0 && ` (−${fmtUsdt(tronPanel.includedTronOut)} gider)`}
+                            {tronPanel.includedTronIn > 0 && ` (+${fmtUsdt(tronPanel.includedTronIn)} gelir)`}
                           </p>
                         </>
                       ) : (
                         <p className="text-[10px] text-muted-foreground">
                           {tronPanel.harcamaTxCount} harcama işlemi
-                          {tronPanel.tronOutCount > 0
-                            ? ` · ${tronPanel.tronOutCount} TRON harcaması dahil değil`
+                          {tronPanel.tronOutCount + tronPanel.tronInCount > 0
+                            ? ` · ${tronPanel.tronOutCount + tronPanel.tronInCount} TRON hareketi dahil değil`
                             : ""}
                         </p>
                       )}
@@ -1284,10 +1297,10 @@ export default function KasaPage() {
                   </Button>
                 </div>
               )}
-              {!readOnly && tronPanel && tronPanel.tronOutCount > 0 && (
+              {!readOnly && tronPanel && (tronPanel.tronOutCount > 0 || tronPanel.tronInCount > 0) && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/40 bg-amber-500/5 px-3 py-2">
                   <span className="text-[11px] text-muted-foreground">
-                    TRON harcamaları Genel Kasa giderine:
+                    TRON gelen/giden → Genel Kasa:
                   </span>
                   <Button
                     type="button"
@@ -1308,7 +1321,13 @@ export default function KasaPage() {
                     <ArrowUpRight size={12} /> Tümünü çıkar
                   </Button>
                   <span className="text-[10px] text-muted-foreground">
-                    {tronPanel.includedTronCount}/{tronPanel.tronOutCount} dahil
+                    {tronPanel.includedTronCount}/{tronPanel.tronOutCount + tronPanel.tronInCount} dahil
+                    {tronPanel.includedTronInCount > 0 && (
+                      <> · {tronPanel.includedTronInCount} gelen</>
+                    )}
+                    {tronPanel.includedTronOutCount > 0 && (
+                      <> · {tronPanel.includedTronOutCount} giden</>
+                    )}
                   </span>
                   <div className="mt-1 flex w-full flex-wrap items-center gap-2 border-t border-amber-300/30 pt-2">
                     <span className="text-[11px] text-muted-foreground">
@@ -1433,9 +1452,11 @@ export default function KasaPage() {
             <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
           </p>
           <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalanceDisplay)}</p>
-          {currentBalanceDisplay !== currentLedgerBalance && tronPanel && tronPanel.includedTronOut > 0 && (
+          {currentBalanceDisplay !== currentLedgerBalance && tronPanel && (tronPanel.includedTronOut > 0 || tronPanel.includedTronIn > 0) && (
             <p className="mt-0.5 text-[10px] text-blue-700/70 dark:text-blue-300/70">
-              Defter {fmtUsdt(currentLedgerBalance)} · TRON gider −{fmtUsdt(tronPanel.includedTronOut)}
+              Defter {fmtUsdt(currentLedgerBalance)}
+              {tronPanel.includedTronOut > 0 && ` · TRON gider −${fmtUsdt(tronPanel.includedTronOut)}`}
+              {tronPanel.includedTronIn > 0 && ` · TRON gelir +${fmtUsdt(tronPanel.includedTronIn)}`}
             </p>
           )}
         </div>
@@ -1496,9 +1517,8 @@ export default function KasaPage() {
 
       {genelKasaId && selectedKasaId === genelKasaId && (tronPanel?.includedTronCount ?? 0) > 0 && (
         <div className="mb-3 rounded-xl border border-amber-300/50 bg-amber-50/60 dark:border-amber-500/35 dark:bg-amber-950/30 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-100">
-          <strong>{tronPanel.includedTronCount}</strong> TRON cüzdan harcaması &quot;Dahil&quot; olarak
-          işaretlendi — aşağıdaki listede <strong>tarih, açıklama ve tutar</strong> ile Genel Kasa
-          giderlerinde görünür (Ramiz cüzdan satırı).
+          <strong>{tronPanel.includedTronCount}</strong> TRON cüzdan hareketi &quot;Dahil&quot; olarak
+          işaretlendi — gelenler işletme gelirine, gidenler giderine yansır (Ramiz cüzdan satırı).
         </div>
       )}
 
@@ -1665,19 +1685,25 @@ export default function KasaPage() {
                     ) : <span className="text-muted-foreground text-xs">—</span>}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
-                    {t.direction === "out" ? (
+                    {tronPanel && isTronGenelToggleable(t, tronPanel.tronKasa.id) ? (
                       <button
                         type="button"
                         disabled={readOnly || genelToggleBusy === t.id}
                         onClick={() => toggleGenelInclusion(t)}
                         title={
                           t.countInGenel
-                            ? "Genel Kasa giderinden düşülüyor — hariç tutmak için tıkla"
-                            : "Genel Kasa bakiyesinden düşülsün (işletme gideri) — dahil et"
+                            ? t.direction === "in"
+                              ? "Genel Kasa gelirinden çıkar — hariç tutmak için tıkla"
+                              : "Genel Kasa giderinden düşülüyor — hariç tutmak için tıkla"
+                            : t.direction === "in"
+                              ? "Genel Kasa işletme gelirine dahil et"
+                              : "Genel Kasa bakiyesinden düşülsün (işletme gideri) — dahil et"
                         }
                         className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
                           t.countInGenel
-                            ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-200"
+                            ? t.direction === "in"
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/45 dark:bg-emerald-950/40 dark:text-emerald-200"
+                              : "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/45 dark:bg-amber-950/40 dark:text-amber-200"
                             : "border-border text-muted-foreground hover:border-amber-300/60 hover:bg-amber-50/50 dark:hover:bg-amber-950/30"
                         } ${readOnly || genelToggleBusy === t.id ? "cursor-default opacity-60" : ""}`}
                       >

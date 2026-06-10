@@ -9,6 +9,11 @@ import { Field, Select, FormGrid } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { fmt, defaultSnapshotDateInMonth } from "@/lib/data";
 import {
+  computeTronPanelMetrics,
+  kasaPaymentBalance,
+  kasaSelectOptionLabel,
+} from "@/lib/kasa-tron-metrics";
+import {
   expenseReviewStatus,
   settlementLabel,
   isPayrollSettled,
@@ -89,15 +94,14 @@ export function ContentExpensesBulkModal({
   );
   const selectedTotal = selectedRows.reduce((s, e) => s + e.amountUsd, 0);
 
+  const tronPanel = useMemo(
+    () => computeTronPanelMetrics(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
+  );
+
   const balanceBefore = useMemo(
-    () =>
-      kasaTransactions
-        .filter((t) => t.kasaId === kasaId)
-        .reduce(
-          (b, t) => (t.direction === "in" ? b + t.amountUsd : b - t.amountUsd - t.feeUsd),
-          0,
-        ),
-    [kasaTransactions, kasaId],
+    () => kasaPaymentBalance(kasaId, kasas, kasaTransactions, tronPanel),
+    [kasas, kasaTransactions, kasaId, tronPanel],
   );
   const balanceAfter = balanceBefore - selectedTotal;
 
@@ -351,17 +355,7 @@ export function ContentExpensesBulkModal({
                       onChange={(e) => setKasaId(e.target.value)}
                       options={activeKasas.map((k) => ({
                         value: k.id,
-                        label: `${k.name} · ${fmt(
-                          kasaTransactions
-                            .filter((t) => t.kasaId === k.id)
-                            .reduce(
-                              (b, t) =>
-                                t.direction === "in"
-                                  ? b + t.amountUsd
-                                  : b - t.amountUsd - t.feeUsd,
-                              0,
-                            ),
-                        )}`,
+                        label: kasaSelectOptionLabel(k, kasas, kasaTransactions, tronPanel),
                       }))}
                     />
                   </Field>
