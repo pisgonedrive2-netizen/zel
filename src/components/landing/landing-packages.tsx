@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useInView, useMotionValue, useSpring } from "framer-motion";
 import {
   Rocket, Star, Crown, Trophy, Boxes, Youtube, Clapperboard, FileText,
-  Megaphone, Check, Play, ShieldCheck, TrendingUp, Plus, Minus, Radio, Share2, Globe, Send, type LucideIcon,
+  Megaphone, Check, Play, ShieldCheck, TrendingUp, Plus, Minus, Radio, Share2, Globe, Send, Info, type LucideIcon,
 } from "lucide-react";
 
 const ORANGE = "#FF6B00";
@@ -17,15 +17,70 @@ function goTelegram() {
 
 // ── İçerik türü etiketleri ──────────────────────────────────────────────────
 const CONTENT_TAGS = {
-  youtube: { label: "YouTube", color: "#EF4444", icon: Youtube },
-  reel: { label: "Reel", color: "#EC4899", icon: Clapperboard },
-  normal: { label: "Adult İçerik", color: "#3B82F6", icon: FileText },
-  live: { label: "Live Yayın", color: "#22C55E", icon: Radio },
-  campaign: { label: "Özel Kampanya", color: "#FF6B00", icon: Megaphone },
+  youtube: {
+    label: "YouTube",
+    color: "#EF4444",
+    icon: Youtube,
+    desc: "Minimum 10 dakikalık vlog — gezi, deneyim veya günlük tarzı, marka entegrasyonu doğal akışta.",
+  },
+  reel: {
+    label: "Reel",
+    color: "#EC4899",
+    icon: Clapperboard,
+    desc: "Marka tişörtü ile eğlenceli / komik kısa içerik — trend sesler ve akılda kalıcı hook.",
+  },
+  normal: {
+    label: "Adult İçerik",
+    color: "#3B82F6",
+    icon: FileText,
+    desc: "Senaryolu yetişkin içerik konsepti — markaya özel kurgu, çekim ve montaj dahil.",
+  },
+  live: {
+    label: "Live Yayın",
+    color: "#22C55E",
+    icon: Radio,
+    desc: "Canlı yayın — markaya özel bahis/etkinlik anı, izleyiciyle gerçek zamanlı etkileşim.",
+  },
+  campaign: {
+    label: "Özel Kampanya",
+    color: "#FF6B00",
+    icon: Megaphone,
+    desc: "Markaya özel konsept kampanya prodüksiyonu — fikir, çekim ve çok kanallı yayın.",
+  },
 } as const;
 
 type ContentTagKey = keyof typeof CONTENT_TAGS;
 type PackageItem = { tag: ContentTagKey; count: number };
+
+/**
+ * Hover'da içerik açıklaması gösteren tooltip sarmalayıcı (onboarding hissi).
+ * Saf CSS hover + dokunmatikte focus ile de açılır.
+ */
+function WithTip({
+  text,
+  color,
+  children,
+}: {
+  text: string;
+  color: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="group/tip relative inline-flex cursor-help" tabIndex={0}>
+      {children}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-0 z-30 mb-2 hidden w-max max-w-[240px] rounded-lg border bg-[#0c0c0c] px-3 py-2 text-left text-[11px] font-medium leading-snug text-white/85 shadow-xl shadow-black/50 group-hover/tip:block group-focus/tip:block"
+        style={{ borderColor: `${color}66` }}
+      >
+        <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide" style={{ color }}>
+          Ne yapılır?
+        </span>
+        {text}
+      </span>
+    </span>
+  );
+}
 
 type ContentPackage = {
   id: string;
@@ -483,13 +538,18 @@ function PackageCard({
           const tag = CONTENT_TAGS[it.tag];
           const TagIcon = tag.icon;
           return (
-            <li key={it.tag} className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md" style={{ background: `${tag.color}1f`, color: tag.color }}>
-                <TagIcon size={13} strokeWidth={2.2} />
-              </span>
-              <span className="text-sm text-white/80">
-                <span className="font-semibold text-white">{it.count}×</span> {tag.label}
-              </span>
+            <li key={it.tag}>
+              <WithTip text={tag.desc} color={tag.color}>
+                <span className="flex items-center gap-2.5 rounded-md py-0.5 transition group-hover/tip:opacity-100">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md" style={{ background: `${tag.color}1f`, color: tag.color }}>
+                    <TagIcon size={13} strokeWidth={2.2} />
+                  </span>
+                  <span className="text-sm text-white/80">
+                    <span className="font-semibold text-white">{it.count}×</span> {tag.label}
+                  </span>
+                  <Info size={11} className="text-white/30" />
+                </span>
+              </WithTip>
             </li>
           );
         })}
@@ -903,9 +963,12 @@ export function LandingPackages() {
                   {pkg.items.map((it) => {
                     const tag = CONTENT_TAGS[it.tag];
                     return (
-                      <span key={`m-${it.tag}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${tag.color}1c`, color: tag.color }}>
-                        {it.count}× {tag.label}
-                      </span>
+                      <WithTip key={`m-${it.tag}`} text={tag.desc} color={tag.color}>
+                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${tag.color}1c`, color: tag.color }}>
+                          {it.count}× {tag.label}
+                          <Info size={9} className="opacity-50" />
+                        </span>
+                      </WithTip>
                     );
                   })}
                 </div>
