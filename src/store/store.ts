@@ -992,6 +992,24 @@ interface AppStore {
   /** Tek kalemin ödemesini geri al (kasa hareketi silinir). */
   unpayPayrollLine: (employeeId: string, month: string, lineId: string) => void;
 
+  /** Kasa hareketi olmadan tek kalemi ödendi işaretle. */
+  markPayrollLinePaid: (args: {
+    employeeId: string;
+    month: string;
+    lineId: string;
+    paidDate: string;
+    paidBy?: string;
+  }) => void;
+
+  /** Kasa hareketi olmadan bekleyen kalemleri (veya seçilenleri) ödendi işaretle. */
+  markEmployeePayrollLinesPaid: (args: {
+    employeeId: string;
+    month: string;
+    paidDate: string;
+    paidBy?: string;
+    lineIds?: string[];
+  }) => void;
+
   // Company
   addCompany: (c: Omit<ExternalCompany, "id">) => void;
   updateCompany: (id: string, c: Partial<ExternalCompany>) => void;
@@ -2610,6 +2628,117 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           return { kasaTransactions, paymentStatuses };
         }),
 
+      markPayrollLinePaid: ({ employeeId, month, lineId, paidDate, paidBy }) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          const plan = buildPayrollLinePlan(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            s.paymentStatuses,
+          );
+          const line = plan.find((l) => l.lineId === lineId);
+          if (!line) return {};
+
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month,
+          );
+          const record: PayrollLinePaidRecord = {
+            lineId: line.lineId,
+            kind: line.kind,
+            label: line.label,
+            amountUsd: line.amountUsd,
+            refId: line.refId,
+            paid: true,
+            paidDate,
+            paidBy,
+          };
+          const linePayments = upsertLinePaidRecord(existing?.linePayments, record);
+          const lines = buildPayrollPaymentLines(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            [{ employeeId, month, paid: false, linePayments }],
+          );
+          const fullyPaid = isPayrollFullyPaid(lines);
+          const now = new Date().toISOString();
+          const baseStatus: MonthPaymentStatus = {
+            employeeId,
+            month,
+            paid: fullyPaid,
+            paidDate: fullyPaid ? paidDate : existing?.paidDate,
+            paidBy: fullyPaid ? paidBy : existing?.paidBy,
+            approvedAt: fullyPaid ? now : existing?.approvedAt,
+            kasaTxId: existing?.kasaTxId,
+            linePayments,
+          };
+          const paymentStatuses = existing
+            ? s.paymentStatuses.map((p) =>
+                p.employeeId === employeeId && p.month === month ? baseStatus : p,
+              )
+            : [...s.paymentStatuses, baseStatus];
+          return { paymentStatuses };
+        }),
+
+      markEmployeePayrollLinesPaid: ({ employeeId, month, paidDate, paidBy, lineIds }) =>
+        set((s) => {
+          const employee = s.employees.find((e) => e.id === employeeId);
+          if (!employee) return {};
+          const existing = s.paymentStatuses.find(
+            (p) => p.employeeId === employeeId && p.month === month,
+          );
+          const currentLines = buildPayrollPaymentLines(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            existing ? [existing] : [],
+          );
+          const unpaid = currentLines.filter((l) => !l.paid);
+          const toMark = lineIds?.length
+            ? unpaid.filter((l) => lineIds.includes(l.lineId))
+            : unpaid;
+          if (toMark.length === 0) return {};
+
+          const newRecords = markAllLinesPaid(toMark, { paidDate, paidBy });
+          const kept = (existing?.linePayments ?? []).filter(
+            (lp) => lp.paid && !toMark.some((l) => l.lineId === lp.lineId),
+          );
+          const linePayments = [...kept, ...newRecords];
+          const lines = buildPayrollPaymentLines(
+            employee,
+            month,
+            s.advances,
+            s.salaryExtras,
+            s.contentExpenses,
+            [{ employeeId, month, paid: false, linePayments }],
+          );
+          const fullyPaid = isPayrollFullyPaid(lines);
+          const now = new Date().toISOString();
+          const baseStatus: MonthPaymentStatus = {
+            employeeId,
+            month,
+            paid: fullyPaid,
+            paidDate: fullyPaid ? paidDate : existing?.paidDate,
+            paidBy: fullyPaid ? paidBy : existing?.paidBy,
+            approvedAt: fullyPaid ? now : existing?.approvedAt,
+            kasaTxId: existing?.kasaTxId,
+            linePayments,
+          };
+          const paymentStatuses = existing
+            ? s.paymentStatuses.map((p) =>
+                p.employeeId === employeeId && p.month === month ? baseStatus : p,
+              )
+            : [...s.paymentStatuses, baseStatus];
+          return { paymentStatuses };
+        }),
+
       // Company
       addCompany:    (c)         => set((s) => ({ companies: [...s.companies, { ...c, id: uid() }] })),
       updateCompany: (id, c)     => set((s) => ({ companies: s.companies.map((x) => (x.id === id ? { ...x, ...c } : x)) })),
@@ -2878,12 +3007,20 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       addStreamerAccount:    (a)     => set((s) => {
         const row = { ...a, id: uid() };
         persistEntity("streamer_account", row);
+        void import("@/lib/achievement-account-sync-side-effect").then(({ queueAchievementSyncAfterAccountChange }) =>
+          queueAchievementSyncAfterAccountChange(row),
+        );
         return { streamerAccounts: [...s.streamerAccounts, row] };
       }),
       updateStreamerAccount: (id, a) => set((s) => {
         const streamerAccounts = s.streamerAccounts.map((x) => (x.id === id ? { ...x, ...a } : x));
         const row = streamerAccounts.find((x) => x.id === id);
-        if (row) persistEntity("streamer_account", row);
+        if (row) {
+          persistEntity("streamer_account", row);
+          void import("@/lib/achievement-account-sync-side-effect").then(({ queueAchievementSyncAfterAccountChange }) =>
+            queueAchievementSyncAfterAccountChange(row),
+          );
+        }
         return { streamerAccounts };
       }),
       deleteStreamerAccount: (id)    => {
@@ -2976,6 +3113,10 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             brandLinks: s.brandLinks.filter((l) => l.brandId !== id),
             linkSnapshots: s.linkSnapshots.filter((sn) => !linkIds.has(sn.linkId)),
             brandViewership: s.brandViewership.filter((v) => v.brandId !== id),
+            brandMonthlyStats: s.brandMonthlyStats.filter((st) => st.brandId !== id),
+            weekBrandReels: s.weekBrandReels.filter(
+              (r) => r.brandId !== id && !linkIds.has(r.brandLinkId ?? "")
+            ),
           };
         });
         flushAppData();

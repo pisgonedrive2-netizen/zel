@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { weekBrandReelFromRow } from "@/lib/db/mappers";
+import { weeklyPlanMatchesBrand } from "@/lib/weekly-plan-brand-match";
 import {
   countActivePersonalAccounts,
   syncEmployeePersonalAccounts,
@@ -56,6 +57,33 @@ export async function POST(req: NextRequest) {
   for (const row of dealRows ?? []) {
     const eid = (row as { employee_id?: string }).employee_id;
     if (eid) partnerIds.add(eid);
+  }
+
+  const { data: brandRow } = await db
+    .from("brands")
+    .select("name, short_name")
+    .eq("id", brandId)
+    .maybeSingle();
+  if (brandRow) {
+    const { data: planRows } = await db
+      .from("weekly_plans")
+      .select("employee_id, brand_name");
+    for (const row of planRows ?? []) {
+      const eid = (row as { employee_id?: string }).employee_id;
+      const brandName = (row as { brand_name?: string | null }).brand_name ?? "";
+      if (
+        eid &&
+        weeklyPlanMatchesBrand(
+          { brandName },
+          {
+            name: String((brandRow as { name: string }).name),
+            shortName: String((brandRow as { short_name?: string }).short_name ?? ""),
+          },
+        )
+      ) {
+        partnerIds.add(eid);
+      }
+    }
   }
 
   let employeeIds = [...partnerIds];

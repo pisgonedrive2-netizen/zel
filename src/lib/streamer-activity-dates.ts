@@ -80,7 +80,6 @@ export function buildStreamerActivity(
   };
 
   for (const r of reels) {
-    if (r.brandLinkId) continue;
     if (!reelBelongsToEmployee(r, employeeId, linkOwners)) continue;
     const date = activityDateFromRecord(r.publishedAt, r.createdAt);
     if (!date) continue;
@@ -90,7 +89,7 @@ export function buildStreamerActivity(
       url: r.contentUrl,
       platform: r.platform,
       label: r.contentType,
-      source: "reel",
+      source: r.brandLinkId ? "link" : "reel",
     });
   }
 

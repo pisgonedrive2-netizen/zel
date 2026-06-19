@@ -45,22 +45,69 @@ export function writeViewershipCache(payload: Omit<ViewershipCachePayload, "save
   }
 }
 
+/** Silinmiş markalara ait link / snapshot / viewership kayıtlarını ayıklar. */
+export function filterViewershipByBrandIds(
+  payload: Omit<ViewershipCachePayload, "savedAt">,
+  validBrandIds: Set<string>
+): Omit<ViewershipCachePayload, "savedAt"> {
+  if (validBrandIds.size === 0) {
+    return { brandLinks: [], linkSnapshots: [], brandViewership: [] };
+  }
+  const brandLinks = payload.brandLinks.filter(
+    (l) => l.brandId && validBrandIds.has(l.brandId)
+  );
+  const linkIds = new Set(brandLinks.map((l) => l.id));
+  return {
+    brandLinks,
+    linkSnapshots: payload.linkSnapshots.filter((s) => linkIds.has(s.linkId)),
+    brandViewership: payload.brandViewership.filter(
+      (v) => v.brandId && validBrandIds.has(v.brandId)
+    ),
+  };
+}
+
+export function purgeViewershipCacheForBrands(removedBrandIds: string[]): void {
+  if (typeof window === "undefined" || removedBrandIds.length === 0) return;
+  const cache = readViewershipCache();
+  if (!cache) return;
+  const remove = new Set(removedBrandIds);
+  const keepIds = new Set(
+    cache.brandLinks
+      .map((l) => l.brandId)
+      .filter((id): id is string => Boolean(id) && !remove.has(id))
+  );
+  const filtered = filterViewershipByBrandIds(cache, keepIds);
+  if (filtered.brandLinks.length === 0 && filtered.linkSnapshots.length === 0) {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  writeViewershipCache(filtered);
+}
+
 /** Sunucu/bootstrap boş veya zayıfsa son iyi yerel kopyayı kullan. */
 export function preferRicherViewership(
   fromServer: Omit<ViewershipCachePayload, "savedAt">,
-  fromCache: ViewershipCachePayload | null
+  fromCache: ViewershipCachePayload | null,
+  validBrandIds?: Set<string>
 ): Omit<ViewershipCachePayload, "savedAt"> {
-  if (!fromCache) return fromServer;
-  const serverScore =
-    linkDataScore(fromServer.brandLinks) + fromServer.linkSnapshots.length * 2;
-  const cacheScore =
-    linkDataScore(fromCache.brandLinks) + fromCache.linkSnapshots.length * 2;
-  if (cacheScore > serverScore) {
-    return {
-      brandLinks: fromCache.brandLinks,
-      linkSnapshots: fromCache.linkSnapshots,
-      brandViewership: fromCache.brandViewership,
-    };
-  }
-  return fromServer;
+  const filter = (p: Omit<ViewershipCachePayload, "savedAt">) =>
+    validBrandIds ? filterViewershipByBrandIds(p, validBrandIds) : p;
+
+  const server = filter(fromServer);
+  if (!fromCache) return server;
+
+  const cache = filter({
+    brandLinks: fromCache.brandLinks,
+    linkSnapshots: fromCache.linkSnapshots,
+    brandViewership: fromCache.brandViewership,
+  });
+
+  const serverScore = linkDataScore(server.brandLinks) + server.linkSnapshots.length * 2;
+  const cacheScore = linkDataScore(cache.brandLinks) + cache.linkSnapshots.length * 2;
+  if (cacheScore > serverScore) return cache;
+  return server;
 }

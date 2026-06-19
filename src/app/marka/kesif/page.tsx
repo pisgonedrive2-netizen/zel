@@ -5,6 +5,12 @@ import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
+import { PLATFORM_DISCOVERY_MODES } from "@/lib/social-discovery-options";
+
+const TOTAL_DISCOVERY_MODES =
+  PLATFORM_DISCOVERY_MODES.youtube.length +
+  PLATFORM_DISCOVERY_MODES.instagram.length +
+  PLATFORM_DISCOVERY_MODES.tiktok.length;
 
 export default function MarkaKesifPage() {
   const { user, brandId, brand, canViewBrand } = useMarkaPortal();
@@ -19,8 +25,8 @@ export default function MarkaKesifPage() {
               Premium keşif
             </CardTitle>
             <CardDescription>
-              YouTube trend ve arama, Instagram hashtag, TikTok kullanıcı ve challenge sorguları.
-              Ülke ve dil filtreleriyle hedef pazara göre içerik keşfedin.
+              YouTube, Instagram ve TikTok için {TOTAL_DISCOVERY_MODES} keşif modu —
+              trend, arama, profil, hashtag, challenge, video/kanal detayı, hikaye, takipçi ve daha fazlası.
             </CardDescription>
           </CardHeader>
           <CardContent>

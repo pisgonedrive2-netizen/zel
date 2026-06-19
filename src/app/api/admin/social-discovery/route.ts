@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isRapidApiEnabled } from "@/lib/env";
-import { rapidApiGet } from "@/lib/social-api/clients";
+import { runSocialDiscovery, type DiscoveryType } from "@/lib/social-api/discovery";
 import { getMonthlyUsage, incrementUsage } from "@/lib/social-api/quota";
 import { SOCIAL_PLANS, type SocialPlatform } from "@/lib/social-api/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type DiscoveryType = "trending" | "search" | "hashtag" | "user_search";
-
 function canUseDiscovery(role: string): boolean {
   return ["admin", "auditor", "brand", "streamer"].includes(role);
+}
+
+function normalizeDiscoveryType(platform: SocialPlatform, type: string): DiscoveryType {
+  if (type === "hashtag_posts") return "hashtag";
+  if (type === "challenge_videos") return "hashtag";
+  if (platform === "instagram" && type === "hashtag") return "hashtag";
+  if (platform === "tiktok" && type === "hashtag") return "hashtag";
+  return type as DiscoveryType;
 }
 
 /**
@@ -28,17 +34,25 @@ export async function GET(req: NextRequest) {
   }
 
   const platform = req.nextUrl.searchParams.get("platform") as SocialPlatform | null;
-  const type = (req.nextUrl.searchParams.get("type") ?? "trending") as DiscoveryType;
+  const rawType = req.nextUrl.searchParams.get("type") ?? "trending";
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
   const gl = req.nextUrl.searchParams.get("gl")?.trim() || "TR";
   const hl = req.nextUrl.searchParams.get("hl")?.trim() || "tr";
-  const countryCode = req.nextUrl.searchParams.get("country_code")?.trim() || gl;
-  const count = req.nextUrl.searchParams.get("count")?.trim() || "10";
+  const count = req.nextUrl.searchParams.get("count")?.trim() || "15";
   const searchType = req.nextUrl.searchParams.get("search_type")?.trim() || "video";
+  const igSection = req.nextUrl.searchParams.get("ig_section")?.trim() || "top";
+  const ttSortType = req.nextUrl.searchParams.get("tt_sort_type")?.trim() || "0";
+  const ttPublishTime = req.nextUrl.searchParams.get("tt_publish_time")?.trim() || "0";
+  const ttFollowerCount = req.nextUrl.searchParams.get("tt_follower_count")?.trim() || "0";
+  const ttProfileType = req.nextUrl.searchParams.get("tt_profile_type")?.trim() || "0";
+  const ttOtherPref = req.nextUrl.searchParams.get("tt_other_pref")?.trim() || "0";
+  const ytChannelFilter = req.nextUrl.searchParams.get("yt_channel_filter")?.trim() || "videos_latest";
 
   if (!platform || !["youtube", "instagram", "tiktok"].includes(platform)) {
     return NextResponse.json({ ok: false, error: "platform gerekli (youtube|instagram|tiktok)" }, { status: 400 });
   }
+
+  const type = normalizeDiscoveryType(platform, rawType);
 
   const usage = await getMonthlyUsage(platform);
   const plan = SOCIAL_PLANS[platform];
@@ -46,68 +60,46 @@ export async function GET(req: NextRequest) {
   if (usage.requestsUsed >= safeLimit) {
     return NextResponse.json(
       { ok: false, error: "Kota doldu", quotaExhausted: true },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
   try {
-    let raw: unknown;
-    if (platform === "youtube") {
-      if (type === "search") {
-        if (!q) return NextResponse.json({ ok: false, error: "q gerekli" }, { status: 400 });
-        raw = await rapidApiGet("youtube", "/search/", {
-          q,
-          type: searchType,
-          gl,
-          hl,
-        });
-      } else {
-        try {
-          raw = await rapidApiGet("youtube", "/v2/trending", { geo: gl, hl });
-        } catch {
-          raw = await rapidApiGet("youtube", "/search/", {
-            q: "trending",
-            type: "video",
-            gl,
-            hl,
-          });
-        }
-      }
-    } else if (platform === "instagram") {
-      if (type === "hashtag" || !q) {
-        if (!q) return NextResponse.json({ ok: false, error: "q gerekli (hashtag)" }, { status: 400 });
-        raw = await rapidApiGet("instagram", "/hashtag_search", { query: q.replace(/^#/, "") });
-      } else {
-        raw = await rapidApiGet("instagram", "/hashtag_search", { query: q.replace(/^#/, "") });
-      }
-    } else {
-      if (type === "user_search") {
-        if (!q) return NextResponse.json({ ok: false, error: "q gerekli" }, { status: 400 });
-        raw = await rapidApiGet("tiktok", "/user/search", { keywords: q, count });
-      } else if (type === "hashtag") {
-        if (!q) return NextResponse.json({ ok: false, error: "q gerekli (challenge)" }, { status: 400 });
-        raw = await rapidApiGet("tiktok", "/challenge/info", {
-          challenge_name: q.replace(/^#/, ""),
-        });
-      } else if (type === "search" && q) {
-        raw = await rapidApiGet("tiktok", "/user/search", { keywords: q, count });
-      } else {
-        return NextResponse.json(
-          { ok: false, error: "TikTok için search, hashtag veya user_search kullanın" },
-          { status: 400 }
-        );
-      }
-      void countryCode;
-    }
+    const started = Date.now();
+    const result = await runSocialDiscovery({
+      platform,
+      type,
+      query: q,
+      gl,
+      hl,
+      count,
+      searchType,
+      igSection,
+      ttRegion: gl,
+      ttSortType,
+      ttPublishTime,
+      ttFollowerCount,
+      ttProfileType,
+      ttOtherPref,
+      ytChannelFilter,
+    });
 
-    await incrementUsage(platform, 1);
+    await incrementUsage(platform, result.apiCalls);
+
     return NextResponse.json({
       ok: true,
       platform,
-      type,
+      type: rawType,
       query: q || null,
-      filters: { gl, hl, countryCode, count, searchType },
-      data: raw,
+      filters: {
+        gl, hl, count, searchType, igSection, ttSortType, ttPublishTime,
+        ttFollowerCount, ttProfileType, ttOtherPref, ytChannelFilter,
+      },
+      items: result.items,
+      resultCount: result.items.length,
+      apiCalls: result.apiCalls,
+      endpoints: result.endpoints,
+      latencyMs: Date.now() - started,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "API hatası";

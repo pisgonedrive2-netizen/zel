@@ -31,6 +31,10 @@ import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
+import {
+  mergeAchievementReelsIntoStore,
+  syncAchievementAfterAccountSave,
+} from "@/lib/achievement-api";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
@@ -3732,9 +3736,16 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           <AccountForm
             employeeId={me.id}
             initial={accountModal === "new" ? undefined : accountModal}
-            onSave={(d) => {
+            onSave={async (d) => {
               if (accountModal === "new") addStreamerAccount(d);
               else updateStreamerAccount(accountModal.id, d);
+              setAccountModal(null);
+              try {
+                const res = await syncAchievementAfterAccountSave(d);
+                if (res?.reels?.length) mergeAchievementReelsIntoStore(res.reels, d.employeeId);
+              } catch {
+                /* sessiz */
+              }
             }}
             onDelete={accountModal !== "new"
               ? () => { deleteStreamerAccount((accountModal as StreamerAccount).id); setAccountModal(null); }

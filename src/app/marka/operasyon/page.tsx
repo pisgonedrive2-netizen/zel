@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Download,
   FileSpreadsheet,
@@ -63,8 +63,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import { PlayerEventsBreakdown } from "@/components/marka/player-events-breakdown";
 import { BrandRiskSummary } from "@/components/marka-igaming/brand-risk-summary";
 import { useBrandIgaming } from "@/hooks/use-brand-igaming";
+import { fetchPlayerEvents } from "@/lib/brand-igaming-api";
+import type { BrandPlayerEvent } from "@/types/brand-igaming";
 
 export default function MarkaOperasyonPage() {
   const {
@@ -81,7 +84,35 @@ export default function MarkaOperasyonPage() {
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const izlenmeHref = markaHref("/marka/izlenmeler", month);
   const [granularity, setGranularity] = useState<"monthly" | "weekly" | "daily">("monthly");
-  const { compliance } = useBrandIgaming(brandId, month);
+  const [playerEvents, setPlayerEvents] = useState<BrandPlayerEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const { compliance, dashboard } = useBrandIgaming(brandId, month);
+
+  useEffect(() => {
+    if (!brandId || granularity === "monthly") {
+      setPlayerEvents([]);
+      return;
+    }
+    let cancelled = false;
+    const [y, m] = month.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const from = `${month}-01`;
+    const to = `${month}-${String(lastDay).padStart(2, "0")}`;
+    (async () => {
+      setEventsLoading(true);
+      try {
+        const ev = await fetchPlayerEvents(brandId, from, to);
+        if (!cancelled) setPlayerEvents(ev);
+      } catch {
+        if (!cancelled) setPlayerEvents([]);
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, month, granularity]);
 
   const statsRow = brandId
     ? findBrandMonthlyStats(brandMonthlyStats, brandId, month)
@@ -219,7 +250,7 @@ export default function MarkaOperasyonPage() {
               </span>
               {granularity !== "monthly" && (
                 <span className="ml-1 text-muted-foreground/80">
-                  (brand_player_events API hazır olunca aktif)
+                  · player-events API
                 </span>
               )}
             </p>
@@ -244,6 +275,15 @@ export default function MarkaOperasyonPage() {
               ))}
             </div>
           </div>
+
+          {granularity !== "monthly" && (
+            <PlayerEventsBreakdown
+              events={playerEvents}
+              mode={granularity}
+              monthTitle={monthTitle}
+              loading={eventsLoading}
+            />
+          )}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <BrandRiskSummary
@@ -300,9 +340,35 @@ export default function MarkaOperasyonPage() {
             brandId={brandId}
             brandName={brand.name}
             monthYm={month}
-            defaultOpen={false}
+            defaultOpen
             title="Paylaşım takvimi (detay)"
           />
+
+          {!hasStats && dashboard && (
+            <Card className="border-[#FF6B00]/30 bg-[#FF6B00]/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">iGaming API özeti</CardTitle>
+                <CardDescription>
+                  Manuel operasyon formu henüz doldurulmamış; dashboard API verisi gösteriliyor.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[
+                    { label: "Kayıt", value: fmtBrandCount(dashboard.registrations) },
+                    { label: "FTD", value: fmtBrandCount(dashboard.ftd) },
+                    { label: "Yatırım", value: fmtBrandMoney(dashboard.depositAmount, "USD") },
+                    { label: "NGR", value: fmtBrandMoney(dashboard.ngr, "USD") },
+                  ].map((k) => (
+                    <div key={k.label} className="rounded-md border border-border/60 bg-background/80 px-3 py-2">
+                      <p className="text-[10px] text-muted-foreground">{k.label}</p>
+                      <p className="text-sm font-semibold tabular-nums">{k.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {hasStats && metrics ? (
             <>

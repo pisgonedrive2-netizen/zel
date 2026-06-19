@@ -23,7 +23,6 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmtDateTime, fmtDateShort } from "@/lib/fmt-date";
 import { cacheAdminPin, mergeUsersWithPinCache } from "@/lib/admin-pin-cache";
 import { isMainAdmin } from "@/lib/user-guards";
-import { MainAdminPrivilegesCard } from "@/components/main-admin-privileges-card";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
@@ -1129,10 +1128,6 @@ function UsersPage() {
           </div>
         )}
       </div>
-
-      {currentUser && isMainAdmin(currentUser) && tab === "users" && (
-        <MainAdminPrivilegesCard className="mb-4" />
-      )}
 
       {/* Sekme barı — Kullanıcılar / Marka Başvuruları */}
       {currentUser?.role === "admin" && (

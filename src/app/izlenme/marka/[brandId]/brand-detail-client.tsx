@@ -4,9 +4,9 @@ import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, AlertCircle, BarChart3, Bot, Camera, Download, ExternalLink, FileSpreadsheet,
+  ArrowLeft, AlertCircle, Archive, BarChart3, Bot, Camera, Download, ExternalLink, FileSpreadsheet,
   Eye, Globe, History, Instagram, Loader2, LogIn, MessageCircle, Music2, Plus,
-  RefreshCw, Send, Target, TrendingDown, TrendingUp, Twitch, Youtube,
+  RefreshCw, Send, Target, Trash2, TrendingDown, TrendingUp, Twitch, Youtube,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, CartesianGrid, LineChart, Line,
@@ -49,6 +49,7 @@ import { LinkDetailsModal } from "@/components/link-details-modal";
 import { findBrandMonthlyStats, fmtBrandMoney, fmtBrandCount } from "@/lib/brand-monthly-stats";
 import { shiftCalendarMonthYm, defaultSnapshotDateInMonth } from "@/lib/data";
 import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
+import { archiveBrandAsAdmin, deleteBrandAsAdmin } from "@/lib/brand-delete";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { BrandLinkFormModal } from "@/components/brand-link-form-modal";
 import { BrandLogo } from "@/components/brand-logo";
@@ -119,7 +120,9 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   const [linkPlatform, setLinkPlatform] = useState("all");
   const [linkOwnerId, setLinkOwnerId] = useState("all");
   const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
+  const [brandActionBusy, setBrandActionBusy] = useState(false);
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
+  const canManageBrand = user?.role === "admin" && !readOnly;
 
   const brand = brands.find((b) => b.id === brandId);
 
@@ -433,6 +436,56 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
               title="Bu markanın paneline gir"
             >
               <LogIn size={12} /> Marka paneli
+            </Button>
+          )}
+          {canManageBrand && brand.status !== "inactive" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 h-8"
+              disabled={brandActionBusy}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    `“${brand.name}” pasifleştirilsin mi? Varsayılan listede görünmez.`
+                  )
+                ) {
+                  return;
+                }
+                setBrandActionBusy(true);
+                const res = await archiveBrandAsAdmin(brand.id, { status: "inactive" });
+                setBrandActionBusy(false);
+                if (!res.ok) window.alert(res.reason);
+              }}
+            >
+              <Archive size={12} /> Pasifleştir
+            </Button>
+          )}
+          {canManageBrand && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 h-8 border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-500/45 dark:text-rose-300"
+              disabled={brandActionBusy}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    `“${brand.name}” kalıcı silinsin mi? Tüm marka verileri kaldırılır.`
+                  )
+                ) {
+                  return;
+                }
+                setBrandActionBusy(true);
+                const res = await deleteBrandAsAdmin(brand.id, brand.name);
+                setBrandActionBusy(false);
+                if (!res.ok) {
+                  window.alert(res.reason);
+                  return;
+                }
+                router.push("/izlenme/markalar");
+              }}
+            >
+              <Trash2 size={12} /> Sil
             </Button>
           )}
         </div>

@@ -15,7 +15,7 @@ function dayRangeUtc(date: string): { from: string; to: string } {
   };
 }
 
-/** Kişisel hesap + manuel check-in reel'leri; marka linki kaynaklı olanlar hariç. */
+/** Kişisel hesap, marka linki ve manuel check-in reel'leri. */
 export async function loadAchievementDayItems(opts: {
   employeeId: string;
   date: string;
@@ -28,10 +28,9 @@ export async function loadAchievementDayItems(opts: {
   let reelQuery = db
     .from("week_brand_reels")
     .select(
-      "id, content_url, platform, content_type, published_at, created_at, brand_link_id, streamer_account_id, external_ref, last_views, notes"
+      "id, content_url, platform, content_type, published_at, created_at, brand_link_id, streamer_account_id, external_ref, last_views, notes, brand_id"
     )
     .eq("employee_id", employeeId)
-    .is("brand_link_id", null)
     .gte("published_at", from)
     .lte("published_at", to);
 
@@ -58,7 +57,10 @@ export async function loadAchievementDayItems(opts: {
 
   for (const r of reels ?? []) {
     const row = r as Record<string, unknown>;
-    if (row.brand_link_id) continue;
+    if (opts.brandId) {
+      const bid = row.brand_id ? String(row.brand_id) : null;
+      if (bid && bid !== opts.brandId) continue;
+    }
     const d = isoToLocalDateOnly(String(row.published_at ?? row.created_at ?? ""));
     if (d !== date) continue;
     items.push({
@@ -67,7 +69,7 @@ export async function loadAchievementDayItems(opts: {
       url: String(row.content_url ?? ""),
       platform: String(row.platform ?? ""),
       label: row.content_type ? String(row.content_type) : undefined,
-      source: row.streamer_account_id ? "reel" : "reel",
+      source: row.brand_link_id ? "link" : "reel",
       views: row.last_views != null ? Number(row.last_views) : null,
       title: row.notes ? String(row.notes) : undefined,
       streamerAccountId: row.streamer_account_id

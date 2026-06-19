@@ -3,6 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
+  Archive,
   ArrowUpRight,
   BarChart3,
   Briefcase,
@@ -11,10 +12,12 @@ import {
   Flame,
   Layers,
   Link2,
+  MoreVertical,
   Rocket,
   Search,
   Sparkles,
   Target,
+  Trash2,
   TrendingDown,
   TrendingUp,
   Trophy,
@@ -32,7 +35,7 @@ import {
   Tooltip as RTooltip,
 } from "recharts";
 import { useStore } from "@/store/store";
-import { useIsReadOnly } from "@/store/auth";
+import { useAuth, useIsReadOnly } from "@/store/auth";
 import { BrandLogo } from "@/components/brand-logo";
 import {
   Card,
@@ -67,6 +70,14 @@ import { shiftCalendarMonthYm } from "@/lib/data";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { archiveBrandAsAdmin, deleteBrandAsAdmin } from "@/lib/brand-delete";
 
 type SortKey = "views" | "target" | "growth";
 type StatusKey = "active" | "paused" | "inactive" | "all";
@@ -117,6 +128,9 @@ function lastContentDateLabel(iso: string): string {
  */
 export default function MarkalarPage() {
   const readOnly = useIsReadOnly();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [brandActionBusy, setBrandActionBusy] = useState<string | null>(null);
   const {
     brands,
     brandLinks,
@@ -423,6 +437,34 @@ export default function MarkalarPage() {
     }
   };
 
+  const handleArchiveBrand = async (brandId: string, brandName: string) => {
+    if (
+      !window.confirm(
+        `“${brandName}” markasını pasifleştirmek istiyor musun? Varsayılan listede görünmez; veriler korunur.`
+      )
+    ) {
+      return;
+    }
+    setBrandActionBusy(brandId);
+    const res = await archiveBrandAsAdmin(brandId, { status: "inactive" });
+    setBrandActionBusy(null);
+    if (!res.ok) window.alert(res.reason);
+  };
+
+  const handleDeleteBrand = async (brandId: string, brandName: string) => {
+    if (
+      !window.confirm(
+        `“${brandName}” kalıcı olarak silinsin mi? Marka, linkler, panel kullanıcıları ve izlenme verileri kaldırılır. Bu işlem geri alınamaz.`
+      )
+    ) {
+      return;
+    }
+    setBrandActionBusy(brandId);
+    const res = await deleteBrandAsAdmin(brandId, brandName);
+    setBrandActionBusy(null);
+    if (!res.ok) window.alert(res.reason);
+  };
+
   const exportBrandPdf = (brandId: string) => {
     const brand = brands.find((b) => b.id === brandId);
     if (!brand) return;
@@ -652,6 +694,10 @@ export default function MarkalarPage() {
                   row={row}
                   viewMonth={viewMonth}
                   onDownloadPdf={() => exportBrandPdf(row.brand.id)}
+                  isAdmin={isAdmin && !readOnly}
+                  actionBusy={brandActionBusy === row.brand.id}
+                  onArchive={() => handleArchiveBrand(row.brand.id, row.brand.name)}
+                  onDelete={() => handleDeleteBrand(row.brand.id, row.brand.name)}
                 />
               ))}
             </div>
@@ -999,10 +1045,18 @@ function BrandCard({
   row,
   viewMonth,
   onDownloadPdf,
+  isAdmin,
+  actionBusy,
+  onArchive,
+  onDelete,
 }: {
   row: BrandRowVm;
   viewMonth: string;
   onDownloadPdf: () => void;
+  isAdmin?: boolean;
+  actionBusy?: boolean;
+  onArchive?: () => void;
+  onDelete?: () => void;
 }) {
   const {
     brand,
@@ -1090,6 +1144,47 @@ function BrandCard({
               <Badge variant="outline" className={cn("text-[9px]", statusVariant)}>
                 {brand.status}
               </Badge>
+              {isAdmin && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    title="Marka işlemleri"
+                    disabled={actionBusy}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground hover:text-foreground hover:border-primary/40 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
+                  >
+                    <MoreVertical size={12} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    {brand.status !== "inactive" && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onArchive?.();
+                        }}
+                      >
+                        <Archive size={14} className="mr-2" />
+                        Pasifleştir
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDelete?.();
+                      }}
+                    >
+                      <Trash2 size={14} className="mr-2" />
+                      Kalıcı sil
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               <button
                 type="button"
                 title="Bu marka için izlenme PDF"

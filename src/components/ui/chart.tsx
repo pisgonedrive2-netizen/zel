@@ -117,12 +117,27 @@ function ChartTooltipContent({
   }) {
   const { config } = useChart();
 
+  const uniquePayload = React.useMemo(() => {
+    if (!payload?.length) return [];
+    const seen = new Set<string>();
+    const out: NonNullable<typeof payload> = [];
+    // Son kaydı tut — ComposedChart'ta Line, Area'dan sonra gelir
+    for (let i = payload.length - 1; i >= 0; i--) {
+      const item = payload[i];
+      const id = String(item.dataKey ?? item.name ?? i);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.unshift(item);
+    }
+    return out;
+  }, [payload]);
+
   const tooltipLabel = React.useMemo(() => {
-    if (hideLabel || !payload?.length) {
+    if (hideLabel || !uniquePayload.length) {
       return null;
     }
 
-    const [item] = payload;
+    const [item] = uniquePayload;
     const key = `${labelKey || item?.dataKey || item?.name || 'value'}`;
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
@@ -131,7 +146,7 @@ function ChartTooltipContent({
         : itemConfig?.label;
 
     if (labelFormatter) {
-      return <div className={cn('font-medium', labelClassName)}>{labelFormatter(value, payload)}</div>;
+      return <div className={cn('font-medium', labelClassName)}>{labelFormatter(value, uniquePayload)}</div>;
     }
 
     if (!value) {
@@ -139,13 +154,13 @@ function ChartTooltipContent({
     }
 
     return <div className={cn('font-medium', labelClassName)}>{value}</div>;
-  }, [label, labelFormatter, payload, hideLabel, labelClassName, config, labelKey]);
+  }, [label, labelFormatter, uniquePayload, hideLabel, labelClassName, config, labelKey]);
 
-  if (!active || !payload?.length) {
+  if (!active || !uniquePayload.length) {
     return null;
   }
 
-  const nestLabel = payload.length === 1 && indicator !== 'dot';
+  const nestLabel = uniquePayload.length === 1 && indicator !== 'dot';
 
   return (
     <div
@@ -156,14 +171,14 @@ function ChartTooltipContent({
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
-        {payload.map((item, index) => {
+        {uniquePayload.map((item, index) => {
           const key = `${nameKey || item.name || item.dataKey || 'value'}`;
           const itemConfig = getPayloadConfigFromPayload(config, item, key);
           const indicatorColor = color || item.payload.fill || item.color;
 
           return (
             <div
-              key={item.dataKey}
+              key={`${String(item.dataKey ?? item.name ?? "value")}-${index}`}
               className={cn(
                 '[&>svg]:text-muted-foreground flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5',
                 indicator === 'dot' && 'items-center',

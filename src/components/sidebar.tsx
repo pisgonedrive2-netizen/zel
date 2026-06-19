@@ -13,7 +13,7 @@ import {
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
   Send, Handshake, Video, TrendingUp, UserCog,
   Briefcase, ClipboardList, Contact, Calculator, FileText, Settings,
-  Banknote, Building2, Zap, Plug,
+  Banknote, Building2, Zap, Plug, Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
@@ -43,10 +43,13 @@ type NavItem = {
     | "Yönetim" | "Finans" | "Yayıncı" | "Denetim" | "Marka"
     | "Genel" | "İş Birliği" | "İzlenme" | "Büyüme" | "Ekip" | "Hesap";
   cap?:  OrgCapability;
+  /** Yalnızca ana yönetici (orkun) görür. */
+  mainAdminOnly?: boolean;
 };
 
 const ADMIN_NAV: NavItem[] = [
   { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol" },
+  { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true },
   { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro" },
   { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro" },
   { href: "/kasa",                 label: "Kasa",               icon: Wallet,          group: "Bordro" },
@@ -175,6 +178,7 @@ export default function Sidebar() {
   const mainAdmin = user ? isMainAdmin(user) : false;
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
+    (!n.mainAdminOnly || mainAdmin) &&
     (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: mainAdmin }))
   );
 

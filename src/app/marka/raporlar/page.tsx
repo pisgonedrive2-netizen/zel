@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -7,13 +8,16 @@ import {
   FileSpreadsheet,
   Loader2,
   RefreshCcw,
-  Users,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
+import { MarkaUnifiedExportCard } from "@/components/marka/marka-unified-export-card";
+import { BrandKpiTargetsBar } from "@/components/marka-igaming/brand-kpi-targets-bar";
+import { PlayerEventsBreakdown } from "@/components/marka/player-events-breakdown";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   downloadReport,
@@ -21,6 +25,9 @@ import {
   fetchPlayerEvents,
 } from "@/lib/brand-igaming-api";
 import { fmtBrandCount, fmtBrandMoney } from "@/lib/brand-monthly-stats";
+import { previousMonthYm, computeDelta } from "@/lib/brand-igaming-metrics";
+import { markaHref } from "@/lib/use-marka-view-month";
+import { toYearMonthLocal } from "@/lib/data";
 import {
   downloadProfessionalCsv,
   numberedDetailSection,
@@ -147,42 +154,59 @@ export default function MarkaRaporlarPage() {
   const { user, brandId, brand, month, navMonth, monthTitle, canViewBrand } = useMarkaPortal();
 
   const [summary, setSummary] = useState<IgamingDashboardSummary | null>(null);
+  const [prevSummary, setPrevSummary] = useState<IgamingDashboardSummary | null>(null);
   const [events, setEvents] = useState<BrandPlayerEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const range = useMemo(() => monthRange(month), [month]);
+  const prevMonth = useMemo(() => previousMonthYm(month), [month]);
+  const todayYm = toYearMonthLocal(new Date());
 
   const load = useCallback(async () => {
     if (!brandId) {
       setSummary(null);
+      setPrevSummary(null);
       setEvents([]);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [dash, ev] = await Promise.all([
+      const [dash, prevDash, ev] = await Promise.all([
         fetchIgamingDashboardSummary(brandId, month),
+        fetchIgamingDashboardSummary(brandId, prevMonth).catch(() => null),
         fetchPlayerEvents(brandId, range.from, range.to),
       ]);
       setSummary(dash);
+      setPrevSummary(prevDash);
       setEvents(ev);
     } catch (e) {
       setSummary(null);
+      setPrevSummary(null);
       setEvents([]);
       setError(e instanceof Error ? e.message : "Rapor verileri yüklenemedi");
     } finally {
       setLoading(false);
     }
-  }, [brandId, month, range.from, range.to]);
+  }, [brandId, month, prevMonth, range.from, range.to]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const monthly = summary?.monthly;
+  const prevMonthly = prevSummary?.monthly;
   const affiliate = summary?.affiliate;
+
+  const kpiActual = monthly
+    ? {
+        ftd: monthly.ftd,
+        ngr: monthly.ngr,
+        depositAmount: monthly.depositAmount,
+        registrations: monthly.newRegistrations,
+      }
+    : { ftd: 0, ngr: 0, depositAmount: 0, registrations: 0 };
 
   return (
     <MarkaPageGuard user={user} canViewBrand={canViewBrand} brandId={brandId} brand={brand}>
@@ -245,25 +269,34 @@ export default function MarkaRaporlarPage() {
                 <Loader2 size={14} className="animate-spin" /> Yükleniyor…
               </div>
             ) : monthly ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Yeni kayıt", value: fmtBrandCount(monthly.newRegistrations) },
-                  { label: "FTD", value: fmtBrandCount(monthly.ftd) },
-                  { label: "Yatırım", value: fmtBrandMoney(monthly.depositAmount, "USD") },
-                  { label: "NGR", value: fmtBrandMoney(monthly.ngr, "USD") },
-                  { label: "GGR", value: fmtBrandMoney(monthly.ggr, "USD") },
-                  { label: "Komisyon", value: fmtBrandMoney(monthly.commissionTotal, "USD") },
-                  { label: "Aktif oyuncu", value: fmtBrandCount(monthly.activePlayers) },
-                  {
-                    label: "Affiliate FTD",
-                    value: affiliate ? fmtBrandCount(affiliate.ftdCount) : "—",
-                  },
-                ].map((k) => (
-                  <div key={k.label} className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-                    <p className="text-[11px] text-muted-foreground">{k.label}</p>
-                    <p className="text-sm font-semibold tabular-nums">{k.value}</p>
-                  </div>
-                ))}
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    { label: "Yeni kayıt", current: monthly.newRegistrations, prev: prevMonthly?.newRegistrations, format: fmtBrandCount },
+                    { label: "FTD", current: monthly.ftd, prev: prevMonthly?.ftd, format: fmtBrandCount },
+                    { label: "Yatırım", current: monthly.depositAmount, prev: prevMonthly?.depositAmount, format: (n: number) => fmtBrandMoney(n, "USD") },
+                    { label: "NGR", current: monthly.ngr, prev: prevMonthly?.ngr, format: (n: number) => fmtBrandMoney(n, "USD") },
+                    { label: "GGR", current: monthly.ggr, prev: prevMonthly?.ggr, format: (n: number) => fmtBrandMoney(n, "USD") },
+                    { label: "Komisyon", current: monthly.commissionTotal, prev: prevMonthly?.commissionTotal, format: (n: number) => fmtBrandMoney(n, "USD") },
+                    { label: "Aktif oyuncu", current: monthly.activePlayers, prev: prevMonthly?.activePlayers, format: fmtBrandCount },
+                    {
+                      label: "Affiliate FTD",
+                      current: affiliate?.ftdCount ?? 0,
+                      prev: prevSummary?.affiliate?.ftdCount,
+                      format: fmtBrandCount,
+                    },
+                  ].map((k) => (
+                    <MetricTile key={k.label} label={k.label} current={k.current} prev={k.prev} format={k.format} />
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <Link href={markaHref("/marka/operasyon", month)} className="text-primary hover:underline">
+                    Operasyon detayı →
+                  </Link>
+                  <Link href={markaHref("/marka/izlenmeler", month)} className="text-primary hover:underline">
+                    İzlenme detayı →
+                  </Link>
+                </div>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Bu ay için dashboard özeti bulunamadı.</p>
@@ -271,75 +304,52 @@ export default function MarkaRaporlarPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Users size={16} /> Oyuncu olayları
-                </CardTitle>
-                <CardDescription>
-                  Player-events API — {range.from} → {range.to}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">{events.length} satır</Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={!brand || events.length === 0}
-                  onClick={() => brand && downloadPlayerEventsCsv(brand.name, month, events)}
-                >
-                  <Download size={14} /> Olay CSV
-                </Button>
-              </div>
+        {summary && (
+          <BrandKpiTargetsBar
+            monthTitle={monthTitle}
+            targets={summary.targets}
+            actual={kpiActual}
+          />
+        )}
+
+        {loading && events.length === 0 ? (
+          <Card>
+            <CardContent className="py-6 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" /> Oyuncu olayları yükleniyor…
+            </CardContent>
+          </Card>
+        ) : events.length > 0 ? (
+          <div className="space-y-2">
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={!brand}
+                onClick={() => brand && downloadPlayerEventsCsv(brand.name, month, events)}
+              >
+                <Download size={14} /> Olay CSV
+              </Button>
             </div>
-          </CardHeader>
-          <CardContent>
-            {loading && events.length === 0 ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" /> Yükleniyor…
-              </div>
-            ) : events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Bu ay için oyuncu olayı kaydı yok.</p>
-            ) : (
-              <div className="overflow-x-auto rounded-md border border-border/60">
-                <table className="w-full min-w-[640px] text-left text-xs">
-                  <thead className="border-b bg-muted/40 text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Tarih</th>
-                      <th className="px-3 py-2 font-medium">Tip</th>
-                      <th className="px-3 py-2 font-medium">Kanal</th>
-                      <th className="px-3 py-2 font-medium text-right">Adet</th>
-                      <th className="px-3 py-2 font-medium text-right">Tutar</th>
-                      <th className="px-3 py-2 font-medium">Kaynak</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.slice(0, 8).map((e) => (
-                      <tr key={e.id} className="border-b border-border/40 last:border-0">
-                        <td className="px-3 py-2 tabular-nums">{e.eventDate}</td>
-                        <td className="px-3 py-2">{EVENT_TYPE_LABELS[e.eventType]}</td>
-                        <td className="px-3 py-2">{CHANNEL_LABELS[e.channel]}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{e.eventCount}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {e.amount > 0 ? fmtBrandMoney(e.amount, e.currency) : "—"}
-                        </td>
-                        <td className="px-3 py-2">{SOURCE_LABELS[e.source]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {events.length > 8 && (
-                  <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
-                    İlk 8 satır gösteriliyor — tam liste için CSV indirin.
-                  </p>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <PlayerEventsBreakdown events={events} mode="daily" monthTitle={monthTitle} />
+          </div>
+        ) : (
+          <Card className="border-dashed">
+            <CardContent className="py-6 text-sm text-muted-foreground text-center">
+              Bu ay için oyuncu olayı kaydı yok.
+            </CardContent>
+          </Card>
+        )}
+
+        {brand && brandId && (
+          <MarkaUnifiedExportCard
+            brand={brand}
+            brandId={brandId}
+            month={month}
+            monthTitle={monthTitle}
+            todayYm={todayYm}
+          />
+        )}
 
         <div>
           <h2 className="mb-3 text-sm font-semibold">Modül CSV exportları</h2>
@@ -374,5 +384,40 @@ export default function MarkaRaporlarPage() {
         </div>
       </div>
     </MarkaPageGuard>
+  );
+}
+
+function MetricTile({
+  label,
+  current,
+  prev,
+  format,
+}: {
+  label: string;
+  current: number;
+  prev?: number;
+  format: (n: number) => string;
+}) {
+  const delta = prev != null ? computeDelta(current, prev) : null;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold tabular-nums">{format(current)}</p>
+        {delta && delta.direction !== "flat" && (
+          <span
+            className={`inline-flex items-center gap-0.5 text-[10px] font-medium tabular-nums ${
+              delta.direction === "up"
+                ? "text-emerald-700 dark:text-emerald-300"
+                : "text-red-700 dark:text-red-300"
+            }`}
+          >
+            {delta.direction === "up" ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+            {delta.pct != null ? `${delta.pct >= 0 ? "+" : ""}${delta.pct.toFixed(0)}%` : "—"}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }

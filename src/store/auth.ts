@@ -460,7 +460,9 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             await refreshUsersFromServer();
             if (prev?.role === "brand" && prev.brandId) {
               const { useStore } = await import("@/store/store");
+              const { purgeViewershipCacheForBrands } = await import("@/lib/viewership-cache");
               useStore.getState().deleteBrand(prev.brandId);
+              purgeViewershipCacheForBrands([prev.brandId]);
             }
           } catch {
             return {
@@ -474,6 +476,12 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
             users: s.users.filter((u) => u.id !== id),
             user: s.user?.id === id ? null : s.user,
           }));
+          if (prev?.role === "brand" && prev.brandId) {
+            const { useStore } = await import("@/store/store");
+            const { purgeViewershipCacheForBrands } = await import("@/lib/viewership-cache");
+            useStore.getState().deleteBrand(prev.brandId);
+            purgeViewershipCacheForBrands([prev.brandId]);
+          }
         }
         logAudit({
           actorId: get().user?.id ?? "system",

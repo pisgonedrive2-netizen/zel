@@ -14,7 +14,12 @@ import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
-import { fetchStreamerAchievementDay } from "@/lib/achievement-api";
+import {
+  fetchStreamerAchievementDay,
+  mergeAchievementReelsIntoStore,
+  syncAchievementAfterAccountSave,
+  syncStreamerAchievementFromAccounts,
+} from "@/lib/achievement-api";
 import {
   activityDatesList,
   buildStreamerActivity,
@@ -23,7 +28,6 @@ import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin
 import { StreamerOperationsHub } from "@/components/takvim/streamer-operations-hub";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
-import { syncStreamerAchievementFromAccounts } from "@/lib/achievement-api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1070,9 +1074,16 @@ function TakvimPage() {
             employees={yayincilar}
             defaultEmployeeId={accountModal.employeeId}
             initial={accountModal.mode === "new" ? undefined : accountModal.mode}
-            onSave={d => {
+            onSave={async (d) => {
               if (accountModal.mode === "new") addStreamerAccount(d);
               else updateStreamerAccount(accountModal.mode.id, d);
+              setAccountModal(null);
+              try {
+                const res = await syncAchievementAfterAccountSave(d);
+                if (res?.reels?.length) mergeAchievementReelsIntoStore(res.reels, d.employeeId);
+              } catch {
+                /* API kotası veya RapidAPI yoksa sessiz */
+              }
             }}
             onDelete={accountModal.mode !== "new" ? () => { deleteStreamerAccount((accountModal.mode as StreamerAccount).id); setAccountModal(null); } : undefined}
             onClose={() => setAccountModal(null)}

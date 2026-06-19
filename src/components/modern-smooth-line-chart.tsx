@@ -261,10 +261,10 @@ export function ModernSmoothLineChart({
                 labelKey="label"
                 indicator="line"
                 labelFormatter={(v) => String(v)}
-                formatter={(value, name) => {
+                formatter={(value, name, item, index) => {
                   const s = slicedSeries.find((x) => x.key === name);
                   return [
-                    <span key="v" className="font-mono font-semibold tabular-nums">
+                    <span key={`tip-val-${index}`} className="font-mono font-semibold tabular-nums">
                       {formatValue(Number(value))}
                     </span>,
                     s?.label ?? String(name),

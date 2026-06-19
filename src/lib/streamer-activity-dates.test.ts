@@ -92,4 +92,37 @@ describe("buildStreamerActivity", () => {
     expect(byDate.get("2026-05-28")?.[0]?.url).toContain("aaa");
     expect(byDate.get("2026-05-30")?.[0]?.source).toBe("post");
   });
+
+  it("includes brand-link reels for link owner", () => {
+    const links: BrandLink[] = [
+      {
+        id: "bl-1",
+        brandId: "br-x",
+        platform: "instagram",
+        url: "https://instagram.com/reel/link",
+        handle: "@a",
+        ownerId: "emp-ramiz",
+        status: "active",
+        notes: "",
+        lastViews: 100,
+        lastCheckedAt: "2026-05-28T12:00:00Z",
+      },
+    ];
+    const reels: WeekBrandReel[] = [
+      {
+        id: "wr-link",
+        employeeId: "emp-ramiz",
+        weekStart: "2026-05-26",
+        brandId: "br-x",
+        brandLinkId: "bl-1",
+        contentUrl: "https://instagram.com/reel/link",
+        platform: "Instagram",
+        publishedAt: "2026-05-27T14:00:00.000Z",
+        createdAt: "2026-05-27T14:00:00.000Z",
+        notes: "",
+      },
+    ];
+    const { byDate } = buildStreamerActivity("emp-ramiz", reels, [], { brandLinks: links });
+    expect(byDate.get("2026-05-27")?.[0]?.source).toBe("link");
+  });
 });

@@ -1,10 +1,13 @@
 "use client";
 
-import { CheckCircle2, Clock, Wallet } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Clock, Stamp, Wallet } from "lucide-react";
 import Modal from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { cn } from "@/lib/utils";
-import { fmt } from "@/lib/data";
+import { fmt, toDateLocal } from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
   formatPayrollLineStatusSummary,
@@ -29,6 +32,8 @@ type Props = {
   isPartial: boolean;
   onPayLine: (line: PayrollLineItem) => void;
   onPayAll: () => void;
+  onMarkLinePaid: (line: PayrollLineItem, paidDate: string) => void;
+  onMarkAllPaid: (paidDate: string) => void;
   onUnpayLine: (lineId: string, label: string) => void;
   onUnpayAll: () => void;
 };
@@ -48,9 +53,12 @@ export function PayrollLinesPayModal({
   isPartial,
   onPayLine,
   onPayAll,
+  onMarkLinePaid,
+  onMarkAllPaid,
   onUnpayLine,
   onUnpayAll,
 }: Props) {
+  const [markPaidDate, setMarkPaidDate] = useState(() => toDateLocal(new Date()));
   const paidTotal = sumPaidPayrollLines(payrollLines);
   const unpaidTotal = sumUnpaidPayrollLines(payrollLines);
   const paidCount = payrollLines.filter((l) => l.paid).length;
@@ -95,6 +103,23 @@ export function PayrollLinesPayModal({
           )}
         </p>
 
+        {!readOnly && unpaidLines.length > 0 && (
+          <div className="rounded-lg border border-border/60 bg-muted/10 px-3 py-2.5 flex flex-wrap items-end gap-3">
+            <div className="min-w-[10rem] flex-1">
+              <Field label="Ödendi işaretleme tarihi">
+                <DateTimePicker
+                  mode="date"
+                  value={markPaidDate}
+                  onChange={(v) => setMarkPaidDate(v || toDateLocal(new Date()))}
+                />
+              </Field>
+            </div>
+            <p className="text-[10px] text-muted-foreground pb-1 max-w-xs">
+              Kasa hareketi oluşturmadan kayıt işaretler. Nakit ödeme için kalemlerde <strong>Öde</strong> kullanın.
+            </p>
+          </div>
+        )}
+
         {unpaidLines.length > 0 && (
           <section className="space-y-2">
             <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -109,6 +134,7 @@ export function PayrollLinesPayModal({
                   kasaTransactions={kasaTransactions}
                   readOnly={readOnly}
                   onPay={() => onPayLine(line)}
+                  onMarkPaid={() => onMarkLinePaid(line, markPaidDate)}
                 />
               ))}
             </div>
@@ -149,6 +175,17 @@ export function PayrollLinesPayModal({
                 <Button
                   type="button"
                   size="sm"
+                  variant="outline"
+                  className="h-8 text-xs gap-1"
+                  onClick={() => onMarkAllPaid(markPaidDate)}
+                  disabled={unpaidLines.length === 0}
+                >
+                  <Stamp size={12} />
+                  Tümünü ödendi işaretle
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   className="h-8 text-xs gap-1 bg-green-600 hover:bg-green-500 text-white border-0"
                   onClick={onPayAll}
                   disabled={netPayable <= 0}
@@ -171,6 +208,7 @@ function LineRow({
   kasaTransactions,
   readOnly,
   onPay,
+  onMarkPaid,
   onUnpay,
 }: {
   line: PayrollLineItem;
@@ -178,6 +216,7 @@ function LineRow({
   kasaTransactions: KasaTransaction[];
   readOnly: boolean;
   onPay?: () => void;
+  onMarkPaid?: () => void;
   onUnpay?: () => void;
 }) {
   const tx = line.kasaTxId ? kasaTransactions.find((t) => t.id === line.kasaTxId) : undefined;
@@ -195,7 +234,7 @@ function LineRow({
         {line.paid && line.paidDate && (
           <p className="text-[10px] text-muted-foreground mt-0.5">
             {line.paidDate}
-            {kasaName ? ` · ${kasaName}` : ""}
+            {kasaName ? ` · ${kasaName}` : line.kasaTxId ? "" : " · işaretlendi"}
           </p>
         )}
       </div>
@@ -216,14 +255,30 @@ function LineRow({
           <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 shrink-0 text-[10px]">
             <Clock size={11} /> Bekliyor
           </span>
-          {!readOnly && onPay && (
-            <Button
-              size="sm"
-              className="h-7 text-[10px] bg-green-600 hover:bg-green-500 border-0 text-white ml-auto"
-              onClick={onPay}
-            >
-              Öde
-            </Button>
+          {!readOnly && (
+            <div className="flex flex-wrap gap-1 ml-auto">
+              {onMarkPaid && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[10px] gap-1"
+                  onClick={onMarkPaid}
+                >
+                  <Stamp size={10} />
+                  Ödendi işaretle
+                </Button>
+              )}
+              {onPay && (
+                <Button
+                  size="sm"
+                  className="h-7 text-[10px] bg-green-600 hover:bg-green-500 border-0 text-white gap-1"
+                  onClick={onPay}
+                >
+                  <Wallet size={10} />
+                  Öde
+                </Button>
+              )}
+            </div>
           )}
         </>
       )}

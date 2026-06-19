@@ -31,7 +31,7 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
       }
       if (featureId === "video_comments") return { id: "dQw4w9WgXcQ" };
       if (featureId === "video_related") return { id: "dQw4w9WgXcQ" };
-      if (featureId === "search") return { query: "foxstream", type: "video" };
+      if (featureId === "search") return { q: "foxstream", gl: "TR", hl: "tr", type: "video" };
       if (featureId === "trending") return { geo: "TR", hl: "tr" };
       break;
     case "instagram":
@@ -45,7 +45,9 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
       }
       if (featureId === "post_comments") return { id: "3560707543640477806" };
       if (featureId === "media_likers") return { media_id: "3557083637646459808" };
-      if (featureId === "hashtag_search") return { query: "reels" };
+      if (featureId === "hashtag_search") return { hashtag: "reels" };
+      if (featureId === "hashtag_posts") return { tag: "reels", section: "top" };
+      if (featureId === "users_search") return { query: "casino" };
       if (featureId === "user_followers") return { user_id: "25025320" };
       break;
     case "tiktok":
@@ -63,7 +65,13 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
         return { unique_id: "@tiktok", count: "5" };
       }
       if (featureId === "search_user") return { keywords: "tiktok", count: "5" };
-      if (featureId === "trending_videos") return { country_code: "TR", count: "5" };
+      if (featureId === "video_search") {
+        return { keywords: "fyp", count: "5", region: "tr", sort_type: "0", publish_time: "0" };
+      }
+      if (featureId === "feed_list") return { region: "tr", count: "5" };
+      if (featureId === "challenge_search") return { keywords: "fyp", count: "5" };
+      if (featureId === "challenge_posts") return { challenge_id: "229207", count: "5" };
+      if (featureId === "trending_videos") return { country_code: "TR", limit: "5", page: "1" };
       if (featureId === "music_detail") {
         return { url: "https://www.tiktok.com/music/Bad-Habits-6974398592418809857" };
       }

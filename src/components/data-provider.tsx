@@ -83,12 +83,22 @@ function applyViewershipToPatch(
 ) {
   const prev = useStore.getState();
   const brands = (data.brands ?? patch.brands ?? prev.brands) as Brand[];
+  const brandIds = new Set(brands.map((b) => b.id));
   if (data.brands !== undefined) patch.brands = data.brands;
+
+  const prevLinksForBrands = prev.brandLinks.filter((l) => l.brandId && brandIds.has(l.brandId));
+  const prevSnapshotsForBrands = prev.linkSnapshots.filter((sn) => {
+    const link = prev.brandLinks.find((l) => l.id === sn.linkId);
+    return link?.brandId && brandIds.has(link.brandId);
+  });
+  const prevViewershipForBrands = prev.brandViewership.filter(
+    (v) => v.brandId && brandIds.has(v.brandId)
+  );
 
   if (data.brandLinks !== undefined) {
     patch.brandLinks = mergeCanonicalBrandLinks(
       unionBrandLinks(
-        prev.brandLinks,
+        prevLinksForBrands,
         (patch.brandLinks as BrandLink[] | undefined) ?? [],
         data.brandLinks
       ),
@@ -97,13 +107,13 @@ function applyViewershipToPatch(
   }
   if (data.linkSnapshots !== undefined) {
     patch.linkSnapshots = mergeLinkSnapshotsHydrate(
-      prev.linkSnapshots,
+      prevSnapshotsForBrands,
       data.linkSnapshots
     );
   }
   if (data.brandViewership !== undefined) {
     patch.brandViewership = mergeBrandViewershipHydrate(
-      prev.brandViewership,
+      prevViewershipForBrands,
       data.brandViewership
     );
   }
@@ -136,13 +146,16 @@ function commitViewershipHydrate(
     "brands" | "brandLinks" | "linkSnapshots" | "brandViewership"
   >
 ) {
+  const serverBrands = server.brands ?? useStore.getState().brands;
+  const validBrandIds = new Set(serverBrands.map((b) => b.id));
   const rich = preferRicherViewership(
     {
       brandLinks: server.brandLinks ?? [],
       linkSnapshots: server.linkSnapshots ?? [],
       brandViewership: server.brandViewership ?? [],
     },
-    readViewershipCache()
+    readViewershipCache(),
+    validBrandIds
   );
   const patch: Record<string, unknown> = {};
   applyViewershipToPatch(patch, { ...server, ...rich });

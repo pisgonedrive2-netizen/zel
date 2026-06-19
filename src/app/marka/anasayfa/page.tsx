@@ -426,10 +426,19 @@ export default function MarkaAnasayfaPage() {
             onPrevMonth={() => navMonth(-1)}
             onNextMonth={() => navMonth(1)}
             target={brand.monthlyTarget}
-            actual={statsRow?.depositAmount ?? 0}
-            ftd={statsRow?.firstTimeDepositors ?? 0}
+            actual={
+              statsRow?.depositAmount ??
+              igaming.dashboard?.depositAmount ??
+              0
+            }
+            ftd={
+              statsRow?.firstTimeDepositors ??
+              igaming.dashboard?.ftd ??
+              0
+            }
             currency={currency}
             kpiHref={operasyonHref}
+            showEmptyHint={!statsRow && !igaming.dashboard && !igaming.loading}
           />
 
           <MarkaContentOverviewCard
@@ -521,6 +530,11 @@ export default function MarkaAnasayfaPage() {
                   subtitle={`Bu hafta · ${monthDayLabel(currentWeek)}+`}
                   metrics={[
                     {
+                      label: "İzlenme",
+                      value: fmtCompactViews(totalLinkViews),
+                      sub: monthTitle.split(" ")[0],
+                    },
+                    {
                       label: "Yayıncı",
                       value: fmtBrandCount(totalStreamers),
                     },
@@ -531,11 +545,6 @@ export default function MarkaAnasayfaPage() {
                     {
                       label: "Reel",
                       value: fmtBrandCount(reelsThisWeek.length),
-                    },
-                    {
-                      label: "Paylaşım günü",
-                      value: fmtBrandCount(sharingDaysThisMonth),
-                      sub: monthTitle.split(" ")[0],
                     },
                   ]}
                   href={markaHref("/marka/izlenmeler", month)}

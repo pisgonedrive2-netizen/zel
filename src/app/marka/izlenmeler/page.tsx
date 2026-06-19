@@ -15,8 +15,10 @@ import {
   X,
   Globe2,
   ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { useStore } from "@/store/store";
+import { sumBrandContentExpensesForMonth } from "@/lib/brand-month-metrics";
 import { BrandLogo } from "@/components/brand-logo";
 import { MarkaMonthNav } from "@/components/marka-month-nav";
 import { MarkaPageGuard } from "@/components/marka-page-guard";
@@ -98,6 +100,7 @@ export default function MarkaIzlenmelerPage() {
     brandPosts,
     brandDeals,
     updateBrand,
+    affiliateDailyStats,
   } = useStore();
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reelStreamerFilter, setReelStreamerFilter] = useState<string>("all");
@@ -228,6 +231,30 @@ export default function MarkaIzlenmelerPage() {
     [viewRows]
   );
 
+  const staleLinkCount = useMemo(
+    () => enrichedLinks.filter((l) => l.stale && l.url?.trim()).length,
+    [enrichedLinks]
+  );
+
+  const monthContentExpense = useMemo(
+    () =>
+      brand ? sumBrandContentExpensesForMonth(contentExpenses, brand, month, brands) : 0,
+    [contentExpenses, brand, month, brands]
+  );
+
+  const affiliateMonthStats = useMemo(() => {
+    if (!brandId) return { clicks: 0, registrations: 0, ftd: 0 };
+    const prefix = `${month}-`;
+    const rows = affiliateDailyStats.filter(
+      (s) => s.brandId === brandId && s.statDate.startsWith(prefix)
+    );
+    return {
+      clicks: rows.reduce((sum, s) => sum + (s.clicks ?? 0), 0),
+      registrations: rows.reduce((sum, s) => sum + (s.registrations ?? 0), 0),
+      ftd: rows.reduce((sum, s) => sum + (s.ftdCount ?? 0), 0),
+    };
+  }, [affiliateDailyStats, brandId, month]);
+
   const hasTarget = Boolean(brand?.monthlyTarget != null && brand.monthlyTarget > 0);
   const targetPct =
     brand && hasTarget
@@ -336,6 +363,28 @@ export default function MarkaIzlenmelerPage() {
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
 
+          {staleLinkCount > 0 && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">
+                  {staleLinkCount} linkte bu ay güncel snapshot yok
+                </p>
+                <p className="text-xs mt-0.5 opacity-90">
+                  İzlenme rakamları eksik veya eski olabilir. Link listesinden kontrol edin veya
+                  admin panelinden yenileyin.
+                </p>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary underline mt-1"
+                  onClick={() => setLinksModalOpen(true)}
+                >
+                  Linkleri incele
+                </button>
+              </div>
+            </div>
+          )}
+
           <BrandLinkViewershipSummary
             links={linksForBrand}
             snapshots={linkSnapshots}
@@ -344,7 +393,7 @@ export default function MarkaIzlenmelerPage() {
             title="Tüm linkler · izlenme özeti"
           />
 
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-3xl">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-4xl">
             <ViewDotCard
               target={totalLinkViewsMonth + totalStreamerViewsMonth}
               metricCaption="Views"
@@ -367,6 +416,14 @@ export default function MarkaIzlenmelerPage() {
               accent="emerald"
               size="sm"
             />
+            <ViewDotCard
+              target={monthContentExpense}
+              metricCaption="USD"
+              label="İçerik harcaması"
+              sub={monthContentExpense > 0 ? "Bu ay marka payı" : "Bu ay kayıt yok"}
+              accent="amber"
+              size="sm"
+            />
           </div>
 
           <Card>
@@ -382,9 +439,38 @@ export default function MarkaIzlenmelerPage() {
             <CardContent>
               {trackingDomains.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
-                  Henüz takip domaini kaydı yok.
+                  Henüz takip domaini kaydı yok.{" "}
+                  <Link href={markaHref("/marka/entegrasyon", month)} className="text-primary underline">
+                    Entegrasyon
+                  </Link>{" "}
+                  sayfasından domain ekleyebilirsiniz.
                 </p>
               ) : (
+                <>
+                  {(affiliateMonthStats.clicks > 0 ||
+                    affiliateMonthStats.registrations > 0 ||
+                    affiliateMonthStats.ftd > 0) && (
+                    <div className="mb-3 grid grid-cols-3 gap-2 rounded-lg border border-border/60 bg-muted/25 p-3 text-center">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Affiliate tıklama</p>
+                        <p className="text-sm font-semibold tabular-nums">
+                          {affiliateMonthStats.clicks.toLocaleString("tr-TR")}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Kayıt</p>
+                        <p className="text-sm font-semibold tabular-nums">
+                          {affiliateMonthStats.registrations.toLocaleString("tr-TR")}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">FTD</p>
+                        <p className="text-sm font-semibold tabular-nums">
+                          {affiliateMonthStats.ftd.toLocaleString("tr-TR")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 <ul className="space-y-2">
                   {trackingDomains.map((d) => (
                     <li
@@ -414,6 +500,7 @@ export default function MarkaIzlenmelerPage() {
                     </li>
                   ))}
                 </ul>
+                </>
               )}
             </CardContent>
           </Card>

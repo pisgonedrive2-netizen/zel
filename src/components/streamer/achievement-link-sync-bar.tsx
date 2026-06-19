@@ -4,17 +4,7 @@ import { useState } from "react";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { syncStreamerAchievementFromAccounts } from "@/lib/achievement-api";
-import { useStore } from "@/store/store";
-import type { WeekBrandReel } from "@/store/store";
-
-function mergeReelsIntoStore(reels: WeekBrandReel[], employeeId: string) {
-  useStore.setState((s) => {
-    const others = s.weekBrandReels.filter((r) => r.employeeId !== employeeId);
-    const byId = new Map(others.map((r) => [r.id, r]));
-    for (const r of reels) byId.set(r.id, r);
-    return { weekBrandReels: [...byId.values()] };
-  });
-}
+import { mergeAchievementReelsIntoStore } from "@/lib/achievement-api";
 
 /**
  * Yayıncının kişisel YouTube / Instagram / TikTok hesapları → achievement takvimi.
@@ -40,7 +30,7 @@ export function AchievementLinkSyncBar({
     setHint(null);
     try {
       const res = await syncStreamerAchievementFromAccounts(employeeId);
-      if (res.reels?.length) mergeReelsIntoStore(res.reels, employeeId);
+      if (res.reels?.length) mergeAchievementReelsIntoStore(res.reels, employeeId);
       onSynced?.();
       if (res.warning) {
         setHint(res.warning);

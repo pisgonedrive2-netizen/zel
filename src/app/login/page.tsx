@@ -7,6 +7,7 @@ import { ChevronDown, Radio, Building2, HelpCircle, Eye, EyeOff, type LucideIcon
 import { useAuth, landingFor } from "@/store/auth";
 import { useStore, initialBrands } from "@/store/store";
 import { BrandMarquee, filterCorePartnerBrands } from "@/components/brand-marquee";
+import { LandingPackages } from "@/components/landing/landing-packages";
 import {
   Dialog,
   DialogContent,
@@ -896,7 +897,6 @@ export default function LoginPage() {
     setErr(null);
     setModal("login");
   };
-
   return (
     <div className="relative isolate w-full bg-black text-white">
       {/* Sticky header — scroll boyunca görünür */}
@@ -909,6 +909,7 @@ export default function LoginPage() {
           <a href="#roller" className="hover:text-white">Roller</a>
           <a href="#nasil" className="hover:text-white">Nasıl çalışır</a>
           <a href="#ozellikler" className="hover:text-white">Özellikler</a>
+          <a href="#paketler" className="hover:text-white">Paketler</a>
           <a href="#partnerler" className="hover:text-white">Partnerler</a>
         </nav>
         <div className="flex items-center gap-2">
@@ -1138,6 +1139,9 @@ export default function LoginPage() {
           </div>
         </div>
       </section>
+
+      {/* PAKETLER — influencer içerik paketleri (animasyonlu bileşen) */}
+      <LandingPackages />
 
       {/* CTA — Markaysan / Yayıncıysan */}
       <section className="relative w-full overflow-hidden bg-black px-4 py-16 sm:px-6 sm:py-20">

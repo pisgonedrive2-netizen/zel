@@ -41,8 +41,10 @@ export function scopeBrandActivityData(
   return {
     brandId,
     reels: data.weekBrandReels.filter((r) => {
-      if (r.brandLinkId) return false;
       if (r.brandId === brandId) return true;
+      if (r.brandLinkId) {
+        return links.some((l) => l.id === r.brandLinkId);
+      }
       return Boolean(r.employeeId && partnerSet.has(r.employeeId) && !r.brandId);
     }),
     posts,

@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, Pencil, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Clock,
-  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt, Wallet,
+  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt, Wallet, Stamp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
-import { fmt, shiftCalendarMonthYm, toYearMonthLocal, defaultSnapshotDateInMonth } from "@/lib/data";
+import { fmt, shiftCalendarMonthYm, toYearMonthLocal, toDateLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from "@/lib/content-expense";
 import { ContentExpensesBulkModal } from "@/components/content-expenses-bulk-modal";
 import { PayrollLinesPayModal } from "@/components/payroll-lines-pay-modal";
@@ -353,6 +353,7 @@ function EmployeeDetailRow({
     updateEmployee, addAdvance, updateAdvance, deleteAdvance,
     addSalaryExtra, updateSalaryExtra, deleteSalaryExtra,
     payEmployeeSalary, unpayEmployeeSalary, payPayrollLine, unpayPayrollLine,
+    markPayrollLinePaid, markEmployeePayrollLinesPaid,
     payContentExpense, settleContentExpenseToPayroll, unsettleContentExpenseFromPayroll,
   } = useStore();
   const { user } = useAuth();
@@ -577,7 +578,29 @@ function EmployeeDetailRow({
                 Öde
               </Button>
             )}
-            {active && isFullyPaid && (
+            {active && !readOnly && payrollLines.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className={cn(
+                  "h-7 text-[10px] gap-1",
+                  isFullyPaid &&
+                    "text-green-700 border-green-500/40 bg-green-50/60 hover:bg-green-50 dark:text-green-300 dark:border-green-500/35 dark:bg-green-950/30",
+                  isPartial &&
+                    "text-amber-800 border-amber-400/50 bg-amber-50/60 dark:text-amber-200 dark:border-amber-500/40",
+                )}
+                onClick={() => setPayrollLinesModalOpen(true)}
+              >
+                <CheckCircle2 size={11} />
+                {isFullyPaid
+                  ? `Ödendi${status?.paidDate ? ` · ${status.paidDate}` : ""}`
+                  : isPartial
+                    ? `Kısmi · ${paidLineCount}/${payrollLines.length}`
+                    : "Ödeme kalemleri"}
+              </Button>
+            )}
+            {active && readOnly && isFullyPaid && (
               <Badge
                 variant="outline"
                 className="text-[10px] gap-1 w-fit text-green-700 border-green-500/40 bg-green-50/60 dark:text-green-300 dark:border-green-500/35 dark:bg-green-950/30"
@@ -586,7 +609,7 @@ function EmployeeDetailRow({
                 Ödendi{status?.paidDate ? ` · ${status.paidDate}` : ""}
               </Badge>
             )}
-            {active && isPartial && (
+            {active && readOnly && isPartial && (
               <Badge variant="outline" className="text-[10px] text-amber-800 border-amber-400/50 bg-amber-50/60 dark:text-amber-200">
                 Kısmi · {fmt(unpaidLineTotal)} kaldı
               </Badge>
@@ -1145,6 +1168,29 @@ function EmployeeDetailRow({
           setPayrollLinesModalOpen(false);
           setPayTarget({ mode: "all" });
         }}
+        onMarkLinePaid={(line, paidDate) => {
+          markPayrollLinePaid({
+            employeeId: employee.id,
+            month,
+            lineId: line.lineId,
+            paidDate,
+            paidBy: currentUserId,
+          });
+        }}
+        onMarkAllPaid={(paidDate) => {
+          if (
+            window.confirm(
+              `${employee.name} · ${monthLabelTr(month)} bekleyen tüm kalemler ödendi olarak işaretlensin mi? (Kasa hareketi oluşturulmaz.)`,
+            )
+          ) {
+            markEmployeePayrollLinesPaid({
+              employeeId: employee.id,
+              month,
+              paidDate,
+              paidBy: currentUserId,
+            });
+          }
+        }}
         onUnpayLine={(lineId, label) => {
           if (
             window.confirm(
@@ -1390,6 +1436,7 @@ export default function MaaslarPage() {
   const {
     employees, advances, salaryExtras, paymentStatuses, contentExpenses,
     addEmployee, updateEmployee, deleteEmployee,
+    markEmployeePayrollLinesPaid,
   } = useStore();
   const readOnly = useIsReadOnly();
   const [month, setMonth]     = useState(() => toYearMonthLocal(new Date()));
@@ -1410,6 +1457,51 @@ export default function MaaslarPage() {
   const totalContentAprv = aktifBuAy.reduce((s, e) => s + sumApprovedContentExpenses(contentExpenses, e.id, month), 0);
   const totalPlannedOut  = aktifBuAy.reduce((s, e) => s + plannedPayrollPlusApprovedContent(e, month, advances, salaryExtras, paymentStatuses, contentExpenses), 0);
   const totalPaidOutAll  = aktifBuAy.reduce((s, e) => s + totalCashOutPaidForMonth(e, month, advances, salaryExtras, paymentStatuses, contentExpenses), 0);
+
+  const monthUnpaidEmployeeCount = useMemo(() => {
+    return aktifBuAy.filter((emp) => {
+      const lines = buildPayrollPaymentLines(
+        emp,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      );
+      return lines.length > 0 && payrollPaymentPhase(lines) !== "full";
+    }).length;
+  }, [aktifBuAy, month, advances, salaryExtras, contentExpenses, paymentStatuses]);
+
+  const markEntireMonthPaid = () => {
+    const targets = aktifBuAy.filter((emp) => {
+      const lines = buildPayrollPaymentLines(
+        emp,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      );
+      return lines.some((l) => !l.paid);
+    });
+    if (targets.length === 0) {
+      window.alert(`${monthLabelTr(month)} için işaretlenecek bekleyen kalem yok.`);
+      return;
+    }
+    const ok = window.confirm(
+      `${monthLabelTr(month)} · ${targets.length} çalışanın bekleyen tüm bordro kalemleri ödendi olarak işaretlensin mi?\n\nKasa hareketi oluşturulmaz — yalnızca kayıt güncellenir.`,
+    );
+    if (!ok) return;
+    const paidDate = toDateLocal(new Date());
+    for (const emp of targets) {
+      markEmployeePayrollLinesPaid({
+        employeeId: emp.id,
+        month,
+        paidDate,
+        paidBy: user?.id,
+      });
+    }
+  };
 
   const sorted = useMemo(() => [...employees].sort((a, b) => {
     const ka = a.kind === "coordinator" ? 1 : 0;
@@ -1540,6 +1632,17 @@ export default function MaaslarPage() {
           )}
           {!readOnly && (
             <>
+              {monthUnpaidEmployeeCount > 0 && (
+                <Button
+                  onClick={markEntireMonthPaid}
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                >
+                  <Stamp size={14} />
+                  {monthLabel(month)} ödendi işaretle
+                </Button>
+              )}
               <Button
                 onClick={() => setBulkRent({})}
                 size="sm"

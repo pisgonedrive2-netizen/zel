@@ -18,7 +18,16 @@ type Actuals = {
 type Props = {
   monthTitle: string;
   currency?: BrandStatsCurrency;
-  targets: BrandKpiTarget | null;
+  targets: Partial<
+    Pick<
+      BrandKpiTarget,
+      | "targetFtd"
+      | "targetNgr"
+      | "targetRegistrations"
+      | "targetDepositAmount"
+      | "targetContentDeliveries"
+    >
+  > | null;
   actual: Actuals;
 };
 

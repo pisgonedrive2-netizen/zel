@@ -29,6 +29,8 @@ interface BrandHomeHeroProps {
   currency: BrandStatsCurrency;
   /** "Aylık KPI gir" rotası — operasyon sayfası. */
   kpiHref: string;
+  /** Operasyon verisi yokken CTA göster. */
+  showEmptyHint?: boolean;
 }
 
 export function BrandHomeHero({
@@ -44,6 +46,7 @@ export function BrandHomeHero({
   ftd,
   currency,
   kpiHref,
+  showEmptyHint,
 }: BrandHomeHeroProps) {
   const hasTarget = !!target && target > 0;
   const pct = hasTarget ? Math.min(100, (actual / target!) * 100) : null;
@@ -148,13 +151,24 @@ export function BrandHomeHero({
               <span>
                 {hasTarget
                   ? `${(pct ?? 0).toFixed(0)}% hedefin`
-                  : "Hedef tanımlı değil"}
+                  : showEmptyHint
+                    ? "Bu ay için KPI girilmedi"
+                    : "Hedef tanımlı değil"}
               </span>
               <span className="inline-flex items-center gap-1">
                 <TrendingUp size={10} className="text-[#FF6B00]" />
                 {fmtBrandCount(ftd)} FTD
               </span>
             </div>
+            {showEmptyHint && (
+              <p className="text-[11px] text-amber-800 dark:text-amber-200 border-t border-border/50 pt-2 mt-1">
+                Operasyon verisi henüz yok —{" "}
+                <Link href={kpiHref} className="font-semibold text-primary underline">
+                  aylık KPI girin
+                </Link>
+                .
+              </p>
+            )}
           </div>
         </div>
       </div>
