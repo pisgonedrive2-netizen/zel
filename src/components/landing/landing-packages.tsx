@@ -624,9 +624,9 @@ function AddonSelector({
     <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Plus size={15} className="text-orange-400" />
-        <h3 className="text-sm font-semibold text-white">Pakete ek seç (à la carte)</h3>
+        <h3 className="text-sm font-semibold text-white">Ek prodüksiyon</h3>
         <span className="ml-auto text-[11px] text-white/40">
-          {selectedPkg ? `Seçili paket: ${selectedPkg.name}` : "Önce yukarıdan paket seç"}
+          {selectedPkg ? `Seçili paket: ${selectedPkg.name}` : "Paket seçtikten sonra ekleyebilirsin"}
         </span>
       </div>
 
@@ -955,32 +955,17 @@ export function LandingPackages() {
                     </span>
                   )}
                 </div>
-                <p className="mt-1 max-w-md text-sm leading-relaxed text-white/60">{pkg.tagline}</p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/12 px-2 py-1 text-[11px] font-semibold text-emerald-300">
                     <ShieldCheck size={12} /> {pkg.guaranteedViews} garanti izlenme
                   </span>
-                  {pkg.items.map((it) => {
-                    const tag = CONTENT_TAGS[it.tag];
-                    return (
-                      <WithTip key={`m-${it.tag}`} text={tag.desc} color={tag.color}>
-                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${tag.color}1c`, color: tag.color }}>
-                          {it.count}× {tag.label}
-                          <Info size={9} className="opacity-50" />
-                        </span>
-                      </WithTip>
-                    );
-                  })}
                 </div>
               </div>
             </div>
             <div className="flex w-full shrink-0 flex-col items-start gap-3 lg:w-auto lg:items-end">
               <div className="text-left lg:text-right">
                 {pkg.priceOnRequest ? (
-                  <>
-                    <span className="text-2xl font-extrabold tracking-tight text-white">Özel teklif</span>
-                    <p className="mt-1 text-[11px] font-medium" style={{ color: pkg.color }}>5 marka paketine özel fiyat · görüşelim</p>
-                  </>
+                  <span className="text-2xl font-extrabold tracking-tight text-white">Özel teklif</span>
                 ) : (
                   <>
                     <div className="flex items-baseline gap-1.5 lg:justify-end">
@@ -998,7 +983,7 @@ export function LandingPackages() {
                   style={{ backgroundColor: selectedId === pkg.id ? ORANGE : pkg.color, color: selectedId === pkg.id ? "#fff" : "#000" }}
                   className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-5 text-sm font-semibold shadow-lg transition hover:brightness-110 active:scale-[0.98] lg:w-auto"
                 >
-                  <Check size={15} strokeWidth={2.4} /> {selectedId === pkg.id ? "Seçildi" : "5 markayı seç"}
+                  <Check size={15} strokeWidth={2.4} /> {selectedId === pkg.id ? "Seçildi" : "Seç"}
                 </button>
                 <button
                   type="button"
