@@ -261,7 +261,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     price: "$16.500",
     priceUsd: 16500,
     priceUnit: "/ marka / ay",
-    tagline: "YouTube ile güçlü kapsama — reel, adult içerik ve canlı yayın.",
+    tagline: "Standard (4 reel + adult) üzerine 1 YouTube ve canlı yayın.",
     guaranteedViews: "1.5M",
     cpm: "≈ $11,0",
     items: [
@@ -279,9 +279,9 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     price: "$25.000",
     priceUsd: 25000,
     priceUnit: "/ marka / ay",
-    tagline: "2 YouTube + kampanya prodüksiyonu — üst segment kapsama.",
-    guaranteedViews: "3M",
-    cpm: "≈ $8,3",
+    tagline: "Premium'a ek YouTube, +1 reel, +1 adult içerik ve özel kampanya.",
+    guaranteedViews: "2.5M",
+    cpm: "≈ $10,0",
     items: [
       { tag: "youtube", count: 2 },
       { tag: "reel", count: 5 },
