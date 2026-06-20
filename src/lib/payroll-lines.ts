@@ -5,10 +5,7 @@ import type {
   MonthPaymentStatus,
   SalaryExtra,
 } from "@/store/store";
-
-function ymGte(a: string, b: string): boolean {
-  return a >= b;
-}
+import { isPayrollActive, payrollProrationFactor } from "@/lib/payroll-utils";
 
 function ymGt(a: string, b: string): boolean {
   return a > b;
@@ -30,10 +27,6 @@ function calcCarryForward(
       return !paid;
     })
     .reduce((s, a) => s + a.amount, 0);
-}
-
-function isPayrollActive(employee: Employee, month: string): boolean {
-  return employee.status === "active" && ymGte(month, employee.payrollStartMonth);
 }
 
 function getRentForMonth(
@@ -155,9 +148,10 @@ export function buildPayrollLinePlan(
     advances,
     paymentStatuses,
   );
+  const factor = payrollProrationFactor(employee, month);
   const netBaseSalary = Math.max(
     0,
-    employee.baseSalary - totalDeduc - totalAdvance - carryFwd,
+    employee.baseSalary * factor - totalDeduc - totalAdvance - carryFwd,
   );
   const lines: Omit<
     PayrollLineItem,
@@ -168,12 +162,12 @@ export function buildPayrollLinePlan(
     lines.push({
       lineId: "base",
       kind: "base_salary",
-      label: "Temel maaş",
+      label: factor < 1 ? `Temel maaş (oransal %${Math.round(factor * 100)})` : "Temel maaş",
       amountUsd: netBaseSalary,
     });
   }
 
-  const rent = getRentForMonth(employee, month, extras);
+  const rent = getRentForMonth(employee, month, extras) * factor;
   if (rent > 0) {
     lines.push({
       lineId: "rent",

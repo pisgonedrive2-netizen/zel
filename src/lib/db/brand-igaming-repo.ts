@@ -18,8 +18,10 @@ import type {
   BrandNotificationRule,
   BrandOnboardingProgress,
   BrandPaymentSchedule,
+  BrandOperator,
   BrandPayrollRun,
   BrandPlayerEvent,
+  BrandRiskFlag,
   BrandWebhookLog,
   IgamingDashboardSummary,
   IgamingCurrency,
@@ -616,12 +618,51 @@ export async function fetchLatestWebhookLog(
 }
 
 // ── Operators ──────────────────────────────────────────────────────────────────
-export async function findBrandOperatorById(
-  operatorId: string,
-): Promise<{ id: string; brandId: string; name: string; status: string } | null> {
+const OPERATOR_STATUS = ["active", "paused", "closed"] as const;
+
+function operatorFromRow(r: Record<string, unknown>): BrandOperator {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    name: str(r.name),
+    apiBaseUrl: r.api_base_url ? str(r.api_base_url) : undefined,
+    currency: pick(r.currency, CURRENCY, "USD"),
+    status: pick(r.status, OPERATOR_STATUS, "active"),
+    notes: str(r.notes),
+    createdAt: r.created_at ? str(r.created_at) : undefined,
+    updatedAt: r.updated_at ? str(r.updated_at) : undefined,
+  };
+}
+
+function operatorToRow(o: BrandOperator) {
+  return {
+    id: o.id,
+    brand_id: o.brandId,
+    name: o.name,
+    api_base_url: o.apiBaseUrl ?? null,
+    currency: o.currency,
+    status: o.status,
+    notes: o.notes,
+  };
+}
+
+export async function fetchBrandOperators(brandId: string): Promise<BrandOperator[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("brand_operators")
-    .select("id, brand_id, name, status")
+    .select("*")
+    .eq("brand_id", brandId)
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (missingTable(error)) return [];
+    throw new Error(`brand_operators: ${error.message}`);
+  }
+  return (data ?? []).map((r) => operatorFromRow(r as Record<string, unknown>));
+}
+
+export async function findBrandOperatorById(operatorId: string): Promise<BrandOperator | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_operators")
+    .select("*")
     .eq("id", operatorId)
     .maybeSingle();
   if (error) {
@@ -629,13 +670,113 @@ export async function findBrandOperatorById(
     throw new Error(`brand_operators: ${error.message}`);
   }
   if (!data) return null;
-  const r = data as Record<string, unknown>;
+  return operatorFromRow(data as Record<string, unknown>);
+}
+
+export async function upsertBrandOperator(operator: BrandOperator): Promise<BrandOperator> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_operators")
+    .upsert(operatorToRow(operator), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_operators: ${error.message}`);
+  if (!data) throw new Error("brand_operators: upsert sonuç dönmedi.");
+  return operatorFromRow(data as Record<string, unknown>);
+}
+
+// ── Risk flags ─────────────────────────────────────────────────────────────────
+const RISK_FLAG_TYPES = [
+  "deposit_spike", "withdrawal_spike", "duplicate_device", "incentive_abuse", "other",
+] as const;
+const RISK_SEVERITY_TS = ["low", "medium", "high"] as const;
+const RISK_SEVERITY_DB = ["info", "warn", "critical"] as const;
+
+function severityDbToTs(db: string): BrandRiskFlag["severity"] {
+  if (db === "critical") return "high";
+  if (db === "warn") return "medium";
+  return "low";
+}
+
+function severityTsToDb(ts: BrandRiskFlag["severity"]): (typeof RISK_SEVERITY_DB)[number] {
+  if (ts === "high") return "critical";
+  if (ts === "medium") return "warn";
+  return "info";
+}
+
+function riskFlagFromRow(r: Record<string, unknown>): BrandRiskFlag {
+  const category = str(r.category, "other");
+  const flagType = (RISK_FLAG_TYPES as readonly string[]).includes(category)
+    ? (category as BrandRiskFlag["flagType"])
+    : "other";
+  const sourceRaw = str(r.source, "manual");
+  const source =
+    sourceRaw === "operator" || sourceRaw === "computed" || sourceRaw === "manual"
+      ? sourceRaw
+      : "manual";
   return {
     id: str(r.id),
     brandId: str(r.brand_id),
-    name: str(r.name),
-    status: str(r.status),
+    flagType,
+    severity: severityDbToTs(str(r.severity, "warn")),
+    detectedAt: r.flag_date ? str(r.flag_date).slice(0, 10) : str(r.created_at).slice(0, 10),
+    resolvedAt: r.resolved_at ? str(r.resolved_at) : undefined,
+    notes: str(r.message),
+    score: r.score != null ? num(r.score) : undefined,
+    source,
   };
+}
+
+function riskFlagToRow(f: BrandRiskFlag) {
+  return {
+    id: f.id,
+    brand_id: f.brandId,
+    flag_date: f.detectedAt || new Date().toISOString().slice(0, 10),
+    severity: severityTsToDb(f.severity),
+    category: f.flagType,
+    score: f.score ?? null,
+    message: f.notes,
+    resolved_at: f.resolvedAt ?? null,
+    source: f.source ?? "manual",
+  };
+}
+
+export async function fetchBrandRiskFlags(brandId: string): Promise<BrandRiskFlag[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_risk_flags")
+    .select("*")
+    .eq("brand_id", brandId)
+    .order("flag_date", { ascending: false });
+  if (error) {
+    if (missingTable(error)) return [];
+    throw new Error(`brand_risk_flags: ${error.message}`);
+  }
+  return (data ?? []).map((r) => riskFlagFromRow(r as Record<string, unknown>));
+}
+
+export async function findBrandRiskFlagById(id: string): Promise<BrandRiskFlag | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_risk_flags")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_risk_flags: ${error.message}`);
+  return data ? riskFlagFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertBrandRiskFlag(flag: BrandRiskFlag): Promise<BrandRiskFlag> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_risk_flags")
+    .upsert(riskFlagToRow(flag), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_risk_flags: ${error.message}`);
+  if (!data) throw new Error("brand_risk_flags: upsert sonuç dönmedi.");
+  return riskFlagFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandRiskFlag(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_risk_flags").delete().eq("id", id);
+  if (error) throw new Error(`brand_risk_flags: ${error.message}`);
 }
 
 // ── Dashboard summary ──────────────────────────────────────────────────────────
@@ -1183,6 +1324,16 @@ export async function fetchBrandInvoiceLines(invoiceId: string): Promise<BrandIn
   return (data ?? []).map((r) => invoiceLineFromRow(r as Record<string, unknown>));
 }
 
+export async function findBrandInvoiceLineById(id: string): Promise<BrandInvoiceLine | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_invoice_lines")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`brand_invoice_lines: ${error.message}`);
+  return data ? invoiceLineFromRow(data as Record<string, unknown>) : null;
+}
+
 export async function upsertBrandInvoiceLine(line: BrandInvoiceLine): Promise<BrandInvoiceLine> {
   const { data, error } = await getSupabaseAdmin()
     .from("brand_invoice_lines")
@@ -1205,6 +1356,11 @@ export async function upsertBrandInvoiceLine(line: BrandInvoiceLine): Promise<Br
   if (error) throw new Error(`brand_invoice_lines: ${error.message}`);
   if (!data) throw new Error("brand_invoice_lines: upsert sonuç dönmedi.");
   return invoiceLineFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandInvoiceLine(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_invoice_lines").delete().eq("id", id);
+  if (error) throw new Error(`brand_invoice_lines: ${error.message}`);
 }
 
 // ── Offer templates ────────────────────────────────────────────────────────────

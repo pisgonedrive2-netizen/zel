@@ -13,9 +13,12 @@ import type {
   BrandDealMilestone,
   BrandDealTrackingLink,
   BrandIgamingDashboard,
+  BrandInvoiceLine,
   BrandKpiTarget,
   BrandOfferTemplate,
+  BrandOperator,
   BrandPostApproval,
+  BrandRiskFlag,
   BrandTrackingDomain,
 } from "@/types/brand-igaming";
 
@@ -111,6 +114,27 @@ export function complianceCompletionPct(checks: BrandComplianceCheck[]): number 
   if (checks.length === 0) return 0;
   const done = checks.filter((c) => c.status === "passed" || c.status === "waived").length;
   return Math.round((done / checks.length) * 100);
+}
+
+export async function fetchRiskFlags(brandId: string): Promise<BrandRiskFlag[]> {
+  const data = await jsonFetch<{ ok?: boolean; flags: BrandRiskFlag[] }>(
+    `/api/marka/igaming/risk-flags${qs({ brandId })}`
+  );
+  return Array.isArray(data.flags) ? data.flags : [];
+}
+
+export async function fetchOperators(brandId: string): Promise<BrandOperator[]> {
+  const data = await jsonFetch<{ ok?: boolean; operators: BrandOperator[] }>(
+    `/api/marka/igaming/operators${qs({ brandId })}`
+  );
+  return Array.isArray(data.operators) ? data.operators : [];
+}
+
+export async function fetchInvoiceLines(brandId: string, invoiceId: string): Promise<BrandInvoiceLine[]> {
+  const data = await jsonFetch<{ lines: BrandInvoiceLine[] }>(
+    `/api/marka/igaming/invoice-lines${qs({ brandId, invoiceId })}`
+  );
+  return Array.isArray(data.lines) ? data.lines : [];
 }
 
 export async function fetchAffiliateTiers(brandId: string): Promise<AffiliateTier[]> {

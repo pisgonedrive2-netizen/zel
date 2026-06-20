@@ -152,8 +152,10 @@ export default function OzetPage() {
     const genelRows = genelKasa
       ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
       : [];
-    // Genel Kasa bakiyesi: dahil edilmiş TRON harcamaları işletme gideri sayılıp düşülür.
-    const genelBakiye = tronPanel?.harcamaKasaWithTron ?? 0;
+    // Genel Kasa bakiyesi: TRON düşümü dahil; panel yoksa defter bakiyesi.
+    const genelBakiye =
+      tronPanel?.harcamaKasaWithTron ??
+      (genelKasa ? calcKasaBalance(kasaTransactions, undefined, genelKasa.id) : 0);
 
     return {
       genelBakiye,

@@ -39,6 +39,15 @@ import {
   upsertLinePaidRecord,
   type PayrollLinePaidRecord,
 } from "@/lib/payroll-lines";
+import {
+  isPayrollActive,
+  isFinalPayrollMonth,
+  payrollProrationFactor,
+  ymGte,
+  ymGt,
+} from "@/lib/payroll-utils";
+
+export { isPayrollActive, isFinalPayrollMonth, payrollProrationFactor } from "@/lib/payroll-utils";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -83,6 +92,12 @@ export interface Employee {
   paymentDay: string;
   /** Maaş döngüsünün başladığı ilk ay (ISO YYYY-MM). Bu aydan önce maaş hesaplanmaz. */
   payrollStartMonth: string;
+  /** Son bordro ayı (dahil). İş çıkışı sonrası bu aydan sonraki aylarda maaş hesaplanmaz. */
+  payrollEndMonth?: string;
+  /** İşten ayrılış tarihi (YYYY-MM-DD). Son ay için oransal maaş hesabında kullanılır. */
+  exitDate?: string;
+  /** Ayrılış nedeni. */
+  exitReason?: "resignation" | "termination" | "contract_end" | "other";
   startDate: string;
   status: "active" | "inactive";
   walletAddress: string;
@@ -938,6 +953,13 @@ interface AppStore {
   addEmployee: (e: Omit<Employee, "id">) => void;
   updateEmployee: (id: string, e: Partial<Employee>) => void;
   deleteEmployee: (id: string) => void;
+  processEmployeeExit: (id: string, input: {
+    exitDate: string;
+    payrollEndMonth: string;
+    exitReason?: Employee["exitReason"];
+    settlementNote?: string;
+    clearFutureRent?: boolean;
+  }) => void;
 
   // Advance
   addAdvance: (a: Omit<Advance, "id">) => void;
@@ -2224,6 +2246,46 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         return { employees };
       }),
       deleteEmployee: (id)       => set((s) => ({ employees: s.employees.filter((x) => x.id !== id) })),
+
+      processEmployeeExit: (id, input) => set((s) => {
+        const emp = s.employees.find((x) => x.id === id);
+        if (!emp) return {};
+        const exitReason = input.exitReason ?? "other";
+        const noteLine = `İş çıkışı: ${input.exitDate} (${exitReason})${input.settlementNote ? ` — ${input.settlementNote}` : ""}`;
+        const notes = emp.notes ? `${emp.notes}\n${noteLine}` : noteLine;
+        const after: Employee = {
+          ...emp,
+          status: "inactive",
+          exitDate: input.exitDate,
+          payrollEndMonth: input.payrollEndMonth,
+          exitReason,
+          notes,
+        };
+        let salaryExtras = s.salaryExtras;
+        if (input.clearFutureRent !== false) {
+          salaryExtras = salaryExtras.filter(
+            (e) =>
+              !(e.employeeId === id && e.type === "rent" && ymGt(e.month, input.payrollEndMonth)),
+          );
+        }
+        if (input.settlementNote?.trim()) {
+          salaryExtras = [
+            ...salaryExtras,
+            {
+              id: uid(),
+              employeeId: id,
+              month: input.payrollEndMonth,
+              amount: 0,
+              description: `İş çıkışı notu: ${input.settlementNote.trim()}`,
+              type: "other" as const,
+            },
+          ];
+        }
+        return {
+          employees: s.employees.map((x) => (x.id === id ? after : x)),
+          salaryExtras,
+        };
+      }),
 
       // Advance
       addAdvance:    (a)         => set((s) => ({ advances: [...s.advances, { ...a, id: uid() }] })),
@@ -3820,15 +3882,6 @@ export function unreadNotificationCount(
 // Türev hesaplamalar
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** İki ay anahtarını karşılaştır ("2026-04" >= "2026-03"). */
-const ymGte = (a: string, b: string) => a.localeCompare(b) >= 0;
-const ymGt  = (a: string, b: string) => a.localeCompare(b) >  0;
-
-/** Çalışan, verilen ay için maaş bordrosunda mı? (payrollStartMonth uygulanır.) */
-export function isPayrollActive(employee: Employee, month: string) {
-  return employee.status === "active" && ymGte(month, employee.payrollStartMonth);
-}
-
 /** Bordro henüz başlamadı; ilk maaş `payrollStartMonth` döneminde (görüntülenen ay öncesi). */
 export function isPayrollUpcoming(employee: Employee, month: string): boolean {
   return (
@@ -3915,12 +3968,13 @@ export function calcNetPayable(
 ): number {
   if (!isPayrollActive(employee, month)) return 0;
 
+  const factor = payrollProrationFactor(employee, month);
   const empAdvances  = advances.filter((a) => a.employeeId === employee.id && a.month === month);
   const empExtras    = extras.filter((e) => e.employeeId === employee.id && e.month === month);
   const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
   const carryFwd     = calcCarryForward(employee.id, month, advances, paymentStatuses);
 
-  const rentAdd = getRentForMonth(employee, month, extras);
+  const rentAdd = getRentForMonth(employee, month, extras) * factor;
   const otherAdd = empExtras
     .filter((e) => e.type !== "deduction" && e.type !== "rent")
     .reduce((s, e) => s + e.amount, 0);
@@ -3929,7 +3983,7 @@ export function calcNetPayable(
     .filter((e) => e.type === "deduction")
     .reduce((s, e) => s + e.amount, 0);
 
-  return employee.baseSalary + totalAdd - totalDeduc - totalAdvance - carryFwd;
+  return employee.baseSalary * factor + totalAdd - totalDeduc - totalAdvance - carryFwd;
 }
 
 /** Bu ay için onaylı içerik harcaması toplamı (red / onay bekleyen / bilgi istenen hariç). */

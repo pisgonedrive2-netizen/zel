@@ -242,15 +242,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabaseMode || sessionReady) return;
     let cancelled = false;
-    fetch("/api/auth/me", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data: { user: typeof user }) => {
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/me", { credentials: "include" });
         if (cancelled) return;
+        if (!r.ok) {
+          useAuth.setState({ user: null, sessionReady: true });
+          return;
+        }
+        const data = (await r.json()) as { user: typeof user };
         useAuth.setState({ user: data.user ?? null, sessionReady: true });
-      })
-      .catch(() => {
-        if (!cancelled) useAuth.setState({ user: null, sessionReady: true });
-      });
+      } catch {
+        // Ağ hatasında oturumu silme — kullanıcı zaten login() ile geldiyse state korunur.
+        if (!cancelled) useAuth.setState({ sessionReady: true });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -315,18 +321,38 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const res = await fetchJsonWithRetry("/api/bootstrap", {
           credentials: "include",
         });
-        if (res.status === 401) {
+        let bootstrapRes = res;
+        if (bootstrapRes.status === 401) {
+          // Giriş sonrası çerez yarışı — kısa bekleyip bir kez daha dene.
+          await new Promise((r) => setTimeout(r, 400));
+          bootstrapRes = await fetchJsonWithRetry("/api/bootstrap", {
+            credentials: "include",
+          });
+        }
+        if (bootstrapRes.status === 401) {
           throw new Error("Oturum gerekli — lütfen tekrar giriş yapın");
         }
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `Bootstrap (${res.status})`);
+        if (!bootstrapRes.ok) {
+          const text = await bootstrapRes.text();
+          throw new Error(text || `Bootstrap (${bootstrapRes.status})`);
         }
-        const data = (await res.json()) as AppHydratePayload & { users?: unknown[] };
+        const data = (await bootstrapRes.json()) as AppHydratePayload & { users?: unknown[] };
         if (cancelled) return;
         const patch: Record<string, unknown> = {};
+        const preserveKasa =
+          user.role === "admin" || user.role === "auditor";
         for (const k of APP_SNAPSHOT_KEYS) {
-          if (data[k] !== undefined) patch[k] = data[k];
+          if (data[k] === undefined) continue;
+          if (
+            preserveKasa &&
+            (k === "kasas" || k === "kasaTransactions") &&
+            Array.isArray(data[k]) &&
+            (data[k] as unknown[]).length === 0
+          ) {
+            const prev = useStore.getState()[k as "kasas" | "kasaTransactions"];
+            if (prev.length > 0) continue;
+          }
+          patch[k] = data[k];
         }
         const employees = (patch.employees ?? useStore.getState().employees) as Employee[];
         const contentExpenses = mergeCanonicalContentExpenses(

@@ -17,6 +17,7 @@ import { Field, Input, Select, Textarea, NumberInput, FormGrid, FormActions } fr
 import { downloadProfessionalCsv, numberedDetailSection, summarySection } from "@/lib/professional-csv";
 import { fetchCrm } from "@/lib/crm-api";
 import { fetchAccounting, saveInvoice, deleteAccounting } from "@/lib/brand-accounting-api";
+import { deleteInvoiceLine, fetchInvoiceLines, saveInvoiceLine } from "@/lib/brand-igaming-api";
 import {
   INVOICE_STATUS_LABELS,
   type AccCurrency, type BrandInvoice, type InvoiceStatus,
@@ -67,6 +68,13 @@ const emptyInvoice: InvoiceForm = {
   amount: 0, taxPct: 0, currency: "USD", notes: "",
 };
 
+type LineDraft = { id: string; description: string; quantity: number; unitPrice: number };
+
+const emptyLine = (): LineDraft => ({ id: "", description: "", quantity: 1, unitPrice: 0 });
+
+const lineTotal = (lines: LineDraft[]) =>
+  lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+
 export default function MarkaFaturalarPage() {
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
@@ -78,7 +86,9 @@ export default function MarkaFaturalarPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<InvoiceForm>(emptyInvoice);
   const [busy, setBusy] = useState(false);
-  const [linePreview, setLinePreview] = useState("Örnek kalem: Affiliate komisyon · 1 × $500");
+  const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
+  const [removedLineIds, setRemovedLineIds] = useState<string[]>([]);
+  const [linesLoading, setLinesLoading] = useState(false);
 
   const [cur, setCur] = useState<AccCurrency>("USD");
   const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>("all");
@@ -153,13 +163,39 @@ export default function MarkaFaturalarPage() {
     return out;
   }, [invoices, statusFilter, q, sortBy, contactName]);
 
-  const openNew = () => { setForm({ ...emptyInvoice, currency: cur }); setOpen(true); };
-  const openEdit = (i: BrandInvoice) => {
+  const openNew = () => {
+    setForm({ ...emptyInvoice, currency: cur });
+    setLines([emptyLine()]);
+    setRemovedLineIds([]);
+    setOpen(true);
+  };
+
+  const openEdit = async (i: BrandInvoice) => {
     setForm({
       id: i.id, number: i.number, contactId: i.contactId ?? "", title: i.title, status: i.status,
       issueDate: i.issueDate, dueDate: i.dueDate ?? "", amount: i.amount, taxPct: i.taxPct, currency: i.currency, notes: i.notes,
     });
+    setRemovedLineIds([]);
     setOpen(true);
+    if (!brandId) return;
+    setLinesLoading(true);
+    try {
+      const saved = await fetchInvoiceLines(brandId, i.id);
+      if (saved.length > 0) {
+        setLines(saved.map((l) => ({
+          id: l.id,
+          description: l.description,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+        })));
+      } else {
+        setLines([emptyLine()]);
+      }
+    } catch {
+      setLines([emptyLine()]);
+    } finally {
+      setLinesLoading(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -167,9 +203,37 @@ export default function MarkaFaturalarPage() {
     if (!brandId) return;
     setBusy(true);
     try {
-      await saveInvoice({ ...form, id: form.id || undefined, brandId, contactId: form.contactId || undefined, dueDate: form.dueDate || undefined });
+      const lineSum = lineTotal(lines.filter((l) => l.description.trim()));
+      const amount = lineSum > 0 ? lineSum : form.amount;
+      const saved = await saveInvoice({
+        ...form,
+        id: form.id || undefined,
+        brandId,
+        amount,
+        contactId: form.contactId || undefined,
+        dueDate: form.dueDate || undefined,
+      });
+      const invoiceId = saved.id;
+      for (const removedId of removedLineIds) {
+        await deleteInvoiceLine(brandId, removedId);
+      }
+      const activeLines = lines.filter((l) => l.description.trim());
+      for (let i = 0; i < activeLines.length; i++) {
+        const l = activeLines[i];
+        await saveInvoiceLine({
+          id: l.id || undefined,
+          brandId,
+          invoiceId,
+          description: l.description.trim(),
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          sortOrder: i,
+        });
+      }
       setOpen(false);
       setForm(emptyInvoice);
+      setLines([emptyLine()]);
+      setRemovedLineIds([]);
       void load();
     } catch (ex) {
       setError(ex instanceof Error ? ex.message : "Kaydedilemedi");
@@ -418,15 +482,84 @@ export default function MarkaFaturalarPage() {
                 <Select value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value as AccCurrency }))} options={CUR_OPTS} />
               </Field>
             </FormGrid>
-            {form.amount > 0 && (
+            {lineTotal(lines) > 0 && (
+              <p className="text-[12px] text-muted-foreground">
+                Kalem toplamı (KDV hariç):{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {CUR_SYMBOL[form.currency]}{fmt(lineTotal(lines))}
+                </span>
+              </p>
+            )}
+            {form.amount > 0 && lineTotal(lines) === 0 && (
               <p className="text-[12px] text-muted-foreground">
                 KDV dahil toplam: <span className="font-medium tabular-nums text-foreground">{CUR_SYMBOL[form.currency]}{fmt(form.amount * (1 + form.taxPct / 100))}</span>
               </p>
             )}
+            {lineTotal(lines) > 0 && (
+              <p className="text-[12px] text-muted-foreground">
+                KDV dahil toplam:{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {CUR_SYMBOL[form.currency]}{fmt(lineTotal(lines) * (1 + form.taxPct / 100))}
+                </span>
+              </p>
+            )}
             <Field label="Notlar"><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} /></Field>
-            <Field label="Fatura kalemleri" hint="Kayıt sonrası kalem detayı eklenebilir (brand_invoice_lines)">
-              <Input value={linePreview} onChange={(e) => setLinePreview(e.target.value)} placeholder="Açıklama · adet × birim fiyat" />
-            </Field>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Fatura kalemleri</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-[11px]"
+                  onClick={() => setLines((prev) => [...prev, emptyLine()])}
+                >
+                  <Plus size={12} /> Kalem ekle
+                </Button>
+              </div>
+              {linesLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                  <Loader2 size={14} className="animate-spin" /> Kalemler yükleniyor…
+                </div>
+              ) : (
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  {lines.map((line, idx) => (
+                    <div key={line.id || `draft-${idx}`} className="grid gap-2 sm:grid-cols-[1fr_72px_96px_32px] items-end">
+                      <Input
+                        value={line.description}
+                        onChange={(e) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, description: e.target.value } : l))}
+                        placeholder="Açıklama (ör. Affiliate komisyon)"
+                      />
+                      <NumberInput
+                        value={line.quantity}
+                        onChange={(v) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, quantity: v } : l))}
+                        min={0}
+                      />
+                      <NumberInput
+                        value={line.unitPrice}
+                        onChange={(v) => setLines((prev) => prev.map((l, i) => i === idx ? { ...l, unitPrice: v } : l))}
+                        min={0}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-red-600"
+                        disabled={lines.length <= 1}
+                        onClick={() => {
+                          if (line.id) setRemovedLineIds((prev) => [...prev, line.id]);
+                          setLines((prev) => prev.filter((_, i) => i !== idx));
+                        }}
+                        aria-label="Kalemi sil"
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                  <p className="text-[10px] text-muted-foreground">Adet · birim fiyat (KDV hariç). Kalemler kayıtta fatura tutarını belirler.</p>
+                </div>
+              )}
+            </div>
             <FormActions onCancel={() => setOpen(false)} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
           </form>
         </Modal>

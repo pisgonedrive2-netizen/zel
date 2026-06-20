@@ -477,6 +477,24 @@ export type AffiliateQualityScore = {
   updatedAt?: string;
 };
 
+export type BrandOperator = {
+  id: string;
+  brandId: string;
+  name: string;
+  apiBaseUrl?: string;
+  currency: IgamingCurrency;
+  status: "active" | "paused" | "closed";
+  notes: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export const OPERATOR_STATUS_LABELS: Record<BrandOperator["status"], string> = {
+  active: "Aktif",
+  paused: "Duraklatıldı",
+  closed: "Kapalı",
+};
+
 export type BrandRiskFlag = {
   id: string;
   brandId: string;
@@ -485,6 +503,22 @@ export type BrandRiskFlag = {
   detectedAt: string;
   resolvedAt?: string;
   notes: string;
+  score?: number;
+  source?: "operator" | "computed" | "manual";
+};
+
+export const RISK_FLAG_TYPE_LABELS: Record<BrandRiskFlag["flagType"], string> = {
+  deposit_spike: "Yatırım artışı",
+  withdrawal_spike: "Çekim artışı",
+  duplicate_device: "Çift cihaz",
+  incentive_abuse: "Teşvik kötüye kullanım",
+  other: "Diğer risk",
+};
+
+export const RISK_SEVERITY_LABELS: Record<BrandRiskFlag["severity"], string> = {
+  low: "Düşük",
+  medium: "Orta",
+  high: "Yüksek",
 };
 
 export const DEFAULT_AFFILIATE_TIERS: Omit<AffiliateTier, "id" | "brandId">[] = [

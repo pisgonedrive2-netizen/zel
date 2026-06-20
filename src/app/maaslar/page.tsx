@@ -4,12 +4,12 @@ import { useState, useRef, useMemo, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus, Pencil, ChevronLeft, ChevronRight, ChevronDown, CheckCircle2, Clock,
-  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt, Wallet, Stamp,
+  AlertTriangle, CalendarClock, ExternalLink, Home, Receipt, Wallet, Stamp, UserMinus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   useStore, calcNetPayable, calcPayrollPayoutDue, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, isPayrollUpcoming,
-  estimateFirstPayrollNet, getRentForMonth,
+  estimateFirstPayrollNet, getRentForMonth, payrollProrationFactor,
   sumApprovedContentExpenses, sumPaidContentExpenses, sumPayrollSettledContentExpenses,
   plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
@@ -197,6 +197,95 @@ function EmployeeForm({ initial, onSave, onDelete, onClose }: {
         </Field>
       </div>
       <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : "Ekle"} />
+    </form>
+  );
+}
+
+const EXIT_REASON_LABELS: Record<NonNullable<Employee["exitReason"]>, string> = {
+  resignation: "İstifa",
+  termination: "Fesih",
+  contract_end: "Sözleşme bitimi",
+  other: "Diğer",
+};
+
+function ExitEmployeeForm({
+  employee,
+  defaultMonth,
+  onConfirm,
+  onClose,
+}: {
+  employee: Employee;
+  defaultMonth: string;
+  onConfirm: (input: {
+    exitDate: string;
+    payrollEndMonth: string;
+    exitReason: Employee["exitReason"];
+    settlementNote: string;
+    clearFutureRent: boolean;
+  }) => void;
+  onClose: () => void;
+}) {
+  const [exitDate, setExitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [payrollEndMonth, setPayrollEndMonth] = useState(defaultMonth);
+  const [exitReason, setExitReason] = useState<Employee["exitReason"]>("resignation");
+  const [settlementNote, setSettlementNote] = useState("");
+  const [clearFutureRent, setClearFutureRent] = useState(true);
+  const factor = payrollProrationFactor(
+    { ...employee, payrollEndMonth, exitDate },
+    payrollEndMonth,
+  );
+  const proratedBase = employee.baseSalary * factor;
+  const proratedRent = (employee.rentSupport ?? 0) * factor;
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onConfirm({
+          exitDate,
+          payrollEndMonth,
+          exitReason,
+          settlementNote,
+          clearFutureRent,
+        });
+        onClose();
+      }}
+      className="space-y-4"
+    >
+      <div className="rounded-lg border border-amber-300/50 bg-amber-50/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200">
+        <strong>{employee.name}</strong> için iş çıkışı kaydı oluşturulacak. Son bordro ayından sonra maaş ve kira kalemleri hesaplanmaz.
+      </div>
+      <FormGrid>
+        <Field label="Ayrılış tarihi" required>
+          <DateTimePicker mode="date" value={exitDate} onChange={setExitDate} />
+        </Field>
+        <Field label="Son bordro ayı (dahil)" required>
+          <FInput type="month" value={payrollEndMonth} onChange={(e) => setPayrollEndMonth(e.target.value)} />
+        </Field>
+        <Field label="Ayrılış nedeni">
+          <Select
+            value={exitReason ?? "other"}
+            onChange={(e) => setExitReason(e.target.value as Employee["exitReason"])}
+            options={Object.entries(EXIT_REASON_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+          />
+        </Field>
+      </FormGrid>
+      <div className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-xs space-y-1">
+        <p className="font-medium">Son ay tahmini (oransal)</p>
+        <p>Temel maaş: <strong>{fmt(proratedBase)}</strong>{factor < 1 ? ` (%${Math.round(factor * 100)} · ${exitDate})` : ""}</p>
+        {employee.rentSupport > 0 && (
+          <p>Kira desteği: <strong>{fmt(proratedRent)}</strong></p>
+        )}
+        <p className="text-muted-foreground">Açık avans ve içerik kalemleri ayrıca bordroda kalır; son ödemeyi tamamlayın.</p>
+      </div>
+      <Field label="Kapanış notu (opsiyonel)">
+        <Textarea value={settlementNote} onChange={(e) => setSettlementNote(e.target.value)} rows={2} placeholder="Devir, ekipman iadesi, son ödeme detayı..." />
+      </Field>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+        <input type="checkbox" checked={clearFutureRent} onChange={(e) => setClearFutureRent(e.target.checked)} className="rounded" />
+        Son aydan sonraki kira kalemlerini temizle
+      </label>
+      <FormActions onCancel={onClose} submitLabel="İş çıkışını kaydet" />
     </form>
   );
 }
@@ -1435,13 +1524,14 @@ export default function MaaslarPage() {
   const { user } = useAuth();
   const {
     employees, advances, salaryExtras, paymentStatuses, contentExpenses,
-    addEmployee, updateEmployee, deleteEmployee,
+    addEmployee, updateEmployee, deleteEmployee, processEmployeeExit,
     markEmployeePayrollLinesPaid,
   } = useStore();
   const readOnly = useIsReadOnly();
   const [month, setMonth]     = useState(() => toYearMonthLocal(new Date()));
   const [search, setSearch]   = useState("");
   const [empModal, setEmpModal] = useState<"new" | Employee | null>(null);
+  const [exitModal, setExitModal] = useState<Employee | null>(null);
   const [bulkRent, setBulkRent] = useState<{ employeeId?: string } | null>(null);
 
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && e.status === "active");
@@ -1830,6 +1920,11 @@ export default function MaaslarPage() {
                     <Badge variant="outline" className={emp.status === "active" ? "text-green-600 border-green-500/30" : "text-muted-foreground"}>
                       {emp.status === "active" ? "Aktif" : "Pasif"}
                     </Badge>
+                    {emp.payrollEndMonth && (
+                      <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-400">
+                        Çıkış: {emp.exitDate ?? "—"} · son bordro {emp.payrollEndMonth}
+                      </p>
+                    )}
             {paymentStatuses.find(p => p.employeeId === emp.id && p.month === month)?.paidBy && (
               <p className="mt-1 text-[10px] text-muted-foreground">
                 Onay: {paymentStatuses.find(p => p.employeeId === emp.id && p.month === month)?.approvedAt?.slice(0, 10)}
@@ -1838,14 +1933,27 @@ export default function MaaslarPage() {
                   </td>
                   <td className="px-3 py-3">
                     {!readOnly && (
-                      <button
-                        type="button"
-                        onClick={() => setEmpModal(emp)}
-                        className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                        aria-label="Çalışanı düzenle"
-                      >
-                        <Pencil size={13} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEmpModal(emp)}
+                          className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                          aria-label="Çalışanı düzenle"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        {emp.status === "active" && !emp.payrollEndMonth && (
+                          <button
+                            type="button"
+                            onClick={() => setExitModal(emp)}
+                            className="text-muted-foreground/40 hover:text-amber-600 transition-colors"
+                            aria-label="İş çıkışı"
+                            title="İş çıkışı kaydet"
+                          >
+                            <UserMinus size={13} />
+                          </button>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -1863,6 +1971,17 @@ export default function MaaslarPage() {
           onDelete={empModal !== "new" && empModal !== null ? () => { deleteEmployee(empModal.id); setEmpModal(null); } : undefined}
           onClose={() => setEmpModal(null)}
         />
+      </Modal>
+
+      <Modal open={exitModal !== null} onClose={() => setExitModal(null)} title="İş çıkışı kaydı" size="md">
+        {exitModal && (
+          <ExitEmployeeForm
+            employee={exitModal}
+            defaultMonth={month}
+            onConfirm={(input) => processEmployeeExit(exitModal.id, input)}
+            onClose={() => setExitModal(null)}
+          />
+        )}
       </Modal>
 
       <BulkRentModal

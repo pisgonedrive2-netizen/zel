@@ -10,12 +10,15 @@ import type {
   BrandIgamingProfile,
   BrandIgamingTask,
   BrandIgamingDashboard,
+  BrandInvoiceLine,
   BrandKpiTarget,
   BrandNotificationRule,
   BrandOnboardingProgress,
+  BrandOperator,
   BrandPaymentSchedule,
   BrandPayrollRun,
   BrandPlayerEvent,
+  BrandRiskFlag,
   IgamingDashboardSummary,
 } from "@/types/brand-igaming";
 
@@ -30,9 +33,12 @@ export {
   fetchDealMilestones,
   fetchDealTracking,
   fetchIgamingDashboard,
+  fetchInvoiceLines,
   fetchKpiTargets,
   fetchOfferTemplates,
+  fetchOperators,
   fetchPostApprovals,
+  fetchRiskFlags,
   fetchTrackingDomains,
 } from "@/lib/marka-igaming-api";
 
@@ -208,6 +214,64 @@ export async function patchComplianceCheck(
   return data.check;
 }
 
+// ── Risk flags ────────────────────────────────────────────────────────────────
+
+export async function saveRiskFlag(input: Partial<BrandRiskFlag>): Promise<BrandRiskFlag> {
+  const res = await fetch("/api/marka/igaming/risk-flags", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ flag: BrandRiskFlag }>(res, "Risk bayrağı kaydedilemedi");
+  return data.flag;
+}
+
+export async function resolveRiskFlag(id: string): Promise<BrandRiskFlag> {
+  const res = await fetch("/api/marka/igaming/risk-flags", {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, resolve: true }),
+  });
+  const data = await jsonOrThrow<{ flag: BrandRiskFlag }>(res, "Risk bayrağı çözülemedi");
+  return data.flag;
+}
+
+// ── Operators ─────────────────────────────────────────────────────────────────
+
+export async function saveOperator(input: Partial<BrandOperator>): Promise<BrandOperator> {
+  const res = await fetch("/api/marka/igaming/operators", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ operator: BrandOperator }>(res, "Operatör kaydedilemedi");
+  return data.operator;
+}
+
+// ── Invoice lines ─────────────────────────────────────────────────────────────
+
+export async function saveInvoiceLine(input: Partial<BrandInvoiceLine>): Promise<BrandInvoiceLine> {
+  const res = await fetch("/api/marka/igaming/invoice-lines", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ line: BrandInvoiceLine }>(res, "Fatura kalemi kaydedilemedi");
+  return data.line;
+}
+
+export async function deleteInvoiceLine(brandId: string, lineId: string): Promise<void> {
+  const res = await fetch(
+    `/api/marka/igaming/invoice-lines${qs({ brandId, id: lineId })}`,
+    { method: "DELETE", credentials: "include" },
+  );
+  await jsonOrThrow<{ ok: boolean }>(res, "Fatura kalemi silinemedi");
+}
+
 // ── Tasks / calendar ──────────────────────────────────────────────────────────
 
 export async function saveIgamingTask(input: Partial<BrandIgamingTask>): Promise<BrandIgamingTask> {
@@ -246,10 +310,19 @@ export async function saveCalendarEvent(
 // ── Integration panel ─────────────────────────────────────────────────────────
 
 export type IntegrationPanel = {
+  operators: Array<{
+    id: string;
+    name: string;
+    apiBaseUrl?: string;
+    currency: string;
+    status: string;
+    notes: string;
+  }>;
   apiKeys: Array<{
     id: string;
     label: string;
     keyPrefix: string;
+    operatorId?: string;
     scopes?: string[];
     lastUsedAt?: string;
   }>;
@@ -288,12 +361,13 @@ export async function fetchIntegrationPanel(brandId: string): Promise<Integratio
 export async function createApiKey(
   brandId: string,
   label = "default",
+  operatorId?: string,
 ): Promise<{ key: string; apiKey: { id: string; keyPrefix: string; label: string } }> {
   const res = await fetch("/api/marka/igaming/integration", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ brandId, label }),
+    body: JSON.stringify({ brandId, label, operatorId }),
   });
   const data = await jsonOrThrow<{ key: string; apiKey: { id: string; keyPrefix: string; label: string } }>(
     res,

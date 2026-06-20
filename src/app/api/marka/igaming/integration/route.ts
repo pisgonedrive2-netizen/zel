@@ -6,6 +6,7 @@ import {
   createBrandApiKey,
   fetchBrandApiKeys,
   fetchBrandImportBatches,
+  fetchBrandOperators,
   fetchLatestImportBatch,
   fetchLatestWebhookLog,
   fetchBrandWebhookLogs,
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   if (!isSupabaseEnabled()) {
-    return NextResponse.json({ apiKeys: [], webhookLogs: [], importBatches: [], lastWebhook: null, lastImport: null });
+    return NextResponse.json({ apiKeys: [], operators: [], webhookLogs: [], importBatches: [], lastWebhook: null, lastImport: null });
   }
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
@@ -25,15 +26,17 @@ export async function GET(req: NextRequest) {
   const guard = ensureBrandAccess(session, brandId, "read");
   if (guard) return guard;
   try {
-    const [apiKeys, webhookLogs, importBatches, lastWebhook, lastImport] = await Promise.all([
+    const [apiKeys, webhookLogs, importBatches, lastWebhook, lastImport, operators] = await Promise.all([
       fetchBrandApiKeys(brandId),
       fetchBrandWebhookLogs(brandId, 20),
       fetchBrandImportBatches(brandId, 10),
       fetchLatestWebhookLog(brandId),
       fetchLatestImportBatch(brandId),
+      fetchBrandOperators(brandId),
     ]);
     return NextResponse.json({
       apiKeys,
+      operators,
       webhookLogs,
       importBatches,
       lastWebhook: lastWebhook

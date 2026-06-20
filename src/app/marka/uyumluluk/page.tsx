@@ -10,16 +10,26 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
-import { fetchComplianceChecks, saveComplianceCheck } from "@/lib/brand-igaming-api";
+import { fetchComplianceChecks, fetchRiskFlags } from "@/lib/marka-igaming-api";
+import { saveComplianceCheck, saveRiskFlag, resolveRiskFlag } from "@/lib/brand-igaming-api";
 import {
   COMPLIANCE_STATUS_LABELS,
   COMPLIANCE_TYPE_LABELS,
+  RISK_FLAG_TYPE_LABELS,
+  RISK_SEVERITY_LABELS,
   type BrandComplianceCheck,
+  type BrandRiskFlag,
 } from "@/types/brand-igaming";
+import { BrandRiskSummary } from "@/components/marka-igaming/brand-risk-summary";
 
 const emptyForm = {
   id: "", checkType: "kyc" as BrandComplianceCheck["checkType"], status: "pending" as BrandComplianceCheck["status"],
   dueDate: "", evidenceUrl: "", notes: "",
+};
+
+const emptyRiskForm = {
+  id: "", flagType: "other" as BrandRiskFlag["flagType"], severity: "medium" as BrandRiskFlag["severity"],
+  detectedAt: new Date().toISOString().slice(0, 10), notes: "",
 };
 
 const STATUS_CLS: Record<BrandComplianceCheck["status"], string> = {
@@ -33,10 +43,13 @@ export default function MarkaUyumlulukPage() {
   const { user, brandId, brand, canViewBrand, isAdminView } = useMarkaPortal();
   const readOnly = !isAdminView && clientIsReadOnly(user?.orgRole);
   const [checks, setChecks] = useState<BrandComplianceCheck[]>([]);
+  const [riskFlags, setRiskFlags] = useState<BrandRiskFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [riskOpen, setRiskOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [riskForm, setRiskForm] = useState(emptyRiskForm);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -44,7 +57,12 @@ export default function MarkaUyumlulukPage() {
     setLoading(true);
     setError(null);
     try {
-      setChecks(await fetchComplianceChecks(brandId));
+      const [c, f] = await Promise.all([
+        fetchComplianceChecks(brandId),
+        fetchRiskFlags(brandId),
+      ]);
+      setChecks(c);
+      setRiskFlags(f);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Yüklenemedi");
     } finally {
@@ -58,7 +76,40 @@ export default function MarkaUyumlulukPage() {
     pending: checks.filter((c) => c.status === "pending").length,
     passed: checks.filter((c) => c.status === "passed").length,
     failed: checks.filter((c) => c.status === "failed").length,
-  }), [checks]);
+    activeRisks: riskFlags.filter((f) => !f.resolvedAt).length,
+  }), [checks, riskFlags]);
+
+  const submitRisk = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!brandId) return;
+    setBusy(true);
+    try {
+      await saveRiskFlag({
+        ...riskForm,
+        id: riskForm.id || undefined,
+        brandId,
+      });
+      setRiskOpen(false);
+      setRiskForm(emptyRiskForm);
+      void load();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Kaydedilemedi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resolveFlag = async (id: string) => {
+    setBusy(true);
+    try {
+      await resolveRiskFlag(id);
+      void load();
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Çözülemedi");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,11 +150,52 @@ export default function MarkaUyumlulukPage() {
             {!readOnly && <Button size="sm" onClick={() => { setForm(emptyForm); setOpen(true); }}><Plus size={14} /> Kontrol ekle</Button>}
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Card><CardContent className="py-3 text-center"><p className="text-xs text-muted-foreground">Bekleyen</p><p className="text-xl font-bold text-amber-600">{stats.pending}</p></CardContent></Card>
           <Card><CardContent className="py-3 text-center"><p className="text-xs text-muted-foreground">Geçti</p><p className="text-xl font-bold text-green-600">{stats.passed}</p></CardContent></Card>
           <Card><CardContent className="py-3 text-center"><p className="text-xs text-muted-foreground">Başarısız</p><p className="text-xl font-bold text-red-600">{stats.failed}</p></CardContent></Card>
+          <Card><CardContent className="py-3 text-center"><p className="text-xs text-muted-foreground">Aktif risk</p><p className="text-xl font-bold text-amber-600">{stats.activeRisks}</p></CardContent></Card>
         </div>
+        <BrandRiskSummary complianceChecks={checks} riskFlags={riskFlags} compact />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">Risk bayrakları</h2>
+          {!readOnly && (
+            <Button size="sm" variant="outline" onClick={() => { setRiskForm(emptyRiskForm); setRiskOpen(true); }}>
+              <Plus size={14} /> Risk ekle
+            </Button>
+          )}
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            {riskFlags.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">Kayıtlı risk bayrağı yok.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {riskFlags.map((f) => (
+                  <div key={f.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                    <div>
+                      <p className="font-medium">{f.notes || RISK_FLAG_TYPE_LABELS[f.flagType]}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {RISK_FLAG_TYPE_LABELS[f.flagType]} · {f.detectedAt}
+                        {f.source ? ` · ${f.source}` : ""}
+                        {f.resolvedAt ? ` · Çözüldü: ${f.resolvedAt.slice(0, 10)}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px]">{RISK_SEVERITY_LABELS[f.severity]}</Badge>
+                      {!f.resolvedAt && !readOnly && (
+                        <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => void resolveFlag(f.id)} disabled={busy}>
+                          Çözüldü
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <h2 className="text-sm font-semibold">Uyumluluk kontrolleri</h2>
         {error && <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>}
         {loading && checks.length === 0 ? (
           <Card><CardContent className="py-12 text-center"><Loader2 className="mx-auto animate-spin opacity-50" /></CardContent></Card>
@@ -175,6 +267,28 @@ export default function MarkaUyumlulukPage() {
           </FormGrid>
           <Field label="Notlar"><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} /></Field>
           <FormActions onCancel={() => setOpen(false)} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
+        </form>
+      </Modal>
+      <Modal
+        open={riskOpen}
+        onClose={() => setRiskOpen(false)}
+        title={riskForm.id ? "Risk bayrağını düzenle" : "Yeni risk bayrağı"}
+        size="md"
+      >
+        <form onSubmit={submitRisk} className="space-y-4">
+          <FormGrid>
+            <Field label="Tip">
+              <Select value={riskForm.flagType} onChange={(e) => setRiskForm((f) => ({ ...f, flagType: e.target.value as BrandRiskFlag["flagType"] }))}
+                options={Object.entries(RISK_FLAG_TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+            </Field>
+            <Field label="Önem">
+              <Select value={riskForm.severity} onChange={(e) => setRiskForm((f) => ({ ...f, severity: e.target.value as BrandRiskFlag["severity"] }))}
+                options={Object.entries(RISK_SEVERITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+            </Field>
+            <Field label="Tespit tarihi"><Input type="date" value={riskForm.detectedAt} onChange={(e) => setRiskForm((f) => ({ ...f, detectedAt: e.target.value }))} /></Field>
+          </FormGrid>
+          <Field label="Açıklama"><Textarea value={riskForm.notes} onChange={(e) => setRiskForm((f) => ({ ...f, notes: e.target.value }))} rows={2} /></Field>
+          <FormActions onCancel={() => setRiskOpen(false)} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
         </form>
       </Modal>
     </MarkaPageGuard>

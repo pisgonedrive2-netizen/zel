@@ -31,6 +31,11 @@ export function employeeFromRow(r: Record<string, unknown>): Employee {
     initialAdvance: num(r.initial_advance),
     paymentDay: str(r.payment_day, "1-5"),
     payrollStartMonth: str(r.payroll_start_month),
+    payrollEndMonth: r.payroll_end_month ? str(r.payroll_end_month) : undefined,
+    exitDate: r.exit_date ? str(r.exit_date).slice(0, 10) : undefined,
+    exitReason: r.exit_reason
+      ? (str(r.exit_reason) as Employee["exitReason"])
+      : undefined,
     startDate: str(r.start_date).slice(0, 10),
     status: r.status as Employee["status"],
     walletAddress: str(r.wallet_address),
@@ -51,6 +56,9 @@ export function employeeToRow(e: Employee) {
     initial_advance: e.initialAdvance,
     payment_day: e.paymentDay,
     payroll_start_month: e.payrollStartMonth,
+    payroll_end_month: e.payrollEndMonth ?? null,
+    exit_date: e.exitDate ?? null,
+    exit_reason: e.exitReason ?? null,
     start_date: e.startDate,
     status: e.status,
     wallet_address: e.walletAddress,

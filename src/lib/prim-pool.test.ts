@@ -240,6 +240,44 @@ describe("computePrimPool", () => {
     expect(r.recipients[0].totalUsd).toBeCloseTo(5_000, 0);
   });
 
+  it("kasa payı modu kasa bakiyesinin yüzdesini kullanır", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      kasaBalanceUsd: 100_000,
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "kasa_share", basePrimRate: 0.12 },
+    });
+    expect(r.basePrimUsd).toBe(12_000);
+    expect(r.totalPrimUsd).toBe(12_000);
+  });
+
+  it("sabit prim modunda senaryolar farklı prim üretir", () => {
+    const base: PrimBaseInputs = {
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 600_000, b2: 600_000 },
+      payrollUsd: 8_000,
+      contentExpenseUsd: 2_000,
+      generalExpenseUsd: 1_000,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      kasaBalanceUsd: 80_000,
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "fixed", fixedPrimUsd: 12_000, basePrimRate: 0.15 },
+    };
+    const worst = computeWithScenario(base, DEFAULT_SCENARIOS[0]);
+    const aggressive = computeWithScenario(base, DEFAULT_SCENARIOS[4]);
+    expect(aggressive.totalPrimUsd).toBeGreaterThan(worst.totalPrimUsd);
+    expect(worst.totalPrimUsd).toBeLessThan(12_000);
+  });
+
   it("senaryolar baz girdiyi çarpanlarla ölçekler", () => {
     const base: PrimBaseInputs = {
       monthYm: "2026-06",
@@ -251,12 +289,80 @@ describe("computePrimPool", () => {
       contentExpenseUsd: 2_000,
       generalExpenseUsd: 1_000,
       recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
-      config: DEFAULT_PRIM_CONFIG,
+      kasaBalanceUsd: 50_000,
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "kasa_share", basePrimRate: 0.12 },
     };
     const worst = computeWithScenario(base, DEFAULT_SCENARIOS[0]);
     const aggressive = computeWithScenario(base, DEFAULT_SCENARIOS[4]);
     expect(aggressive.totalRevenueUsd).toBeGreaterThan(worst.totalRevenueUsd);
     expect(aggressive.totalPrimUsd).toBeGreaterThan(worst.totalPrimUsd);
+  });
+
+  it("puan sistemi havuzu puana göre böler (2 puan = 1 puanın 2 katı)", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [
+        { id: "e1", name: "A", kind: "streamer", weight: 1, points: 2 },
+        { id: "e2", name: "B", kind: "streamer", weight: 1, points: 1 },
+      ],
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "fixed", fixedPrimUsd: 9_000 },
+    });
+    expect(r.totalPoints).toBe(3);
+    expect(r.perPointUsd).toBeCloseTo(3_000, 0);
+    expect(r.recipients[0].totalUsd).toBeCloseTo(6_000, 0);
+    expect(r.recipients[1].totalUsd).toBeCloseTo(3_000, 0);
+  });
+
+  it("elle eklenen giderler net havuzu düşürür", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 5_000,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        manualExpenses: [{ id: "x", label: "Reklam", amountUsd: 4_000 }],
+      },
+    });
+    expect(r.manualExpenseUsd).toBe(4_000);
+    expect(r.totalOpsUsd).toBe(9_000);
+    expect(r.netPoolUsd).toBe(11_000);
+  });
+
+  it("izlenme havuz bonusu eşik geçilince havuza para ekler", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 1_500_000, b2: 1_000_000 }, // toplam 2.5M
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        viewPoolBonusEnabled: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 1_000,
+      },
+    });
+    expect(r.viewPoolBonusSteps).toBe(2); // floor(2.5M / 1M)
+    expect(r.viewPoolBonusUsd).toBe(2_000);
+    // dağıtılabilir = (net − rezerv) + bonus
+    expect(r.distributablePoolUsd).toBe(20_000 + 2_000);
   });
 
   it("projeksiyon run-rate ile ay sonu izlenmeyi tahmin eder", () => {

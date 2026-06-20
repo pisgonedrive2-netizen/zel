@@ -20,8 +20,11 @@ import { MarkaPageGuard } from "@/components/marka-page-guard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { createApiKey, fetchIntegrationPanel } from "@/lib/brand-igaming-api";
+import { createApiKey, fetchIntegrationPanel, saveOperator } from "@/lib/brand-igaming-api";
 import { fmtDateTime } from "@/lib/fmt-date";
+import Modal from "@/components/ui/modal";
+import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { OPERATOR_STATUS_LABELS, type BrandOperator } from "@/types/brand-igaming";
 
 type PanelData = Awaited<ReturnType<typeof fetchIntegrationPanel>>;
 
@@ -88,6 +91,21 @@ function deriveApiHealth(data: PanelData | null): { label: string; hint: string;
   return { label: "Hazır", hint: `${n} aktif anahtar`, tone: "ok" };
 }
 
+const OPERATOR_STATUS_CLS: Record<BrandOperator["status"], string> = {
+  active: TONE_CLS.ok,
+  paused: TONE_CLS.warn,
+  closed: TONE_CLS.idle,
+};
+
+const emptyOperatorForm = {
+  id: "",
+  name: "",
+  apiBaseUrl: "",
+  currency: "USD" as BrandOperator["currency"],
+  status: "active" as BrandOperator["status"],
+  notes: "",
+};
+
 function HealthIcon({ tone }: { tone: HealthTone }) {
   if (tone === "ok") return <CheckCircle2 size={18} className="text-emerald-600" />;
   if (tone === "error") return <AlertTriangle size={18} className="text-red-600" />;
@@ -103,6 +121,9 @@ export default function MarkaEntegrasyonPage() {
   const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [operatorOpen, setOperatorOpen] = useState(false);
+  const [operatorForm, setOperatorForm] = useState(emptyOperatorForm);
+  const [selectedOperatorId, setSelectedOperatorId] = useState("");
 
   const load = useCallback(async () => {
     if (!brandId) return;
@@ -129,7 +150,7 @@ export default function MarkaEntegrasyonPage() {
     if (!brandId) return;
     setBusy(true);
     try {
-      const r = await createApiKey(brandId, "portal");
+      const r = await createApiKey(brandId, "portal", selectedOperatorId || undefined);
       setNewKey(r.key);
       void load();
     } catch (e) {
@@ -139,9 +160,31 @@ export default function MarkaEntegrasyonPage() {
     }
   };
 
+  const submitOperator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!brandId) return;
+    setBusy(true);
+    try {
+      await saveOperator({
+        ...operatorForm,
+        id: operatorForm.id || undefined,
+        brandId,
+        apiBaseUrl: operatorForm.apiBaseUrl.trim() || undefined,
+      });
+      setOperatorOpen(false);
+      setOperatorForm(emptyOperatorForm);
+      void load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Operatör kaydedilemedi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const firstOperatorId = data?.operators?.[0]?.id;
   const webhookEndpointHint =
-    brandId && (data?.apiKeys?.[0]?.id || brandId)
-      ? `/api/marka/igaming/webhooks/{operatorId}/events`
+    brandId && (selectedOperatorId || firstOperatorId || brandId)
+      ? `/api/marka/igaming/webhooks/${selectedOperatorId || firstOperatorId || "{operatorId}"}/events`
       : null;
 
   return (
@@ -237,6 +280,54 @@ export default function MarkaEntegrasyonPage() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Database size={15} /> Operatörler
+            </CardTitle>
+            <CardDescription>
+              Lisanslı operatör bağlantıları — webhook URL&apos;leri operatör kimliğine göre oluşturulur
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {!readOnly && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => { setOperatorForm(emptyOperatorForm); setOperatorOpen(true); }}
+              >
+                <Plus size={13} /> Operatör ekle
+              </Button>
+            )}
+            {loading ? (
+              <Loader2 className="mx-auto animate-spin opacity-50" />
+            ) : (data?.operators ?? []).length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">
+                Henüz operatör tanımlı değil. Webhook entegrasyonu için en az bir operatör ekleyin.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data!.operators.map((op) => (
+                  <div key={op.id} className="rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{op.name}</p>
+                      <Badge variant="outline" className={`text-[10px] ${OPERATOR_STATUS_CLS[op.status as BrandOperator["status"]] ?? TONE_CLS.idle}`}>
+                        {OPERATOR_STATUS_LABELS[op.status as BrandOperator["status"]] ?? op.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">{op.id}</p>
+                    {op.apiBaseUrl && (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{op.apiBaseUrl}</p>
+                    )}
+                    <p className="mt-1 text-xs text-muted-foreground">{op.currency}{op.notes ? ` · ${op.notes}` : ""}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="grid gap-3 md:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
@@ -247,10 +338,22 @@ export default function MarkaEntegrasyonPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {!readOnly && (
-                <Button size="sm" className="gap-1.5" onClick={() => void genKey()} disabled={busy}>
-                  {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                  Anahtar oluştur
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(data?.operators ?? []).length > 0 && (
+                    <Select
+                      value={selectedOperatorId}
+                      onChange={(e) => setSelectedOperatorId(e.target.value)}
+                      options={[
+                        { value: "", label: "Operatör (opsiyonel)" },
+                        ...(data?.operators ?? []).map((op) => ({ value: op.id, label: op.name })),
+                      ]}
+                    />
+                  )}
+                  <Button size="sm" className="gap-1.5" onClick={() => void genKey()} disabled={busy}>
+                    {busy ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                    Anahtar oluştur
+                  </Button>
+                </div>
               )}
               {loading ? (
                 <Loader2 className="mx-auto animate-spin opacity-50" />
@@ -364,6 +467,30 @@ export default function MarkaEntegrasyonPage() {
           </CardContent>
         </Card>
       </div>
+      {!readOnly && (
+        <Modal open={operatorOpen} onClose={() => setOperatorOpen(false)} title="Operatör ekle" size="md">
+          <form onSubmit={submitOperator} className="space-y-4">
+            <FormGrid>
+              <Field label="Ad" required>
+                <Input value={operatorForm.name} onChange={(e) => setOperatorForm((f) => ({ ...f, name: e.target.value }))} placeholder="Örn. Platform API" />
+              </Field>
+              <Field label="Durum">
+                <Select value={operatorForm.status} onChange={(e) => setOperatorForm((f) => ({ ...f, status: e.target.value as BrandOperator["status"] }))}
+                  options={Object.entries(OPERATOR_STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+              </Field>
+              <Field label="API base URL">
+                <Input value={operatorForm.apiBaseUrl} onChange={(e) => setOperatorForm((f) => ({ ...f, apiBaseUrl: e.target.value }))} placeholder="https://api.operator.com" />
+              </Field>
+              <Field label="Para birimi">
+                <Select value={operatorForm.currency} onChange={(e) => setOperatorForm((f) => ({ ...f, currency: e.target.value as BrandOperator["currency"] }))}
+                  options={[{ value: "USD", label: "USD" }, { value: "EUR", label: "EUR" }, { value: "TRY", label: "TRY" }]} />
+              </Field>
+            </FormGrid>
+            <Field label="Notlar"><Textarea value={operatorForm.notes} onChange={(e) => setOperatorForm((f) => ({ ...f, notes: e.target.value }))} rows={2} /></Field>
+            <FormActions onCancel={() => setOperatorOpen(false)} submitLabel={busy ? "Kaydediliyor..." : "Kaydet"} />
+          </form>
+        </Modal>
+      )}
     </MarkaPageGuard>
   );
 }

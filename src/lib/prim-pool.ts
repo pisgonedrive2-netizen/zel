@@ -16,8 +16,8 @@ export const DEFAULT_GUARANTEED_VIEWS = 1_000_000;
 
 /** Prim havuzunun nasıl hesaplandığı. */
 export type PrimModel = "net_share" | "revenue_share" | "hybrid";
-/** Temel prim nasıl belirlenir: orana göre mi sabit tutar mı. */
-export type PrimBaseMode = "rate" | "fixed";
+/** Temel prim nasıl belirlenir: orana göre, sabit tutar veya kasa payı. */
+export type PrimBaseMode = "rate" | "fixed" | "kasa_share";
 /** İzlenme primi yöntemi. */
 export type PrimViewBonusMode = "multiplier" | "cpm" | "off";
 /** Kişilere dağıtım yöntemi. */
@@ -54,6 +54,21 @@ export type PrimPoolConfig = {
   maxTotalPrimUsd?: number;
   /** Dağıtım yöntemi (varsayılan weighted). */
   distributionMode?: PrimDistributionMode;
+  /** İzlenme havuz bonusu açık mı? (eşik geçilince havuza ek para). */
+  viewPoolBonusEnabled?: boolean;
+  /** Bu kadar toplam izlenme tamamlandıkça havuza para eklenir. */
+  viewPoolBonusThresholdViews?: number;
+  /** Her eşik adımı için havuza eklenen tutar (USD). */
+  viewPoolBonusPerStepUsd?: number;
+  /** Bu sayfada elle eklenen ek giderler (reklam vb.) — net havuzdan düşülür. */
+  manualExpenses?: PrimManualExpense[];
+};
+
+/** Prim sayfasında elle eklenen ek gider (örn. reklam harcaması). */
+export type PrimManualExpense = {
+  id: string;
+  label: string;
+  amountUsd: number;
 };
 
 /** Kütüphane varsayılanı — nötr (rezerv/tavan kapalı). Geriye dönük uyumluluk. */
@@ -84,7 +99,7 @@ export const FAIR_PRIM_CONFIG: PrimPoolConfig = {
   model: "net_share",
   basePrimMode: "fixed",
   fixedPrimUsd: 12_000,
-  basePrimRate: 0.1,
+  basePrimRate: 0.12,
   revenueShareRate: 0.04,
   reserveRate: 0.15,
   monthlyReserveUsd: 0,
@@ -105,20 +120,21 @@ export const PRIM_MODEL_LABELS: Record<PrimModel, string> = {
 };
 
 export const PRIM_BASE_MODE_LABELS: Record<PrimBaseMode, string> = {
-  fixed: "Sabit tutar (önce belirle)",
-  rate: "Orana göre (otomatik)",
+  fixed: "Bu ay dağıtılacak tutarı kendim yazarım (önerilen)",
+  rate: "Net kârın yüzdesi (otomatik)",
+  kasa_share: "Kasa bakiyesinin yüzdesi",
 };
 
 export const PRIM_VIEW_BONUS_LABELS: Record<PrimViewBonusMode, string> = {
-  multiplier: "Çarpan (aşım %)",
-  cpm: "CPM (1000 izlenme)",
+  multiplier: "Garanti aşıldıkça primi yüzdeyle büyüt",
+  cpm: "1000 izlenme başına $ ekle",
   off: "Kapalı",
 };
 
 export const PRIM_DISTRIBUTION_LABELS: Record<PrimDistributionMode, string> = {
-  weighted: "Ağırlıklı (rol)",
-  equal: "Eşit",
-  performance: "Performans (ağırlık²)",
+  weighted: "Puana göre böl",
+  equal: "Herkese eşit böl",
+  performance: "Puanı yüksek olana daha çok ver",
 };
 
 export type PrimBrandRow = {
@@ -138,8 +154,12 @@ export type PrimBrandRow = {
 export type PrimRecipientRow = {
   employeeId: string;
   name: string;
+  /** Takma ad (nickname) — varsa kart üzerinde gösterilir. */
+  nickname?: string;
   kind: string;
   weight: number;
+  /** Performans puanı (dağıtımda kullanılan ağırlık). */
+  points: number;
   sharePct: number;
   baseShareUsd: number;
   viewBonusUsd: number;
@@ -167,6 +187,16 @@ export type PrimPoolResult = {
   /** Tüm markaların ortalama CPM'i. */
   blendedCpmUsd: number;
   viewTriggered: boolean;
+  /** Elle eklenen ek giderlerin (reklam vb.) toplamı. */
+  manualExpenseUsd: number;
+  /** İzlenme eşiği geçilince havuza eklenen ek para. */
+  viewPoolBonusUsd: number;
+  /** İzlenme havuz bonusunun kaç eşik adımı tetiklendiği. */
+  viewPoolBonusSteps: number;
+  /** Dağıtımda kullanılan toplam puan. */
+  totalPoints: number;
+  /** 1 puanın karşılığı (temel prim / toplam puan). */
+  perPointUsd: number;
   basePrimUsd: number;
   viewBonusUsd: number;
   /** İzlenme primi efektif çarpanı (örn. 0.18 = temel primin +%18'i). */
@@ -200,6 +230,10 @@ function normalizeConfig(config?: PrimPoolConfig): Required<PrimPoolConfig> {
     maxPrimPerPersonUsd: c.maxPrimPerPersonUsd ?? 0,
     maxTotalPrimUsd: c.maxTotalPrimUsd ?? 0,
     distributionMode: c.distributionMode ?? "weighted",
+    viewPoolBonusEnabled: c.viewPoolBonusEnabled ?? false,
+    viewPoolBonusThresholdViews: c.viewPoolBonusThresholdViews ?? 1_000_000,
+    viewPoolBonusPerStepUsd: c.viewPoolBonusPerStepUsd ?? 1_000,
+    manualExpenses: c.manualExpenses ?? [],
   };
 }
 
@@ -287,7 +321,16 @@ export function computePrimPool(input: {
   payrollUsd: number;
   contentExpenseUsd: number;
   generalExpenseUsd: number;
-  recipients: { id: string; name: string; kind: string; weight: number }[];
+  recipients: {
+    id: string;
+    name: string;
+    nickname?: string;
+    kind: string;
+    weight: number;
+    points?: number;
+  }[];
+  /** Aktif kasaların toplam bakiyesi (USD). kasa_share modunda kullanılır. */
+  kasaBalanceUsd?: number;
   config?: PrimPoolConfig;
 }): PrimPoolResult {
   const config = normalizeConfig(input.config);
@@ -315,16 +358,14 @@ export function computePrimPool(input: {
   });
 
   const totalRevenueUsd = brandRows.reduce((s, r) => s + r.monthlyFeeUsd, 0);
-  const totalOpsUsd = input.payrollUsd + input.contentExpenseUsd + input.generalExpenseUsd;
+  const manualExpenseUsd = (config.manualExpenses ?? []).reduce(
+    (s, e) => s + (Number.isFinite(e.amountUsd) ? e.amountUsd : 0),
+    0,
+  );
+  const totalOpsUsd =
+    input.payrollUsd + input.contentExpenseUsd + input.generalExpenseUsd + manualExpenseUsd;
   const netPoolUsd = totalRevenueUsd - totalOpsUsd;
   const positiveNet = Math.max(0, netPoolUsd);
-
-  // Rezerv — gelecek aylar / kuru aylar / sürpriz giderler için dağıtımdan önce ayrılır.
-  const reserveUsd = Math.min(
-    positiveNet,
-    config.monthlyReserveUsd + positiveNet * config.reserveRate
-  );
-  const distributablePoolUsd = Math.max(0, positiveNet - reserveUsd);
 
   const totalGuaranteedViews = brandRows.reduce((s, r) => s + r.guaranteedViews, 0);
   const totalActualViews = brandRows.reduce((s, r) => s + r.actualViews, 0);
@@ -333,16 +374,40 @@ export function computePrimPool(input: {
     totalGuaranteedViews > 0 ? totalViewsOver / totalGuaranteedViews : 0;
   const blendedCpmUsd = totalActualViews > 0 ? (totalRevenueUsd / totalActualViews) * 1000 : 0;
 
+  // İzlenme havuz bonusu — toplam izlenme eşiği geçildikçe havuza ek para eklenir.
+  let viewPoolBonusSteps = 0;
+  let viewPoolBonusUsd = 0;
+  if (
+    config.viewPoolBonusEnabled &&
+    config.viewPoolBonusThresholdViews > 0 &&
+    config.viewPoolBonusPerStepUsd > 0
+  ) {
+    viewPoolBonusSteps = Math.floor(totalActualViews / config.viewPoolBonusThresholdViews);
+    viewPoolBonusUsd = viewPoolBonusSteps * config.viewPoolBonusPerStepUsd;
+  }
+
+  // Rezerv — gelecek aylar / kuru aylar / sürpriz giderler için dağıtımdan önce ayrılır.
+  const reserveUsd = Math.min(
+    positiveNet,
+    config.monthlyReserveUsd + positiveNet * config.reserveRate
+  );
+  // Dağıtılabilir havuz = (net − rezerv) + izlenme havuz bonusu.
+  const distributablePoolUsd = Math.max(0, positiveNet - reserveUsd) + viewPoolBonusUsd;
+
   // Net havuz tabanı kontrolü — yalnızca net bazlı modellerde geçerli.
   const belowFloor = config.model !== "revenue_share" && netPoolUsd < config.minNetFloorUsd;
 
-  // Temel prim — sabit tutar veya orana göre, modele bağlı.
+  // Temel prim — sabit tutar, kasa payı veya orana göre, modele bağlı.
   let rawBasePrimUsd = 0;
   if (!belowFloor) {
     if (config.basePrimMode === "fixed") {
       // Önce belirlenen sabit tutar — dağıtılabilir havuzu aşamaz (gider bağımsız model hariç).
       const cap = config.model === "revenue_share" ? Number.POSITIVE_INFINITY : distributablePoolUsd;
       rawBasePrimUsd = Math.min(config.fixedPrimUsd, cap);
+    } else if (config.basePrimMode === "kasa_share") {
+      const kasaBal = Math.max(0, input.kasaBalanceUsd ?? 0);
+      const cap = config.model === "revenue_share" ? Number.POSITIVE_INFINITY : distributablePoolUsd;
+      rawBasePrimUsd = Math.min(kasaBal * config.basePrimRate, cap);
     } else if (config.model === "net_share") {
       rawBasePrimUsd = distributablePoolUsd * config.basePrimRate;
     } else if (config.model === "revenue_share") {
@@ -377,10 +442,21 @@ export function computePrimPool(input: {
   const basePrimUsd = rawBasePrimUsd * totalCapScale;
   const viewBonusUsd = rawViewBonusUsd * totalCapScale;
 
-  // Dağıtım + kişi başı adalet tavanı.
-  const shares = distributionShares(input.recipients, config.distributionMode);
+  // Dağıtım — puan bazlı. Her kişinin puanı (yoksa eski ağırlık) dağıtımı belirler.
+  const pointOf = (r: { points?: number; weight: number }) =>
+    Math.max(0, r.points ?? r.weight);
+  const distInput = input.recipients.map((r) => ({
+    id: r.id,
+    name: r.name,
+    kind: r.kind,
+    weight: pointOf(r),
+  }));
+  const shares = distributionShares(distInput, config.distributionMode);
+  const totalPoints = input.recipients.reduce((s, r) => s + pointOf(r), 0);
+  const perPointUsd = totalPoints > 0 ? basePrimUsd / totalPoints : 0;
+
   const recipients: PrimRecipientRow[] = input.recipients
-    .filter((r) => r.weight > 0)
+    .filter((r) => pointOf(r) > 0)
     .map((r) => {
       const share = shares.get(r.id) ?? 0;
       let baseShareUsd = basePrimUsd * share;
@@ -395,8 +471,10 @@ export function computePrimPool(input: {
       return {
         employeeId: r.id,
         name: r.name,
+        nickname: r.nickname,
         kind: r.kind,
         weight: r.weight,
+        points: pointOf(r),
         sharePct: share,
         baseShareUsd,
         viewBonusUsd: viewBonusShare,
@@ -427,6 +505,11 @@ export function computePrimPool(input: {
     totalOverPct,
     blendedCpmUsd,
     viewTriggered,
+    manualExpenseUsd,
+    viewPoolBonusUsd,
+    viewPoolBonusSteps,
+    totalPoints,
+    perPointUsd,
     basePrimUsd,
     viewBonusUsd,
     viewBonusMultiplier,
@@ -443,18 +526,66 @@ export function computePrimPool(input: {
 export type PrimScenario = {
   key: string;
   label: string;
+  /** Kısa özet (kart başlığı altı). */
   description: string;
+  /** Detaylı açıklama — ne varsayılıyor, prim nasıl etkilenir. */
+  detail: string;
   revenueMultiplier: number;
   expenseMultiplier: number;
   viewsMultiplier: number;
 };
 
 export const DEFAULT_SCENARIOS: PrimScenario[] = [
-  { key: "worst", label: "Kötü", description: "Gelir düşük, gider yüksek, izlenme zayıf", revenueMultiplier: 0.7, expenseMultiplier: 1.15, viewsMultiplier: 0.55 },
-  { key: "low", label: "Temkinli", description: "Hafif düşüş senaryosu", revenueMultiplier: 0.9, expenseMultiplier: 1.05, viewsMultiplier: 0.8 },
-  { key: "base", label: "Baz (gerçek)", description: "Sistemdeki güncel veriler", revenueMultiplier: 1, expenseMultiplier: 1, viewsMultiplier: 1 },
-  { key: "good", label: "İyi", description: "Hedeflerin üzerinde performans", revenueMultiplier: 1.15, expenseMultiplier: 0.95, viewsMultiplier: 1.4 },
-  { key: "aggressive", label: "Agresif", description: "Güçlü büyüme + viral içerik", revenueMultiplier: 1.3, expenseMultiplier: 0.9, viewsMultiplier: 1.9 },
+  {
+    key: "worst",
+    label: "Kötü",
+    description: "Gelir %30 düşük · gider %15 yüksek · izlenme yarıya yakın",
+    detail:
+      "Marka tahsilatları hedefin altında kalır, maaş ve operasyon giderleri artar, içerik performansı garantinin çok altında. Net havuz daralır; kasa payı ve izlenme primi birlikte düşer. Prim dağıtımı taban kontrolüne takılabilir.",
+    revenueMultiplier: 0.7,
+    expenseMultiplier: 1.15,
+    viewsMultiplier: 0.55,
+  },
+  {
+    key: "low",
+    label: "Temkinli",
+    description: "Hafif gelir düşüşü, kontrollü gider, orta izlenme",
+    detail:
+      "Yeni marka kaybı veya gecikmeli tahsilat senaryosu. Giderler hafif artar, izlenme hedefin %80'i civarında. Prim, baz senaryoya göre biraz daha düşük ama sıfırlanmaz.",
+    revenueMultiplier: 0.9,
+    expenseMultiplier: 1.05,
+    viewsMultiplier: 0.8,
+  },
+  {
+    key: "base",
+    label: "Baz (gerçek)",
+    description: "Paneldeki güncel marka, gider ve izlenme verileri",
+    detail:
+      "Bu ayın gerçek tahsilat, operasyon gideri ve izlenme rakamları. Prim = kasa bakiyesinin belirlenen yüzdesi (üst sınır: dağıtılabilir havuz) + varsa izlenme bonusu.",
+    revenueMultiplier: 1,
+    expenseMultiplier: 1,
+    viewsMultiplier: 1,
+  },
+  {
+    key: "good",
+    label: "İyi",
+    description: "Gelir %15 üstü · gider %5 tasarruf · izlenme %40 fazla",
+    detail:
+      "Markalar hedefi aşar, içerik ekibi verimli çalışır, garanti üstü izlenme tetikleyicisi devreye girer. Net havuz genişler; kasa ve dağıtılabilir havuz büyüdükçe prim payı artar.",
+    revenueMultiplier: 1.15,
+    expenseMultiplier: 0.95,
+    viewsMultiplier: 1.4,
+  },
+  {
+    key: "aggressive",
+    label: "Agresif",
+    description: "Güçlü büyüme · düşük gider · viral izlenme patlaması",
+    detail:
+      "Yeni marka anlaşmaları, düşük operasyon maliyeti ve viral içerik dalgası. İzlenme garantisinin neredeyse iki katı; çarpanlı izlenme primi tavanına yaklaşabilir. En yüksek prim senaryosu.",
+    revenueMultiplier: 1.3,
+    expenseMultiplier: 0.9,
+    viewsMultiplier: 1.9,
+  },
 ];
 
 export type PrimBaseInputs = {
@@ -466,8 +597,33 @@ export type PrimBaseInputs = {
   payrollUsd: number;
   contentExpenseUsd: number;
   generalExpenseUsd: number;
-  recipients: { id: string; name: string; kind: string; weight: number }[];
+  recipients: {
+    id: string;
+    name: string;
+    nickname?: string;
+    kind: string;
+    weight: number;
+    points?: number;
+  }[];
+  /** Aktif kasaların toplam bakiyesi — senaryoda net havuzla ölçeklenir. */
+  kasaBalanceUsd?: number;
   config?: PrimPoolConfig;
+};
+
+/** Prim sayfasında bir kişiye dair özelleştirme (takma ad, puan, custom kişi). */
+export type PrimRecipientMeta = {
+  name?: string;
+  nickname?: string;
+  /** Prim dağıtımından çıkarıldı mı? (bordroyu etkilemez, sadece prim listesi). */
+  excluded?: boolean;
+};
+
+/** Prim sayfasına elle eklenen, bordro dışı kişi. */
+export type PrimCustomRecipient = {
+  id: string;
+  name: string;
+  nickname?: string;
+  kind: string;
 };
 
 function scaleRecord(rec: Record<string, number>, mult: number): Record<string, number> {
@@ -476,8 +632,38 @@ function scaleRecord(rec: Record<string, number>, mult: number): Record<string, 
   return out;
 }
 
+/** Senaryoda kasa bakiyesini net havuz değişimine göre ölçekle (prim farklılaşsın). */
+export function scaleKasaForScenario(
+  baseKasaUsd: number,
+  baseDistributableUsd: number,
+  scenarioDistributableUsd: number,
+  scenario: PrimScenario,
+): number {
+  if (baseKasaUsd <= 0) return 0;
+  if (baseDistributableUsd > 0) {
+    const ratio = scenarioDistributableUsd / baseDistributableUsd;
+    return baseKasaUsd * Math.max(0.25, Math.min(2, ratio));
+  }
+  const blend = (scenario.revenueMultiplier * 0.55 + (2 - scenario.expenseMultiplier) * 0.45);
+  return baseKasaUsd * Math.max(0.25, Math.min(2, blend));
+}
+
+/** Senaryo primi için sabit tutar modunu geçici olarak kasa/net payına çevir. */
+export function scenarioPrimConfig(base: PrimBaseInputs): PrimPoolConfig | undefined {
+  const cfg = base.config;
+  if (!cfg) return undefined;
+  if (cfg.basePrimMode === "fixed") {
+    return {
+      ...cfg,
+      basePrimMode: "rate",
+      basePrimRate: cfg.basePrimRate > 0 ? cfg.basePrimRate : 0.12,
+    };
+  }
+  return cfg;
+}
+
 export function computeWithScenario(base: PrimBaseInputs, scenario: PrimScenario): PrimPoolResult {
-  return computePrimPool({
+  const scaledInput = {
     monthYm: base.monthYm,
     brands: base.brands,
     brandFees: scaleRecord(base.brandFees, scenario.revenueMultiplier),
@@ -487,7 +673,27 @@ export function computeWithScenario(base: PrimBaseInputs, scenario: PrimScenario
     contentExpenseUsd: base.contentExpenseUsd * scenario.expenseMultiplier,
     generalExpenseUsd: base.generalExpenseUsd * scenario.expenseMultiplier,
     recipients: base.recipients,
-    config: base.config,
+    config: scenarioPrimConfig(base),
+  };
+
+  const baseRef =
+    base.kasaBalanceUsd != null && base.kasaBalanceUsd > 0
+      ? computePrimPool({ ...base, config: scenarioPrimConfig(base) })
+      : null;
+
+  const scenarioKasa =
+    baseRef && base.kasaBalanceUsd != null
+      ? scaleKasaForScenario(
+          base.kasaBalanceUsd,
+          baseRef.distributablePoolUsd,
+          computePrimPool(scaledInput).distributablePoolUsd,
+          scenario,
+        )
+      : base.kasaBalanceUsd;
+
+  return computePrimPool({
+    ...scaledInput,
+    kasaBalanceUsd: scenarioKasa,
   });
 }
 
@@ -548,6 +754,13 @@ export function buildPrimBaseInputs(input: {
   brandFees?: Record<string, number>;
   brandGuarantees?: Record<string, number>;
   recipientWeights?: Record<string, number>;
+  /** Kişi başı performans puanı (yoksa varsayılan 1). */
+  recipientPoints?: Record<string, number>;
+  /** Kişi başı takma ad / isim override. */
+  recipientMeta?: Record<string, PrimRecipientMeta>;
+  /** Bordro dışı, elle eklenen kişiler. */
+  customRecipients?: PrimCustomRecipient[];
+  kasaBalanceUsd?: number;
   config?: PrimPoolConfig;
 }): PrimBaseInputs {
   const todayYm = toYearMonthLocal(new Date());
@@ -570,15 +783,48 @@ export function buildPrimBaseInputs(input: {
   const contentExpenseUsd = totalContentExpensesForMonth(input.contentExpenses, input.monthYm);
   const generalExpenseUsd = generalExpensesForMonth(input.expenses, input.monthYm);
 
-  const recipients = input.employees
-    .filter((e) => e.status === "active" && isPayrollActive(e, input.monthYm))
-    .map((e) => ({
-      id: e.id,
-      name: e.name,
-      kind: e.kind,
-      weight: input.recipientWeights?.[e.id] ?? primRecipientWeight(e),
-    }))
-    .filter((r) => r.weight > 0);
+  /** Puan: ayrı puan kaydı varsa onu, yoksa eski ağırlığı, o da yoksa role göre 1/2 baz. */
+  const pointsFor = (e: Employee): number => {
+    const explicit = input.recipientPoints?.[e.id];
+    if (explicit !== undefined) return Math.max(0, explicit);
+    const legacyWeight = input.recipientWeights?.[e.id];
+    if (legacyWeight !== undefined) return Math.max(0, Math.round(legacyWeight * 2));
+    return e.kind === "moderator" ? 1 : 2;
+  };
+
+  const employeeRecipients = input.employees
+    .filter((e) => e.kind !== "coordinator" && isPayrollActive(e, input.monthYm))
+    .filter((e) => !input.recipientMeta?.[e.id]?.excluded)
+    .map((e) => {
+      const meta = input.recipientMeta?.[e.id];
+      const points = pointsFor(e);
+      return {
+        id: e.id,
+        name: meta?.name?.trim() || e.name,
+        nickname: meta?.nickname?.trim() || undefined,
+        kind: e.kind,
+        weight: points,
+        points,
+      };
+    })
+    .filter((r) => r.points > 0);
+
+  const customRecipientRows = (input.customRecipients ?? [])
+    .filter((c) => !input.recipientMeta?.[c.id]?.excluded)
+    .map((c) => {
+    const meta = input.recipientMeta?.[c.id];
+    const points = Math.max(0, input.recipientPoints?.[c.id] ?? 1);
+    return {
+      id: c.id,
+      name: meta?.name?.trim() || c.name,
+      nickname: meta?.nickname?.trim() || c.nickname || undefined,
+      kind: c.kind,
+      weight: points,
+      points,
+    };
+  }).filter((r) => r.points > 0);
+
+  const recipients = [...employeeRecipients, ...customRecipientRows];
 
   return {
     monthYm: input.monthYm,
@@ -590,8 +836,31 @@ export function buildPrimBaseInputs(input: {
     contentExpenseUsd,
     generalExpenseUsd,
     recipients,
+    kasaBalanceUsd: input.kasaBalanceUsd,
     config: input.config,
   };
+}
+
+/** Prim hesabı için kasa payı özeti. */
+export function describePrimBaseSource(
+  result: PrimPoolResult,
+  kasaBalanceUsd: number,
+): string {
+  const cfg = result.config;
+  if (cfg.basePrimMode === "kasa_share" && kasaBalanceUsd > 0) {
+    return `Kasa ${fmtPrimUsd(kasaBalanceUsd)} × ${pctLabel(cfg.basePrimRate)}`;
+  }
+  if (cfg.basePrimMode === "fixed") {
+    return `Sabit ${fmtPrimUsd(cfg.fixedPrimUsd)}`;
+  }
+  if (cfg.model === "revenue_share") {
+    return `Gelir ${pctLabel(cfg.revenueShareRate)}`;
+  }
+  return `Dağıtılabilir havuz ${pctLabel(cfg.basePrimRate)}`;
+}
+
+function pctLabel(rate: number): string {
+  return `%${Math.round(rate * 100)}`;
 }
 
 /** Store verisinden aylık prim havuzu hesapla. */
@@ -609,6 +878,7 @@ export function buildPrimPoolFromStore(input: {
   brandFees?: Record<string, number>;
   brandGuarantees?: Record<string, number>;
   recipientWeights?: Record<string, number>;
+  kasaBalanceUsd?: number;
   config?: PrimPoolConfig;
 }): PrimPoolResult {
   const base = buildPrimBaseInputs(input);
@@ -622,6 +892,7 @@ export function buildPrimPoolFromStore(input: {
     contentExpenseUsd: base.contentExpenseUsd,
     generalExpenseUsd: base.generalExpenseUsd,
     recipients: base.recipients,
+    kasaBalanceUsd: base.kasaBalanceUsd,
     config: input.config,
   });
 }

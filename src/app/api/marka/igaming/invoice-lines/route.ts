@@ -3,7 +3,9 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { ensureBrandAccess, resolveBrandId } from "@/lib/org-access";
 import {
+  deleteBrandInvoiceLine,
   fetchBrandInvoiceLines,
+  findBrandInvoiceLineById,
   upsertBrandInvoiceLine,
 } from "@/lib/db/brand-igaming-repo";
 import type { BrandInvoiceLine } from "@/types/brand-igaming";
@@ -15,10 +17,13 @@ export async function GET(req: NextRequest) {
   if (!isSupabaseEnabled()) return NextResponse.json({ lines: [] });
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  const brandId = resolveBrandId(session, req.nextUrl.searchParams.get("brandId")?.trim());
   const invoiceId = req.nextUrl.searchParams.get("invoiceId")?.trim() ?? "";
-  if (!invoiceId) return NextResponse.json({ error: "invoiceId gerekli" }, { status: 400 });
+  if (!brandId || !invoiceId) return NextResponse.json({ error: "brandId ve invoiceId gerekli" }, { status: 400 });
+  const guard = ensureBrandAccess(session, brandId, "read");
+  if (guard) return guard;
   const lines = await fetchBrandInvoiceLines(invoiceId);
-  return NextResponse.json({ lines });
+  return NextResponse.json({ lines: lines.filter((l) => l.brandId === brandId) });
 }
 
 export async function POST(req: NextRequest) {
@@ -47,4 +52,21 @@ export async function POST(req: NextRequest) {
   };
   const saved = await upsertBrandInvoiceLine(line);
   return NextResponse.json({ line: saved });
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!isSupabaseEnabled()) return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
+  const id = req.nextUrl.searchParams.get("id")?.trim() ?? "";
+  const brandId = resolveBrandId(session, req.nextUrl.searchParams.get("brandId")?.trim());
+  if (!id || !brandId) return NextResponse.json({ error: "id ve brandId gerekli" }, { status: 400 });
+  const guard = ensureBrandAccess(session, brandId, "write");
+  if (guard) return guard;
+  const existing = await findBrandInvoiceLineById(id);
+  if (!existing || existing.brandId !== brandId) {
+    return NextResponse.json({ error: "Kayıt bulunamadı" }, { status: 404 });
+  }
+  await deleteBrandInvoiceLine(id);
+  return NextResponse.json({ ok: true });
 }

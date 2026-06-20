@@ -86,7 +86,7 @@ export default function MarkaOperasyonPage() {
   const [granularity, setGranularity] = useState<"monthly" | "weekly" | "daily">("monthly");
   const [playerEvents, setPlayerEvents] = useState<BrandPlayerEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
-  const { compliance, dashboard } = useBrandIgaming(brandId, month);
+  const { compliance, dashboard, riskFlags } = useBrandIgaming(brandId, month);
 
   useEffect(() => {
     if (!brandId || granularity === "monthly") {
@@ -288,6 +288,7 @@ export default function MarkaOperasyonPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <BrandRiskSummary
               complianceChecks={compliance}
+              riskFlags={riskFlags}
               depositSpike={riskSignals.depositSpike}
               withdrawalSpike={riskSignals.withdrawalSpike}
             />
