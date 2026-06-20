@@ -6,6 +6,7 @@ import {
   Rocket, Star, Crown, Trophy, Boxes, Youtube, Clapperboard, FileText,
   Megaphone, Check, Play, ShieldCheck, TrendingUp, Plus, Minus, Radio, Share2, Globe, Send, Info, type LucideIcon,
 } from "lucide-react";
+import { fmtCompactViews } from "@/lib/brand-month-metrics";
 
 const ORANGE = "#FF6B00";
 
@@ -188,20 +189,15 @@ const SHARE_PLATFORMS: SharePlatform[] = [
 
 // ── İçerik galerisi (sistemdeki gerçek EN ÇOK İZLENEN YouTube içerikleri) ────
 // 600+ takipli link tarandı; thumbnail erişilebilirliği doğrulandı (hepsi 200).
-const GALLERY: { id: string; brand: string; views: string; color: string }[] = [
-  { id: "lsk5wAFGGpo", brand: "Padişahbet", views: "38.6M", color: "#F59E0B" },
-  { id: "JVvF8iOLVgc", brand: "Padişahbet", views: "943K", color: "#F59E0B" },
-  { id: "rcSNWCZHX0k", brand: "Padişahbet", views: "447K", color: "#F59E0B" },
-  { id: "0EDxE8_kSPw", brand: "Padişahbet", views: "407K", color: "#F59E0B" },
-  { id: "L7ti4aLci_I", brand: "Galabet", views: "241K", color: "#EF4444" },
-  { id: "QUKxtLR4yac", brand: "Hitbet", views: "124K", color: "#22C55E" },
-  { id: "4x0pAS9_Aac", brand: "Betpipo", views: "116K", color: "#8B5CF6" },
-  { id: "hZkisAqRajs", brand: "Betpipo", views: "114K", color: "#8B5CF6" },
-  { id: "EAxFRXmu0Wo", brand: "Padişahbet", views: "111K", color: "#F59E0B" },
-  { id: "Z2INrWxc-Vs", brand: "Betpipo", views: "107K", color: "#8B5CF6" },
-  { id: "bBIPsxLhVfw", brand: "Hitbet", views: "90K", color: "#22C55E" },
-  { id: "R01WRD0gwjc", brand: "Betoffice", views: "90K", color: "#3B82F6" },
-];
+/** Padişahbet YouTube — sistemdeki en yüksek 4 içerik (link snapshot, 2026-06-20). */
+const GALLERY = (
+  [
+    { id: "lsk5wAFGGpo", brand: "Padişahbet", viewsNum: 38_956_194, color: "#F59E0B" },
+    { id: "JVvF8iOLVgc", brand: "Padişahbet", viewsNum: 943_908, color: "#F59E0B" },
+    { id: "rcSNWCZHX0k", brand: "Padişahbet", viewsNum: 544_689, color: "#F59E0B" },
+    { id: "0EDxE8_kSPw", brand: "Padişahbet", viewsNum: 484_448, color: "#F59E0B" },
+  ] as const
+).map((g) => ({ ...g, views: fmtCompactViews(g.viewsNum) }));
 
 // ── Add-on'lar (à la carte, seçilebilir) ────────────────────────────────────
 const ADDONS: { key: string; label: string; price: number; color: string; icon: LucideIcon }[] = [
@@ -384,7 +380,7 @@ function ReachPanel() {
 // ── İçerik galerisi (sadece ilk 4 · tıklayınca yerinde video oynar) ─────────
 function ContentGallery() {
   const [playing, setPlaying] = useState<string | null>(null);
-  const items = GALLERY.slice(0, 4);
+  const items = GALLERY;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {items.map((g, i) => {
@@ -880,7 +876,7 @@ export function LandingPackages() {
           <div className="mb-4 flex items-center gap-2">
             <Play size={15} className="fill-orange-400 text-orange-400" />
             <h3 className="text-sm font-semibold text-white">Ürettiğimiz içeriklerden kesitler</h3>
-            <span className="ml-auto text-[11px] text-white/40">Gerçek içerikler · tıkla & izle</span>
+            <span className="ml-auto text-[11px] text-white/40">Padişahbet · en yüksek YouTube · tıkla & izle</span>
           </div>
           <ContentGallery />
         </div>
