@@ -142,7 +142,7 @@ const dialogCls =
 
 // Kayıt modalı daha geniş — 2 sütunlu yerleşim ve nefes alan form için.
 const registerDialogCls =
-  "max-w-[min(100%-1.5rem,560px)] gap-0 border border-orange-500/30 bg-[#0a0a0a] p-5 text-white ring-orange-500/20 sm:max-w-[560px] [&_[data-slot=dialog-close]]:text-white/70 [&_[data-slot=dialog-close]]:hover:text-white [&_[data-slot=dialog-close]]:hover:bg-white/10";
+  "max-w-[min(100%-1.5rem,560px)] gap-0 border border-orange-500/30 bg-[#0a0a0a] p-5 text-white ring-orange-500/20 sm:max-w-[560px] sm:p-6 [&_[data-slot=dialog-close]]:text-white/70 [&_[data-slot=dialog-close]]:hover:text-white [&_[data-slot=dialog-close]]:hover:bg-white/10";
 
 const inputCls =
   "h-10 w-full rounded-lg border border-white/10 bg-white/5 px-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-400/60 focus:bg-white/10 focus:ring-2 focus:ring-orange-400/30";
@@ -406,11 +406,30 @@ const ACCOUNT_TYPES: {
   value: AccountType;
   label: string;
   desc: string;
+  hint: string;
   icon: LucideIcon;
 }[] = [
-  { value: "streamer", label: "Yayıncı", desc: "Havuza katıl, teklif al", icon: Radio },
-  { value: "brand", label: "Marka", desc: "B2B panel & affiliate", icon: Building2 },
-  { value: "other", label: "Diğer", desc: "Destek / iş birliği", icon: HelpCircle },
+  {
+    value: "streamer",
+    label: "Yayıncı",
+    desc: "Havuza katıl",
+    hint: "Markalardan teklif al, profilini yönet",
+    icon: Radio,
+  },
+  {
+    value: "brand",
+    label: "Marka",
+    desc: "B2B panel",
+    hint: "Affiliate, içerik ve raporlama",
+    icon: Building2,
+  },
+  {
+    value: "other",
+    label: "Diğer",
+    desc: "İş birliği",
+    hint: "Destek, ortaklık veya özel talep",
+    icon: HelpCircle,
+  },
 ];
 
 /** Yayıncı kaydında seçilebilir platformlar. */
@@ -424,19 +443,8 @@ const STREAMER_PLATFORMS = [
   "Telegram",
 ] as const;
 
-/** İnce, etiketli bölüm ayracı (turuncu kutu yerine). */
-function FieldGroupLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mt-2 flex items-center gap-2.5">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-300/90">
-        {children}
-      </span>
-      <span className="h-px flex-1 bg-gradient-to-r from-orange-500/30 to-transparent" />
-    </div>
-  );
-}
 
-/** Görsel hesap türü seçici. */
+/** Görsel hesap türü seçici — 3 eşit kart. */
 function AccountTypePicker({
   value,
   onChange,
@@ -447,7 +455,7 @@ function AccountTypePicker({
   disabled?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Hesap türü">
       {ACCOUNT_TYPES.map((t) => {
         const active = value === t.value;
         const Icon = t.icon;
@@ -455,32 +463,48 @@ function AccountTypePicker({
           <button
             key={t.value}
             type="button"
+            role="radio"
+            aria-checked={active}
             onClick={() => onChange(t.value)}
             disabled={disabled}
-            aria-pressed={active}
-            className={`group flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition disabled:cursor-not-allowed ${
+            className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition disabled:cursor-not-allowed sm:px-3 ${
               active
                 ? "border-orange-400/60 bg-orange-500/10 ring-1 ring-orange-400/30"
                 : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
             }`}
           >
             <span
-              className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${
-                active ? "bg-orange-500/20 text-orange-300" : "bg-white/5 text-white/50 group-hover:text-white/70"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                active ? "bg-orange-500/20 text-orange-300" : "bg-white/5 text-white/50"
               }`}
             >
-              <Icon size={15} strokeWidth={2.2} />
+              <Icon size={17} strokeWidth={2.2} />
             </span>
-            <span className="min-w-0">
-              <span className={`block text-sm font-semibold ${active ? "text-white" : "text-white/80"}`}>
-                {t.label}
-              </span>
-              <span className="block truncate text-[10px] leading-tight text-white/45">{t.desc}</span>
+            <span className={`text-xs font-bold sm:text-sm ${active ? "text-white" : "text-white/80"}`}>
+              {t.label}
             </span>
+            <span className="text-[9px] leading-tight text-white/45 sm:text-[10px]">{t.desc}</span>
           </button>
         );
       })}
     </div>
+  );
+}
+
+function RegisterStepBadge({ n, label }: { n: number; label: string }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-500/20 text-[10px] font-bold text-orange-300">
+        {n}
+      </span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-white/55">{label}</span>
+    </div>
+  );
+}
+
+function RegisterFieldCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5 sm:p-4">{children}</div>
   );
 }
 
@@ -576,253 +600,282 @@ function RegisterForm({
     }
   };
 
+  const activeType = ACCOUNT_TYPES.find((t) => t.value === accountType)!;
+
   return (
-    <form onSubmit={submit} className="flex max-h-[80vh] flex-col gap-3 overflow-y-auto pr-1">
-      <div className="space-y-1">
-        <h2 className="text-xl font-bold text-white">Hesap oluştur</h2>
-        <p className="text-xs leading-relaxed text-white/60">
-          {isBrand
-            ? "Markanızı açmak için birkaç bilgi yeterli. Onaydan sonra giriş bilgileriniz iletilir."
-            : isStreamer
-              ? "Havuza katılmak için başvurun. Onaydan sonra giriş bilgileriniz iletilir."
-              : "Hesaplar yönetici onayıyla açılır. Onay sonrası giriş bilgileriniz size iletilir."}
-        </p>
+    <form onSubmit={submit} className="flex max-h-[min(80vh,720px)] flex-col">
+      {/* Sabit üst — başlık + tür seçimi */}
+      <div className="shrink-0 space-y-3 border-b border-white/10 pb-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold text-white">Kayıt ol</h2>
+          <p className="text-xs leading-relaxed text-white/60">{activeType.hint}</p>
+        </div>
+        <div>
+          <RegisterStepBadge n={1} label="Hesap türü" />
+          <AccountTypePicker value={accountType} onChange={setAccountType} disabled={busy} />
+        </div>
       </div>
 
-      <div>
-        <span className={labelCls}>Hesap türü</span>
-        <AccountTypePicker value={accountType} onChange={setAccountType} disabled={busy} />
-      </div>
+      {/* Kaydırılabilir gövde — türe özel alanlar */}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-4 pr-1">
+        <div>
+          <RegisterStepBadge n={2} label={isBrand ? "Marka bilgileri" : isStreamer ? "Yayıncı bilgileri" : "İletişim bilgileri"} />
+          <RegisterFieldCard>
+            {isBrand ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block sm:col-span-2">
+                    <span className={labelCls}>Marka adı *</span>
+                    <input
+                      value={brandName}
+                      onChange={(e) => setBrandName(e.target.value)}
+                      required
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="Ör. Galabet"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelCls}>Yetkili ad soyad *</span>
+                    <input
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="Ör. Ahmet Yıldız"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelCls}>İletişim e-postası *</span>
+                    <input
+                      type="email"
+                      value={brandEmail}
+                      onChange={(e) => setBrandEmail(e.target.value)}
+                      required
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="iletisim@markaniz.com"
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] leading-relaxed text-white/40">
+                  Kategori, website ve operatör detaylarını onay sonrası marka panelinden tamamlayabilirsiniz.
+                </p>
+              </div>
+            ) : isStreamer ? (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelCls}>Sahne / yayıncı adı *</span>
+                    <input
+                      value={streamerDisplayName}
+                      onChange={(e) => setStreamerDisplayName(e.target.value)}
+                      required
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="Markaların göreceği ad"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className={labelCls}>İletişim e-postası *</span>
+                    <input
+                      type="email"
+                      value={streamerEmail}
+                      onChange={(e) => setStreamerEmail(e.target.value)}
+                      required
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="sana@ulasalim.com"
+                      autoComplete="email"
+                      inputMode="email"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className={labelCls}>Gerçek ad soyad</span>
+                    <input
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      disabled={busy}
+                      className={inputCls}
+                      placeholder="Gizli tutulur (isteğe bağlı)"
+                    />
+                  </label>
+                </div>
 
-      <label className="block">
-        <span className={labelCls}>
-          {isBrand ? "Yetkili ad soyad *" : isStreamer ? "Gerçek ad soyad" : "Ad soyad *"}
-        </span>
-        <input
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required={!isStreamer}
-          disabled={busy}
-          className={inputCls}
-          autoFocus
-          placeholder={isBrand ? "Ör. Ahmet Yıldız" : isStreamer ? "Ör. Ahmet Yıldız (gizli)" : undefined}
-        />
-      </label>
+                <div className="block">
+                  <span className={labelCls}>Aktif olduğun platformlar</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {STREAMER_PLATFORMS.map((p) => {
+                      const active = streamerPlatformSel.includes(p);
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          disabled={busy}
+                          aria-pressed={active}
+                          onClick={() =>
+                            setStreamerPlatformSel((prev) =>
+                              prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+                            )
+                          }
+                          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed ${
+                            active
+                              ? "border-orange-400/60 bg-orange-500/15 text-white ring-1 ring-orange-400/30"
+                              : "border-white/10 bg-white/[0.03] text-white/60 hover:border-white/20 hover:text-white/80"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-      {isBrand ? (
-        <>
-          <FieldGroupLabel>Marka bilgileri</FieldGroupLabel>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className={labelCls}>Marka adı *</span>
-              <input
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                required
-                disabled={busy}
-                className={inputCls}
-                placeholder="Ör. Galabet"
-              />
-            </label>
-            <label className="block">
-              <span className={labelCls}>İletişim e-postası *</span>
-              <input
-                type="email"
-                value={brandEmail}
-                onChange={(e) => setBrandEmail(e.target.value)}
-                required
-                disabled={busy}
-                className={inputCls}
-                placeholder="iletisim@markaniz.com"
-                autoComplete="email"
-                inputMode="email"
-              />
-            </label>
-          </div>
-
-          <p className="text-[11px] leading-relaxed text-white/40">
-            Kısa ad, kategori, website ve diğer detayları onay sonrası marka profili
-            sayfasından düzenleyebilirsiniz.
-          </p>
-        </>
-      ) : isStreamer ? (
-        <>
-          <FieldGroupLabel>Yayıncı bilgileri</FieldGroupLabel>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className={labelCls}>Sahne / yayıncı adı *</span>
-              <input
-                value={streamerDisplayName}
-                onChange={(e) => setStreamerDisplayName(e.target.value)}
-                required
-                disabled={busy}
-                className={inputCls}
-                placeholder="Markaların göreceği ad"
-              />
-            </label>
-            <label className="block">
-              <span className={labelCls}>İletişim e-postası *</span>
-              <input
-                type="email"
-                value={streamerEmail}
-                onChange={(e) => setStreamerEmail(e.target.value)}
-                required
-                disabled={busy}
-                className={inputCls}
-                placeholder="sana@ulasalim.com"
-                autoComplete="email"
-                inputMode="email"
-              />
-            </label>
-          </div>
-
-          <div className="block">
-            <span className={labelCls}>Hangi platformlarda aktifsin?</span>
-            <div className="flex flex-wrap gap-1.5">
-              {STREAMER_PLATFORMS.map((p) => {
-                const active = streamerPlatformSel.includes(p);
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    disabled={busy}
-                    aria-pressed={active}
-                    onClick={() =>
-                      setStreamerPlatformSel((prev) =>
-                        prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
-                      )
-                    }
-                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed ${
-                      active
-                        ? "border-orange-400/60 bg-orange-500/15 text-white ring-1 ring-orange-400/30"
-                        : "border-white/10 bg-white/[0.03] text-white/60 hover:border-white/20 hover:text-white/80"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <label className="block">
-            <span className={labelCls}>Ana hesabın</span>
-            <input
-              value={streamerMainAccount}
-              onChange={(e) => setStreamerMainAccount(e.target.value)}
-              disabled={busy}
-              className={inputCls}
-              placeholder="@kullaniciadi veya profil linki"
-            />
-            <span className="mt-1 block text-[10px] leading-relaxed text-white/40">
-              Sadece bir ana hesap yeter. Diğer hesapların, kategori ve kitle bilgini
-              onaydan sonra profil sayfandan ekleyebilirsin.
-            </span>
-          </label>
-        </>
-      ) : (
-        <label className="block">
-          <span className={labelCls}>İletişim *</span>
-          <input
-            value={contact}
-            onChange={(e) => setContact(e.target.value)}
-            placeholder="E-posta, Telegram veya telefon"
-            required
-            disabled={busy}
-            className={inputCls}
-          />
-        </label>
-      )}
-
-      {/* Opsiyonel bilgiler — hızlı kayıt için varsayılan gizli */}
-      <div className="rounded-lg border border-white/10 bg-white/[0.02]">
-        <button
-          type="button"
-          onClick={() => setShowOptional((v) => !v)}
-          disabled={busy}
-          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-white/60 transition hover:text-white/80"
-        >
-          <span>Opsiyonel bilgiler{isBrand || isStreamer ? " (kullanıcı adı, telefon, not)" : " (kullanıcı adı, not)"}</span>
-          <ChevronDown size={14} className={`shrink-0 transition ${showOptional ? "rotate-180" : ""}`} />
-        </button>
-        {showOptional && (
-          <div className="space-y-3 border-t border-white/10 px-3 py-3">
-            <label className="block">
-              <span className={labelCls}>Tercih edilen kullanıcı adı</span>
-              <input
-                value={preferredUsername}
-                onChange={(e) => setPreferredUsername(e.target.value)}
-                placeholder={isBrand ? "ornek: galabet" : "ornek: ahmet_yayin"}
-                disabled={busy}
-                className={inputCls}
-              />
-            </label>
-            {(isBrand || isStreamer) && (
-              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className={labelCls}>Telefon</span>
+                  <span className={labelCls}>Ana hesabın</span>
                   <input
-                    type="tel"
-                    value={isBrand ? brandPhone : contact}
-                    onChange={(e) => (isBrand ? setBrandPhone(e.target.value) : setContact(e.target.value))}
+                    value={streamerMainAccount}
+                    onChange={(e) => setStreamerMainAccount(e.target.value)}
                     disabled={busy}
                     className={inputCls}
-                    placeholder="+90 …"
-                    autoComplete="tel"
-                    inputMode="tel"
+                    placeholder="@kullaniciadi veya profil linki"
+                  />
+                  <span className="mt-1 block text-[10px] leading-relaxed text-white/40">
+                    Ek hesapları ve kitle bilgini onaydan sonra profilinden ekleyebilirsin.
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="block">
+                  <span className={labelCls}>Ad soyad *</span>
+                  <input
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    disabled={busy}
+                    className={inputCls}
+                    placeholder="Adınız ve soyadınız"
                   />
                 </label>
                 <label className="block">
-                  <span className={labelCls}>Telegram</span>
+                  <span className={labelCls}>İletişim *</span>
                   <input
-                    value={brandTelegram}
-                    onChange={(e) => setBrandTelegram(e.target.value)}
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    placeholder="E-posta, Telegram veya telefon"
+                    required
                     disabled={busy}
                     className={inputCls}
-                    placeholder="@kullanici"
                   />
                 </label>
               </div>
             )}
-            <label className="block">
-              <span className={labelCls}>{isBrand ? "Ek not" : "Kısa mesaj"}</span>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                disabled={busy}
-                placeholder={
-                  isBrand
-                    ? "Beklentileriniz, operatör platformunuz, hedef pazarlar…"
-                    : "Kendinizi veya ihtiyacınızı kısaca anlatın"
-                }
-                className={`${inputCls} min-h-[72px] resize-none py-2`}
-              />
-            </label>
+          </RegisterFieldCard>
+        </div>
+
+        <div>
+          <RegisterStepBadge n={3} label="Ek bilgiler (isteğe bağlı)" />
+          <div className="rounded-xl border border-white/10 bg-white/[0.02]">
+            <button
+              type="button"
+              onClick={() => setShowOptional((v) => !v)}
+              disabled={busy}
+              className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-xs font-medium text-white/60 transition hover:text-white/80"
+            >
+              <span>
+                {showOptional ? "Ek alanları gizle" : "Kullanıcı adı, telefon, not ekle"}
+              </span>
+              <ChevronDown size={14} className={`shrink-0 transition ${showOptional ? "rotate-180" : ""}`} />
+            </button>
+            {showOptional && (
+              <div className="space-y-3 border-t border-white/10 px-3.5 py-3.5">
+                <label className="block">
+                  <span className={labelCls}>Tercih edilen kullanıcı adı</span>
+                  <input
+                    value={preferredUsername}
+                    onChange={(e) => setPreferredUsername(e.target.value)}
+                    placeholder={isBrand ? "ornek: galabet" : "ornek: ahmet_yayin"}
+                    disabled={busy}
+                    className={inputCls}
+                  />
+                </label>
+                {(isBrand || isStreamer) && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className={labelCls}>Telefon</span>
+                      <input
+                        type="tel"
+                        value={isBrand ? brandPhone : contact}
+                        onChange={(e) => (isBrand ? setBrandPhone(e.target.value) : setContact(e.target.value))}
+                        disabled={busy}
+                        className={inputCls}
+                        placeholder="+90 …"
+                        autoComplete="tel"
+                        inputMode="tel"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelCls}>Telegram</span>
+                      <input
+                        value={brandTelegram}
+                        onChange={(e) => setBrandTelegram(e.target.value)}
+                        disabled={busy}
+                        className={inputCls}
+                        placeholder="@kullanici"
+                      />
+                    </label>
+                  </div>
+                )}
+                <label className="block">
+                  <span className={labelCls}>{isBrand ? "Ek not" : "Kısa mesaj"}</span>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                    disabled={busy}
+                    placeholder={
+                      isBrand
+                        ? "Beklentileriniz, operatör platformunuz, hedef pazarlar…"
+                        : "Kendinizi veya ihtiyacınızı kısaca anlatın"
+                    }
+                    className={`${inputCls} min-h-[72px] resize-none py-2`}
+                  />
+                </label>
+              </div>
+            )}
           </div>
-        )}
+        </div>
+
+        <p className="text-[10px] leading-relaxed text-white/35">
+          Başvurular yönetici onayıyla açılır. Onay sonrası giriş bilgileriniz size iletilir.
+        </p>
       </div>
 
-      {err && (
-        <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-200">
-          {err}
-        </div>
-      )}
+      {/* Sabit alt — gönder */}
+      <div className="shrink-0 space-y-2 border-t border-white/10 pt-4">
+        {err && (
+          <div role="alert" className="rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-200">
+            {err}
+          </div>
+        )}
 
-      <button
-        type="submit"
-        disabled={busy || !canSubmit}
-        style={{ backgroundColor: ORANGE }}
-        className={btnPrimary}
-      >
-        {busy ? "Gönderiliyor..." : isBrand ? "Marka başvurusu gönder" : isStreamer ? "Yayıncı başvurusu gönder" : "Kayıt talebi gönder"}
-      </button>
+        <button
+          type="submit"
+          disabled={busy || !canSubmit}
+          style={{ backgroundColor: ORANGE }}
+          className={btnPrimary}
+        >
+          {busy ? "Gönderiliyor..." : isBrand ? "Marka başvurusu gönder" : isStreamer ? "Yayıncı başvurusu gönder" : "Kayıt talebi gönder"}
+        </button>
 
-      <button type="button" onClick={onBack} className={btnGhost}>
-        ← Giriş ekranına dön
-      </button>
+        <button type="button" onClick={onBack} className={btnGhost}>
+          ← Giriş ekranına dön
+        </button>
+      </div>
     </form>
   );
 }
