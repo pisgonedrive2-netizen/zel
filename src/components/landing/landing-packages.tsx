@@ -223,12 +223,11 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     price: "$5.500",
     priceUsd: 5500,
     priceUnit: "/ marka / ay",
-    tagline: "YouTube olmadan hızlı başlangıç — reel ve adult içerik odaklı.",
-    guaranteedViews: "250K",
-    cpm: "≈ $6,9",
+    tagline: "Sadece reel ile hızlı başlangıç — YouTube ve adult içerik yok.",
+    guaranteedViews: "500K",
+    cpm: "≈ $11,0",
     items: [
       { tag: "reel", count: 2 },
-      { tag: "normal", count: 1 },
     ],
   },
   {
@@ -241,7 +240,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     priceUnit: "/ marka / ay",
     tagline: "Referans paket — 4 reel + adult içerik, YouTube yok.",
     guaranteedViews: "1M",
-    cpm: "≈ $4,0",
+    cpm: "≈ $10,0",
     featured: true,
     badge: "En çok tercih",
     items: [
@@ -257,12 +256,12 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     price: "$16.500",
     priceUsd: 16500,
     priceUnit: "/ marka / ay",
-    tagline: "Standard (4 reel + adult) üzerine 1 YouTube ve canlı yayın.",
-    guaranteedViews: "1.5M",
-    cpm: "≈ $11,0",
+    tagline: "Standard üzerine +1 YouTube, +1 reel ve canlı yayın — paket avantajı dahil.",
+    guaranteedViews: "1.7M",
+    cpm: "≈ $9,7",
     items: [
       { tag: "youtube", count: 1 },
-      { tag: "reel", count: 4 },
+      { tag: "reel", count: 5 },
       { tag: "normal", count: 1 },
       { tag: "live", count: 1 },
     ],
@@ -275,9 +274,9 @@ const CONTENT_PACKAGES: ContentPackage[] = [
     price: "$25.000",
     priceUsd: 25000,
     priceUnit: "/ marka / ay",
-    tagline: "Premium'a ek YouTube, +1 reel, +1 adult içerik ve özel kampanya.",
-    guaranteedViews: "2.5M",
-    cpm: "≈ $10,0",
+    tagline: "Premium'a ek YouTube, +1 adult içerik ve markaya özel kampanya.",
+    guaranteedViews: "2.7M",
+    cpm: "≈ $9,3",
     items: [
       { tag: "youtube", count: 2 },
       { tag: "reel", count: 5 },
@@ -296,10 +295,10 @@ const MULTI_PACKAGE: ContentPackage = {
   price: "$40.000",
   priceUsd: 40000,
   priceUnit: "/ 5 marka / ay",
-  priceOnRequest: true,
+  priceNote: "$8.000 / marka — Standard’a göre %20 indirim",
   tagline: "5 markanın tamamı için Standard paket — reel + adult içerik, YouTube yok.",
   guaranteedViews: "5M",
-  cpm: "≈ $3,2",
+  cpm: "≈ $8,0",
   badge: "%20 indirim",
   items: [
     { tag: "reel", count: 20 },
@@ -523,7 +522,7 @@ function PackageCard({
           <ShieldCheck size={12} /> {pkg.guaranteedViews} garanti izlenme
         </span>
         <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium text-white/55">
-          CPM {pkg.cpm}
+          Garanti CPM {pkg.cpm}
         </span>
       </div>
 
