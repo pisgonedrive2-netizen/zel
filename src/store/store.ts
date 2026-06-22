@@ -2245,7 +2245,17 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         }
         return { employees };
       }),
-      deleteEmployee: (id)       => set((s) => ({ employees: s.employees.filter((x) => x.id !== id) })),
+      deleteEmployee: (id)       => set((s) => ({
+        // Personel silinince bağlı kayıtlar da kaldırılır; aksi halde avans/maaş
+        // ek kalemleri, ödeme durumu ve takvim/​hesap satırları arayüzde "öksüz"
+        // olarak kalıyordu (deleteNotIn ile sync sonrası DB'den de düşer).
+        employees:       s.employees.filter((x) => x.id !== id),
+        advances:        s.advances.filter((x) => x.employeeId !== id),
+        salaryExtras:    s.salaryExtras.filter((x) => x.employeeId !== id),
+        paymentStatuses: s.paymentStatuses.filter((x) => x.employeeId !== id),
+        scheduleSlots:   s.scheduleSlots.filter((x) => x.employeeId !== id),
+        streamerAccounts: s.streamerAccounts.filter((x) => x.employeeId !== id),
+      })),
 
       processEmployeeExit: (id, input) => set((s) => {
         const emp = s.employees.find((x) => x.id === id);
@@ -2854,6 +2864,12 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       }),
       deleteExpense: (id)        => set((s) => {
         const target = s.expenses.find((x) => x.id === id);
+        // Bağlı kasa hareketini DB'den de sil — yoksa kasa_transactions toplu
+        // sync'te skipDelete olduğu için bakiye yeniden yüklemede geri geliyordu.
+        if (target?.kasaTxId && isSupabaseClientMode()) {
+          const txId = target.kasaTxId;
+          queueMicrotask(() => void removeKasaTransaction(txId));
+        }
         const kasaTransactions = target?.kasaTxId
           ? s.kasaTransactions.filter((t) => t.id !== target.kasaTxId)
           : s.kasaTransactions;

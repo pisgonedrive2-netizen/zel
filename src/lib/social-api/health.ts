@@ -236,11 +236,29 @@ export async function recordPlatformPingSuccess(platform: SocialPlatform): Promi
   });
 }
 
+function parseHeaderInt(res: Response, names: string[]): number | null {
+  for (const n of names) {
+    const v = res.headers.get(n);
+    if (v != null && v.trim() !== "") {
+      const num = Number(v);
+      if (Number.isFinite(num)) return num;
+    }
+  }
+  return null;
+}
+
+export interface PingRateLimit {
+  limit: number | null;
+  remaining: number | null;
+  resetSeconds: number | null;
+}
+
 export async function pingPlatform(platform: SocialPlatform): Promise<{
   ok: boolean;
   status: number;
   message: string;
   latencyMs: number;
+  rateLimit?: PingRateLimit;
 }> {
   const { getRapidApiKey } = await import("@/lib/env");
   const plan = SOCIAL_PLANS[platform];
@@ -262,6 +280,11 @@ export async function pingPlatform(platform: SocialPlatform): Promise<{
       signal: AbortSignal.timeout(8_000),
     });
     const latency = Date.now() - start;
+    const rateLimit: PingRateLimit = {
+      limit: parseHeaderInt(res, ["x-ratelimit-requests-limit", "x-ratelimit-scraping-api-limit"]),
+      remaining: parseHeaderInt(res, ["x-ratelimit-requests-remaining", "x-ratelimit-scraping-api-remaining"]),
+      resetSeconds: parseHeaderInt(res, ["x-ratelimit-requests-reset", "x-ratelimit-scraping-api-reset"]),
+    };
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       return {
@@ -269,9 +292,10 @@ export async function pingPlatform(platform: SocialPlatform): Promise<{
         status: res.status,
         message: text.slice(0, 200) || res.statusText,
         latencyMs: latency,
+        rateLimit,
       };
     }
-    return { ok: true, status: res.status, message: "OK", latencyMs: latency };
+    return { ok: true, status: res.status, message: "OK", latencyMs: latency, rateLimit };
   } catch (err) {
     return {
       ok: false,

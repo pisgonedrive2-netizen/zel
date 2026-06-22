@@ -41,11 +41,36 @@ export async function GET() {
   if (!session || (session.role !== "admin" && session.role !== "auditor")) {
     return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
-  const { data, error } = await getSupabaseAdmin()
+
+  const db = getSupabaseAdmin();
+  let query = db
     .from("audit_logs")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
+
+  // Gizlilik: yöneticilerin (özellikle ana yönetici) işlem kayıtları
+  // denetçiye/diğer rollere GÖRÜNMEZ. Sadece admin tam günlüğü görür.
+  if (session.role !== "admin") {
+    const { data: adminUsers } = await db
+      .from("app_users")
+      .select("id")
+      .eq("role", "admin");
+    const adminIds = new Set<string>([
+      ...(adminUsers ?? []).map((u) => String((u as { id: unknown }).id)),
+    ]);
+    // Ana yönetici sabit id'si de garantiye al.
+    const { MAIN_ADMIN_ID } = await import("@/lib/user-guards");
+    adminIds.add(MAIN_ADMIN_ID);
+    if (adminIds.size > 0) {
+      const list = Array.from(adminIds)
+        .map((v) => `"${v.replace(/"/g, '\\"')}"`)
+        .join(",");
+      query = query.not("actor_id", "in", `(${list})`);
+    }
+  }
+
+  const { data, error } = await query;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

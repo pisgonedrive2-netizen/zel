@@ -99,7 +99,10 @@ export async function GET(
     );
   }
 
-  const includePremium = req.nextUrl.searchParams.get("premium") !== "0";
+  // Premium zenginleştirme (ekstra yorum/feed/ilgili-içerik çağrıları) artık
+  // VARSAYILAN OLARAK KAPALI — kotayı korur. Sadece kullanıcı açıkça isterse
+  // (premium=1) çalışır. Böylece sıradan detay görüntüleme link başına 1 çağrı.
+  const includePremium = req.nextUrl.searchParams.get("premium") === "1";
 
   try {
     const details = await fetchRichDetailsForLink(detected, { includePremium });

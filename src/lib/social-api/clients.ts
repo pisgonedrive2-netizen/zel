@@ -64,6 +64,90 @@ async function paceHost(host: string): Promise<void> {
   lastRequestAtByHost[host] = Date.now();
 }
 
+/* ────────────────────────── Rate-limit takibi ──────────────────────────────
+ * RapidAPI her yanıtta planın gerçek kotasını başlıklarda döndürür:
+ *   x-ratelimit-requests-limit / -remaining / -reset (sn)
+ *   (TikTok host'unda x-ratelimit-scraping-api-* olarak gelir)
+ * Bu değerleri platform bazında saklayıp; "remaining = 0" iken yeni istek
+ * atmadan önce devreyi keseriz. Böylece sağlayıcının "reached requests limit"
+ * hatası ham hata yerine net, yerelleştirilmiş bir mesaja dönüşür ve gereksiz
+ * istek hammerlanmaz. Süreç içi state (cron/manuel tek instance'ta çalışır).
+ * ------------------------------------------------------------------------- */
+export interface RateLimitSnapshot {
+  limit: number | null;
+  remaining: number | null;
+  /** Pencerenin resetleneceği epoch ms (tahmini). */
+  resetAt: number | null;
+  /** Bu snapshot'ın alındığı epoch ms. */
+  updatedAt: number;
+}
+
+const rateLimitState: Partial<Record<SocialPlatform, RateLimitSnapshot>> = {};
+
+function parseHeaderInt(res: Response, names: string[]): number | null {
+  for (const n of names) {
+    const v = res.headers.get(n);
+    if (v != null && v.trim() !== "") {
+      const num = Number(v);
+      if (Number.isFinite(num)) return num;
+    }
+  }
+  return null;
+}
+
+function captureRateLimit(platform: SocialPlatform, res: Response): void {
+  const limit = parseHeaderInt(res, [
+    "x-ratelimit-requests-limit",
+    "x-ratelimit-scraping-api-limit",
+  ]);
+  const remaining = parseHeaderInt(res, [
+    "x-ratelimit-requests-remaining",
+    "x-ratelimit-scraping-api-remaining",
+  ]);
+  const resetSec = parseHeaderInt(res, [
+    "x-ratelimit-requests-reset",
+    "x-ratelimit-scraping-api-reset",
+  ]);
+  if (limit == null && remaining == null && resetSec == null) return;
+  rateLimitState[platform] = {
+    limit,
+    remaining,
+    resetAt: resetSec != null ? Date.now() + resetSec * 1000 : null,
+    updatedAt: Date.now(),
+  };
+}
+
+/** Son bilinen kota durumunu döner (UI / sağlık paneli için). */
+export function getRateLimitSnapshot(platform: SocialPlatform): RateLimitSnapshot | null {
+  return rateLimitState[platform] ?? null;
+}
+
+/** Türkçe kalan-süre formatı: "~23 saat" / "~12 dk". */
+function formatResetIn(resetAt: number): string {
+  const ms = Math.max(0, resetAt - Date.now());
+  const mins = Math.round(ms / 60_000);
+  if (mins < 60) return `~${Math.max(1, mins)} dk`;
+  return `~${Math.round(mins / 60)} saat`;
+}
+
+/**
+ * Bilinen kota bittiyse (remaining<=0 ve reset zamanı gelmediyse) devreyi keser.
+ * `rate limit` ifadesi mesaja bilinçli olarak konur → error-classify bunu
+ * GEÇİCİ hata sayar, link "bozuk" olarak işaretlenmez.
+ */
+function assertNotRateLimited(platform: SocialPlatform): void {
+  const s = rateLimitState[platform];
+  if (!s || s.remaining == null || s.remaining > 0) return;
+  if (s.resetAt != null && Date.now() >= s.resetAt) return; // pencere resetlendi
+  const plan = SOCIAL_PLANS[platform];
+  const resetTxt = s.resetAt != null ? ` ${formatResetIn(s.resetAt)} sonra resetlenir.` : "";
+  throw new RapidApiError(
+    platform,
+    429,
+    `${plan.label} istek limiti doldu (rate limit, ${plan.label === "Instagram" ? "günlük" : "plan"} kota: ${s.limit ?? plan.monthlyLimit}).${resetTxt}`,
+  );
+}
+
 /** Retry-After başlığı (saniye veya HTTP-date) → ms. */
 function retryAfterMs(res: Response): number | null {
   const h = res.headers.get("retry-after");
@@ -87,6 +171,9 @@ export async function rapidApiGet(platform: SocialPlatform, path: string, search
   const plan = SOCIAL_PLANS[platform];
   const url = new URL(`https://${plan.apiHost}${path}`);
   for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+
+  // Bilinen kota bittiyse hiç istek atma — net mesajla erken çık.
+  assertNotRateLimited(platform);
 
   const retries = maxRetries();
   let lastStatus = 0;
@@ -115,12 +202,34 @@ export async function rapidApiGet(platform: SocialPlatform, path: string, search
       throw err;
     }
 
+    // Gerçek kota durumunu başlıklardan yakala (her yanıt → güncel snapshot).
+    captureRateLimit(platform, res);
+
     if (res.ok) {
       return (await res.json()) as unknown;
     }
 
     lastStatus = res.status;
     lastText = (await res.text().catch(() => "")) || res.statusText;
+
+    // Kota dolduğunu işaretle: 429 veya "reached requests limit" gövdesi →
+    // remaining=0 set et ki sonraki çağrılar devre kesiciyle erken dönsün.
+    const looksRateLimited =
+      res.status === 429 || /reached requests limit|rate limit|too many requests/i.test(lastText);
+    if (looksRateLimited) {
+      const resetMs = retryAfterMs(res);
+      const prev = rateLimitState[platform];
+      // reset zamanı bilinmiyorsa: en az 60 sn cooldown ata ki devre kesici
+      // süresiz takılı kalmasın (bu süre sonunda 1 istek geçer, yeniden ölçülür).
+      const fallbackResetAt =
+        prev?.resetAt != null && prev.resetAt > Date.now() ? prev.resetAt : Date.now() + 60_000;
+      rateLimitState[platform] = {
+        limit: prev?.limit ?? plan.monthlyLimit,
+        remaining: 0,
+        resetAt: resetMs != null ? Date.now() + resetMs : fallbackResetAt,
+        updatedAt: Date.now(),
+      };
+    }
 
     // Yalnızca geçici durumlar (hız limiti / geçici sunucu hatası) yeniden denenir.
     const retriable = res.status === 429 || res.status === 503 || res.status === 502;

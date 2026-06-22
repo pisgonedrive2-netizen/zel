@@ -1,19 +1,22 @@
 /**
- * RapidAPI Basic plan limitleri ve otomatik yenileme bütçesi.
+ * RapidAPI plan limitleri ve otomatik yenileme bütçesi.
  *
- * KAYNAK (yükseltilmiş planlar — Mayıs 2026):
- *   • YouTube   (youtube138)                            : 5000 req/ay (varsayılan)
- *   • Instagram (instagram-api-fast-reliable-data-scraper): 5000 req/ay
- *   • TikTok    (tiktok-scraper7)                       : 5000 req/ay
+ * GERÇEK PLAN LİMİTLERİ — canlı `x-ratelimit-requests-limit` başlıklarıyla
+ * doğrulandı (22 Haz 2026):
+ *   • YouTube   (youtube138)                              : 10.000 istek / pencere
+ *   • Instagram (instagram-api-fast-reliable-data-scraper):  3.000 istek / pencere  ← en dar
+ *   • TikTok    (tiktok-scraper7)                         : 3.000.000 istek / pencere
+ *
+ * NOT: Instagram'ın penceresi aylık değil, ~günlük resetleniyor (reset ≈ 23 sa).
+ * Bu yüzden bağlayıcı kısıt Instagram'dır; gerçek koruma artık `clients.ts`
+ * içindeki başlık-tabanlı devre kesicidir (sağlayıcının döndürdüğü `remaining`
+ * 0 olunca istek atılmaz). Buradaki `monthlyLimit` bütçe/UI tahmini içindir.
  *
  * Ortam değişkeni ile override: RAPIDAPI_YOUTUBE_MONTHLY_LIMIT vb.
  *
  * Budget stratejisi:
- *   - Aylık kotanın %85'ini güvenli sınır olarak kullan (manuel refresh +
- *     hata payı için %15 rezerv).
- *   - Cron günde 1 kez çalışır (Vercel Hobby uyumlu); ay başına ~30 çalıştırma.
- *   - Her çalıştırma, kalan kotayı kalan güne böler ve adaptif batch boyutu
- *     hesaplar. Hiçbir koşulda kota aşılmaz.
+ *   - Kotanın %85'ini güvenli sınır olarak kullan (manuel refresh + hata payı).
+ *   - Cron günde 1 kez çalışır; her çalıştırma kalan kotayı kalan güne böler.
  */
 
 export type SocialPlatform = "youtube" | "tiktok" | "instagram";
@@ -23,8 +26,10 @@ export interface PlanConfig {
   apiHost: string;
   /** İnsan dostu etiket */
   label: string;
-  /** Aylık hard limit */
+  /** Plan hard limiti (bkz. quotaWindow) */
   monthlyLimit: number;
+  /** Kota penceresi: sağlayıcının resetleme periyodu. */
+  quotaWindow: "daily" | "monthly";
   /** İkincil rate limit (saniye/dakika başına) — bilgi amaçlı */
   rateLimit: string;
   /** UI'da gösterilen güvenli kotanın yüzdesi (0–1) */
@@ -44,7 +49,8 @@ export const SOCIAL_PLANS: Record<SocialPlatform, PlanConfig> = {
   youtube: {
     apiHost: "youtube138.p.rapidapi.com",
     label: "YouTube",
-    monthlyLimit: envMonthlyLimit("RAPIDAPI_YOUTUBE_MONTHLY_LIMIT", 5000),
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_YOUTUBE_MONTHLY_LIMIT", 10_000),
+    quotaWindow: "monthly",
     rateLimit: "5 req/sn",
     safeFraction: 0.85,
     maxBatchPerRun: 40,
@@ -52,15 +58,18 @@ export const SOCIAL_PLANS: Record<SocialPlatform, PlanConfig> = {
   instagram: {
     apiHost: "instagram-api-fast-reliable-data-scraper.p.rapidapi.com",
     label: "Instagram",
-    monthlyLimit: envMonthlyLimit("RAPIDAPI_INSTAGRAM_MONTHLY_LIMIT", 5000),
-    rateLimit: "1000 req/saat",
+    // Gerçek plan: 3.000 / ~günlük pencere. Bağlayıcı kısıt budur.
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_INSTAGRAM_MONTHLY_LIMIT", 3_000),
+    quotaWindow: "daily",
+    rateLimit: "3000 istek / gün",
     safeFraction: 0.85,
-    maxBatchPerRun: 40,
+    maxBatchPerRun: 24,
   },
   tiktok: {
     apiHost: "tiktok-scraper7.p.rapidapi.com",
     label: "TikTok",
-    monthlyLimit: envMonthlyLimit("RAPIDAPI_TIKTOK_MONTHLY_LIMIT", 5000),
+    monthlyLimit: envMonthlyLimit("RAPIDAPI_TIKTOK_MONTHLY_LIMIT", 1_000_000),
+    quotaWindow: "monthly",
     rateLimit: "120 req/dk",
     safeFraction: 0.85,
     maxBatchPerRun: 24,

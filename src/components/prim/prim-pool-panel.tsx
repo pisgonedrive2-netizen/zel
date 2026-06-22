@@ -12,6 +12,7 @@ import {
   Tooltip as RTooltip, ResponsiveContainer, Cell,
 } from "recharts";
 import { useStore, calcKasaBalance } from "@/store/store";
+import { useUiPrefs } from "@/store/ui-prefs";
 import { isPayrollActive } from "@/lib/payroll-utils";
 import { shiftCalendarMonthYm, toYearMonthLocal } from "@/lib/data";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
@@ -166,6 +167,12 @@ export function PrimPoolPanel() {
 
   const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
   const [tab, setTab] = useState("ozet");
+  const simpleView = useUiPrefs((s) => s.primSimpleView);
+  const togglePrimSimpleView = useUiPrefs((s) => s.togglePrimSimpleView);
+  // Basit görünümde gelişmiş sekmeler gizli; açık sekme onlardan biriyse Özet'e dön.
+  useEffect(() => {
+    if (simpleView && (tab === "senaryo" || tab === "kurallar")) setTab("ozet");
+  }, [simpleView, tab]);
   const storedRef = useRef<PrimStoredSettings>(defaultPrimStoredSettings());
   const [brandFees, setBrandFees] = useState<Record<string, number>>({});
   const [brandGuarantees, setBrandGuarantees] = useState<Record<string, number>>({});
@@ -506,6 +513,15 @@ export function PrimPoolPanel() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={simpleView ? "default" : "outline"}
+            size="sm"
+            className="h-9 gap-1.5 text-xs"
+            onClick={togglePrimSimpleView}
+            title={simpleView ? "Gelişmiş ayarları göster" : "Sadece özet & izlenmeleri göster"}
+          >
+            <SlidersHorizontal size={13} /> {simpleView ? "Basit görünüm" : "Detaylı görünüm"}
+          </Button>
           <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={resetAll}>
             <RotateCcw size={13} /> Sıfırla
           </Button>
@@ -541,8 +557,8 @@ export function PrimPoolPanel() {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="ozet" className="gap-1.5"><Layers size={14} /> Özet</TabsTrigger>
           <TabsTrigger value="izlenme" className="gap-1.5"><Eye size={14} /> İzlenmeler</TabsTrigger>
-          <TabsTrigger value="senaryo" className="gap-1.5"><Target size={14} /> Senaryolar</TabsTrigger>
-          <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar & Dağıtım</TabsTrigger>
+          {!simpleView && <TabsTrigger value="senaryo" className="gap-1.5"><Target size={14} /> Senaryolar</TabsTrigger>}
+          {!simpleView && <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar & Dağıtım</TabsTrigger>}
         </TabsList>
 
         {/* ── ÖZET ───────────────────────────────────────────────────────── */}

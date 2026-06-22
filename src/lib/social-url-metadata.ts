@@ -23,7 +23,9 @@ export async function fetchContentUrlMetadata(url: string): Promise<{
         : "TikTok";
 
   try {
-    const rich = await fetchRichDetailsForLink(det);
+    // Sadece platform/tarih/başlık gerekli — premium zenginleştirme (ekstra
+    // yorum/feed çağrıları) kapalı: link başına RapidAPI çağrısını düşürür.
+    const rich = await fetchRichDetailsForLink(det, { includePremium: false });
     return {
       platform,
       publishedAt: rich.publishedAt,

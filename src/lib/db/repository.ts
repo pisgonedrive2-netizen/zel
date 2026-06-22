@@ -734,7 +734,11 @@ async function syncAdminFull(payload: AppHydratePayload) {
     { table: "kasa_transactions", rows: (payload.kasaTransactions ?? []).map(kasaToRow), skipDelete: true },
     { table: "weekly_plans", rows: weeklyPlanRows, skipDelete: true },
     { table: "week_brand_reels", rows: (payload.weekBrandReels ?? []).map(weekBrandReelToRow), skipDelete: true },
-    { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow) },
+    // Bildirimler: toplu silme YAPILMAZ. Aksi halde bir adminin senkronizasyonu,
+    // kendi yerel listesinde olmayan (başka admin/marka/yayıncı) bildirimleri
+    // DB'den silebiliyor ve silinmiş bildirimler başka istemcide diriliyordu.
+    // Silme yalnızca özel DELETE API'si ile yapılır (deleteNotificationPersisted).
+    { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow), skipDelete: true },
   ];
 
   for (const { table, rows, skipDelete } of tables) {
@@ -748,6 +752,14 @@ async function syncAdminFull(payload: AppHydratePayload) {
     payloadDeduped.contentExpenses ?? [],
     payloadDeduped.salaryExtras ?? []
   );
+
+  // Yerelde silinen manuel maaş ek kalemlerini DB'den de düş. Yalnızca admin
+  // TAM senkronizasyonunda çalışır (tüm salary_extras gönderilir); scoped/streamer
+  // sync'te ÇALIŞMAZ çünkü oraya kısmi liste gider. deleteNotIn'in boş-liste
+  // güvenliği (mevcut satır varken boş listeyle silmeyi reddeder) korunur.
+  if (salaryExtrasDeduped.length > 0) {
+    await deleteNotIn("salary_extras", salaryExtrasDeduped.map((e) => e.id));
+  }
 
   const validBrandIds = await loadValidBrandIds(payload.brands ?? []);
   const brandStats = (payload.brandMonthlyStats ?? []).filter((s) =>
@@ -817,6 +829,9 @@ async function syncStreamerScoped(employeeId: string, payload: AppHydratePayload
 export async function deleteAppUser(id: string) {
   const users = await fetchUsers();
   const target = users.find((u) => u.id === id);
+  // Silinen kullanıcının işlem günlüğü (audit) kayıtlarını da temizle — aksi halde
+  // kişi silinse bile "Eylemi yapan" filtresinde görünmeye devam ediyordu.
+  await getSupabaseAdmin().from("audit_logs").delete().eq("actor_id", id).then(() => undefined);
   if (target?.role === "brand" && target.brandId) {
     const { isBrandOwnerUser, purgeBrandTenant } = await import("@/lib/db/purge-brand-tenant");
     const owner = await isBrandOwnerUser(id, target.brandId);

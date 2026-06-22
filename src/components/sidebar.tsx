@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, ArrowUpRight,
   FolderKanban, Receipt, CalendarRange,
   FileSpreadsheet, ChevronLeft, ChevronRight,
-  Search, X, CalendarDays, Eye,
+  Search, X, CalendarDays, Eye, EyeOff,
   Wallet, Clapperboard, LogOut, ShieldCheck,
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
   Send, Handshake, Video, TrendingUp, UserCog,
@@ -20,6 +20,7 @@ import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
+import { useUiPrefs } from "@/store/ui-prefs";
 import { DeveloperAttribution } from "@/components/developer-attribution";
 import { useStore, unreadNotificationCount, visibleNotificationsForRole } from "@/store/store";
 import {
@@ -45,25 +46,28 @@ type NavItem = {
   cap?:  OrgCapability;
   /** Yalnızca ana yönetici (orkun) görür. */
   mainAdminOnly?: boolean;
+  /** Para/finansal hassas öğe — "ekran paylaşımı (gizli mod)" açıkken gizlenir. */
+  sensitive?: boolean;
 };
 
 const ADMIN_NAV: NavItem[] = [
-  { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol" },
-  { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true },
-  { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro" },
-  { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro" },
-  { href: "/kasa",                 label: "Kasa",               icon: Wallet,          group: "Bordro" },
+  { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol", sensitive: true },
+  { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true, sensitive: true },
+  { href: "/gorevler",             label: "Görevler",           icon: ClipboardList,   group: "Kontrol" },
+  { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro", sensitive: true },
+  { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro", sensitive: true },
+  { href: "/kasa",                 label: "Kasa",               icon: Wallet,          group: "Bordro", sensitive: true },
   { href: "/takvim",               label: "Haftalık Takvim",    icon: CalendarDays,    group: "Yayın" },
   { href: "/izlenme",              label: "İzlenme özeti",       icon: Eye,             group: "Yayın" },
   { href: "/izlenme/markalar",     label: "Markalar",            icon: BarChart3,       group: "Yayın" },
   { href: "/izlenme/grafikler",    label: "İzlenme grafikleri",  icon: Activity,      group: "Yayın" },
   { href: "/izlenme/operatorler",  label: "Operatörler",         icon: Users,           group: "Yayın" },
   { href: "/izlenme/api",          label: "API & keşif",         icon: Search,          group: "Yayın" },
-  { href: "/icerik-harcamalari",   label: "İçerik Harcamaları", icon: Clapperboard,    group: "Yayın" },
-  { href: "/dis-gelir",            label: "Dış Gelir (Geçmiş)", icon: ArrowUpRight,    group: "Muhasebe" },
-  { href: "/ic-gelir",             label: "İç Gelir",           icon: FolderKanban,    group: "Muhasebe" },
-  { href: "/giderler",             label: "Giderler",           icon: Receipt,         group: "Muhasebe" },
-  { href: "/planlanan",            label: "Planlanan",          icon: CalendarRange,   group: "Muhasebe" },
+  { href: "/icerik-harcamalari",   label: "İçerik Harcamaları", icon: Clapperboard,    group: "Yayın", sensitive: true },
+  { href: "/dis-gelir",            label: "Dış Gelir (Geçmiş)", icon: ArrowUpRight,    group: "Muhasebe", sensitive: true },
+  { href: "/ic-gelir",             label: "İç Gelir",           icon: FolderKanban,    group: "Muhasebe", sensitive: true },
+  { href: "/giderler",             label: "Giderler",           icon: Receipt,         group: "Muhasebe", sensitive: true },
+  { href: "/planlanan",            label: "Planlanan",          icon: CalendarRange,   group: "Muhasebe", sensitive: true },
   { href: "/kullanicilar",         label: "Kullanıcılar",       icon: KeyRound,        group: "Sistem" },
   { href: "/bildirimler",          label: "Bildirim Merkezi",   icon: Bell,            group: "Sistem" },
 ];
@@ -176,9 +180,12 @@ export default function Sidebar() {
   // marka kullanıcısı org rolüne göre (marka-subnav ile aynı mantık).
   const orgRole = adminViewingBrand ? "admin" : user?.orgRole;
   const mainAdmin = user ? isMainAdmin(user) : false;
+  const screenShareMode = useUiPrefs((s) => s.screenShareMode);
+  const toggleScreenShareMode = useUiPrefs((s) => s.toggleScreenShareMode);
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
     (!n.mainAdminOnly || mainAdmin) &&
+    (!n.sensitive || !screenShareMode) &&
     (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: mainAdmin }))
   );
 
@@ -261,6 +268,42 @@ export default function Sidebar() {
                 className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all duration-200"
               />
             </div>
+          </div>
+        )}
+
+        {/* Ekran paylaşımı (gizli mod) — finansal menüleri gizler */}
+        {!collapsed && (user?.role === "admin" || user?.role === "auditor") && (
+          <div className="px-4 pb-1">
+            <button
+              type="button"
+              onClick={toggleScreenShareMode}
+              aria-pressed={screenShareMode}
+              title={screenShareMode ? "Gizli mod açık — finansal menüler gizli" : "Ekran paylaşımı için finansal menüleri gizle"}
+              className={cn(
+                "w-full flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                screenShareMode
+                  ? "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "border-border bg-card text-muted-foreground hover:border-primary/40",
+              )}
+            >
+              <span className="flex items-center gap-2">
+                {screenShareMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                Gizli mod {screenShareMode ? "(açık)" : ""}
+              </span>
+              <span
+                className={cn(
+                  "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
+                  screenShareMode ? "bg-amber-500" : "bg-muted-foreground/30",
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                    screenShareMode ? "translate-x-3.5" : "translate-x-0.5",
+                  )}
+                />
+              </span>
+            </button>
           </div>
         )}
 

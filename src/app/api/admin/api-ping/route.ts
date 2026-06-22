@@ -40,11 +40,26 @@ export async function POST(req: NextRequest) {
   if (result.ok) {
     await recordPlatformPingSuccess(platform).catch(() => undefined);
   }
+
+  // Sağlayıcının döndürdüğü GERÇEK kota durumunu mesaja ekle (en doğru bilgi).
+  const rl = result.rateLimit;
+  let quotaNote = "";
+  if (rl && rl.limit != null && rl.remaining != null) {
+    const resetTxt =
+      rl.resetSeconds != null
+        ? rl.resetSeconds < 3600
+          ? ` · ~${Math.max(1, Math.round(rl.resetSeconds / 60))} dk sonra resetlenir`
+          : ` · ~${Math.round(rl.resetSeconds / 3600)} saat sonra resetlenir`
+        : "";
+    quotaNote = `Gerçek kota: ${rl.remaining}/${rl.limit} kaldı${resetTxt}`;
+  }
+
   return NextResponse.json({
     ok: result.ok,
     status: result.status,
-    message: result.message,
+    message: quotaNote ? `${result.message} — ${quotaNote}` : result.message,
     latencyMs: result.latencyMs,
     platform,
+    rateLimit: rl ?? null,
   });
 }

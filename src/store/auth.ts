@@ -4,7 +4,7 @@ import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
 import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
 import { resolvePlainPin } from "@/lib/pin-update";
-import { logAudit } from "@/store/audit-log";
+import { logAudit, purgeAuditEntriesForActor, refreshAuditFromServer } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { cacheAdminPin, mergeUsersWithPinCache, removeCachedAdminPin } from "@/lib/admin-pin-cache";
 import { usePanelView, type BrandViewAs, type PanelViewAs } from "@/store/panel-view";
@@ -489,6 +489,10 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
           action: "user_deleted",
           detail: `${prev?.name ?? "?"} (${prev?.username ?? id})`,
         });
+        // Silinen kişinin işlem günlüğü kayıtları sunucuda da temizlendi; istemci
+        // önbelleğini hemen güncelle ki "Eylemi yapan" filtresinde kalmasın.
+        purgeAuditEntriesForActor(id);
+        void refreshAuditFromServer();
         return { ok: true as const };
       },
   };

@@ -47,10 +47,50 @@ export function parseLanetkelBackup(raw: unknown): LanetkelBackupV1 | null {
 
 export function downloadJson(filename: string, payload: unknown): void {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  triggerDownload(filename, blob);
+}
+
+function triggerDownload(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+  return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Nesne dizisini CSV metnine çevirir (başlık satırı = tüm anahtarların birleşimi). */
+export function rowsToCsv(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return "";
+  const headers = Array.from(
+    rows.reduce<Set<string>>((set, r) => {
+      Object.keys(r).forEach((k) => set.add(k));
+      return set;
+    }, new Set()),
+  );
+  const lines = [headers.join(",")];
+  for (const r of rows) lines.push(headers.map((h) => csvCell(r[h])).join(","));
+  return lines.join("\n");
+}
+
+/**
+ * Birden çok tabloyu tek bir CSV dosyasında, her tablo `## tablo_adı` başlığıyla
+ * ayrılmış olarak indirir. Excel/Sheets'te bölüm bölüm açılabilir.
+ */
+export function downloadTablesCsv(filename: string, tables: Record<string, Record<string, unknown>[]>): void {
+  const blocks: string[] = [];
+  for (const [name, rows] of Object.entries(tables)) {
+    blocks.push(`## ${name} (${rows.length})`);
+    blocks.push(rowsToCsv(rows));
+    blocks.push("");
+  }
+  // BOM ekle — Excel Türkçe karakterleri doğru açsın.
+  const blob = new Blob(["\uFEFF" + blocks.join("\n")], { type: "text/csv;charset=utf-8" });
+  triggerDownload(filename, blob);
 }

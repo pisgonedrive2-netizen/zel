@@ -1967,7 +1967,26 @@ export default function MaaslarPage() {
       <Modal open={empModal !== null} onClose={() => setEmpModal(null)} title={empModal === "new" ? "Yeni Çalışan" : "Çalışanı Düzenle"}>
         <EmployeeForm
           initial={empModal !== "new" && empModal !== null ? empModal : undefined}
-          onSave={d => { empModal === "new" ? addEmployee(d) : empModal !== null && saveEmployee(empModal.id, d); }}
+          onSave={d => {
+            if (empModal === "new") {
+              addEmployee(d);
+              // Yeni personel için takvimli onboarding görev planı öner.
+              if (window.confirm(`${d.name} için onboarding görev planı (takvimli) oluşturulsun mu?\n\nGörevler panosunda (sözleşme, erişim, tanışma, ilk içerik, 30 gün değerlendirme) listelenir.`)) {
+                void fetch("/api/tasks", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    template: "onboarding",
+                    subjectName: d.name,
+                    startDate: d.startDate || new Date().toISOString().slice(0, 10),
+                  }),
+                }).catch(() => {});
+              }
+            } else if (empModal !== null) {
+              saveEmployee(empModal.id, d);
+            }
+          }}
           onDelete={empModal !== "new" && empModal !== null ? () => { deleteEmployee(empModal.id); setEmpModal(null); } : undefined}
           onClose={() => setEmpModal(null)}
         />

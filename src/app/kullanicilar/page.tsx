@@ -26,11 +26,12 @@ import { isMainAdmin } from "@/lib/user-guards";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
-import { useAuditLog, type AuditAction, type AuditEntry, logAudit } from "@/store/audit-log";
+import { useAuditLog, type AuditAction, type AuditEntry, logAudit, refreshAuditFromServer } from "@/store/audit-log";
 import {
   pickAppHydratePayload,
   downloadJson,
   parseLanetkelBackup,
+  downloadTablesCsv,
   type LanetkelBackupV1,
 } from "@/lib/app-backup";
 import { Button } from "@/components/ui/button";
@@ -798,6 +799,12 @@ function UsersPage() {
     void refreshUsers();
   }, [refreshUsers]);
 
+  // Sayfa açılışında işlem günlüğünü sunucudan tazele — başka oturumlarda/
+  // sekmelerde yapılan silme/temizleme işlemleri burada da yansısın.
+  useEffect(() => {
+    void refreshAuditFromServer();
+  }, []);
+
   const runExportBackup = () => {
     const payload: LanetkelBackupV1 = {
       backupVersion: 1,
@@ -812,6 +819,61 @@ function UsersPage() {
       actorName: actor?.name ?? "?",
       action: "backup_exported",
       detail: "Tam yedek (auth + mali veri)",
+    });
+  };
+
+  const [backupBusy, setBackupBusy] = useState(false);
+
+  // Tam sistem yedeği — doğrudan Supabase'ten tüm tablolar (sunucu).
+  const runFullSystemBackup = async () => {
+    setBackupBusy(true);
+    try {
+      const res = await fetch("/api/admin/backup", { credentials: "include" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setFlash(j.error ? `Sistem yedeği alınamadı: ${j.error}` : "Sistem yedeği alınamadı.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `foxstream-sistem-yedegi-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      const actor = useAuth.getState().user;
+      logAudit({
+        actorId: actor?.id ?? "system",
+        actorName: actor?.name ?? "?",
+        action: "backup_exported",
+        detail: "Tam sistem yedeği (Supabase, tüm tablolar)",
+      });
+      setFlash("Tam sistem yedeği indirildi.");
+    } catch {
+      setFlash("Sistem yedeği alınamadı (ağ hatası).");
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  // CSV yedeği — mali tablolar tek dosyada (Excel/Sheets uyumlu).
+  const runCsvBackup = () => {
+    const s = useStore.getState() as unknown as Record<string, unknown>;
+    const pick = (k: string) => (Array.isArray(s[k]) ? (s[k] as Record<string, unknown>[]) : []);
+    downloadTablesCsv(`foxstream-csv-yedek-${new Date().toISOString().slice(0, 10)}.csv`, {
+      employees: pick("employees"),
+      kasaTransactions: pick("kasaTransactions"),
+      expenses: pick("expenses"),
+      sponsorTransactions: pick("sponsorTransactions"),
+      contentExpenses: pick("contentExpenses"),
+      plannedItems: pick("plannedItems"),
+    });
+    const actor = useAuth.getState().user;
+    logAudit({
+      actorId: actor?.id ?? "system",
+      actorName: actor?.name ?? "?",
+      action: "backup_exported",
+      detail: "CSV yedeği (mali tablolar)",
     });
   };
 
@@ -1113,8 +1175,16 @@ function UsersPage() {
               <Plus size={14} /> Yeni Kullanıcı
             </Button>
             <Button size="sm" variant="outline" onClick={runExportBackup} className="gap-1.5">
-              <Download size={13} /> Yedek indir
+              <Download size={13} /> Yedek (JSON)
             </Button>
+            <Button size="sm" variant="outline" onClick={runCsvBackup} className="gap-1.5">
+              <Download size={13} /> Yedek (CSV)
+            </Button>
+            {currentUser && isMainAdmin(currentUser) && (
+              <Button size="sm" variant="outline" onClick={() => void runFullSystemBackup()} disabled={backupBusy} className="gap-1.5">
+                <Download size={13} /> {backupBusy ? "Hazırlanıyor…" : "Tam sistem yedeği"}
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="gap-1.5">
               <Upload size={13} /> Yedek yükle
             </Button>

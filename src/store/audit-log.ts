@@ -59,3 +59,25 @@ export function logAudit(entry: Omit<AuditEntry, "id" | "at">): void {
     }).catch(() => {});
   }
 }
+
+/** Belirli bir aktöre ait yerel kayıtları kaldırır (örn. kullanıcı silinince). */
+export function purgeAuditEntriesForActor(actorId: string): void {
+  useAuditLog.setState((s) => ({
+    entries: s.entries.filter((e) => e.actorId !== actorId),
+  }));
+}
+
+/** İşlem günlüğünü sunucudan tazeler — silme/temizleme sonrası anında yansıması için. */
+export async function refreshAuditFromServer(): Promise<void> {
+  if (!isSupabaseClientMode() || typeof fetch === "undefined") return;
+  try {
+    const res = await fetch("/api/audit", { cache: "no-store", credentials: "include" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { entries?: AuditEntry[] };
+    if (Array.isArray(data.entries)) {
+      useAuditLog.setState({ entries: data.entries });
+    }
+  } catch {
+    /* sessiz */
+  }
+}
