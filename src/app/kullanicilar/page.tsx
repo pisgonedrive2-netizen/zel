@@ -11,6 +11,7 @@ import {
   ScrollText,
   Bell,
   ExternalLink,
+  LogIn,
   ShieldQuestion,
   Search,
   X as XIcon,
@@ -153,6 +154,8 @@ const AUDIT_TR: Record<AuditAction, string> = {
   expense_needs_info:  "Harcama · ek bilgi istendi",
   backup_exported:     "Yedek indirildi",
   backup_imported:     "Yedek içe aktarıldı",
+  user_impersonated:           "Hesaba girildi (denetim)",
+  user_impersonation_stopped:  "Denetimden çıkıldı",
   session_idle_logout: "Oturum kapatıldı (hareketsizlik)",
 };
 
@@ -731,7 +734,7 @@ function UsersPage() {
   const searchParams = useSearchParams();
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
   const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
-  const { users, user: currentUser, addUser, updateUser, resetPin, deleteUser } = useAuth();
+  const { users, user: currentUser, addUser, updateUser, resetPin, deleteUser, impersonate } = useAuth();
   const hydrateFromBackup = useStore((s) => s.hydrateFromBackup);
   const auditEntries = useAuditLog((s) => s.entries);
   const { employees, brands } = useStore();
@@ -1133,6 +1136,24 @@ function UsersPage() {
     }
   };
 
+  // Ana yönetici (Orkun) herhangi bir hesaba denetim için girebilir.
+  const canImpersonate = !!currentUser && isMainAdmin(currentUser) && supabaseMode;
+
+  const handleImpersonate = async (u: AppUser) => {
+    if (
+      !confirm(
+        `${u.name} (${ROLE_LABELS[u.role]}) hesabına denetim için giriliyor.\n\n` +
+          "Bu süre boyunca o kullanıcının gördüğü her şeyi görürsünüz. " +
+          "Üstteki kırmızı şeritten tek tıkla kendi hesabınıza dönebilirsiniz. İşlem kayıt altına alınır."
+      )
+    ) {
+      return;
+    }
+    const r = await impersonate(u.id);
+    if (!r.ok) setFlash(r.error);
+    // Başarılıysa sayfa yeniden yüklenir.
+  };
+
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1200px]">
       <input
@@ -1452,6 +1473,16 @@ function UsersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
+                          {canImpersonate && currentUser?.id !== u.id && (
+                            <button
+                              type="button"
+                              title="Hesabına gir (denetim)"
+                              onClick={() => void handleImpersonate(u)}
+                              className="p-1.5 rounded hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 transition-colors"
+                            >
+                              <LogIn size={13} />
+                            </button>
+                          )}
                           {u.role === "streamer" && linkedEmp && (
                             <button
                               type="button"

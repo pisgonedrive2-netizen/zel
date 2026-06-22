@@ -24,6 +24,8 @@ export async function GET() {
       avatar: session.avatar,
       pin: "",
       active: true,
+      impersonatorId: session.impersonatorId,
+      impersonatorName: session.impersonatorName,
     },
   });
 }

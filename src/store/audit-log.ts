@@ -14,6 +14,8 @@ export type AuditAction =
   | "expense_needs_info"
   | "backup_exported"
   | "backup_imported"
+  | "user_impersonated"
+  | "user_impersonation_stopped"
   | "session_idle_logout";
 
 export interface AuditEntry {

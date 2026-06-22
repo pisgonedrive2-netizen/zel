@@ -32,6 +32,12 @@ export interface AppUser {
   active: boolean;
   /** Son giriş zaman damgası (ISO). */
   lastLoginAt?: string;
+  /**
+   * Denetim/impersonation: bu oturuma ana yönetici "hesabına girerek" geçtiyse,
+   * asıl yöneticinin kimliği. Boşsa normal oturum. (Yalnızca aktif oturum için.)
+   */
+  impersonatorId?: string;
+  impersonatorName?: string;
 }
 
 /**
@@ -94,6 +100,11 @@ interface AuthState {
     pin: string
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
   logout: () => Promise<void>;
+
+  /** Ana yönetici: bir kullanıcının hesabına denetim için gir (impersonation). */
+  impersonate: (userId: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Denetimden çık — asıl yönetici hesabına geri dön. */
+  stopImpersonation: () => Promise<{ ok: true } | { ok: false; error: string }>;
 
   // Admin actions
   addUser: (u: Omit<AppUser, "id">) => Promise<{ ok: true; user: AppUser } | { ok: false; reason: string }>;
@@ -245,6 +256,58 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
           /* SSR güvenliği */
         }
         set({ user: null, sessionReady: true });
+      },
+
+      impersonate: async (userId) => {
+        if (!isSupabaseClientMode()) {
+          return { ok: false as const, error: "Hesaba giriş yalnızca canlı (Supabase) modda çalışır." };
+        }
+        try {
+          const res = await fetch("/api/auth/impersonate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ userId }),
+          });
+          if (!res.ok) {
+            return { ok: false as const, error: await readApiError(res) };
+          }
+          // Önceki impersonation/panel görünümünü temizle, ardından tam yeniden yükle:
+          // yeni oturum çerezi ile tüm uygulama (rol, veri, sidebar) yeniden kurulur.
+          try {
+            usePanelView.setState({ panelViewAs: null, brandViewAs: null });
+          } catch {
+            /* SSR */
+          }
+          if (typeof window !== "undefined") window.location.assign("/");
+          return { ok: true as const };
+        } catch {
+          return { ok: false as const, error: "Ağ hatası — hesaba girilemedi." };
+        }
+      },
+
+      stopImpersonation: async () => {
+        if (!isSupabaseClientMode()) {
+          return { ok: false as const, error: "Yerel modda denetim oturumu yok." };
+        }
+        try {
+          const res = await fetch("/api/auth/impersonate", {
+            method: "DELETE",
+            credentials: "include",
+          });
+          if (!res.ok) {
+            return { ok: false as const, error: await readApiError(res) };
+          }
+          try {
+            usePanelView.setState({ panelViewAs: null, brandViewAs: null });
+          } catch {
+            /* SSR */
+          }
+          if (typeof window !== "undefined") window.location.assign("/kullanicilar");
+          return { ok: true as const };
+        } catch {
+          return { ok: false as const, error: "Ağ hatası — denetimden çıkılamadı." };
+        }
       },
 
       addUser: async (u) => {

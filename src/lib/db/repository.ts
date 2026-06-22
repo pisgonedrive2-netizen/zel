@@ -339,23 +339,8 @@ export async function enrichSessionForMainAdmin(session: SessionPayload): Promis
   };
 }
 
-export async function loginUser(username: string, pin: string): Promise<SessionPayload | null> {
-  const un = username.toLowerCase().trim();
-  const { data, error } = await getSupabaseAdmin()
-    .from("app_users")
-    .select("*")
-    .eq("username", un)
-    .eq("active", true)
-    .maybeSingle();
-  if (error) {
-    throw new Error(`app_users: ${error.message}`);
-  }
-  if (!data) return null;
-  const row = data as Record<string, unknown>;
-  const ok = await verifyPin(pin, String(row.pin_hash));
-  if (!ok) return null;
-  const now = new Date().toISOString();
-  await getSupabaseAdmin().from("app_users").update({ last_login_at: now }).eq("id", row.id);
+/** app_users satırından (pin doğrulaması yapılmış varsayımıyla) oturum yükü kurar. */
+async function sessionFromUserRow(row: Record<string, unknown>): Promise<SessionPayload> {
   const org = await resolveSessionOrgContext(String(row.id)).catch(
     (): { organizationId?: string; orgRole?: string; brandIds?: string[] } => ({})
   );
@@ -377,6 +362,44 @@ export async function loginUser(username: string, pin: string): Promise<SessionP
     brandIds: org.brandIds && org.brandIds.length > 0 ? org.brandIds : brandId ? [brandId] : undefined,
   };
   return enrichSessionForMainAdmin(session);
+}
+
+export async function loginUser(username: string, pin: string): Promise<SessionPayload | null> {
+  const un = username.toLowerCase().trim();
+  const { data, error } = await getSupabaseAdmin()
+    .from("app_users")
+    .select("*")
+    .eq("username", un)
+    .eq("active", true)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`app_users: ${error.message}`);
+  }
+  if (!data) return null;
+  const row = data as Record<string, unknown>;
+  const ok = await verifyPin(pin, String(row.pin_hash));
+  if (!ok) return null;
+  const now = new Date().toISOString();
+  await getSupabaseAdmin().from("app_users").update({ last_login_at: now }).eq("id", row.id);
+  return sessionFromUserRow(row);
+}
+
+/**
+ * PIN doğrulamadan, kullanıcı id'sinden oturum kurar. Yalnızca ana yöneticinin
+ * "hesabına gir (denetim)" akışında, çağrı sahibinin yetkisi doğrulandıktan sonra
+ * kullanılmalıdır. Pasif hesaplar da denetim için yüklenebilir.
+ */
+export async function buildSessionForUserId(userId: string): Promise<SessionPayload | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("app_users")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`app_users: ${error.message}`);
+  }
+  if (!data) return null;
+  return sessionFromUserRow(data as Record<string, unknown>);
 }
 
 export async function fetchUsers(): Promise<AppUser[]> {

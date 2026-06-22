@@ -21,6 +21,12 @@ export interface SessionPayload {
   orgRole?: string;
   /** Erişebildiği tüm marka id'leri (scope_all_brands ise org'un tüm markaları). */
   brandIds?: string[];
+  /**
+   * Denetim/impersonation: bu oturum başka bir kullanıcı tarafından (ana yönetici)
+   * "hesabına girilerek" başlatıldıysa, asıl yöneticinin kimliği. Boşsa normal oturum.
+   */
+  impersonatorId?: string;
+  impersonatorName?: string;
 }
 
 function secretKey() {
@@ -51,6 +57,8 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       organizationId: typeof p.organizationId === "string" ? p.organizationId : undefined,
       orgRole: typeof p.orgRole === "string" ? p.orgRole : undefined,
       brandIds: Array.isArray(p.brandIds) ? (p.brandIds as unknown[]).map(String) : undefined,
+      impersonatorId: typeof p.impersonatorId === "string" ? p.impersonatorId : undefined,
+      impersonatorName: typeof p.impersonatorName === "string" ? p.impersonatorName : undefined,
     };
   } catch {
     return null;

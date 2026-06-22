@@ -10,6 +10,7 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
 import { FloatingTopControls } from "@/components/floating-top-controls";
 import { ImpersonationChip } from "@/components/impersonation-chip";
+import { ImpersonationBar } from "@/components/impersonation-bar";
 import { Loader2, Menu, X } from "lucide-react";
 
 /**
@@ -95,6 +96,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      {!isLogin && <ImpersonationBar />}
       {!isLogin && <FloatingTopControls />}
       {!isLogin && <ImpersonationChip />}
 
