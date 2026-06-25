@@ -25,6 +25,18 @@ export function isMainAdminSession(session: SessionPayload | null | undefined): 
   );
 }
 
+/** Prim havuzu yalnızca ana yönetici (Orkun) — impersonation oturumunda kapalı. */
+export function canAccessPrim(
+  u: Pick<AppUser, "id" | "username" | "impersonatorId"> | null | undefined,
+): boolean {
+  if (!u || u.impersonatorId) return false;
+  return isMainAdmin(u);
+}
+
+export function isPrimRoute(pathname: string): boolean {
+  return pathname === "/prim" || pathname.startsWith("/prim/");
+}
+
 function countActiveRole(users: AppUser[], role: Role): number {
   return users.filter((u) => u.role === role && u.active).length;
 }

@@ -11,6 +11,19 @@ import { previousMonthYm } from "@/lib/brand-igaming-metrics";
 export const PRIM_STORAGE_KEY = "prim-pool-settings-v2";
 const LEGACY_STORAGE_KEY = "prim-pool-settings-v1";
 
+/** İşten ayrılanlar — prim dağıtımında varsayılan olarak hariç. */
+export const PRIM_DEFAULT_EXCLUDED_RECIPIENT_IDS = ["emp-lucy"] as const;
+
+function withDefaultPrimExclusions(
+  meta: Record<string, PrimRecipientMeta>,
+): Record<string, PrimRecipientMeta> {
+  const out = { ...meta };
+  for (const id of PRIM_DEFAULT_EXCLUDED_RECIPIENT_IDS) {
+    out[id] = { ...out[id], excluded: true };
+  }
+  return out;
+}
+
 export type PrimBrandMeta = {
   excluded?: boolean;
   autoRepeatFee?: boolean;
@@ -30,6 +43,8 @@ export type PrimMonthSlice = {
   recipientWeights: Record<string, number>;
   /** Kişi başı performans puanı (ay bazlı). */
   recipientPoints: Record<string, number>;
+  /** Kişi başı içerik kalitesi çarpanı (ay bazlı). */
+  recipientQuality: Record<string, number>;
   config: PrimPoolConfig;
 };
 
@@ -60,6 +75,7 @@ function emptySlice(): PrimMonthSlice {
     brandGuarantees: {},
     recipientWeights: {},
     recipientPoints: {},
+    recipientQuality: {},
     config: { ...FAIR_PRIM_CONFIG },
   };
 }
@@ -71,7 +87,7 @@ export function defaultPrimStoredSettings(): PrimStoredSettings {
     monthly: {},
     brandMeta: {},
     customBrands: [],
-    recipientMeta: {},
+    recipientMeta: withDefaultPrimExclusions({}),
     customRecipients: [],
     autoRepeatToNextMonth: true,
   };
@@ -86,6 +102,7 @@ function migrateLegacy(raw: unknown): PrimStoredSettings | null {
     brandGuarantees: (o.brandGuarantees as Record<string, number>) ?? {},
     recipientWeights: (o.recipientWeights as Record<string, number>) ?? {},
     recipientPoints: (o.recipientPoints as Record<string, number>) ?? {},
+    recipientQuality: (o.recipientQuality as Record<string, number>) ?? {},
     config: { ...FAIR_PRIM_CONFIG, ...((o.config as PrimPoolConfig) ?? {}) },
   };
   return base;
@@ -109,7 +126,7 @@ export function loadPrimStoredSettings(): PrimStoredSettings {
           monthly: parsed.monthly ?? {},
           brandMeta: parsed.brandMeta ?? {},
           customBrands: parsed.customBrands ?? [],
-          recipientMeta: parsed.recipientMeta ?? {},
+          recipientMeta: withDefaultPrimExclusions(parsed.recipientMeta ?? {}),
           customRecipients: parsed.customRecipients ?? [],
         };
       }
@@ -149,6 +166,7 @@ export function resolveMonthSlice(
       brandGuarantees: { ...settings.defaults.brandGuarantees, ...explicit.brandGuarantees },
       recipientWeights: { ...settings.defaults.recipientWeights, ...explicit.recipientWeights },
       recipientPoints: { ...settings.defaults.recipientPoints, ...explicit.recipientPoints },
+      recipientQuality: { ...settings.defaults.recipientQuality, ...explicit.recipientQuality },
       config: { ...settings.defaults.config, ...(explicit.config ?? {}) },
     };
   }
@@ -161,6 +179,7 @@ export function resolveMonthSlice(
         brandGuarantees: { ...settings.defaults.brandGuarantees, ...prev.brandGuarantees },
         recipientWeights: { ...settings.defaults.recipientWeights, ...prev.recipientWeights },
         recipientPoints: { ...settings.defaults.recipientPoints, ...prev.recipientPoints },
+        recipientQuality: { ...settings.defaults.recipientQuality, ...prev.recipientQuality },
         config: { ...settings.defaults.config, ...(prev.config ?? {}) },
       };
     }
@@ -171,6 +190,7 @@ export function resolveMonthSlice(
     brandGuarantees: { ...settings.defaults.brandGuarantees },
     recipientWeights: { ...settings.defaults.recipientWeights },
     recipientPoints: { ...settings.defaults.recipientPoints },
+    recipientQuality: { ...settings.defaults.recipientQuality },
     config: { ...settings.defaults.config },
   };
 }
@@ -186,6 +206,7 @@ export function patchMonthSlice(
     brandGuarantees: patch.brandGuarantees ?? current.brandGuarantees,
     recipientWeights: patch.recipientWeights ?? current.recipientWeights,
     recipientPoints: patch.recipientPoints ?? current.recipientPoints,
+    recipientQuality: patch.recipientQuality ?? current.recipientQuality,
     config: patch.config ?? current.config,
   };
   return {

@@ -56,7 +56,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
     }
 
     // Erişim yetkisi yoksa kendi landing'e
-    if (user && !canAccess(pathname, user.role, panelViewAs, brandViewAs)) {
+    if (user && !canAccess(pathname, user.role, panelViewAs, brandViewAs, user)) {
       router.replace(landingFor(user.role));
       return;
     }
@@ -83,7 +83,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin]);
 
   const canView =
-    hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs);
+    hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs, user);
 
   /** Tema + API çipi — içerikle çakışmasın diye üst/sağ boşluk */
   const floatingControlsInset =
@@ -118,7 +118,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs, brandViewAs) && (
+      {hydrated && !isLogin && user && !canAccess(pathname, user.role, panelViewAs, brandViewAs, user) && (
         <div className="flex h-screen items-center justify-center bg-background">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>

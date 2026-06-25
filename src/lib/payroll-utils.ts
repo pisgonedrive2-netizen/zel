@@ -28,3 +28,10 @@ export function payrollProrationFactor(employee: Employee, month: string): numbe
 export function isFinalPayrollMonth(employee: Employee, month: string): boolean {
   return Boolean(employee.payrollEndMonth && employee.payrollEndMonth === month);
 }
+
+/** Prim dağıtımına dahil mi? Bordrodan farklı — işten ayrılanlar prim almaz. */
+export function isPrimEligible(employee: Employee, month: string): boolean {
+  if (!isPayrollActive(employee, month)) return false;
+  if (employee.status === "inactive") return false;
+  return true;
+}

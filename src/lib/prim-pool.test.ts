@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   computePrimPool,
   computeWithScenario,
+  buildPrimRules,
+  buildPrimScenarioGuide,
+  buildPrimBaseInputs,
+  describePrimFormula,
   DEFAULT_PRIM_CONFIG,
+  FAIR_PRIM_CONFIG,
   DEFAULT_SCENARIOS,
   monthProgress,
   projectMonthEndViews,
@@ -47,6 +52,7 @@ describe("computePrimPool", () => {
         { id: "e1", name: "A", kind: "streamer", weight: 1 },
         { id: "e2", name: "B", kind: "streamer", weight: 1 },
       ],
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimNetBasis: "distributable" },
     });
     expect(r.netPoolUsd).toBe(7_000);
     expect(r.basePrimUsd).toBe(7_000 * DEFAULT_PRIM_CONFIG.basePrimRate);
@@ -194,7 +200,7 @@ describe("computePrimPool", () => {
       contentExpenseUsd: 0,
       generalExpenseUsd: 0,
       recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
-      config: { ...DEFAULT_PRIM_CONFIG, reserveRate: 0.2, monthlyReserveUsd: 2_000, basePrimRate: 0.5 },
+      config: { ...DEFAULT_PRIM_CONFIG, reserveRate: 0.2, monthlyReserveUsd: 2_000, basePrimRate: 0.5, basePrimNetBasis: "distributable" },
     });
     // net 20.000, rezerv = 2.000 + 20.000*0.2 = 6.000 → dağıtılabilir 14.000
     expect(r.reserveUsd).toBe(6_000);
@@ -356,18 +362,336 @@ describe("computePrimPool", () => {
         ...DEFAULT_PRIM_CONFIG,
         viewPoolBonusEnabled: true,
         viewPoolBonusThresholdViews: 1_000_000,
-        viewPoolBonusPerStepUsd: 1_000,
+        viewPoolBonusPerStepUsd: 100,
       },
     });
     expect(r.viewPoolBonusSteps).toBe(2); // floor(2.5M / 1M)
-    expect(r.viewPoolBonusUsd).toBe(2_000);
-    // dağıtılabilir = (net − rezerv) + bonus
-    expect(r.distributablePoolUsd).toBe(20_000 + 2_000);
+    expect(r.viewPoolBonusUsd).toBe(200);
+    expect(r.poolBonusUsd).toBe(200);
+    expect(r.distributablePoolUsd).toBe(20_000);
+    expect(r.totalPrimUsd).toBeGreaterThanOrEqual(200);
   });
 
   it("projeksiyon run-rate ile ay sonu izlenmeyi tahmin eder", () => {
     expect(monthProgress("2020-01")).toBe(1); // geçmiş ay tamamlandı
     expect(projectMonthEndViews(500_000, 0.5)).toBe(1_000_000);
     expect(projectMonthEndViews(500_000, 1)).toBe(500_000);
+  });
+
+  it("her 1M izlenme 100$ havuza girer ve kişilere dağıtılır", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 2_000_000, b2: 500_000 }, // 2.5M → 2 adım
+      payrollUsd: 5_000,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 8_000,
+        viewBonusMode: "off",
+        viewPoolBonusEnabled: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 100,
+        minNetFloorUsd: 0,
+      },
+    });
+    expect(r.poolBonusUsd).toBe(200);
+    expect(r.totalPrimUsd).toBe(8_200);
+    expect(r.recipients[0].poolShareUsd).toBe(200);
+    expect(r.recipients[0].baseShareUsd).toBe(8_000);
+  });
+
+  it("içerik kalitesi aynı puanda farklı prim üretir", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [
+        { id: "e1", name: "A", kind: "streamer", weight: 1, points: 1, qualityMultiplier: 1.5 },
+        { id: "e2", name: "B", kind: "streamer", weight: 1, points: 1, qualityMultiplier: 0.75 },
+      ],
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "fixed", fixedPrimUsd: 9_000, viewBonusMode: "off" },
+    });
+    expect(r.recipients[0].effectivePoints).toBe(1.5);
+    expect(r.recipients[1].effectivePoints).toBe(0.75);
+    expect(r.recipients[0].totalUsd).toBeCloseTo(6_000, 0);
+    expect(r.recipients[1].totalUsd).toBeCloseTo(3_000, 0);
+  });
+
+  it("buildPrimScenarioGuide somut if-then satırları üretir", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 1_500_000, b2: 1_000_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 8_000,
+        viewPoolBonusEnabled: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 100,
+        minNetFloorUsd: 5_000,
+      },
+    });
+    const guide = buildPrimScenarioGuide(r);
+    expect(guide.length).toBeGreaterThan(3);
+    expect(guide.some((row) => row.when.includes("1 milyon") || row.when.includes("1M"))).toBe(true);
+    expect(guide.some((row) => row.when.includes("kalite"))).toBe(true);
+  });
+
+  it("100 milyon izlenme 10.000$ havuza girer ve dağıtılır", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands: [{ id: "b1", name: "A", shortName: "A", category: "", status: "active" as const, notes: "" }],
+      brandFees: { b1: 50_000 },
+      brandGuarantees: { b1: 1_000_000 },
+      brandViews: { b1: 100_000_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 8_000,
+        viewBonusMode: "off",
+        viewPoolBonusEnabled: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 100,
+        viewPoolBonusUncapped: true,
+        minNetFloorUsd: 0,
+        maxPrimPerPersonUsd: 0,
+      },
+    });
+    expect(r.viewPoolBonusSteps).toBe(100);
+    expect(r.poolBonusUsd).toBe(10_000);
+    expect(r.recipients[0].poolShareUsd).toBe(10_000);
+    expect(r.totalPrimUsd).toBe(18_000);
+  });
+
+  it("kâr tabanı altında izlenme havuz bonusu yine ödenir", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 1_500_000, b2: 1_000_000 },
+      payrollUsd: 12_000,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        minNetFloorUsd: 20_000,
+        viewPoolBonusEnabled: true,
+        viewPoolBonusUncapped: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 100,
+      },
+    });
+    expect(r.netPoolUsd).toBe(8_000);
+    expect(r.basePrimUsd).toBe(0);
+    expect(r.poolBonusUsd).toBe(200);
+    expect(r.totalPrimUsd).toBe(200);
+  });
+
+  it("kişi başı tavan havuz payını kırpmaz", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 2_000_000, b2: 500_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 8_000,
+        viewBonusMode: "off",
+        viewPoolBonusEnabled: true,
+        viewPoolBonusPerStepUsd: 100,
+        maxPrimPerPersonUsd: 5_000,
+      },
+    });
+    expect(r.recipients[0].baseShareUsd).toBe(5_000);
+    expect(r.recipients[0].poolShareUsd).toBe(200);
+    expect(r.recipients[0].totalUsd).toBe(5_200);
+  });
+
+  it("kalan (gelir−maaş−içerik) üzerinden %10 taban prim hesaplar", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 8_000,
+      contentExpenseUsd: 2_000,
+      generalExpenseUsd: 1_000,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "rate",
+        basePrimRate: 0.1,
+        basePrimNetBasis: "after_payroll_content",
+        viewPoolBonusEnabled: false,
+        viewBonusMode: "off",
+      },
+    });
+    expect(r.payrollContentNetUsd).toBe(10_000);
+    expect(r.basePrimUsd).toBe(1_000);
+    expect(r.netPoolUsd).toBe(9_000);
+  });
+
+  it("buildPrimRules sabit minimal prim + izlenme kurallarını üretir", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 1_500_000, b2: 1_200_000 },
+      payrollUsd: 5_000,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [
+        { id: "e1", name: "A", kind: "streamer", weight: 2, points: 2 },
+        { id: "e2", name: "B", kind: "streamer", weight: 1, points: 1 },
+      ],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 8_000,
+        viewBonusMode: "cpm",
+        viewCpmBonusUsd: 2,
+        viewPoolBonusEnabled: true,
+        viewPoolBonusThresholdViews: 1_000_000,
+        viewPoolBonusPerStepUsd: 100,
+        minNetFloorUsd: 5_000,
+      },
+    });
+    const rules = buildPrimRules(r);
+    expect(rules).toHaveLength(7);
+    expect(rules.find((x) => x.id === "base")?.title).toMatch(/taban prim/i);
+    expect(rules.find((x) => x.id === "quality")?.title).toBe("İçerik kalitesi");
+    expect(rules.find((x) => x.id === "views")?.status).toBe("ok");
+    expect(describePrimFormula(r)).toContain("taban");
+    expect(describePrimFormula(r)).toContain("izlenme");
+  });
+
+  it("taban prim rezervden etkilenmez, yalnızca gerçek net kârı aşamaz", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands: [brands[0]],
+      brandFees: { b1: 100_000 },
+      brandGuarantees: { b1: 1_000_000 },
+      brandViews: { b1: 500_000 },
+      payrollUsd: 50_000,
+      contentExpenseUsd: 50_000,
+      generalExpenseUsd: 50_000,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...FAIR_PRIM_CONFIG,
+        reserveRate: 0.9,
+        viewPoolBonusEnabled: false,
+        viewBonusMode: "off",
+      },
+    });
+    expect(r.payrollContentNetUsd).toBe(0);
+    expect(r.netPoolUsd).toBe(-50_000);
+    expect(r.basePrimUsd).toBe(0);
+  });
+
+  it("yüksek rezerv varken taban prim dağıtılabilir havuzdan değil net kârdan sınırlanır", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands: [brands[0]],
+      brandFees: { b1: 200_000 },
+      brandGuarantees: { b1: 1_000_000 },
+      brandViews: { b1: 500_000 },
+      payrollUsd: 50_000,
+      contentExpenseUsd: 50_000,
+      generalExpenseUsd: 50_000,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: {
+        ...FAIR_PRIM_CONFIG,
+        reserveRate: 0.9,
+        viewPoolBonusEnabled: false,
+        viewBonusMode: "off",
+      },
+    });
+    expect(r.payrollContentNetUsd).toBe(100_000);
+    expect(r.basePrimUsd).toBe(10_000);
+    expect(r.distributablePoolUsd).toBe(5_000);
+  });
+
+  it("işten ayrılan (inactive) çalışan prim listesine girmez", () => {
+    const lucy = {
+      id: "emp-lucy",
+      name: "Lucy",
+      role: "Yayıncı",
+      department: "Yayın",
+      baseSalary: 3000,
+      rentSupport: 500,
+      initialAdvance: 0,
+      paymentDay: "1-5",
+      payrollStartMonth: "2026-04",
+      payrollEndMonth: "2026-06",
+      exitDate: "2026-06-18",
+      startDate: "2026-01-01",
+      status: "inactive" as const,
+      walletAddress: "",
+      avatar: "L",
+      notes: "",
+      kind: "streamer" as const,
+    };
+    const active = {
+      id: "emp-ramiz",
+      name: "Ramiz",
+      role: "Yayıncı",
+      department: "Yayın",
+      baseSalary: 3000,
+      rentSupport: 0,
+      initialAdvance: 0,
+      paymentDay: "1-5",
+      payrollStartMonth: "2026-01",
+      startDate: "2026-01-01",
+      status: "active" as const,
+      walletAddress: "",
+      avatar: "R",
+      notes: "",
+      kind: "streamer" as const,
+    };
+    const base = buildPrimBaseInputs({
+      monthYm: "2026-06",
+      brands,
+      brandLinks: [],
+      linkSnapshots: [],
+      employees: [lucy, active],
+      advances: [],
+      salaryExtras: [],
+      paymentStatuses: [],
+      contentExpenses: [],
+      expenses: [],
+    });
+    expect(base.recipients.map((r) => r.id)).toEqual(["emp-ramiz"]);
   });
 });

@@ -41,13 +41,14 @@ import {
 } from "@/lib/payroll-lines";
 import {
   isPayrollActive,
+  isPrimEligible,
   isFinalPayrollMonth,
   payrollProrationFactor,
   ymGte,
   ymGt,
 } from "@/lib/payroll-utils";
 
-export { isPayrollActive, isFinalPayrollMonth, payrollProrationFactor } from "@/lib/payroll-utils";
+export { isPayrollActive, isPrimEligible, isFinalPayrollMonth, payrollProrationFactor } from "@/lib/payroll-utils";
 
 /** Tam sync yedek — debounce öncesi anında satır API'si tercih edilir. */
 const flushAppData = () => queueMicrotask(() => requestSyncFlush());
@@ -1269,9 +1270,9 @@ function plannedStatusAfterSpend(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Sistemdeki 3 aktif yayıncı + 1 proje koordinatörü.
+ * Sistemdeki aktif yayıncılar + 1 proje koordinatörü.
  * Tüm maaş ödemeleri Haziran 2026'dan itibaren bir sonraki ayın 1–5'i arasında yapılır.
- * (Lucy Mayıs 2026 dönemi yarım yapıldı — plan geçişi, 1 Haziran'da ödendi.)
+ * Lucy 18 Haziran 2026 iş çıkışı — son bordro ayı Haziran 2026 (oransal).
  */
 export const initialEmployees: Employee[] = [
   {
@@ -1307,15 +1308,19 @@ export const initialEmployees: Employee[] = [
     initialAdvance: 0,
     paymentDay: "1-5",
     payrollStartMonth: "2026-04",
+    payrollEndMonth: "2026-06",
+    exitDate: "2026-06-18",
+    exitReason: "resignation",
     startDate: "2026-01-01",
-    status: "active",
+    status: "inactive",
     walletAddress: "",
     avatar: "L",
     notes:
       "Maaş $3.000/ay + $500 ev kira desteği. " +
       "Nisan 2026 bordrosu nakit ödendi: $3.000 maaş + $500 kira + $1.600 telefon desteği (tek seferlik). " +
       "Mayıs 2026 plan geçişi: 1 Haziran 2026'da yarım dönem maaş ($1.500) ödendi · kira ($500) ayrı onaylanır. " +
-      "Haziran 2026'dan itibaren standart 1–5 takvimi: Haziran bordrosu (tam $3.500) 1–5 Temmuz 2026'da ödenir.",
+      "18 Haziran 2026 iş çıkışı — son bordro Haziran 2026 (18/30 oransal maaş + kira). " +
+      "Temmuz 2026 ve sonrası bordro/prim yok.",
     kind: "streamer",
   },
   {
@@ -1335,7 +1340,7 @@ export const initialEmployees: Employee[] = [
     notes:
       "3 Mayıs 2026'da aramıza katıldı. Toplam $900 avans; Mayıs 2026 ilk bordro: " +
       "$300 avans kesintisi (1/3) · Mayıs kira desteği $1.550 · net $4.750 ($3.500 + $1.550 − $300) · 1–5 Haziran ödemesi. " +
-      "Haziran'dan itibaren $650/ay kira (Lucy ile $1.300 kap) + avans kesintisi planı.",
+      "Haziran'dan itibaren $650/ay kira + avans kesintisi planı.",
     kind: "streamer",
   },
   {
@@ -1394,15 +1399,15 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     });
   });
 
-  // Lucy — Nisan 2026'dan itibaren $500 kira/ay (Acelya'nın $650 + Lucy $500 = ortak ev gideri).
-  // Mayıs 2026 plan geçiş ayı: yarım maaş + tam kira = $2.000 ödendi 1 Haziran 2026.
-  ramizMonths.forEach((m) => {
+  // Lucy — Nisan–Haziran 2026 $500 kira/ay (iş çıkışı 18 Haziran 2026).
+  const lucyMonths = ["2026-04", "2026-05", "2026-06"];
+  lucyMonths.forEach((m) => {
     list.push({
       id: `se-lucy-rent-${m}`,
       employeeId: "emp-lucy",
       month: m,
       amount: 500,
-      description: "Ev kira desteği (aylık)",
+      description: m === "2026-06" ? "Ev kira desteği (son ay · 18 Haziran çıkış)" : "Ev kira desteği (aylık)",
       type: "rent",
     });
   });
@@ -1477,7 +1482,7 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
       employeeId: "emp-acelya",
       month: m,
       amount: 650,
-      description: "Ev kira desteği (aylık · Lucy ile birlikte $1.300 kap)",
+      description: "Ev kira desteği (aylık · ortak konut)",
       type: "rent",
     });
   });
@@ -1937,6 +1942,7 @@ const initialNotifications: AppNotification[] = [];
  * - Ramiz Nisan 2026: 1 Mayıs 2026 net $8.000 (Telegram: "Bu ay yatacak olan maaş tutarı: 8 bin $").
  * - Lucy Nisan 2026: nakit ödendi 30 Nisan 2026 — $3.000 maaş + $500 kira + $1.600 telefon desteği.
  * - Lucy Mayıs 2026: plan geçişi · 1 Haziran 2026 net $2.000 (yarım dönem).
+ * - Lucy Haziran 2026: 18 Haziran iş çıkışı · oransal son bordro (1–5 Temmuz ödemesi).
  */
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
   { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },

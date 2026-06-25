@@ -2,6 +2,8 @@ import type { Brand, BrandLink, ContentExpense, Employee, ExpenseEntry, LinkSnap
 import {
   calcNetPayable,
   isPayrollActive,
+  isPrimEligible,
+  payrollProrationFactor,
   type Advance,
   type MonthPaymentStatus,
   type SalaryExtra,
@@ -23,6 +25,9 @@ export type PrimViewBonusMode = "multiplier" | "cpm" | "off";
 /** Kişilere dağıtım yöntemi. */
 export type PrimDistributionMode = "weighted" | "equal" | "performance";
 
+/** Taban prim hangi kâr üzerinden hesaplanır. */
+export type PrimBaseNetBasis = "after_payroll_content" | "distributable";
+
 export type PrimPoolConfig = {
   /** Havuz modeli (varsayılan net_share). */
   model?: PrimModel;
@@ -30,8 +35,10 @@ export type PrimPoolConfig = {
   basePrimMode?: PrimBaseMode;
   /** Sabit mod: o ay için elle belirlenen sabit prim havuzu (USD). */
   fixedPrimUsd?: number;
-  /** Net havuzdan sabit prim oranı (0.15 = %15). net_share/hybrid. */
+  /** Net havuzdan sabit prim oranı (0.10 = %10). net_share/hybrid. */
   basePrimRate: number;
+  /** Taban prim oranının uygulandığı kâr: gelir−maaş−içerik (önerilen) veya dağıtılabilir havuz. */
+  basePrimNetBasis?: PrimBaseNetBasis;
   /** Brüt gelirden pay oranı (revenue_share/hybrid). */
   revenueShareRate?: number;
   /** Dağıtımdan önce gelecek aylar/kuru aylar için ayrılan pay oranı (0.15 = %15). */
@@ -50,8 +57,10 @@ export type PrimPoolConfig = {
   minNetFloorUsd?: number;
   /** Kişi başı azami prim (adalet tavanı) USD. 0 = sınırsız. */
   maxPrimPerPersonUsd?: number;
-  /** Toplam prim tavanı USD. 0 = sınırsız. */
+  /** Toplam prim tavanı USD. 0 = sınırsız. İzlenme havuz bonusu bu tavandan muaf tutulur. */
   maxTotalPrimUsd?: number;
+  /** İzlenme havuz bonusu kâr tabanı ve toplam tavan kısıtlarından muaf (varsayılan true). */
+  viewPoolBonusUncapped?: boolean;
   /** Dağıtım yöntemi (varsayılan weighted). */
   distributionMode?: PrimDistributionMode;
   /** İzlenme havuz bonusu açık mı? (eşik geçilince havuza ek para). */
@@ -88,29 +97,37 @@ export const DEFAULT_PRIM_CONFIG: PrimPoolConfig = {
   maxPrimPerPersonUsd: 0,
   maxTotalPrimUsd: 0,
   distributionMode: "weighted",
+  basePrimNetBasis: "distributable",
 };
 
 /**
- * Panelin başlangıç önayarı — "adil & güvenli" profil.
- * Önce sabit bir prim tutarı belirlenir, gelecek aylar için rezerv ayrılır,
- * kişi başı tavan ile aşırı yüksek ödemeler engellenir.
+ * Panelin başlangıç önayarı — ekip dostu, mantıklı sınırlar içinde.
+ * 1) Marka tahsilatı − maaş − içerik = kalan
+ * 2) Kalanın %10'u taban prim havuzuna (gerçek net kârı aşmaz)
+ * 3) Ay içi link/platform izlenmeleri → her 1M = $125 ek havuz (tavan yok)
+ * 4) Puan × kalite ile kişilere bölüşüm
  */
 export const FAIR_PRIM_CONFIG: PrimPoolConfig = {
   model: "net_share",
-  basePrimMode: "fixed",
-  fixedPrimUsd: 12_000,
-  basePrimRate: 0.12,
+  basePrimMode: "rate",
+  basePrimRate: 0.1,
+  basePrimNetBasis: "after_payroll_content",
+  fixedPrimUsd: 0,
   revenueShareRate: 0.04,
-  reserveRate: 0.15,
+  reserveRate: 0,
   monthlyReserveUsd: 0,
-  viewBonusMode: "multiplier",
+  viewBonusMode: "off",
   viewTriggerStepRate: 0.05,
-  viewTriggerCap: 0.2,
-  viewCpmBonusUsd: 1.5,
-  minNetFloorUsd: 10_000,
-  maxPrimPerPersonUsd: 6_000,
+  viewTriggerCap: 0.25,
+  viewCpmBonusUsd: 2,
+  minNetFloorUsd: 0,
+  maxPrimPerPersonUsd: 0,
   maxTotalPrimUsd: 0,
+  viewPoolBonusUncapped: true,
   distributionMode: "weighted",
+  viewPoolBonusEnabled: true,
+  viewPoolBonusThresholdViews: 1_000_000,
+  viewPoolBonusPerStepUsd: 125,
 };
 
 export const PRIM_MODEL_LABELS: Record<PrimModel, string> = {
@@ -120,15 +137,84 @@ export const PRIM_MODEL_LABELS: Record<PrimModel, string> = {
 };
 
 export const PRIM_BASE_MODE_LABELS: Record<PrimBaseMode, string> = {
-  fixed: "Bu ay dağıtılacak tutarı kendim yazarım (önerilen)",
-  rate: "Net kârın yüzdesi (otomatik)",
+  fixed: "Sabit tutar (elle belirle)",
+  rate: "Kalan kârın yüzdesi (önerilen · %10)",
   kasa_share: "Kasa bakiyesinin yüzdesi",
 };
 
+export const PRIM_BASE_NET_BASIS_LABELS: Record<PrimBaseNetBasis, string> = {
+  after_payroll_content: "Gelir − maaş − içerik (önerilen)",
+  distributable: "Dağıtılabilir havuz (rezerv sonrası)",
+};
+
+/** Hazır prim sistemleri — tek tıkla uygula. */
+export type PrimSystemPreset = {
+  key: string;
+  label: string;
+  tag: string;
+  description: string;
+  detail: string;
+  config: PrimPoolConfig;
+};
+
+export const PRIM_SYSTEM_PRESETS: PrimSystemPreset[] = [
+  {
+    key: "standard",
+    label: "Önerilen",
+    tag: "Varsayılan",
+    description: "Kalan kârın %10'u + cömert izlenme havuzu",
+    detail:
+      "Marka tahsilatından maaş ve içerik düşülür; kalanın %10'u taban prim olur (net kârı aşmaz). " +
+      "Her 1M izlenme +$125 ekler — tavan yok, viral aylar tam ödenir. Kişilere puan × kalite ile bölünür.",
+    config: { ...FAIR_PRIM_CONFIG },
+  },
+  {
+    key: "percent_only",
+    label: "Sadece %10",
+    tag: "Basit",
+    description: "Yalnızca kalan kârın yüzdesi — izlenme bonusu yok",
+    detail: "Gelir − maaş − içerik kalanının belirlediğin yüzdesi prim olur. İzlenme takibi devre dışı.",
+    config: {
+      ...FAIR_PRIM_CONFIG,
+      viewPoolBonusEnabled: false,
+      viewBonusMode: "off",
+    },
+  },
+  {
+    key: "fixed_legacy",
+    label: "Sabit tutar",
+    tag: "Alternatif",
+    description: "Her ay sabit $ prim (kârdan bağımsız üst sınır)",
+    detail: "Ay başında sabit bir taban prim belirlersin; kâr yetmezse otomatik düşer. İzlenme havuzu isteğe bağlı açık kalır.",
+    config: {
+      ...FAIR_PRIM_CONFIG,
+      basePrimMode: "fixed",
+      fixedPrimUsd: 8_000,
+      basePrimNetBasis: "distributable",
+      reserveRate: 0.1,
+      minNetFloorUsd: 5_000,
+    },
+  },
+  {
+    key: "aggressive_views",
+    label: "İzlenme ağırlıklı",
+    tag: "Alternatif",
+    description: "%8 taban + 1M izlenme + garanti üstü CPM",
+    detail: "Daha düşük taban oranı; izlenme hem havuz adımı hem garanti üstü CPM ile ödüllendirilir. Viral aylar için.",
+    config: {
+      ...FAIR_PRIM_CONFIG,
+      basePrimRate: 0.08,
+      viewBonusMode: "cpm",
+      viewCpmBonusUsd: 2,
+      viewPoolBonusEnabled: true,
+    },
+  },
+];
+
 export const PRIM_VIEW_BONUS_LABELS: Record<PrimViewBonusMode, string> = {
-  multiplier: "Garanti aşıldıkça primi yüzdeyle büyüt",
-  cpm: "1000 izlenme başına $ ekle",
-  off: "Kapalı",
+  multiplier: "Garanti aşıldıkça taban primi yüzdeyle artır",
+  cpm: "Fazla izlenme başına $ ekle (önerilen)",
+  off: "İzlenme bonusu yok",
 };
 
 export const PRIM_DISTRIBUTION_LABELS: Record<PrimDistributionMode, string> = {
@@ -160,8 +246,14 @@ export type PrimRecipientRow = {
   weight: number;
   /** Performans puanı (dağıtımda kullanılan ağırlık). */
   points: number;
+  /** İçerik kalitesi çarpanı (0.75 düşük … 1.5 üstün). */
+  qualityMultiplier: number;
+  /** Puan × kalite — dağıtımda kullanılan efektif ağırlık. */
+  effectivePoints: number;
   sharePct: number;
   baseShareUsd: number;
+  /** 1M izlenme başına havuza giren pay (puana göre). */
+  poolShareUsd: number;
   viewBonusUsd: number;
   totalUsd: number;
 };
@@ -175,6 +267,8 @@ export type PrimPoolResult = {
   generalExpenseUsd: number;
   totalOpsUsd: number;
   netPoolUsd: number;
+  /** Gelir − maaş − içerik (taban prim oranının uygulandığı kâr). */
+  payrollContentNetUsd: number;
   /** Gelecek aylar / sürpriz gider tamponu için ayrılan tutar. */
   reserveUsd: number;
   /** Rezerv sonrası dağıtıma açık havuz. */
@@ -193,6 +287,8 @@ export type PrimPoolResult = {
   viewPoolBonusUsd: number;
   /** İzlenme havuz bonusunun kaç eşik adımı tetiklendiği. */
   viewPoolBonusSteps: number;
+  /** Kişilere dağıtılan izlenme havuz bonusu (tavan sonrası). */
+  poolBonusUsd: number;
   /** Dağıtımda kullanılan toplam puan. */
   totalPoints: number;
   /** 1 puanın karşılığı (temel prim / toplam puan). */
@@ -219,6 +315,7 @@ function normalizeConfig(config?: PrimPoolConfig): Required<PrimPoolConfig> {
     basePrimMode: c.basePrimMode ?? "rate",
     fixedPrimUsd: c.fixedPrimUsd ?? 0,
     basePrimRate: c.basePrimRate,
+    basePrimNetBasis: c.basePrimNetBasis ?? "after_payroll_content",
     revenueShareRate: c.revenueShareRate ?? 0.05,
     reserveRate: c.reserveRate ?? 0,
     monthlyReserveUsd: c.monthlyReserveUsd ?? 0,
@@ -232,7 +329,8 @@ function normalizeConfig(config?: PrimPoolConfig): Required<PrimPoolConfig> {
     distributionMode: c.distributionMode ?? "weighted",
     viewPoolBonusEnabled: c.viewPoolBonusEnabled ?? false,
     viewPoolBonusThresholdViews: c.viewPoolBonusThresholdViews ?? 1_000_000,
-    viewPoolBonusPerStepUsd: c.viewPoolBonusPerStepUsd ?? 1_000,
+    viewPoolBonusPerStepUsd: c.viewPoolBonusPerStepUsd ?? 125,
+    viewPoolBonusUncapped: c.viewPoolBonusUncapped ?? true,
     manualExpenses: c.manualExpenses ?? [],
   };
 }
@@ -328,6 +426,7 @@ export function computePrimPool(input: {
     kind: string;
     weight: number;
     points?: number;
+    qualityMultiplier?: number;
   }[];
   /** Aktif kasaların toplam bakiyesi (USD). kasa_share modunda kullanılır. */
   kasaBalanceUsd?: number;
@@ -366,6 +465,8 @@ export function computePrimPool(input: {
     input.payrollUsd + input.contentExpenseUsd + input.generalExpenseUsd + manualExpenseUsd;
   const netPoolUsd = totalRevenueUsd - totalOpsUsd;
   const positiveNet = Math.max(0, netPoolUsd);
+  const payrollContentNetUsd = totalRevenueUsd - input.payrollUsd - input.contentExpenseUsd;
+  const positivePayrollContentNet = Math.max(0, payrollContentNetUsd);
 
   const totalGuaranteedViews = brandRows.reduce((s, r) => s + r.guaranteedViews, 0);
   const totalActualViews = brandRows.reduce((s, r) => s + r.actualViews, 0);
@@ -391,17 +492,21 @@ export function computePrimPool(input: {
     positiveNet,
     config.monthlyReserveUsd + positiveNet * config.reserveRate
   );
-  // Dağıtılabilir havuz = (net − rezerv) + izlenme havuz bonusu.
-  const distributablePoolUsd = Math.max(0, positiveNet - reserveUsd) + viewPoolBonusUsd;
+  // Dağıtılabilir kâr = net − rezerv. İzlenme havuz bonusu ayrıca prim olarak eklenir.
+  const distributablePoolUsd = Math.max(0, positiveNet - reserveUsd);
 
   // Net havuz tabanı kontrolü — yalnızca net bazlı modellerde geçerli.
   const belowFloor = config.model !== "revenue_share" && netPoolUsd < config.minNetFloorUsd;
 
   // Temel prim — sabit tutar, kasa payı veya orana göre, modele bağlı.
+  const baseRateNetUsd =
+    config.basePrimNetBasis === "after_payroll_content"
+      ? positivePayrollContentNet
+      : distributablePoolUsd;
+
   let rawBasePrimUsd = 0;
   if (!belowFloor) {
     if (config.basePrimMode === "fixed") {
-      // Önce belirlenen sabit tutar — dağıtılabilir havuzu aşamaz (gider bağımsız model hariç).
       const cap = config.model === "revenue_share" ? Number.POSITIVE_INFINITY : distributablePoolUsd;
       rawBasePrimUsd = Math.min(config.fixedPrimUsd, cap);
     } else if (config.basePrimMode === "kasa_share") {
@@ -409,7 +514,11 @@ export function computePrimPool(input: {
       const cap = config.model === "revenue_share" ? Number.POSITIVE_INFINITY : distributablePoolUsd;
       rawBasePrimUsd = Math.min(kasaBal * config.basePrimRate, cap);
     } else if (config.model === "net_share") {
-      rawBasePrimUsd = distributablePoolUsd * config.basePrimRate;
+      rawBasePrimUsd = baseRateNetUsd * config.basePrimRate;
+      if (config.basePrimNetBasis === "after_payroll_content") {
+        // Taban prim rezervden etkilenmez; yalnızca gerçek net kârı aşamaz.
+        rawBasePrimUsd = Math.min(rawBasePrimUsd, positiveNet);
+      }
     } else if (config.model === "revenue_share") {
       rawBasePrimUsd = totalRevenueUsd * config.revenueShareRate;
     } else {
@@ -434,49 +543,83 @@ export function computePrimPool(input: {
     }
   }
 
-  // Toplam prim tavanı — base & bonus oransal kırpılır.
-  const grossPrimUsd = rawBasePrimUsd + rawViewBonusUsd;
-  const cappedPool =
-    config.maxTotalPrimUsd > 0 ? Math.min(grossPrimUsd, config.maxTotalPrimUsd) : grossPrimUsd;
-  const totalCapScale = grossPrimUsd > 0 ? cappedPool / grossPrimUsd : 0;
-  const basePrimUsd = rawBasePrimUsd * totalCapScale;
-  const viewBonusUsd = rawViewBonusUsd * totalCapScale;
+  // Toplam prim tavanı — taban + izlenme bonusu kırpılabilir; izlenme havuz bonusu muaf kalabilir.
+  const poolUncapped = config.viewPoolBonusUncapped;
+  const rawPoolBonusUsd =
+    poolUncapped || !belowFloor ? viewPoolBonusUsd : 0;
+  const rawBaseAndView = rawBasePrimUsd + rawViewBonusUsd;
+  let basePrimUsd = rawBasePrimUsd;
+  let viewBonusUsd = rawViewBonusUsd;
+  let poolBonusUsd = rawPoolBonusUsd;
+  if (config.maxTotalPrimUsd > 0) {
+    if (poolUncapped) {
+      const capOnBaseView = Math.min(rawBaseAndView, config.maxTotalPrimUsd);
+      const baseViewScale = rawBaseAndView > 0 ? capOnBaseView / rawBaseAndView : 0;
+      basePrimUsd = rawBasePrimUsd * baseViewScale;
+      viewBonusUsd = rawViewBonusUsd * baseViewScale;
+      poolBonusUsd = rawPoolBonusUsd;
+    } else {
+      const grossPrimUsd = rawBaseAndView + rawPoolBonusUsd;
+      const cappedPool = Math.min(grossPrimUsd, config.maxTotalPrimUsd);
+      const totalCapScale = grossPrimUsd > 0 ? cappedPool / grossPrimUsd : 0;
+      basePrimUsd = rawBasePrimUsd * totalCapScale;
+      viewBonusUsd = rawViewBonusUsd * totalCapScale;
+      poolBonusUsd = rawPoolBonusUsd * totalCapScale;
+    }
+  }
 
-  // Dağıtım — puan bazlı. Her kişinin puanı (yoksa eski ağırlık) dağıtımı belirler.
+  const grossPrimUsd = basePrimUsd + viewBonusUsd + poolBonusUsd;
+
+  // Dağıtım — puan × içerik kalitesi ile efektif ağırlık hesaplanır.
   const pointOf = (r: { points?: number; weight: number }) =>
     Math.max(0, r.points ?? r.weight);
+  const qualityOf = (r: { qualityMultiplier?: number }) =>
+    clampQualityMultiplier(r.qualityMultiplier ?? 1);
+  const effectiveOf = (r: { points?: number; weight: number; qualityMultiplier?: number }) =>
+    pointOf(r) * qualityOf(r);
+
   const distInput = input.recipients.map((r) => ({
     id: r.id,
     name: r.name,
     kind: r.kind,
-    weight: pointOf(r),
+    weight: effectiveOf(r),
   }));
   const shares = distributionShares(distInput, config.distributionMode);
   const totalPoints = input.recipients.reduce((s, r) => s + pointOf(r), 0);
-  const perPointUsd = totalPoints > 0 ? basePrimUsd / totalPoints : 0;
+  const totalEffectivePoints = input.recipients.reduce((s, r) => s + effectiveOf(r), 0);
+  const perPointUsd = totalEffectivePoints > 0 ? (basePrimUsd + poolBonusUsd) / totalEffectivePoints : 0;
 
   const recipients: PrimRecipientRow[] = input.recipients
-    .filter((r) => pointOf(r) > 0)
+    .filter((r) => effectiveOf(r) > 0)
     .map((r) => {
       const share = shares.get(r.id) ?? 0;
+      const q = qualityOf(r);
+      const pts = pointOf(r);
+      const eff = effectiveOf(r);
       let baseShareUsd = basePrimUsd * share;
+      let poolShareUsd = poolBonusUsd * share;
       let viewBonusShare = viewBonusUsd * share;
-      let totalUsd = baseShareUsd + viewBonusShare;
-      if (config.maxPrimPerPersonUsd > 0 && totalUsd > config.maxPrimPerPersonUsd) {
-        const personScale = totalUsd > 0 ? config.maxPrimPerPersonUsd / totalUsd : 0;
-        baseShareUsd *= personScale;
-        viewBonusShare *= personScale;
-        totalUsd = config.maxPrimPerPersonUsd;
+      if (config.maxPrimPerPersonUsd > 0) {
+        const baseViewTotal = baseShareUsd + viewBonusShare;
+        if (baseViewTotal > config.maxPrimPerPersonUsd) {
+          const personScale = config.maxPrimPerPersonUsd / baseViewTotal;
+          baseShareUsd *= personScale;
+          viewBonusShare *= personScale;
+        }
       }
+      const totalUsd = baseShareUsd + poolShareUsd + viewBonusShare;
       return {
         employeeId: r.id,
         name: r.name,
         nickname: r.nickname,
         kind: r.kind,
         weight: r.weight,
-        points: pointOf(r),
+        points: pts,
+        qualityMultiplier: q,
+        effectivePoints: eff,
         sharePct: share,
         baseShareUsd,
+        poolShareUsd,
         viewBonusUsd: viewBonusShare,
         totalUsd,
       };
@@ -497,6 +640,7 @@ export function computePrimPool(input: {
     generalExpenseUsd: input.generalExpenseUsd,
     totalOpsUsd,
     netPoolUsd,
+    payrollContentNetUsd,
     reserveUsd,
     distributablePoolUsd,
     netAfterPrimUsd,
@@ -508,6 +652,7 @@ export function computePrimPool(input: {
     manualExpenseUsd,
     viewPoolBonusUsd,
     viewPoolBonusSteps,
+    poolBonusUsd,
     totalPoints,
     perPointUsd,
     basePrimUsd,
@@ -561,7 +706,8 @@ export const DEFAULT_SCENARIOS: PrimScenario[] = [
     label: "Baz (gerçek)",
     description: "Paneldeki güncel marka, gider ve izlenme verileri",
     detail:
-      "Bu ayın gerçek tahsilat, operasyon gideri ve izlenme rakamları. Prim = kasa bakiyesinin belirlenen yüzdesi (üst sınır: dağıtılabilir havuz) + varsa izlenme bonusu.",
+      "Bu ayın gerçek marka tahsilatı, maaş/içerik giderleri ve link izlenmeleri. " +
+      "Prim = kalan kârın %10'u + izlenme havuz adımları.",
     revenueMultiplier: 1,
     expenseMultiplier: 1,
     viewsMultiplier: 1,
@@ -604,18 +750,33 @@ export type PrimBaseInputs = {
     kind: string;
     weight: number;
     points?: number;
+    qualityMultiplier?: number;
   }[];
   /** Aktif kasaların toplam bakiyesi — senaryoda net havuzla ölçeklenir. */
   kasaBalanceUsd?: number;
   config?: PrimPoolConfig;
 };
 
-/** Prim sayfasında bir kişiye dair özelleştirme (takma ad, puan, custom kişi). */
+/** İçerik kalitesi seçenekleri — prim payını etkiler. */
+export const PRIM_QUALITY_PRESETS = [
+  { value: 0.75, label: "Düşük", hint: "Zayıf içerik · prim %25 azalır" },
+  { value: 1, label: "Normal", hint: "Standart kalite" },
+  { value: 1.25, label: "İyi", hint: "Kaliteli içerik · prim %25 artar" },
+  { value: 1.5, label: "Üstün", hint: "Çok iyi içerik · prim %50 artar" },
+] as const;
+
+export function clampQualityMultiplier(v: number): number {
+  return Math.max(0.5, Math.min(1.5, v));
+}
+
+/** Prim sayfasında bir kişiye dair özelleştirme (takma ad, puan, kalite, custom kişi). */
 export type PrimRecipientMeta = {
   name?: string;
   nickname?: string;
   /** Prim dağıtımından çıkarıldı mı? (bordroyu etkilemez, sadece prim listesi). */
   excluded?: boolean;
+  /** İçerik kalitesi çarpanı (kalıcı varsayılan). */
+  qualityMultiplier?: number;
 };
 
 /** Prim sayfasına elle eklenen, bordro dışı kişi. */
@@ -758,6 +919,8 @@ export function buildPrimBaseInputs(input: {
   recipientPoints?: Record<string, number>;
   /** Kişi başı takma ad / isim override. */
   recipientMeta?: Record<string, PrimRecipientMeta>;
+  /** Ay bazlı içerik kalitesi çarpanı (0.75–1.5). */
+  recipientQuality?: Record<string, number>;
   /** Bordro dışı, elle eklenen kişiler. */
   customRecipients?: PrimCustomRecipient[];
   kasaBalanceUsd?: number;
@@ -789,15 +952,24 @@ export function buildPrimBaseInputs(input: {
     if (explicit !== undefined) return Math.max(0, explicit);
     const legacyWeight = input.recipientWeights?.[e.id];
     if (legacyWeight !== undefined) return Math.max(0, Math.round(legacyWeight * 2));
-    return e.kind === "moderator" ? 1 : 2;
+    return e.kind === "moderator" ? 1.5 : 2;
+  };
+
+  const qualityFor = (id: string): number => {
+    const fromMonth = input.recipientQuality?.[id];
+    if (fromMonth !== undefined) return clampQualityMultiplier(fromMonth);
+    const fromMeta = input.recipientMeta?.[id]?.qualityMultiplier;
+    if (fromMeta !== undefined) return clampQualityMultiplier(fromMeta);
+    return 1;
   };
 
   const employeeRecipients = input.employees
-    .filter((e) => e.kind !== "coordinator" && isPayrollActive(e, input.monthYm))
+    .filter((e) => e.kind !== "coordinator" && isPrimEligible(e, input.monthYm))
     .filter((e) => !input.recipientMeta?.[e.id]?.excluded)
     .map((e) => {
       const meta = input.recipientMeta?.[e.id];
-      const points = pointsFor(e);
+      const proration = payrollProrationFactor(e, input.monthYm);
+      const points = Math.round(pointsFor(e) * proration * 100) / 100;
       return {
         id: e.id,
         name: meta?.name?.trim() || e.name,
@@ -805,6 +977,7 @@ export function buildPrimBaseInputs(input: {
         kind: e.kind,
         weight: points,
         points,
+        qualityMultiplier: qualityFor(e.id),
       };
     })
     .filter((r) => r.points > 0);
@@ -821,6 +994,7 @@ export function buildPrimBaseInputs(input: {
       kind: c.kind,
       weight: points,
       points,
+      qualityMultiplier: qualityFor(c.id),
     };
   }).filter((r) => r.points > 0);
 
@@ -851,12 +1025,310 @@ export function describePrimBaseSource(
     return `Kasa ${fmtPrimUsd(kasaBalanceUsd)} × ${pctLabel(cfg.basePrimRate)}`;
   }
   if (cfg.basePrimMode === "fixed") {
-    return `Sabit ${fmtPrimUsd(cfg.fixedPrimUsd)}`;
+    return `Sabit prim ${fmtPrimUsd(cfg.fixedPrimUsd)}`;
+  }
+  if (cfg.basePrimNetBasis === "after_payroll_content") {
+    return `Kalan (gelir−maaş−içerik) ${pctLabel(cfg.basePrimRate)}`;
   }
   if (cfg.model === "revenue_share") {
     return `Gelir ${pctLabel(cfg.revenueShareRate)}`;
   }
-  return `Dağıtılabilir havuz ${pctLabel(cfg.basePrimRate)}`;
+  return `Dağıtılabilir kâr ${pctLabel(cfg.basePrimRate)}`;
+}
+
+/** Tek satırlık prim formülü — özet kartları için. */
+export function describePrimFormula(result: PrimPoolResult): string {
+  const parts: string[] = [];
+  if (result.basePrimUsd > 0) parts.push(`taban ${fmtPrimUsd(result.basePrimUsd)}`);
+  if (result.poolBonusUsd > 0) parts.push(`havuz ${fmtPrimUsd(result.poolBonusUsd)}`);
+  if (result.viewBonusUsd > 0) parts.push(`izlenme ${fmtPrimUsd(result.viewBonusUsd)}`);
+  if (parts.length === 0) return "Bu ay prim dağıtılmıyor";
+  return parts.join(" + ") + ` = ${fmtPrimUsd(result.totalPrimUsd)}`;
+}
+
+export type PrimRuleStatus = "ok" | "warn" | "off";
+
+/** Anlaşılır prim kuralları listesi — panelde gösterilir. */
+export type PrimRuleLine = {
+  id: string;
+  step: number;
+  title: string;
+  description: string;
+  value?: string;
+  status: PrimRuleStatus;
+};
+
+export function buildPrimRules(result: PrimPoolResult): PrimRuleLine[] {
+  const cfg = result.config;
+  const belowFloor = result.netPoolUsd < cfg.minNetFloorUsd;
+  const pct = Math.round(cfg.basePrimRate * 100);
+
+  const viewBonusDesc =
+    cfg.viewBonusMode === "off"
+      ? "İzlenme CPM bonusu kapalı — link izlenmeleri yalnızca havuz adımıyla ödüllendirilir."
+      : cfg.viewBonusMode === "cpm"
+        ? `Garanti üstü her 1.000 izlenme için +${fmtPrimUsd(cfg.viewCpmBonusUsd)} eklenir.`
+        : `Garanti her %10 aşıldıkça taban prim +%${Math.round(cfg.viewTriggerStepRate * 100)} artar.`;
+
+  const poolBonusDesc = cfg.viewPoolBonusEnabled
+    ? `Ay boyunca marka linkleri ve platformlardan toplanan izlenmeler sayılır. Her 1M izlenme = +${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza (100M = ${fmtPrimUsd(100 * cfg.viewPoolBonusPerStepUsd)}). Bu ay ${fmtCompactViews(result.totalActualViews)} = ${result.viewPoolBonusSteps} adım.`
+    : "Link izlenme havuz bonusu kapalı.";
+
+  const baseDesc =
+    cfg.basePrimMode === "fixed"
+      ? `Sabit ${fmtPrimUsd(cfg.fixedPrimUsd)} taban prim.`
+      : cfg.basePrimNetBasis === "after_payroll_content"
+        ? `Marka geliri − maaş − içerik = ${fmtPrimUsd(result.payrollContentNetUsd)} kalan. Bunun %${pct}'u (${fmtPrimUsd(result.basePrimUsd)}) prim havuzuna girer.`
+        : `Dağıtılabilir kârın %${pct}'u taban prim olarak hesaplanır.`;
+
+  return [
+    {
+      id: "revenue",
+      step: 1,
+      title: "Marka tahsilatları",
+      description: `${result.brandRows.length} markadan bu ay toplanan gelir. Prim hesabının başlangıç noktası.`,
+      value: fmtPrimUsd(result.totalRevenueUsd),
+      status: result.totalRevenueUsd > 0 ? "ok" : "warn",
+    },
+    {
+      id: "ops",
+      step: 2,
+      title: "Maaş & içerik düşüldü",
+      description: `Bordro ${fmtPrimUsd(result.payrollUsd)} + içerik ${fmtPrimUsd(result.contentExpenseUsd)} düşülünce kalan ${fmtPrimUsd(result.payrollContentNetUsd)}. (Genel giderler ayrıca net kârı etkiler.)`,
+      value: fmtPrimUsd(result.payrollContentNetUsd),
+      status: result.payrollContentNetUsd > 0 ? "ok" : "warn",
+    },
+    {
+      id: "base",
+      step: 3,
+      title: cfg.basePrimMode === "fixed" ? "Sabit taban prim" : `Taban prim (%${pct})`,
+      description: belowFloor && cfg.minNetFloorUsd > 0
+        ? `Net kâr tabanın (${fmtPrimUsd(cfg.minNetFloorUsd)}) altında — taban prim yok.`
+        : baseDesc,
+      value: fmtPrimUsd(result.basePrimUsd),
+      status: result.basePrimUsd > 0 ? "ok" : belowFloor ? "warn" : "off",
+    },
+    {
+      id: "pool-bonus",
+      step: 4,
+      title: "Link & platform izlenmeleri",
+      description: poolBonusDesc,
+      value: result.poolBonusUsd > 0 ? fmtPrimUsd(result.poolBonusUsd) : cfg.viewPoolBonusEnabled ? "$0" : "Kapalı",
+      status: !cfg.viewPoolBonusEnabled ? "off" : result.poolBonusUsd > 0 ? "ok" : "warn",
+    },
+    {
+      id: "views",
+      step: 5,
+      title: "Ek izlenme bonusu (opsiyonel)",
+      description: `${viewBonusDesc} ${fmtCompactViews(result.totalActualViews)} / ${fmtCompactViews(result.totalGuaranteedViews)} garanti.`,
+      value: result.viewBonusUsd > 0 ? fmtPrimUsd(result.viewBonusUsd) : cfg.viewBonusMode === "off" ? "Kapalı" : "Henüz yok",
+      status: cfg.viewBonusMode === "off" ? "off" : result.viewBonusUsd > 0 ? "ok" : "warn",
+    },
+    {
+      id: "split",
+      step: 6,
+      title: "Kişilere dağıtım",
+      description: `Toplam ${fmtPrimUsd(result.totalPrimUsd)} → ${result.recipients.length} kişi, puan × kalite. 1 efektif puan = ${fmtPrimUsd(result.perPointUsd)}.`,
+      value: `${result.recipients.reduce((s, r) => s + r.effectivePoints, 0)} efektif puan`,
+      status: result.recipients.length > 0 ? "ok" : "warn",
+    },
+    {
+      id: "quality",
+      step: 7,
+      title: "İçerik kalitesi",
+      description:
+        "Çekilen içeriğin kalitesi payı değiştirir: Düşük ×0.75, Normal ×1, İyi ×1.25, Üstün ×1.5.",
+      value: result.recipients.some((r) => r.qualityMultiplier !== 1) ? "Ayarlı" : "Hepsi normal",
+      status: result.recipients.some((r) => r.qualityMultiplier !== 1) ? "ok" : "off",
+    },
+  ];
+}
+
+/** "Ne olursa ne kadar prim?" — somut if-then rehberi. */
+export type PrimScenarioRow = {
+  when: string;
+  then: string;
+  amount: string;
+  /** Bu ay bu kural devrede / tetiklendi mi */
+  active: boolean;
+};
+
+export function buildPrimScenarioGuide(result: PrimPoolResult): PrimScenarioRow[] {
+  const cfg = result.config;
+  const belowFloor = result.netPoolUsd < cfg.minNetFloorUsd;
+  const pct = Math.round(cfg.basePrimRate * 100);
+  const rows: PrimScenarioRow[] = [];
+
+  rows.push({
+    when: "Marka tahsilatları toplandı",
+    then: `${result.brandRows.length} markanın aylık geliri`,
+    amount: fmtPrimUsd(result.totalRevenueUsd),
+    active: result.totalRevenueUsd > 0,
+  });
+  rows.push({
+    when: "Maaş ve içerik ödemeleri düşüldü",
+    then: `Bordro + içerik gideri çıkarıldı`,
+    amount: fmtPrimUsd(result.payrollContentNetUsd),
+    active: result.payrollContentNetUsd > 0,
+  });
+
+  if (cfg.basePrimMode === "rate" && cfg.basePrimNetBasis === "after_payroll_content") {
+    rows.push({
+      when: `Kalan tutarın %${pct}'u (sabit oran)`,
+      then: "Taban prim havuzuna aktarılır",
+      amount: fmtPrimUsd(result.basePrimUsd),
+      active: result.basePrimUsd > 0 && !belowFloor,
+    });
+    rows.push({
+      when: `Örnek: kalan ${fmtPrimUsd(50_000)} ise`,
+      then: `Taban prim = %${pct}`,
+      amount: fmtPrimUsd(50_000 * cfg.basePrimRate),
+      active: false,
+    });
+  } else if (cfg.basePrimMode === "fixed") {
+    rows.push({
+      when: "Her ay sabit taban prim",
+      then: "Puana göre bölünür",
+      amount: fmtPrimUsd(cfg.fixedPrimUsd),
+      active: result.basePrimUsd > 0,
+    });
+  }
+
+  if (cfg.minNetFloorUsd > 0) {
+    rows.push({
+      when: `Net kâr ${fmtPrimUsd(cfg.minNetFloorUsd)} altına düşerse`,
+      then:
+        cfg.viewPoolBonusUncapped && cfg.viewPoolBonusEnabled
+          ? "Taban prim yok — izlenme havuzu yine ödenir"
+          : "Prim dağıtılmaz",
+      amount: belowFloor && result.poolBonusUsd > 0 ? fmtPrimUsd(result.poolBonusUsd) : "$0",
+      active: belowFloor,
+    });
+  }
+
+  if (cfg.viewPoolBonusEnabled) {
+    const stepsPer100M = Math.floor(100_000_000 / cfg.viewPoolBonusThresholdViews);
+    rows.push({
+      when: `Her ${fmtCompactViews(cfg.viewPoolBonusThresholdViews)} link izlenmesi`,
+      then: "Prim havuzuna eklenir (platformlar birleştirilir)",
+      amount: `+${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)}`,
+      active: true,
+    });
+    rows.push({
+      when: "100 milyon izlenme (örnek)",
+      then: `${stepsPer100M} adım × ${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza girer`,
+      amount: fmtPrimUsd(stepsPer100M * cfg.viewPoolBonusPerStepUsd),
+      active: result.viewPoolBonusSteps >= stepsPer100M,
+    });
+    const nextStepViews =
+      (result.viewPoolBonusSteps + 1) * cfg.viewPoolBonusThresholdViews;
+    rows.push({
+      when: `Bu ay ${fmtCompactViews(result.totalActualViews)} izlenme (${result.viewPoolBonusSteps} adım)`,
+      then:
+        result.viewPoolBonusSteps > 0
+          ? `${result.viewPoolBonusSteps} × ${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza girdi`
+          : `Henüz adım yok — ${fmtCompactViews(nextStepViews - result.totalActualViews)} izlenme daha gerekli`,
+      amount: fmtPrimUsd(result.poolBonusUsd),
+      active: result.poolBonusUsd > 0,
+    });
+  }
+
+  if (!belowFloor || result.poolBonusUsd > 0) {
+    if (cfg.basePrimMode === "fixed" && belowFloor) {
+      // fixed mode floor handled above
+    } else if (cfg.basePrimMode === "rate" && cfg.basePrimNetBasis === "distributable") {
+      rows.push({
+        when: `Dağıtılabilir kârın %${pct}'u`,
+        then: "Taban prim",
+        amount: fmtPrimUsd(result.basePrimUsd),
+        active: result.basePrimUsd > 0,
+      });
+    }
+
+    if (cfg.viewBonusMode === "cpm") {
+      rows.push({
+        when: "Toplam izlenme marka garantisini geçerse",
+        then: `Fazla her 1.000 izlenme için ek prim`,
+        amount: `+${fmtPrimUsd(cfg.viewCpmBonusUsd)} / 1K`,
+        active: result.viewTriggered,
+      });
+      if (result.viewTriggered) {
+        const over = Math.max(0, result.totalActualViews - result.totalGuaranteedViews);
+        rows.push({
+          when: `Bu ay +${fmtCompactViews(over)} garanti üstü izlenme`,
+          then: "İzlenme bonusu kişilere dağıtılır",
+          amount: fmtPrimUsd(result.viewBonusUsd),
+          active: result.viewBonusUsd > 0,
+        });
+      }
+    } else if (cfg.viewBonusMode === "multiplier") {
+      rows.push({
+        when: "İzlenme garantisi aşılınca",
+        then: `Taban prim her %10 aşımda +%${Math.round(cfg.viewTriggerStepRate * 100)} artar`,
+        amount: `max +%${Math.round(cfg.viewTriggerCap * 100)}`,
+        active: result.viewTriggered,
+      });
+    }
+
+    rows.push({
+      when: "1 puan + normal kalite (×1)",
+      then: "Havuzdan pay alır",
+      amount: fmtPrimUsd(result.perPointUsd),
+      active: result.perPointUsd > 0,
+    });
+    rows.push({
+      when: "2 puan + normal kalite (×1)",
+      then: "1 puanlı kişinin 2 katını alır",
+      amount: fmtPrimUsd(result.perPointUsd * 2),
+      active: result.perPointUsd > 0,
+    });
+    rows.push({
+      when: "1 puan + üstün kalite (×1.5)",
+      then: "Normal kaliteden %50 fazla alır",
+      amount: fmtPrimUsd(result.perPointUsd * 1.5),
+      active: result.perPointUsd > 0,
+    });
+    rows.push({
+      when: "1 puan + düşük kalite (×0.75)",
+      then: "Normal kaliteden %25 az alır",
+      amount: fmtPrimUsd(result.perPointUsd * 0.75),
+      active: result.perPointUsd > 0,
+    });
+
+    if ((cfg.maxPrimPerPersonUsd ?? 0) > 0) {
+      rows.push({
+        when: "Bir kişinin primi tavanı aşarsa",
+        then: "Kişi başı üst sınır uygulanır",
+        amount: fmtPrimUsd(cfg.maxPrimPerPersonUsd),
+        active: result.cappedAmountUsd > 1,
+      });
+    }
+
+    rows.push({
+      when: "Bu ayın sonucu",
+      then: `${result.recipients.length} kişiye toplam prim`,
+      amount: fmtPrimUsd(result.totalPrimUsd),
+      active: result.totalPrimUsd > 0,
+    });
+  } else if (result.poolBonusUsd > 0) {
+    rows.push({
+      when: "Bu ayın sonucu (kâr tabanı altı)",
+      then: "Yalnızca izlenme havuz bonusu dağıtıldı",
+      amount: fmtPrimUsd(result.totalPrimUsd),
+      active: true,
+    });
+  }
+
+  return rows;
+}
+
+function fmtCompactViews(n: number): string {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${m >= 10 ? Math.round(m) : m.toFixed(1).replace(/\.0$/, "")}M`;
+  }
+  if (n >= 1_000) return `${Math.round(n / 1000)}K`;
+  return n.toLocaleString("tr-TR");
 }
 
 function pctLabel(rate: number): string {

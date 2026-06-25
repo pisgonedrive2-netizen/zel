@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canAccess, landingFor } from "./auth";
+import { canAccessPrim } from "@/lib/user-guards";
 import { notificationsHrefForRole } from "@/lib/notification-href";
 
 describe("canAccess", () => {
@@ -49,6 +50,28 @@ describe("canAccess", () => {
     const brandViewAs = { brandId: "b-1", brandName: "Test Brand" };
     expect(canAccess("/marka/havuz", "admin", null, brandViewAs)).toBe(true);
     expect(canAccess("/marka/kesif", "admin", null, brandViewAs)).toBe(true);
+  });
+
+  it("blocks prim route for everyone except main admin Orkun", () => {
+    const orkun = { id: "u-admin", username: "orkun" };
+    const otherAdmin = { id: "u-other", username: "admin2" };
+    expect(canAccess("/prim", "admin", null, null, orkun)).toBe(true);
+    expect(canAccess("/prim", "admin", null, null, otherAdmin)).toBe(false);
+    expect(canAccess("/prim", "admin")).toBe(false);
+    expect(canAccess("/prim", "auditor")).toBe(false);
+    expect(canAccess("/prim", "streamer")).toBe(false);
+    expect(canAccess("/prim", "brand")).toBe(false);
+  });
+
+  it("blocks prim during impersonation even for main admin session", () => {
+    const impersonated = {
+      id: "emp-ramiz",
+      username: "ramiz",
+      impersonatorId: "u-admin",
+    };
+    expect(canAccess("/prim", "streamer", null, null, impersonated)).toBe(false);
+    expect(canAccessPrim(impersonated)).toBe(false);
+    expect(canAccessPrim({ id: "u-admin", username: "orkun" })).toBe(true);
   });
 });
 

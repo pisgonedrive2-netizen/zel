@@ -33,7 +33,7 @@ import { fmtDateShort } from "@/lib/fmt-date";
 import { MARKA_NAV_ITEMS } from "@/lib/marka-nav";
 import { markaNavIcon } from "@/lib/marka-nav-icons";
 import { notificationsHrefForRole } from "@/lib/notification-href";
-import { isMainAdmin } from "@/lib/user-guards";
+import { isMainAdmin, canAccessPrim } from "@/lib/user-guards";
 
 type NavItem = {
   href:  string;
@@ -179,14 +179,14 @@ export default function Sidebar() {
   // Marka modüllerinde org-capability gizleme: admin marka görünümünde tümü görünür,
   // marka kullanıcısı org rolüne göre (marka-subnav ile aynı mantık).
   const orgRole = adminViewingBrand ? "admin" : user?.orgRole;
-  const mainAdmin = user ? isMainAdmin(user) : false;
+  const isOrkun = user ? isMainAdmin(user) : false;
   const screenShareMode = useUiPrefs((s) => s.screenShareMode);
   const toggleScreenShareMode = useUiPrefs((s) => s.toggleScreenShareMode);
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
-    (!n.mainAdminOnly || mainAdmin) &&
+    (!n.mainAdminOnly || canAccessPrim(user)) &&
     (!n.sensitive || !screenShareMode) &&
-    (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: mainAdmin }))
+    (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
   );
 
   const handleLogout = () => {

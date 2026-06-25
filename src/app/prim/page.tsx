@@ -3,14 +3,14 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/store/auth";
-import { isMainAdmin } from "@/lib/user-guards";
+import { canAccessPrim } from "@/lib/user-guards";
 import { PageShell } from "@/components/page-shell";
 import { PrimPoolPanel } from "@/components/prim/prim-pool-panel";
 
 export default function PrimPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const allowed = user ? isMainAdmin(user) : false;
+  const allowed = canAccessPrim(user);
 
   useEffect(() => {
     if (user && !allowed) {

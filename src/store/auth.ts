@@ -2,7 +2,7 @@
 
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
-import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
+import { canApplyUserPatch, canDeleteUser, isMainAdmin, canAccessPrim } from "@/lib/user-guards";
 import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit, purgeAuditEntriesForActor, refreshAuditFromServer } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
@@ -60,7 +60,7 @@ const INITIAL_USERS: AppUser[] = [
     orgRole: "owner",
   },
   { id: "u-ramiz",   username: "ramiz",   pin: "ramiz1234",    name: "Ramiz",         role: "streamer", employeeId: "emp-ramiz",  avatar: "R", active: true },
-  { id: "u-lucy",    username: "lucy",    pin: "lucy1234",     name: "Lucy",          role: "streamer", employeeId: "emp-lucy",   avatar: "L", active: true },
+  { id: "u-lucy",    username: "lucy",    pin: "lucy1234",     name: "Lucy",          role: "streamer", employeeId: "emp-lucy",   avatar: "L", active: false },
   { id: "u-acelya",  username: "acelya",  pin: "acelya1234",   name: "Açelya",        role: "streamer", employeeId: "emp-acelya", avatar: "A", active: true },
   { id: "u-denetci", username: "denetci", pin: "denetim2026",  name: "Denetim Ekibi", role: "auditor",  avatar: "D", active: true },
   { id: "u-brand-gala",    username: "galabet",    pin: "marka2026", name: "Galabet (Marka)",    role: "brand", brandId: "br-gala",    avatar: "G", active: true },
@@ -611,16 +611,28 @@ export const ROUTE_ACCESS = {
 
   /** Admin tüm rotalara erişebilir; ek olarak login dışındaki her şey. */
   adminBlocked: ["/login"],
+
+  /** Yalnızca ana yönetici (Orkun) — marka/yayıncı/denetçi/diğer adminler erişemez. */
+  mainAdminOnly: ["/prim"],
 };
 
 export function canAccess(
   pathname: string,
   role: Role | null,
   panelViewAs?: PanelViewAs | null,
-  brandViewAs?: BrandViewAs | null
+  brandViewAs?: BrandViewAs | null,
+  user?: Pick<AppUser, "id" | "username" | "impersonatorId"> | null,
 ): boolean {
   if (ROUTE_ACCESS.public.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
   if (!role) return false;
+
+  const mainAdminRoute = ROUTE_ACCESS.mainAdminOnly.some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+  if (mainAdminRoute) {
+    return canAccessPrim(user);
+  }
+
   if (role === "admin") {
     if (
       panelViewAs &&

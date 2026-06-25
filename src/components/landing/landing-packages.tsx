@@ -292,10 +292,10 @@ const MULTI_PACKAGE: ContentPackage = {
   name: "Multi-marka",
   icon: Boxes,
   color: "#22C55E",
-  price: "$40.000",
-  priceUsd: 40000,
-  priceUnit: "/ 5 marka / ay",
-  priceNote: "$8.000 / marka — Standard’a göre %20 indirim",
+  price: "",
+  priceUsd: 0,
+  priceUnit: "",
+  priceOnRequest: true,
   tagline: "5 markanın tamamı için Standard paket — reel + adult içerik, YouTube yok.",
   guaranteedViews: "5M",
   cpm: "≈ $8,0",
@@ -734,7 +734,7 @@ function OfferSummary({
           <PkgIcon size={16} strokeWidth={2.1} />
         </span>
         <span className="flex-1 text-sm font-semibold text-white">{selectedPkg.name} paketi</span>
-        <span className="text-sm font-bold tabular-nums text-white">{selectedPkg.priceOnRequest ? "Özel teklif" : fmtUsd(selectedPkg.priceUsd)}</span>
+        <span className="text-sm font-bold tabular-nums text-white">{selectedPkg.priceOnRequest ? "Teklif al" : fmtUsd(selectedPkg.priceUsd)}</span>
       </div>
 
       {/* Add-on satırları */}
@@ -763,7 +763,7 @@ function OfferSummary({
         <div className="flex items-baseline gap-2">
           <span className="text-xs text-white/50">Toplam:</span>
           {selectedPkg.priceOnRequest ? (
-            <span className="text-2xl font-extrabold tracking-tight text-white">Özel teklif</span>
+            <span className="text-2xl font-extrabold tracking-tight text-white">Teklif al</span>
           ) : (
             <>
               <span className="text-3xl font-extrabold tracking-tight text-white">{fmtUsd(grand)}</span>
@@ -957,37 +957,15 @@ export function LandingPackages() {
                 </div>
               </div>
             </div>
-            <div className="flex w-full shrink-0 flex-col items-start gap-3 lg:w-auto lg:items-end">
-              <div className="text-left lg:text-right">
-                {pkg.priceOnRequest ? (
-                  <span className="text-2xl font-extrabold tracking-tight text-white">Özel teklif</span>
-                ) : (
-                  <>
-                    <div className="flex items-baseline gap-1.5 lg:justify-end">
-                      <span className="text-3xl font-extrabold tracking-tight text-white">{pkg.price}</span>
-                      <span className="text-xs font-medium text-white/50">{pkg.priceUnit}</span>
-                    </div>
-                    {pkg.priceNote && <p className="mt-1 text-[11px] font-medium" style={{ color: pkg.color }}>{pkg.priceNote}</p>}
-                  </>
-                )}
-              </div>
-              <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row">
-                <button
-                  type="button"
-                  onClick={() => pick(pkg.id)}
-                  style={{ backgroundColor: selectedId === pkg.id ? ORANGE : pkg.color, color: selectedId === pkg.id ? "#fff" : "#000" }}
-                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-5 text-sm font-semibold shadow-lg transition hover:brightness-110 active:scale-[0.98] lg:w-auto"
-                >
-                  <Check size={15} strokeWidth={2.4} /> {selectedId === pkg.id ? "Seçildi" : "Seç"}
-                </button>
-                <button
-                  type="button"
-                  onClick={goTelegram}
-                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white transition hover:bg-white/10 active:scale-[0.98] lg:w-auto"
-                >
-                  <Send size={14} /> Teklif al
-                </button>
-              </div>
+            <div className="flex w-full shrink-0 flex-col items-stretch gap-3 lg:w-auto lg:items-end">
+              <button
+                type="button"
+                onClick={goTelegram}
+                style={{ backgroundColor: pkg.color, color: "#000" }}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold shadow-lg transition hover:brightness-110 active:scale-[0.98] lg:w-auto"
+              >
+                <Send size={15} /> Teklif al
+              </button>
             </div>
           </div>
         </motion.div>

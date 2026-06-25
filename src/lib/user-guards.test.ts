@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppUser } from "@/store/auth";
-import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
+import { canApplyUserPatch, canDeleteUser, isMainAdmin, canAccessPrim } from "@/lib/user-guards";
 
 const baseUsers = (): AppUser[] => [
   { id: "a1", username: "admin1", pin: "x", name: "Admin", role: "admin", avatar: "A", active: true },
@@ -91,5 +91,15 @@ describe("main admin protection", () => {
   it("allows deleting another admin while main admin exists", () => {
     const r = canDeleteUser(withMainAdmin(), "a3");
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("canAccessPrim", () => {
+  it("allows only Orkun without impersonation", () => {
+    expect(canAccessPrim({ id: "u-admin", username: "orkun" })).toBe(true);
+    expect(canAccessPrim({ id: "u-admin", username: "orkun", impersonatorId: "x" })).toBe(false);
+    expect(canAccessPrim({ id: "a3", username: "admin2" })).toBe(false);
+    expect(canAccessPrim({ id: "u-ramiz", username: "ramiz", impersonatorId: "u-admin" })).toBe(false);
+    expect(canAccessPrim(null)).toBe(false);
   });
 });

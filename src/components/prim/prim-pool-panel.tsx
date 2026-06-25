@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { useStore, calcKasaBalance } from "@/store/store";
 import { useUiPrefs } from "@/store/ui-prefs";
-import { isPayrollActive } from "@/lib/payroll-utils";
+import { isPayrollActive, isPrimEligible } from "@/lib/payroll-utils";
 import { shiftCalendarMonthYm, toYearMonthLocal } from "@/lib/data";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { shortMonthLabel } from "@/lib/calendar-months";
@@ -25,6 +25,9 @@ import {
   viewershipHistory,
   monthProgress,
   describePrimBaseSource,
+  buildPrimRules,
+  buildPrimScenarioGuide,
+  describePrimFormula,
   DEFAULT_BRAND_FEE_USD,
   DEFAULT_GUARANTEED_VIEWS,
   FAIR_PRIM_CONFIG,
@@ -33,7 +36,11 @@ import {
   PRIM_BASE_MODE_LABELS,
   PRIM_VIEW_BONUS_LABELS,
   PRIM_DISTRIBUTION_LABELS,
+  PRIM_QUALITY_PRESETS,
+  PRIM_SYSTEM_PRESETS,
+  PRIM_BASE_NET_BASIS_LABELS,
   fmtPrimUsd,
+  type PrimSystemPreset,
   type PrimPoolConfig,
   type PrimModel,
   type PrimBaseMode,
@@ -44,6 +51,8 @@ import {
   type PrimRecipientMeta,
   type PrimCustomRecipient,
   type PrimManualExpense,
+  type PrimRuleLine,
+  type PrimScenarioRow,
 } from "@/lib/prim-pool";
 import {
   defaultPrimStoredSettings,
@@ -55,6 +64,7 @@ import {
   type PrimCustomBrand,
   type PrimStoredSettings,
 } from "@/lib/prim-settings-storage";
+import { PrimDistributionPanel } from "@/components/prim/prim-distribution-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -171,13 +181,14 @@ export function PrimPoolPanel() {
   const togglePrimSimpleView = useUiPrefs((s) => s.togglePrimSimpleView);
   // Basit görünümde gelişmiş sekmeler gizli; açık sekme onlardan biriyse Özet'e dön.
   useEffect(() => {
-    if (simpleView && (tab === "senaryo" || tab === "kurallar")) setTab("ozet");
+    if (simpleView && (tab === "senaryo" || tab === "kurallar" || tab === "dagitim")) setTab("ozet");
   }, [simpleView, tab]);
   const storedRef = useRef<PrimStoredSettings>(defaultPrimStoredSettings());
   const [brandFees, setBrandFees] = useState<Record<string, number>>({});
   const [brandGuarantees, setBrandGuarantees] = useState<Record<string, number>>({});
   const [recipientWeights, setRecipientWeights] = useState<Record<string, number>>({});
   const [recipientPoints, setRecipientPoints] = useState<Record<string, number>>({});
+  const [recipientQuality, setRecipientQuality] = useState<Record<string, number>>({});
   const [config, setConfig] = useState<PrimPoolConfig>(FAIR_PRIM_CONFIG);
   const [brandMeta, setBrandMeta] = useState<Record<string, PrimBrandMeta>>({});
   const [customBrands, setCustomBrands] = useState<PrimCustomBrand[]>([]);
@@ -187,6 +198,8 @@ export function PrimPoolPanel() {
   const [newCustomName, setNewCustomName] = useState("");
   const [newPersonName, setNewPersonName] = useState("");
   const [newPersonNick, setNewPersonNick] = useState("");
+  const [newPersonKind, setNewPersonKind] = useState("streamer");
+  const [newPersonPoints, setNewPersonPoints] = useState(1);
   const [newExpenseLabel, setNewExpenseLabel] = useState("");
   const [newExpenseAmount, setNewExpenseAmount] = useState(0);
 
@@ -200,6 +213,7 @@ export function PrimPoolPanel() {
     setBrandGuarantees(slice.brandGuarantees);
     setRecipientWeights(slice.recipientWeights);
     setRecipientPoints(slice.recipientPoints);
+    setRecipientQuality(slice.recipientQuality);
     setConfig(slice.config);
     setBrandMeta(settings.brandMeta);
     setCustomBrands(settings.customBrands);
@@ -213,6 +227,7 @@ export function PrimPoolPanel() {
     brandGuarantees?: Record<string, number>;
     recipientWeights?: Record<string, number>;
     recipientPoints?: Record<string, number>;
+    recipientQuality?: Record<string, number>;
     config?: PrimPoolConfig;
     brandMeta?: Record<string, PrimBrandMeta>;
     customBrands?: PrimCustomBrand[];
@@ -224,6 +239,7 @@ export function PrimPoolPanel() {
     const nextGuarantees = patch.brandGuarantees ?? brandGuarantees;
     const nextWeights = patch.recipientWeights ?? recipientWeights;
     const nextPoints = patch.recipientPoints ?? recipientPoints;
+    const nextQuality = patch.recipientQuality ?? recipientQuality;
     const nextConfig = patch.config ?? config;
     const nextMeta = patch.brandMeta ?? brandMeta;
     const nextCustom = patch.customBrands ?? customBrands;
@@ -235,6 +251,7 @@ export function PrimPoolPanel() {
     if (patch.brandGuarantees) setBrandGuarantees(patch.brandGuarantees);
     if (patch.recipientWeights) setRecipientWeights(patch.recipientWeights);
     if (patch.recipientPoints) setRecipientPoints(patch.recipientPoints);
+    if (patch.recipientQuality) setRecipientQuality(patch.recipientQuality);
     if (patch.config) setConfig(patch.config);
     if (patch.brandMeta) setBrandMeta(patch.brandMeta);
     if (patch.customBrands) setCustomBrands(patch.customBrands);
@@ -249,6 +266,7 @@ export function PrimPoolPanel() {
       brandGuarantees: nextGuarantees,
       recipientWeights: nextWeights,
       recipientPoints: nextPoints,
+      recipientQuality: nextQuality,
       config: nextConfig,
     });
     nextStored = {
@@ -324,6 +342,7 @@ export function PrimPoolPanel() {
     brandGuarantees,
     recipientWeights,
     recipientPoints,
+    recipientQuality,
     recipientMeta,
     customRecipients,
     kasaBalanceUsd,
@@ -331,7 +350,7 @@ export function PrimPoolPanel() {
   }), [
     month, brandsForCalc, brandLinks, linkSnapshots, employees, advances, salaryExtras,
     paymentStatuses, contentExpenses, expenses, brandFees, brandGuarantees, recipientWeights,
-    recipientPoints, recipientMeta, customRecipients, kasaBalanceUsd, config,
+    recipientPoints, recipientQuality, recipientMeta, customRecipients, kasaBalanceUsd, config,
   ]);
 
   const base = useMemo(() => buildPrimBaseInputs(storeArgs), [storeArgs]);
@@ -350,22 +369,54 @@ export function PrimPoolPanel() {
     config,
   }), [base, config]);
 
+  const primRules = useMemo(() => buildPrimRules(result), [result]);
+  const primScenarios = useMemo(() => buildPrimScenarioGuide(result), [result]);
+  const primFormula = useMemo(() => describePrimFormula(result), [result]);
+
   const primBaseLabel = useMemo(
     () => describePrimBaseSource(result, kasaBalanceUsd),
     [result, kasaBalanceUsd],
   );
 
-  const excludedRecipients = useMemo(() => {
-    const rows: { id: string; name: string; nickname?: string; isCustom: boolean }[] = [];
+  const payrollCandidates = useMemo(() => {
+    const rows: { id: string; name: string; nickname?: string; kind: string; isCustom: boolean }[] = [];
     for (const e of employees) {
-      if (e.kind === "coordinator" || !isPayrollActive(e, month)) continue;
+      if (e.kind === "coordinator" || !isPrimEligible(e, month)) continue;
+      if (!recipientMeta[e.id]?.excluded) continue;
+      rows.push({
+        id: e.id,
+        name: recipientMeta[e.id]?.name?.trim() || e.name,
+        nickname: recipientMeta[e.id]?.nickname,
+        kind: e.kind,
+        isCustom: false,
+      });
+    }
+    return rows;
+  }, [employees, recipientMeta, month]);
+
+  const excludedRecipients = useMemo(() => {
+    const rows: { id: string; name: string; nickname?: string; kind: string; isCustom: boolean }[] = [];
+    for (const e of employees) {
+      if (e.kind === "coordinator" || !isPrimEligible(e, month)) continue;
       if (recipientMeta[e.id]?.excluded) {
-        rows.push({ id: e.id, name: recipientMeta[e.id]?.name?.trim() || e.name, nickname: recipientMeta[e.id]?.nickname, isCustom: false });
+        rows.push({
+          id: e.id,
+          name: recipientMeta[e.id]?.name?.trim() || e.name,
+          nickname: recipientMeta[e.id]?.nickname,
+          kind: e.kind,
+          isCustom: false,
+        });
       }
     }
     for (const c of customRecipients) {
       if (recipientMeta[c.id]?.excluded) {
-        rows.push({ id: c.id, name: recipientMeta[c.id]?.name?.trim() || c.name, nickname: recipientMeta[c.id]?.nickname ?? c.nickname, isCustom: true });
+        rows.push({
+          id: c.id,
+          name: recipientMeta[c.id]?.name?.trim() || c.name,
+          nickname: recipientMeta[c.id]?.nickname ?? c.nickname,
+          kind: c.kind,
+          isCustom: true,
+        });
       }
     }
     return rows;
@@ -404,29 +455,49 @@ export function PrimPoolPanel() {
     commitSettings({ recipientWeights: { ...recipientWeights, [id]: v } });
   const setPoints = (id: string, v: number) =>
     commitSettings({ recipientPoints: { ...recipientPoints, [id]: Math.max(0, Math.round(v)) } });
+  const setQuality = (id: string, v: number) =>
+    commitSettings({ recipientQuality: { ...recipientQuality, [id]: v } });
   const setRecipientField = (id: string, field: "name" | "nickname", value: string) => {
     const meta = recipientMeta[id] ?? {};
     commitSettings({ recipientMeta: { ...recipientMeta, [id]: { ...meta, [field]: value } } });
+  };
+  const includePayrollRecipient = (id: string) => {
+    const meta = recipientMeta[id] ?? {};
+    commitSettings({
+      recipientMeta: { ...recipientMeta, [id]: { ...meta, excluded: false } },
+      recipientPoints: { ...recipientPoints, [id]: recipientPoints[id] ?? 1 },
+    });
   };
   const addCustomRecipient = () => {
     const name = newPersonName.trim();
     if (!name) return;
     const id = `prim-person-${crypto.randomUUID().slice(0, 8)}`;
     commitSettings({
-      customRecipients: [...customRecipients, { id, name, nickname: newPersonNick.trim() || undefined, kind: "streamer" }],
-      recipientPoints: { ...recipientPoints, [id]: 1 },
+      customRecipients: [...customRecipients, {
+        id, name, nickname: newPersonNick.trim() || undefined, kind: newPersonKind,
+      }],
+      recipientPoints: { ...recipientPoints, [id]: Math.max(1, newPersonPoints) },
+      recipientQuality: { ...recipientQuality, [id]: 1 },
     });
     setNewPersonName("");
     setNewPersonNick("");
+    setNewPersonKind("streamer");
+    setNewPersonPoints(1);
+  };
+  const applySystemPreset = (preset: PrimSystemPreset) => {
+    commitSettings({ config: { ...FAIR_PRIM_CONFIG, ...preset.config } });
   };
   const removeCustomRecipient = (id: string) => {
     const nextPoints = { ...recipientPoints };
+    const nextQuality = { ...recipientQuality };
     const nextMeta = { ...recipientMeta };
     delete nextPoints[id];
+    delete nextQuality[id];
     delete nextMeta[id];
     commitSettings({
       customRecipients: customRecipients.filter((c) => c.id !== id),
       recipientPoints: nextPoints,
+      recipientQuality: nextQuality,
       recipientMeta: nextMeta,
     });
   };
@@ -509,7 +580,7 @@ export function PrimPoolPanel() {
             Prim Havuzu
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Marka tahsilatı − operasyon gideri = net havuz · model, izlenme tetikleyici ve senaryolarla özelleştirilebilir prim
+            Gelir − maaş − içerik kalanının %10&apos;u + link izlenmeleri → kişilere dağıtım
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -540,17 +611,17 @@ export function PrimPoolPanel() {
       {/* Üst özet kartlar — her sekmede görünür */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <StatCard label="Marka geliri" value={fmtPrimUsd(result.totalRevenueUsd)} sub={`${result.brandRows.length} marka`} icon={Wallet} tone="green" />
-        <StatCard label="Operasyon gideri" value={fmtPrimUsd(result.totalOpsUsd)} sub={result.manualExpenseUsd > 0 ? "Bordro+içerik+genel+reklam" : "Bordro+içerik+genel"} icon={TrendingUp} tone="rose" />
-        <StatCard label="Net havuz" value={fmtPrimUsd(result.netPoolUsd)} sub={`− Sonraki aya ${fmtPrimUsd(result.reserveUsd)}`} icon={ShieldCheck} tone={result.netPoolUsd >= 0 ? "default" : "rose"} />
-        <StatCard label="Prim için kalan" value={fmtPrimUsd(result.distributablePoolUsd)} sub="Rezerv sonrası" icon={Layers} tone="default" />
+        <StatCard label="Giderler" value={fmtPrimUsd(result.totalOpsUsd)} sub={result.manualExpenseUsd > 0 ? "Bordro+içerik+genel+reklam" : "Bordro+içerik+genel"} icon={TrendingUp} tone="rose" />
+        <StatCard label="Net kâr" value={fmtPrimUsd(result.netPoolUsd)} sub={`Sonraki aya ${fmtPrimUsd(result.reserveUsd)} ayrıldı`} icon={ShieldCheck} tone={result.netPoolUsd >= 0 ? "default" : "rose"} />
+        <StatCard label="İzlenme" value={fmtCompactViews(result.totalActualViews)} sub={`Hedef ${fmtCompactViews(result.totalGuaranteedViews)}`} icon={Eye} tone={result.viewTriggered ? "green" : "amber"} />
         <StatCard
-          label="Toplam prim"
+          label="Bu ay prim"
           value={fmtPrimUsd(result.totalPrimUsd)}
-          sub={`${primBaseLabel} · yük ${pct(result.primLoadPct)}`}
+          sub={primFormula}
           icon={Trophy}
           tone="amber"
         />
-        <StatCard label="Prim sonrası net" value={fmtPrimUsd(result.netAfterPrimUsd)} sub="Ajansta kalan" icon={Gauge} tone="blue" />
+        <StatCard label="Prim sonrası kâr" value={fmtPrimUsd(result.netAfterPrimUsd)} sub={`1 efektif puan = ${fmtPrimUsd(result.perPointUsd)}`} icon={Gauge} tone="blue" />
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -558,17 +629,20 @@ export function PrimPoolPanel() {
           <TabsTrigger value="ozet" className="gap-1.5"><Layers size={14} /> Özet</TabsTrigger>
           <TabsTrigger value="izlenme" className="gap-1.5"><Eye size={14} /> İzlenmeler</TabsTrigger>
           {!simpleView && <TabsTrigger value="senaryo" className="gap-1.5"><Target size={14} /> Senaryolar</TabsTrigger>}
-          {!simpleView && <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar & Dağıtım</TabsTrigger>}
+          {!simpleView && <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar</TabsTrigger>}
+          <TabsTrigger value="dagitim" className="gap-1.5"><Users size={14} /> Dağıtım</TabsTrigger>
         </TabsList>
 
         {/* ── ÖZET ───────────────────────────────────────────────────────── */}
         <TabsContent value="ozet" className="mt-4 space-y-4">
+          <PrimRulesCard rules={primRules} formula={primFormula} />
+          <PrimScenarioGuideCard scenarios={primScenarios} />
           <ViewTriggerBanner result={result} />
           <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2"><Wallet size={16} /> Gelir & gider akışı</CardTitle>
-                <CardDescription>Net havuz = marka geliri − operasyon gideri</CardDescription>
+                <CardDescription>Marka geliri − maaş − içerik = kalan → %10 taban prim + izlenme</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {result.brandRows.map((row) => (
@@ -581,27 +655,31 @@ export function PrimPoolPanel() {
                 ))}
                 <div className="mt-2 pt-2 border-t border-border/60 space-y-1.5 text-xs">
                   <Row label="Marka geliri (brüt)" value={fmtPrimUsd(result.totalRevenueUsd)} strong />
-                  <Row label="− Bordro (net)" value={fmtPrimUsd(result.payrollUsd)} negative />
-                  <Row label="− İçerik harcamaları" value={fmtPrimUsd(result.contentExpenseUsd)} negative />
+                  <Row label="− Bordro (maaş)" value={fmtPrimUsd(result.payrollUsd)} negative />
+                  <Row label="− İçerik ödemeleri" value={fmtPrimUsd(result.contentExpenseUsd)} negative />
+                  <Row label="= Kalan (taban prim bazı)" value={fmtPrimUsd(result.payrollContentNetUsd)} strong />
                   <Row label="− Genel giderler" value={fmtPrimUsd(result.generalExpenseUsd)} negative />
                   {result.manualExpenseUsd > 0 && (
                     <Row label="− Reklam & elle eklenen giderler" value={fmtPrimUsd(result.manualExpenseUsd)} negative />
                   )}
-                  <Row label="= Net havuz" value={fmtPrimUsd(result.netPoolUsd)} strong tone={result.netPoolUsd < 0 ? "rose" : undefined} />
-                  <Row label="− Sonraki aya ayrılan (rezerv)" value={fmtPrimUsd(result.reserveUsd)} negative />
+                  <Row label="= Net kâr" value={fmtPrimUsd(result.netPoolUsd)} strong tone={result.netPoolUsd < 0 ? "rose" : undefined} />
+                  <Row label="− Sonraki aya ayrılan" value={fmtPrimUsd(result.reserveUsd)} negative />
                   {result.viewPoolBonusUsd > 0 && (
-                    <Row label="+ İzlenme havuz bonusu" value={fmtPrimUsd(result.viewPoolBonusUsd)} tone="green" />
+                    <Row label="+ İzlenme havuz bonusu (her 1M = $100)" value={fmtPrimUsd(result.poolBonusUsd)} tone="green" />
                   )}
-                  <Row label="= Prim için kalan havuz" value={fmtPrimUsd(result.distributablePoolUsd)} strong />
-                  <Row
-                    label={`− Prim (${result.config.basePrimMode === "fixed" ? "sabit tutar" : PRIM_MODEL_LABELS[result.config.model]})`}
-                    value={fmtPrimUsd(result.totalPrimUsd)}
-                    negative
-                  />
+                  <Row label="= Dağıtılabilir kâr" value={fmtPrimUsd(result.distributablePoolUsd)} strong />
+                  <Row label={`Taban prim (%${Math.round((config.basePrimRate ?? 0.1) * 100)} kalan)`} value={fmtPrimUsd(result.basePrimUsd)} />
+                  {result.poolBonusUsd > 0 && (
+                    <Row label="Havuz payı (izlenme)" value={fmtPrimUsd(result.poolBonusUsd)} tone="green" />
+                  )}
+                  {result.viewBonusUsd > 0 && (
+                    <Row label="İzlenme bonusu" value={fmtPrimUsd(result.viewBonusUsd)} tone="green" />
+                  )}
+                  <Row label="= Bu ay toplam prim" value={fmtPrimUsd(result.totalPrimUsd)} strong />
                   {result.cappedAmountUsd > 1 && (
                     <Row label="  ↳ tavanla kırpılan" value={`− ${fmtPrimUsd(result.cappedAmountUsd)}`} />
                   )}
-                  <Row label="= Prim sonrası net" value={fmtPrimUsd(result.netAfterPrimUsd)} strong tone={result.netAfterPrimUsd < 0 ? "rose" : "green"} />
+                  <Row label="= Prim sonrası kâr" value={fmtPrimUsd(result.netAfterPrimUsd)} strong tone={result.netAfterPrimUsd < 0 ? "rose" : "green"} />
                 </div>
               </CardContent>
             </Card>
@@ -619,12 +697,24 @@ export function PrimPoolPanel() {
                     <div key={r.employeeId} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{r.name}</p>
-                        <p className="text-[10px] text-muted-foreground capitalize">{r.kind} · pay {pct(r.sharePct)}</p>
+                        <p className="text-[10px] text-muted-foreground capitalize">
+                          {r.kind}
+                          {r.points !== Math.round(r.points) && <> · {r.points} puan (çıkış ayı oransal)</>}
+                          {r.points === Math.round(r.points) && <> · {r.points} puan</>}
+                          {r.qualityMultiplier !== 1 && <> × {r.qualityMultiplier} kalite</>}
+                          {" "}· {r.effectivePoints} efektif · pay {pct(r.sharePct)}
+                        </p>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold tabular-nums">{fmtPrimUsd(r.totalUsd)}</p>
-                        {r.viewBonusUsd > 0 && (
-                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">+{fmtPrimUsd(r.viewBonusUsd)} izlenme</p>
+                        {r.poolShareUsd > 0 || r.viewBonusUsd > 0 ? (
+                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                            taban {fmtPrimUsd(r.baseShareUsd)}
+                            {r.poolShareUsd > 0 && <> + havuz {fmtPrimUsd(r.poolShareUsd)}</>}
+                            {r.viewBonusUsd > 0 && <> + izlenme {fmtPrimUsd(r.viewBonusUsd)}</>}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground">taban prim</p>
                         )}
                       </div>
                     </div>
@@ -916,8 +1006,15 @@ export function PrimPoolPanel() {
           </Card>
         </TabsContent>
 
-        {/* ── KURALLAR & DAĞITIM ─────────────────────────────────────────── */}
+        {/* ── KURALLAR ───────────────────────────────────────────────────── */}
         <TabsContent value="kurallar" className="mt-4 space-y-4">
+          <PrimSystemPresetsCard
+            presets={PRIM_SYSTEM_PRESETS}
+            activeKey={detectActivePresetKey(config)}
+            onApply={applySystemPreset}
+          />
+          <PrimFlowSummary result={result} />
+          <PrimScenarioGuideCard scenarios={primScenarios} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Model & oranlar */}
             <Card>
@@ -926,19 +1023,24 @@ export function PrimPoolPanel() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
-                  Sıralama şöyle: <strong className="text-foreground">1)</strong> Bu ay dağıtılacak prim havuzunu belirle.
-                  {" "}<strong className="text-foreground">2)</strong> İzlenme hedefi aşıldıysa havuza ek para eklenir.
-                  {" "}<strong className="text-foreground">3)</strong> Oluşan havuz, kişilerin <strong className="text-foreground">puanlarına</strong> göre bölünür.
-                  {" "}En sade yol: aşağıdan &quot;Bu ay dağıtılacak tutarı kendim yazarım&quot; seç, tutarı gir.
+                  <strong className="text-foreground">3 adımda prim:</strong>
+                  {" "}<strong className="text-foreground">1)</strong> Marka geliri − maaş − içerik = kalan.
+                  {" "}<strong className="text-foreground">2)</strong> Kalanın %{Math.round((config.basePrimRate ?? 0.1) * 100)}&apos;u havuza + link izlenmeleri (her 1M = $100).
+                  {" "}<strong className="text-foreground">3)</strong> Dağıtım sekmesinden kişi ekle/çıkar, puan × kalite ile böl.
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <LabeledSelect label="1) Havuz nasıl belirlensin?" value={config.basePrimMode ?? "fixed"}
+                  <LabeledSelect label="Taban prim modu" value={config.basePrimMode ?? "rate"}
                     options={Object.entries(PRIM_BASE_MODE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                     onChange={(v) => setConfigField({ basePrimMode: v as PrimBaseMode })} />
-                  <LabeledSelect label="3) Havuz kişilere nasıl bölünsün?" value={config.distributionMode ?? "weighted"}
+                  {config.basePrimMode === "rate" && (
+                    <LabeledSelect label="Oran neye uygulansın?" value={config.basePrimNetBasis ?? "after_payroll_content"}
+                      options={Object.entries(PRIM_BASE_NET_BASIS_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                      onChange={(v) => setConfigField({ basePrimNetBasis: v as "after_payroll_content" | "distributable" })} />
+                  )}
+                  <LabeledSelect label="Kişilere bölüşüm" value={config.distributionMode ?? "weighted"}
                     options={Object.entries(PRIM_DISTRIBUTION_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                     onChange={(v) => setConfigField({ distributionMode: v as PrimDistributionMode })} />
-                  <LabeledSelect label="İzlenme primi türü (opsiyonel)" value={config.viewBonusMode ?? "multiplier"}
+                  <LabeledSelect label="Ek izlenme bonusu (opsiyonel)" value={config.viewBonusMode ?? "off"}
                     options={Object.entries(PRIM_VIEW_BONUS_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                     onChange={(v) => setConfigField({ viewBonusMode: v as PrimViewBonusMode })} />
                   {config.basePrimMode === "rate" && (
@@ -979,10 +1081,10 @@ export function PrimPoolPanel() {
                 {/* Sabit tutar modu — önce belirlenen prim havuzu */}
                 {config.basePrimMode === "fixed" && (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
-                    <label className="text-[12px] font-medium text-foreground/90 block">Bu ay dağıtmak istediğin toplam prim ($)</label>
+                    <label className="text-[12px] font-medium text-foreground/90 block">Sabit minimal prim ($)</label>
                     <NumberInput value={config.fixedPrimUsd ?? 0} onChange={(v) => setConfigField({ fixedPrimUsd: v })} min={0} step={500} className="h-9" />
                     <p className="text-[10px] text-muted-foreground leading-relaxed">
-                      Yazdığın tutar puanlara göre kişilere bölünür. Bu ay kârdan dağıtabileceğin üst sınır{" "}
+                      Her ay dağıtılacak taban prim. Kişilere puana göre bölünür. Üst sınır: dağıtılabilir kâr{" "}
                       <strong className="text-foreground">{fmtPrimUsd(result.distributablePoolUsd)}</strong>.
                     </p>
                     {(config.fixedPrimUsd ?? 0) > result.distributablePoolUsd && (
@@ -994,8 +1096,8 @@ export function PrimPoolPanel() {
                 )}
 
                 {/* Oran modu — modele göre yüzdeler */}
-                {config.basePrimMode === "rate" && (config.model === "net_share" || config.model === "hybrid") && (
-                  <SliderRow label="Net havuz payı oranı" value={Math.round((config.basePrimRate) * 100)} min={5} max={50} suffix="%" accent="amber"
+                {config.basePrimMode === "rate" && (config.model === "net_share" || config.model === "hybrid" || !config.model) && (
+                  <SliderRow label={`Kalan kârın yüzdesi (taban prim · şu an %${Math.round((config.basePrimRate) * 100)})`} value={Math.round((config.basePrimRate) * 100)} min={3} max={40} suffix="%" accent="amber"
                     onChange={(v) => setConfigField({ basePrimRate: v / 100 })} />
                 )}
                 {config.basePrimMode === "rate" && (config.model === "revenue_share" || config.model === "hybrid") && (
@@ -1025,24 +1127,24 @@ export function PrimPoolPanel() {
                       onChange={(e) => setConfigField({ viewPoolBonusEnabled: e.target.checked })}
                       className="rounded"
                     />
-                    <Eye size={13} /> İzlenme havuz bonusu (eşik geçilince havuza para ekle)
+                    <Eye size={13} /> Her 1M izlenme = $100 prim havuzuna (açık önerilir)
                   </label>
                   {config.viewPoolBonusEnabled && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-muted-foreground">Her kaç izlenmede bir?</label>
+                          <label className="text-[11px] text-muted-foreground">Her kaç izlenmede bir? (1M)</label>
                           <NumberInput value={config.viewPoolBonusThresholdViews ?? 1_000_000} onChange={(v) => setConfigField({ viewPoolBonusThresholdViews: v })} min={0} step={100_000} className="h-8 text-xs" />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-muted-foreground">Havuza eklenecek tutar $</label>
-                          <NumberInput value={config.viewPoolBonusPerStepUsd ?? 1_000} onChange={(v) => setConfigField({ viewPoolBonusPerStepUsd: v })} min={0} step={250} className="h-8 text-xs" />
+                          <label className="text-[11px] text-muted-foreground">Havuza eklenecek tutar ($)</label>
+                          <NumberInput value={config.viewPoolBonusPerStepUsd ?? 100} onChange={(v) => setConfigField({ viewPoolBonusPerStepUsd: v })} min={0} step={25} className="h-8 text-xs" />
                         </div>
                       </div>
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Toplam {fmtCompactViews(result.totalActualViews)} izlenmenin her {fmtCompactViews(config.viewPoolBonusThresholdViews ?? 1_000_000)} adımı için
-                        {" "}{fmtPrimUsd(config.viewPoolBonusPerStepUsd ?? 1_000)} eklenir →
-                        {" "}şu an <strong className="text-emerald-600">{result.viewPoolBonusSteps} adım = +{fmtPrimUsd(result.viewPoolBonusUsd)}</strong> havuza eklendi.
+                        Her 1 milyon izlenme = <strong className="text-foreground">{fmtPrimUsd(config.viewPoolBonusPerStepUsd ?? 100)}</strong> prim havuzuna eklenir — üst sınır yok (100M izlenme = {fmtPrimUsd(100 * (config.viewPoolBonusPerStepUsd ?? 100))}).
+                        {" "}Bu ay {fmtCompactViews(result.totalActualViews)} izlenme →{" "}
+                        <strong className="text-emerald-600 dark:text-emerald-400">{result.viewPoolBonusSteps} adım = +{fmtPrimUsd(result.poolBonusUsd)}</strong> havuza girdi.
                       </p>
                     </>
                   )}
@@ -1282,134 +1384,39 @@ export function PrimPoolPanel() {
             </CardContent>
           </Card>
 
-          {/* Kişi puanları & dağıtım */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2"><Users size={16} /> Kişi puanları & dağıtım</CardTitle>
-              <CardDescription>
-                Herkese bir <strong>puan</strong> ver; havuz puanlara göre paylaşılır. Çok yayın yapan / çok izlenen kişiye
-                yüksek puan ver, az katkı verene düşük puan. İsim ve takma adı (nick) düzenle, listede olmayan birini elle ekle,
-                istemediğin kişiyi <strong>göz ikonuyla prim dışı bırak</strong> ya da elle eklediğini <strong>sil</strong>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {result.config.distributionMode === "equal" ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
-                  Dağıtım &quot;eşit&quot; seçili — puanlar yok sayılır, herkes eşit pay alır. Puanların işe yaraması için
-                  yukarıdan dağıtımı &quot;Ağırlıklı&quot; veya &quot;Performans&quot; yap.
-                </div>
-              ) : (
-                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                  <span className="text-muted-foreground">Toplam puan: <strong className="text-foreground tabular-nums">{result.totalPoints}</strong></span>
-                  <span className="text-muted-foreground">1 puanın karşılığı: <strong className="text-amber-600 dark:text-amber-400 tabular-nums">{fmtPrimUsd(result.perPointUsd)}</strong></span>
-                  <span className="text-muted-foreground">Örn. 2 puan = <strong className="text-foreground tabular-nums">{fmtPrimUsd(result.perPointUsd * 2)}</strong></span>
-                </div>
-              )}
+        </TabsContent>
 
-              {result.recipients.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">Bu ay bordrolu yayıncı/moderatör yok. Aşağıdan elle kişi ekleyebilirsin.</p>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                  {result.recipients.map((r) => {
-                    const isCustom = r.employeeId.startsWith("prim-person-");
-                    return (
-                      <div key={r.employeeId} className="rounded-lg border border-border/60 px-3 py-2 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-                            isCustom ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300" : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-                          )}>{(r.nickname || r.name).slice(0, 1).toUpperCase()}</span>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">
-                              {r.name}{r.nickname ? <span className="text-muted-foreground font-normal"> · {r.nickname}</span> : null}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              pay {pct(r.sharePct)} · <strong className="text-amber-600 dark:text-amber-400">{fmtPrimUsd(r.totalUsd)}</strong>
-                              {r.viewBonusUsd > 0 ? ` (temel ${fmtPrimUsd(r.baseShareUsd)} + izlenme ${fmtPrimUsd(r.viewBonusUsd)})` : ""}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => setPoints(r.employeeId, r.points - 1)} aria-label="Puan azalt">−</Button>
-                            <span className="w-7 text-center text-sm font-semibold tabular-nums">{r.points}</span>
-                            <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => setPoints(r.employeeId, r.points + 1)} aria-label="Puan artır">+</Button>
-                            {isCustom ? (
-                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-red-600" onClick={() => removeCustomRecipient(r.employeeId)} aria-label="Sil">
-                                <Trash2 size={13} />
-                              </Button>
-                            ) : (
-                              <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => toggleRecipientExcluded(r.employeeId)} aria-label="Prim dışı bırak">
-                                <EyeOff size={13} />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Input
-                            value={recipientMeta[r.employeeId]?.name ?? ""}
-                            onChange={(e) => setRecipientField(r.employeeId, "name", e.target.value)}
-                            placeholder={isCustom ? "İsim" : r.name}
-                            className="h-7 text-xs flex-1"
-                          />
-                          <Input
-                            value={recipientMeta[r.employeeId]?.nickname ?? ""}
-                            onChange={(e) => setRecipientField(r.employeeId, "nickname", e.target.value)}
-                            placeholder="Nick (örn. acebaby)"
-                            className="h-7 text-xs flex-1"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {excludedRecipients.length > 0 && (
-                <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-2 space-y-1">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Prim dışı bırakılanlar</p>
-                  {excludedRecipients.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground"
-                      onClick={() => toggleRecipientExcluded(r.id)}
-                    >
-                      <EyeIcon size={12} /> {r.name}{r.nickname ? ` · ${r.nickname}` : ""} — tekrar dahil et
-                      {r.isCustom && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          className="ml-auto text-red-600 hover:text-red-700"
-                          onClick={(e) => { e.stopPropagation(); removeCustomRecipient(r.id); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeCustomRecipient(r.id); } }}
-                          aria-label="Tamamen sil"
-                        >
-                          <Trash2 size={12} />
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-border/60">
-                <Input value={newPersonName} onChange={(e) => setNewPersonName(e.target.value)} placeholder="Yeni kişi adı" className="h-8 text-xs flex-1" />
-                <Input value={newPersonNick} onChange={(e) => setNewPersonNick(e.target.value)} placeholder="Nick (opsiyonel)" className="h-8 text-xs flex-1" />
-                <Button type="button" size="sm" variant="outline" className="h-8 shrink-0 gap-1" onClick={addCustomRecipient}>
-                  <Plus size={13} /> Kişi ekle
-                </Button>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Bordrodan gelen kişiyi göz ikonuyla <strong>prim dışı</strong> bırakabilirsin (bordroyu etkilemez, geri alınabilir).
-                Elle eklediğin kişiyi çöp kutusuyla tamamen silebilirsin. Puanı 0 yapılan kişi prim almaz.
-              </p>
-            </CardContent>
-          </Card>
+        {/* ── DAĞITIM ────────────────────────────────────────────────────── */}
+        <TabsContent value="dagitim" className="mt-4">
+          <PrimDistributionPanel
+            monthLabel={monthLabel(month)}
+            result={result}
+            excludedRecipients={excludedRecipients}
+            payrollCandidates={payrollCandidates}
+            recipientMeta={recipientMeta}
+            newPersonName={newPersonName}
+            newPersonNick={newPersonNick}
+            newPersonKind={newPersonKind}
+            newPersonPoints={newPersonPoints}
+            onNewPersonName={setNewPersonName}
+            onNewPersonNick={setNewPersonNick}
+            onNewPersonKind={setNewPersonKind}
+            onNewPersonPoints={setNewPersonPoints}
+            onAddCustom={addCustomRecipient}
+            onIncludePayroll={includePayrollRecipient}
+            onSetPoints={setPoints}
+            onSetQuality={setQuality}
+            onSetField={setRecipientField}
+            onExclude={toggleRecipientExcluded}
+            onRemoveCustom={removeCustomRecipient}
+            onDistributionMode={(mode) => setConfigField({ distributionMode: mode })}
+          />
         </TabsContent>
       </Tabs>
 
       <p className="text-[10px] text-muted-foreground text-center">
-        Yalnızca ana yönetici (Orkun) tarafından görülebilir. Marka ücretleri, garantiler ve tüm prim ayarları
-        <strong> yalnızca bu tarayıcıya</strong> kaydedilir (ay bazlı) — sunucuya yazılmaz ve marka panellerine yansımaz.
+        Yalnızca ana yönetici (Orkun) tarafından görülebilir — marka ve yayıncı hesapları erişemez.
+        Prim ayarları <strong> yalnızca bu tarayıcıya</strong> kaydedilir (ay bazlı).
       </p>
     </div>
   );
@@ -1455,8 +1462,201 @@ function LabeledSelect({
   );
 }
 
+// ── Hazır sistem seçimi ─────────────────────────────────────────────────────
+function detectActivePresetKey(config: PrimPoolConfig): string | null {
+  for (const p of PRIM_SYSTEM_PRESETS) {
+    const c = p.config;
+    const match =
+      (config.basePrimMode ?? "rate") === (c.basePrimMode ?? "rate") &&
+      Math.abs((config.basePrimRate ?? 0.1) - (c.basePrimRate ?? 0.1)) < 0.001 &&
+      (config.viewPoolBonusEnabled ?? false) === (c.viewPoolBonusEnabled ?? false) &&
+      (config.viewBonusMode ?? "off") === (c.viewBonusMode ?? "off") &&
+      (config.basePrimNetBasis ?? "after_payroll_content") === (c.basePrimNetBasis ?? "after_payroll_content");
+    if (match && (c.basePrimMode !== "fixed" || config.fixedPrimUsd === c.fixedPrimUsd)) {
+      return p.key;
+    }
+  }
+  return null;
+}
+
+function PrimSystemPresetsCard({
+  presets,
+  activeKey,
+  onApply,
+}: {
+  presets: PrimSystemPreset[];
+  activeKey: string | null;
+  onApply: (p: PrimSystemPreset) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Hazır sistemler</CardTitle>
+        <CardDescription>Bir model seç — kurallar ve oranlar otomatik ayarlanır. Sonra Dağıtım sekmesinden kişileri düzenle.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {presets.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => onApply(p)}
+            className={cn(
+              "rounded-xl border p-3 text-left transition-colors",
+              activeKey === p.key
+                ? "border-amber-500/50 bg-amber-500/10 ring-1 ring-amber-500/30"
+                : "border-border/60 bg-card hover:border-amber-500/30 hover:bg-muted/30",
+            )}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm font-semibold">{p.label}</span>
+              <Badge variant="outline" className="text-[9px]">{p.tag}</Badge>
+            </div>
+            <p className="text-[11px] font-medium text-foreground/90">{p.description}</p>
+            <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">{p.detail}</p>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PrimFlowSummary({ result }: { result: PrimPoolResult }) {
+  const pct = Math.round(result.config.basePrimRate * 100);
+  const steps = [
+    { n: 1, label: "Marka geliri", value: fmtPrimUsd(result.totalRevenueUsd) },
+    { n: 2, label: "− Maaş − İçerik", value: fmtPrimUsd(result.payrollUsd + result.contentExpenseUsd) },
+    { n: 3, label: "= Kalan", value: fmtPrimUsd(result.payrollContentNetUsd) },
+    { n: 4, label: `Taban prim (%${pct})`, value: fmtPrimUsd(result.basePrimUsd) },
+    { n: 5, label: "+ Link izlenme", value: fmtPrimUsd(result.poolBonusUsd) },
+    { n: 6, label: "= Toplam prim", value: fmtPrimUsd(result.totalPrimUsd) },
+  ];
+  return (
+    <Card className="border-emerald-500/20 bg-emerald-500/[0.02]">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Bu ayın akışı (özet)</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          {steps.map((s, i) => (
+            <div key={s.n} className="flex items-center gap-2">
+              {i > 0 && <span className="text-muted-foreground">→</span>}
+              <div className="rounded-lg border border-border/60 bg-background/80 px-2.5 py-1.5">
+                <p className="text-[9px] text-muted-foreground uppercase">{s.label}</p>
+                <p className="font-bold tabular-nums text-foreground">{s.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Prim kuralları kartı ─────────────────────────────────────────────────────
+function PrimRulesCard({ rules, formula }: { rules: PrimRuleLine[]; formula: string }) {
+  const statusCls: Record<PrimRuleLine["status"], string> = {
+    ok: "border-emerald-500/30 bg-emerald-500/5",
+    warn: "border-amber-500/30 bg-amber-500/5",
+    off: "border-border/60 bg-muted/20 opacity-80",
+  };
+  const valueCls: Record<PrimRuleLine["status"], string> = {
+    ok: "text-emerald-700 dark:text-emerald-300",
+    warn: "text-amber-700 dark:text-amber-300",
+    off: "text-muted-foreground",
+  };
+
+  return (
+    <Card className="border-amber-500/25 bg-amber-500/[0.03]">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ShieldCheck size={16} className="text-amber-600" />
+          Prim kuralları
+        </CardTitle>
+        <CardDescription>
+          Adım adım hesap mantığı. Bu ayın sonucu: <strong className="text-foreground">{formula}</strong>
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+          {rules.map((rule) => (
+            <li
+              key={rule.id}
+              className={cn("rounded-lg border px-3 py-2.5 text-[11px] leading-relaxed", statusCls[rule.status])}
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <span className="font-semibold text-foreground">
+                  {rule.step}. {rule.title}
+                </span>
+                {rule.value && (
+                  <span className={cn("shrink-0 font-bold tabular-nums text-xs", valueCls[rule.status])}>
+                    {rule.value}
+                  </span>
+                )}
+              </div>
+              <p className="text-muted-foreground">{rule.description}</p>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Ne olursa ne kadar prim? ─────────────────────────────────────────────────
+function PrimScenarioGuideCard({ scenarios }: { scenarios: PrimScenarioRow[] }) {
+  return (
+    <Card className="border-blue-500/25 bg-blue-500/[0.03]">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Target size={16} className="text-blue-600" />
+          Ne olursa ne kadar prim?
+        </CardTitle>
+        <CardDescription>
+          Somut if-then kuralları. Yeşil satırlar bu ay tetiklendi veya geçerli.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-lg border border-border/60">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-border/60 bg-muted/30 text-left">
+                <th className="px-3 py-2 font-semibold text-muted-foreground w-[38%]">Ne olursa</th>
+                <th className="px-3 py-2 font-semibold text-muted-foreground w-[34%]">Ne olur</th>
+                <th className="px-3 py-2 font-semibold text-muted-foreground text-right w-[28%]">Tutar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scenarios.map((row, i) => (
+                <tr
+                  key={`${row.when}-${i}`}
+                  className={cn(
+                    "border-b border-border/40 last:border-0",
+                    row.active ? "bg-emerald-500/5" : "bg-transparent",
+                  )}
+                >
+                  <td className="px-3 py-2.5 text-foreground/90 align-top">{row.when}</td>
+                  <td className="px-3 py-2.5 text-muted-foreground align-top">{row.then}</td>
+                  <td className={cn(
+                    "px-3 py-2.5 text-right font-bold tabular-nums align-top",
+                    row.active ? "text-emerald-700 dark:text-emerald-300" : "text-foreground",
+                  )}>
+                    {row.amount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── İzlenme tetik banner ─────────────────────────────────────────────────────
 function ViewTriggerBanner({ result }: { result: PrimPoolResult }) {
+  const overViews = Math.max(0, result.totalActualViews - result.totalGuaranteedViews);
+  const cfg = result.config;
+
   return (
     <Card className={cn(result.viewTriggered ? "border-emerald-500/40 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5")}>
       <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1467,17 +1667,23 @@ function ViewTriggerBanner({ result }: { result: PrimPoolResult }) {
         )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-foreground">
-            {result.viewTriggered ? "İzlenme hedefi aşıldı — performans primi aktif" : "İzlenme hedefi henüz aşılmadı"}
+            {result.viewTriggered
+              ? `İzlenme hedefi aşıldı — +${fmtCompactViews(overViews)} fazla izlenme`
+              : "İzlenme hedefi henüz tutmadı — sadece taban prim"}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Toplam {fmtCompactViews(result.totalActualViews)} / {fmtCompactViews(result.totalGuaranteedViews)} garanti
-            {result.viewTriggered && ` · +%${Math.round(result.totalOverPct * 100)} aşım`}
-            {result.viewBonusMultiplier > 0 && ` · prim çarpanı ${multLabel(result.viewBonusMultiplier)}`}
+            {fmtCompactViews(result.totalActualViews)} / {fmtCompactViews(result.totalGuaranteedViews)} garanti
+            {result.viewTriggered && cfg.viewBonusMode === "cpm" && (
+              <> · fazla her 1K izlenme = +{fmtPrimUsd(cfg.viewCpmBonusUsd)}</>
+            )}
+            {result.viewPoolBonusUsd > 0 && (
+              <> · eşik bonusu +{fmtPrimUsd(result.viewPoolBonusUsd)}</>
+            )}
           </p>
         </div>
         <Badge variant={result.viewTriggered ? "default" : "outline"} className="shrink-0">
           <Eye size={12} className="mr-1" />
-          {result.viewTriggered ? `+${fmtPrimUsd(result.viewBonusUsd)} bonus` : "Tetiklenmedi"}
+          {result.viewBonusUsd > 0 ? `+${fmtPrimUsd(result.viewBonusUsd)} izlenme` : "Taban prim"}
         </Badge>
       </CardContent>
     </Card>
