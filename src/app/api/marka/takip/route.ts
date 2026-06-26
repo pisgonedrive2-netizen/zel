@@ -11,12 +11,14 @@ import {
 import {
   fetchBrandTasks,
   fetchBrandShifts,
+  fetchBrandStaff,
   upsertBrandTask,
   upsertBrandShift,
   deleteBrandTask,
   deleteBrandShift,
   insertBrandActivity,
 } from "@/lib/db/brand-personnel-repo";
+import { notifyBrandTaskReminder } from "@/lib/task-notifications";
 import type {
   BrandStaffShift,
   BrandStaffTask,
@@ -80,6 +82,64 @@ export async function POST(req: Request) {
   if (!brandId) return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
 
   const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+
+  // Toplu günlük görev ataması
+  if (body.kind === "daily-bulk") {
+    const dueDate = String(body.dueDate ?? today).trim() || today;
+    const notify = body.notify !== false;
+    const defaultStaffId = String(body.staffId ?? "").trim() || undefined;
+    const lines = Array.isArray(body.lines)
+      ? (body.lines as unknown[]).map((l) => String(l).trim()).filter(Boolean)
+      : String(body.text ?? "")
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+    if (lines.length === 0) {
+      return NextResponse.json({ error: "En az bir görev satırı gerekli" }, { status: 400 });
+    }
+    const brandStaff = await fetchBrandStaff([brandId]);
+    const created: BrandStaffTask[] = [];
+    for (const line of lines) {
+      let staffId = defaultStaffId;
+      let title = line;
+      const colon = line.indexOf(":");
+      if (colon > 0 && colon < 28) {
+        const maybeName = line.slice(0, colon).trim().toLowerCase();
+        const match = brandStaff.find(
+          (s) => s.name.toLowerCase() === maybeName || s.name.split(" ")[0].toLowerCase() === maybeName,
+        );
+        if (match) {
+          staffId = match.id;
+          title = line.slice(colon + 1).trim() || line;
+        }
+      }
+      const task: BrandStaffTask = {
+        id: `tk-${crypto.randomUUID().slice(0, 10)}`,
+        brandId,
+        staffId,
+        title,
+        description: "",
+        status: "todo",
+        priority: pick(body.priority, TASK_PRIORITY, "medium"),
+        dueDate,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const saved = await upsertBrandTask(task);
+      created.push(saved);
+      if (notify) {
+        await notifyBrandTaskReminder({
+          brandId,
+          title: saved.title,
+          dueDate,
+          triggeredBy: session.userId,
+        }).catch(() => undefined);
+      }
+    }
+    await writeAudit(session, "brand_task_created", `daily-bulk ${created.length} görev brand=${brandId}`);
+    return NextResponse.json({ ok: true, created: created.length, tasks: created });
+  }
 
   if (body.kind === "shift") {
     const staffId = String(body.staffId ?? "").trim();

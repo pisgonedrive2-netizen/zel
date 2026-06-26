@@ -35,6 +35,8 @@ export type MarkaNavIconKey =
   | "Banknote"
   | "Wallet"
   | "UserCog"
+  | "Clock"
+  | "Megaphone"
   | "Bell";
 
 export type MarkaModuleColor = "orange" | "green" | "blue" | "pink" | "violet";
@@ -49,6 +51,8 @@ export interface MarkaNavItemDef {
   /** Modül ızgarası açıklaması */
   description?: string;
   moduleColor?: MarkaModuleColor;
+  /** Henüz geliştirme aşamasında — UI'da "Yakında / Geliştiriliyor" rozeti gösterilir. */
+  inDevelopment?: boolean;
 }
 
 export const MARKA_NAV_GROUP_ORDER: MarkaNavGroup[] = [
@@ -65,8 +69,7 @@ export const MARKA_NAV_GROUP_ORDER: MarkaNavGroup[] = [
 export const MARKA_NAV_ITEMS: MarkaNavItemDef[] = [
   { id: "anasayfa", href: "/marka/anasayfa", label: "Anasayfa", group: "Genel", icon: "LayoutDashboard", description: "Özet KPI ve hızlı erişim", moduleColor: "orange" },
   { id: "operasyon", href: "/marka/operasyon", label: "Operasyon özeti", group: "Genel", icon: "BarChart3", description: "Günlük operasyon ve aktivite", moduleColor: "orange" },
-  { id: "uyumluluk", href: "/marka/uyumluluk", label: "Uyumluluk", group: "Genel", icon: "Shield", description: "Regülasyon ve uyumluluk takibi", moduleColor: "orange", cap: "compliance" },
-  { id: "entegrasyon", href: "/marka/entegrasyon", label: "Entegrasyon", group: "Genel", icon: "Plug", description: "API ve üçüncü taraf bağlantılar", moduleColor: "orange" },
+  { id: "entegrasyon", href: "/marka/entegrasyon", label: "Entegrasyon", group: "Genel", icon: "Plug", description: "API ve üçüncü taraf bağlantılar", moduleColor: "orange", inDevelopment: true },
   { id: "raporlar", href: "/marka/raporlar", label: "Raporlar", group: "Genel", icon: "FileSpreadsheet", description: "Özet ve dışa aktarma raporları", moduleColor: "orange" },
 
   { id: "havuz", href: "/marka/havuz", label: "Yayıncı havuzu", group: "İş Birliği", icon: "Users", description: "Yayıncıları keşfet ve teklif gönder", moduleColor: "orange" },
@@ -85,6 +88,8 @@ export const MARKA_NAV_ITEMS: MarkaNavItemDef[] = [
   { id: "personel", href: "/marka/personel", label: "Personel", group: "Ekip", icon: "Briefcase", description: "Personel kayıtları ve roller", moduleColor: "violet", cap: "hr" },
   { id: "departmanlar", href: "/marka/departmanlar", label: "Departmanlar", group: "Ekip", icon: "Building2", description: "Departman yapısı", moduleColor: "violet", cap: "hr" },
   { id: "takip", href: "/marka/takip", label: "Görev & Takip", group: "Ekip", icon: "ClipboardList", description: "Görev atama ve vardiya", moduleColor: "violet", cap: "hr" },
+  { id: "mesai", href: "/marka/mesai", label: "Mesai & Mola", group: "Ekip", icon: "Clock", description: "Giriş/çıkış ve mola takibi (puantaj)", moduleColor: "violet", cap: "hr" },
+  { id: "duyurular", href: "/marka/duyurular", label: "Personel duyuruları", group: "Ekip", icon: "Megaphone", description: "Ekip bilgilendirme ve duyurular", moduleColor: "violet", cap: "hr" },
   { id: "ekip", href: "/marka/ekip", label: "Ekip & yetkiler", group: "Ekip", icon: "Settings", description: "Ekip üyeleri ve roller", moduleColor: "violet", cap: "team" },
 
   { id: "muhasebe", href: "/marka/muhasebe", label: "Muhasebe", group: "Finans", icon: "Calculator", description: "Gelir/gider defteri", moduleColor: "green", cap: "finance" },

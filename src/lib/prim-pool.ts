@@ -65,13 +65,36 @@ export type PrimPoolConfig = {
   distributionMode?: PrimDistributionMode;
   /** İzlenme havuz bonusu açık mı? (eşik geçilince havuza ek para). */
   viewPoolBonusEnabled?: boolean;
-  /** Bu kadar toplam izlenme tamamlandıkça havuza para eklenir. */
+  /** Bu izlenmeye ulaşmadan havuz bonusu sayılmaz (örn. 5M). */
+  viewPoolBonusMinViews?: number;
+  /** Her adımda sayılacak izlenme miktarı (örn. 1M). */
   viewPoolBonusThresholdViews?: number;
-  /** Her eşik adımı için havuza eklenen tutar (USD). */
+  /** Her eşik adımı için havuza eklenen tutar (USD) — kademe yoksa sabit oran. */
   viewPoolBonusPerStepUsd?: number;
+  /** Kademeli ödeme: billable izlenme üzerinden artan kademeler (üst sınırlı). */
+  viewPoolBonusTiers?: PrimViewPoolTier[];
   /** Bu sayfada elle eklenen ek giderler (reklam vb.) — net havuzdan düşülür. */
   manualExpenses?: PrimManualExpense[];
 };
+
+/** İzlenme havuz bonusu kademesi (min eşik sonrası billable izlenme üzerinden). */
+export type PrimViewPoolTier = {
+  /** Billable izlenmede bu kademenin üst sınırı (kümülatif). Son kademe: Infinity. */
+  upToBillableViews: number;
+  /** Bu kademede her adım için USD. */
+  perStepUsd: number;
+  /** Adım boyutu (varsayılan viewPoolBonusThresholdViews). */
+  stepViews?: number;
+  /** Bu kademede en fazla kaç adım (ekstrem viral tavan). */
+  maxSteps?: number;
+};
+
+/** Varsayılan kademe: 5M sonrası ilk 15M billable $125/M, sonra $100, sonra $75 (max 100 adım). */
+export const DEFAULT_VIEW_POOL_TIERS: PrimViewPoolTier[] = [
+  { upToBillableViews: 15_000_000, perStepUsd: 125 },
+  { upToBillableViews: 45_000_000, perStepUsd: 100 },
+  { upToBillableViews: Infinity, perStepUsd: 75, maxSteps: 100 },
+];
 
 /** Prim sayfasında elle eklenen ek gider (örn. reklam harcaması). */
 export type PrimManualExpense = {
@@ -104,7 +127,7 @@ export const DEFAULT_PRIM_CONFIG: PrimPoolConfig = {
  * Panelin başlangıç önayarı — ekip dostu, mantıklı sınırlar içinde.
  * 1) Marka tahsilatı − maaş − içerik = kalan
  * 2) Kalanın %10'u taban prim havuzuna (gerçek net kârı aşmaz)
- * 3) Ay içi link/platform izlenmeleri → her 1M = $125 ek havuz (tavan yok)
+ * 3) 5M izlenme barajı sonrası her 1M = kademeli havuz bonusu ($125 → $100 → $75)
  * 4) Puan × kalite ile kişilere bölüşüm
  */
 export const FAIR_PRIM_CONFIG: PrimPoolConfig = {
@@ -126,8 +149,10 @@ export const FAIR_PRIM_CONFIG: PrimPoolConfig = {
   viewPoolBonusUncapped: true,
   distributionMode: "weighted",
   viewPoolBonusEnabled: true,
+  viewPoolBonusMinViews: 5_000_000,
   viewPoolBonusThresholdViews: 1_000_000,
   viewPoolBonusPerStepUsd: 125,
+  viewPoolBonusTiers: DEFAULT_VIEW_POOL_TIERS,
 };
 
 export const PRIM_MODEL_LABELS: Record<PrimModel, string> = {
@@ -164,8 +189,8 @@ export const PRIM_SYSTEM_PRESETS: PrimSystemPreset[] = [
     tag: "Varsayılan",
     description: "Kalan kârın %10'u + cömert izlenme havuzu",
     detail:
-      "Marka tahsilatından maaş ve içerik düşülür; kalanın %10'u taban prim olur (net kârı aşmaz). " +
-      "Her 1M izlenme +$125 ekler — tavan yok, viral aylar tam ödenir. Kişilere puan × kalite ile bölünür.",
+      "Marka tahsilatından maaş ve içerik düşülür; kalanın %10'u taban prim olur. " +
+      "5M izlenme barajı sonrası her 1M kademeli bonus (+$125 / +$100 / +$75). Kişilere puan × kalite ile bölünür.",
     config: { ...FAIR_PRIM_CONFIG },
   },
   {
@@ -287,6 +312,8 @@ export type PrimPoolResult = {
   viewPoolBonusUsd: number;
   /** İzlenme havuz bonusunun kaç eşik adımı tetiklendiği. */
   viewPoolBonusSteps: number;
+  /** Min baraj sonrası fatura edilen izlenme. */
+  viewPoolBonusBillableViews: number;
   /** Kişilere dağıtılan izlenme havuz bonusu (tavan sonrası). */
   poolBonusUsd: number;
   /** Dağıtımda kullanılan toplam puan. */
@@ -328,8 +355,10 @@ function normalizeConfig(config?: PrimPoolConfig): Required<PrimPoolConfig> {
     maxTotalPrimUsd: c.maxTotalPrimUsd ?? 0,
     distributionMode: c.distributionMode ?? "weighted",
     viewPoolBonusEnabled: c.viewPoolBonusEnabled ?? false,
+    viewPoolBonusMinViews: c.viewPoolBonusMinViews ?? 0,
     viewPoolBonusThresholdViews: c.viewPoolBonusThresholdViews ?? 1_000_000,
     viewPoolBonusPerStepUsd: c.viewPoolBonusPerStepUsd ?? 125,
+    viewPoolBonusTiers: c.viewPoolBonusTiers ?? [],
     viewPoolBonusUncapped: c.viewPoolBonusUncapped ?? true,
     manualExpenses: c.manualExpenses ?? [],
   };
@@ -410,6 +439,59 @@ function distributionShares(
   return shares;
 }
 
+/** İzlenme havuz bonusu — min baraj + kademeli adım hesabı. */
+export function calcViewPoolBonus(
+  totalViews: number,
+  config: Pick<
+    Required<PrimPoolConfig>,
+    | "viewPoolBonusEnabled"
+    | "viewPoolBonusMinViews"
+    | "viewPoolBonusThresholdViews"
+    | "viewPoolBonusPerStepUsd"
+    | "viewPoolBonusTiers"
+  >,
+): { billableViews: number; steps: number; bonusUsd: number } {
+  if (!config.viewPoolBonusEnabled) {
+    return { billableViews: 0, steps: 0, bonusUsd: 0 };
+  }
+
+  const minGate = Math.max(0, config.viewPoolBonusMinViews ?? 0);
+  const defaultStep = config.viewPoolBonusThresholdViews ?? 1_000_000;
+  const billable = Math.max(0, totalViews - minGate);
+  if (billable <= 0 || defaultStep <= 0) {
+    return { billableViews: 0, steps: 0, bonusUsd: 0 };
+  }
+
+  const tiers =
+    config.viewPoolBonusTiers.length > 0
+      ? config.viewPoolBonusTiers
+      : [{ upToBillableViews: Infinity, perStepUsd: config.viewPoolBonusPerStepUsd, stepViews: defaultStep }];
+
+  let bonusUsd = 0;
+  let steps = 0;
+  let cursor = 0;
+
+  for (const tier of tiers) {
+    if (cursor >= billable) break;
+    const tierEnd =
+      tier.upToBillableViews === Infinity
+        ? billable
+        : Math.min(billable, tier.upToBillableViews);
+    const tierSpan = Math.max(0, tierEnd - cursor);
+    if (tierSpan <= 0) continue;
+
+    const step = tier.stepViews ?? defaultStep;
+    let tierSteps = Math.floor(tierSpan / step);
+    if (tier.maxSteps != null) tierSteps = Math.min(tierSteps, tier.maxSteps);
+
+    bonusUsd += tierSteps * tier.perStepUsd;
+    steps += tierSteps;
+    cursor += tierSteps * step;
+  }
+
+  return { billableViews: billable, steps, bonusUsd };
+}
+
 export function computePrimPool(input: {
   monthYm: string;
   brands: Brand[];
@@ -475,17 +557,11 @@ export function computePrimPool(input: {
     totalGuaranteedViews > 0 ? totalViewsOver / totalGuaranteedViews : 0;
   const blendedCpmUsd = totalActualViews > 0 ? (totalRevenueUsd / totalActualViews) * 1000 : 0;
 
-  // İzlenme havuz bonusu — toplam izlenme eşiği geçildikçe havuza ek para eklenir.
-  let viewPoolBonusSteps = 0;
-  let viewPoolBonusUsd = 0;
-  if (
-    config.viewPoolBonusEnabled &&
-    config.viewPoolBonusThresholdViews > 0 &&
-    config.viewPoolBonusPerStepUsd > 0
-  ) {
-    viewPoolBonusSteps = Math.floor(totalActualViews / config.viewPoolBonusThresholdViews);
-    viewPoolBonusUsd = viewPoolBonusSteps * config.viewPoolBonusPerStepUsd;
-  }
+  // İzlenme havuz bonusu — min baraj + kademeli adımlar.
+  const poolBonusCalc = calcViewPoolBonus(totalActualViews, config);
+  const viewPoolBonusSteps = poolBonusCalc.steps;
+  const viewPoolBonusUsd = poolBonusCalc.bonusUsd;
+  const viewPoolBonusBillableViews = poolBonusCalc.billableViews;
 
   // Rezerv — gelecek aylar / kuru aylar / sürpriz giderler için dağıtımdan önce ayrılır.
   const reserveUsd = Math.min(
@@ -652,6 +728,7 @@ export function computePrimPool(input: {
     manualExpenseUsd,
     viewPoolBonusUsd,
     viewPoolBonusSteps,
+    viewPoolBonusBillableViews,
     poolBonusUsd,
     totalPoints,
     perPointUsd,
@@ -1058,6 +1135,35 @@ export type PrimRuleLine = {
   status: PrimRuleStatus;
 };
 
+/** İzlenme havuz bonusu kural metni. */
+export function describeViewPoolBonusRules(cfg: Required<PrimPoolConfig>): string {
+  if (!cfg.viewPoolBonusEnabled) return "Link izlenme havuz bonusu kapalı.";
+  const min = cfg.viewPoolBonusMinViews ?? 0;
+  const step = fmtCompactViews(cfg.viewPoolBonusThresholdViews);
+  const parts: string[] = [];
+  if (min > 0) {
+    parts.push(`Önce ${fmtCompactViews(min)} toplam izlenme barajı geçilir`);
+  }
+  if (cfg.viewPoolBonusTiers.length > 0) {
+    const tierText = cfg.viewPoolBonusTiers
+      .map((t, i) => {
+        const prev = i === 0 ? 0 : cfg.viewPoolBonusTiers[i - 1].upToBillableViews;
+        const to =
+          t.upToBillableViews === Infinity
+            ? "üstü"
+            : fmtCompactViews(min + t.upToBillableViews);
+        const from = fmtCompactViews(min + prev);
+        const cap = t.maxSteps ? ` (max ${t.maxSteps} adım)` : "";
+        return `${from}–${to}: her ${step} +${fmtPrimUsd(t.perStepUsd)}${cap}`;
+      })
+      .join(" · ");
+    parts.push(`sonra kademeli: ${tierText}`);
+  } else {
+    parts.push(`her ${step} izlenme +${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)}`);
+  }
+  return parts.join("; ") + ".";
+}
+
 export function buildPrimRules(result: PrimPoolResult): PrimRuleLine[] {
   const cfg = result.config;
   const belowFloor = result.netPoolUsd < cfg.minNetFloorUsd;
@@ -1070,9 +1176,13 @@ export function buildPrimRules(result: PrimPoolResult): PrimRuleLine[] {
         ? `Garanti üstü her 1.000 izlenme için +${fmtPrimUsd(cfg.viewCpmBonusUsd)} eklenir.`
         : `Garanti her %10 aşıldıkça taban prim +%${Math.round(cfg.viewTriggerStepRate * 100)} artar.`;
 
-  const poolBonusDesc = cfg.viewPoolBonusEnabled
-    ? `Ay boyunca marka linkleri ve platformlardan toplanan izlenmeler sayılır. Her 1M izlenme = +${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza (100M = ${fmtPrimUsd(100 * cfg.viewPoolBonusPerStepUsd)}). Bu ay ${fmtCompactViews(result.totalActualViews)} = ${result.viewPoolBonusSteps} adım.`
-    : "Link izlenme havuz bonusu kapalı.";
+  const poolBonusDesc = describeViewPoolBonusRules(cfg) +
+    (cfg.viewPoolBonusEnabled
+      ? ` Bu ay ${fmtCompactViews(result.totalActualViews)} toplam` +
+        (result.viewPoolBonusBillableViews > 0
+          ? `, baraj sonrası ${fmtCompactViews(result.viewPoolBonusBillableViews)} fatura edildi = ${result.viewPoolBonusSteps} adım.`
+          : ` — baraj (${fmtCompactViews(cfg.viewPoolBonusMinViews)}) henüz geçilmedi.`)
+      : "");
 
   const baseDesc =
     cfg.basePrimMode === "fixed"
@@ -1207,27 +1317,49 @@ export function buildPrimScenarioGuide(result: PrimPoolResult): PrimScenarioRow[
   }
 
   if (cfg.viewPoolBonusEnabled) {
-    const stepsPer100M = Math.floor(100_000_000 / cfg.viewPoolBonusThresholdViews);
-    rows.push({
-      when: `Her ${fmtCompactViews(cfg.viewPoolBonusThresholdViews)} link izlenmesi`,
-      then: "Prim havuzuna eklenir (platformlar birleştirilir)",
-      amount: `+${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)}`,
-      active: true,
-    });
-    rows.push({
-      when: "100 milyon izlenme (örnek)",
-      then: `${stepsPer100M} adım × ${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza girer`,
-      amount: fmtPrimUsd(stepsPer100M * cfg.viewPoolBonusPerStepUsd),
-      active: result.viewPoolBonusSteps >= stepsPer100M,
-    });
-    const nextStepViews =
-      (result.viewPoolBonusSteps + 1) * cfg.viewPoolBonusThresholdViews;
+    if (cfg.viewPoolBonusMinViews > 0) {
+      rows.push({
+        when: `Toplam izlenme ${fmtCompactViews(cfg.viewPoolBonusMinViews)} barajını geçerse`,
+        then: "İzlenme havuz bonusu sayılmaya başlar",
+        amount: fmtPrimUsd(result.poolBonusUsd),
+        active: result.viewPoolBonusBillableViews > 0,
+      });
+    }
+    if (cfg.viewPoolBonusTiers.length > 0) {
+      rows.push({
+        when: "Baraj sonrası kademeli ödeme",
+        then: describeViewPoolBonusRules(cfg),
+        amount: "Kademeli",
+        active: true,
+      });
+      const ex100M = calcViewPoolBonus(100_000_000, cfg);
+      rows.push({
+        when: "100 milyon izlenme (örnek)",
+        then: `${ex100M.steps} adım, baraj sonrası kademeli`,
+        amount: fmtPrimUsd(ex100M.bonusUsd),
+        active: result.totalActualViews >= 100_000_000,
+      });
+    } else {
+      rows.push({
+        when: `Her ${fmtCompactViews(cfg.viewPoolBonusThresholdViews)} link izlenmesi (baraj sonrası)`,
+        then: "Prim havuzuna eklenir",
+        amount: `+${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)}`,
+        active: true,
+      });
+    }
+    const minGate = cfg.viewPoolBonusMinViews ?? 0;
+    const nextBillableNeeded =
+      result.viewPoolBonusSteps > 0
+        ? (result.viewPoolBonusSteps + 1) * cfg.viewPoolBonusThresholdViews - result.viewPoolBonusBillableViews
+        : Math.max(0, minGate - result.totalActualViews);
     rows.push({
       when: `Bu ay ${fmtCompactViews(result.totalActualViews)} izlenme (${result.viewPoolBonusSteps} adım)`,
       then:
         result.viewPoolBonusSteps > 0
-          ? `${result.viewPoolBonusSteps} × ${fmtPrimUsd(cfg.viewPoolBonusPerStepUsd)} havuza girdi`
-          : `Henüz adım yok — ${fmtCompactViews(nextStepViews - result.totalActualViews)} izlenme daha gerekli`,
+          ? `Baraj sonrası ${fmtCompactViews(result.viewPoolBonusBillableViews)} fatura edildi`
+          : minGate > 0
+            ? `Baraj için ${fmtCompactViews(nextBillableNeeded)} izlenme daha`
+            : "Henüz adım yok",
       amount: fmtPrimUsd(result.poolBonusUsd),
       active: result.poolBonusUsd > 0,
     });

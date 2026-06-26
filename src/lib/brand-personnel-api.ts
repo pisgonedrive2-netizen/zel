@@ -3,6 +3,9 @@ import type {
   BrandStaffActivity,
   BrandStaffShift,
   BrandStaffTask,
+  BrandStaffAttendance,
+  BrandStaffAnnouncement,
+  AttendanceAction,
 } from "@/types/brand-personnel";
 
 async function jsonOrThrow<T>(res: Response, fallback: string): Promise<T> {
@@ -76,10 +79,112 @@ export async function saveShift(input: Partial<BrandStaffShift>): Promise<BrandS
   return data.shift;
 }
 
+export async function saveDailyBrandTasks(input: {
+  brandId: string;
+  text: string;
+  staffId?: string;
+  dueDate?: string;
+  notify?: boolean;
+}): Promise<{ created: number }> {
+  const res = await fetch("/api/marka/takip", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, kind: "daily-bulk" }),
+  });
+  const data = await jsonOrThrow<{ created?: number }>(res, "Günlük plan atanamadı");
+  return { created: data.created ?? 0 };
+}
+
 export async function deleteTracking(kind: "task" | "shift", id: string): Promise<void> {
   const res = await fetch(`/api/marka/takip?kind=${kind}&id=${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "include",
   });
   await jsonOrThrow<{ ok: boolean }>(res, "Silme başarısız");
+}
+
+// ── Mesai / Puantaj ──────────────────────────────────────────────────────────
+export async function fetchAttendance(
+  brandId?: string,
+  opts?: { from?: string; to?: string; staffId?: string }
+): Promise<BrandStaffAttendance[]> {
+  const qs = new URLSearchParams();
+  if (brandId) qs.set("brandId", brandId);
+  if (opts?.from) qs.set("from", opts.from);
+  if (opts?.to) qs.set("to", opts.to);
+  if (opts?.staffId) qs.set("staffId", opts.staffId);
+  const res = await fetch(`/api/marka/mesai?${qs.toString()}`, { credentials: "include", cache: "no-store" });
+  const data = await jsonOrThrow<{ attendance?: BrandStaffAttendance[] }>(res, "Mesai verisi alınamadı");
+  return data.attendance ?? [];
+}
+
+export async function attendanceAction(input: {
+  brandId: string;
+  staffId: string;
+  action: AttendanceAction;
+  workDate?: string;
+}): Promise<BrandStaffAttendance> {
+  const res = await fetch("/api/marka/mesai", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ attendance: BrandStaffAttendance }>(res, "Mesai işlemi başarısız");
+  return data.attendance;
+}
+
+export async function saveAttendanceManual(input: {
+  brandId: string;
+  staffId: string;
+  workDate?: string;
+  checkIn?: string;
+  checkOut?: string;
+  breakMinutes?: number;
+  note?: string;
+}): Promise<BrandStaffAttendance> {
+  const res = await fetch("/api/marka/mesai", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ attendance: BrandStaffAttendance }>(res, "Mesai kaydedilemedi");
+  return data.attendance;
+}
+
+export async function deleteAttendance(id: string): Promise<void> {
+  const res = await fetch(`/api/marka/mesai?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await jsonOrThrow<{ ok: boolean }>(res, "Mesai silinemedi");
+}
+
+// ── Personel duyuruları ──────────────────────────────────────────────────────
+export async function fetchAnnouncements(brandId?: string): Promise<BrandStaffAnnouncement[]> {
+  const qs = brandId ? `?brandId=${encodeURIComponent(brandId)}` : "";
+  const res = await fetch(`/api/marka/duyuru${qs}`, { credentials: "include", cache: "no-store" });
+  const data = await jsonOrThrow<{ announcements?: BrandStaffAnnouncement[] }>(res, "Duyurular alınamadı");
+  return data.announcements ?? [];
+}
+
+export async function saveAnnouncement(input: Partial<BrandStaffAnnouncement> & { brandId: string }): Promise<BrandStaffAnnouncement> {
+  const res = await fetch("/api/marka/duyuru", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const data = await jsonOrThrow<{ announcement: BrandStaffAnnouncement }>(res, "Duyuru kaydedilemedi");
+  return data.announcement;
+}
+
+export async function deleteAnnouncement(id: string): Promise<void> {
+  const res = await fetch(`/api/marka/duyuru?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await jsonOrThrow<{ ok: boolean }>(res, "Duyuru silinemedi");
 }

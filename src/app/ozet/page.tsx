@@ -15,6 +15,11 @@ import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+} from "@/lib/ramiz-wallet-access";
 import Link from "next/link";
 import { fmt, toYearMonthLocal } from "@/lib/data";
 import { monthLabelTr } from "@/lib/month-label";
@@ -69,6 +74,15 @@ export default function OzetPage() {
     brandViewership, linkSnapshots,
   } = useStore();
   const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
 
   // Bekleyen onaylar
   const bekleyenOnay = contentExpenses.filter(c => c.reviewStatus === "pending");
@@ -147,28 +161,31 @@ export default function OzetPage() {
   const acikAvansToplam = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, currentMonth, salaryExtras), 0);
 
   const kasaOzeti = useMemo(() => {
-    const tronPanel = computeTronPanelMetrics(kasas, kasaTransactions);
-    const genelKasa = tronPanel?.genelKasa;
+    const tronPanel = canRamizWallet
+      ? computeTronPanelMetrics(viewKasas, viewKasaTransactions)
+      : null;
+    const genelKasa = tronPanel?.genelKasa ?? viewKasas.find((k) => k.isDefault && !k.archived);
     const genelRows = genelKasa
-      ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
+      ? viewKasaTransactions.filter((t) => t.kasaId === genelKasa.id)
       : [];
-    // Genel Kasa bakiyesi: TRON düşümü dahil; panel yoksa defter bakiyesi.
     const genelBakiye =
       tronPanel?.harcamaKasaWithTron ??
-      (genelKasa ? calcKasaBalance(kasaTransactions, undefined, genelKasa.id) : 0);
+      (genelKasa ? calcKasaBalance(viewKasaTransactions, undefined, genelKasa.id) : 0);
 
     return {
       genelBakiye,
       tronToplam: tronPanel?.tronTotal ?? 0,
       tronOps: tronPanel?.ramizWallet ?? 0,
       tronLokal: genelBakiye,
-      tumKasalar: calcKasaBalance(kasaTransactions),
+      tumKasalar: canRamizWallet
+        ? calcKasaBalance(viewKasaTransactions)
+        : genelBakiye,
       genelKasaAdi: genelKasa?.name ?? "Genel Kasa",
       tronKasaAdi: tronPanel?.tronKasa.name ?? "TRON Cüzdan",
       genelIslem: genelRows.length + (tronPanel?.includedTronCount ?? 0),
       tronIslem: tronPanel?.autoTxCount ?? 0,
     };
-  }, [kasas, kasaTransactions]);
+  }, [canRamizWallet, viewKasas, viewKasaTransactions]);
   // Bu ay içerik harcamaları (geri çekilen / reddedilen kayıtlar hariç)
   const icerikHarcAylik = contentExpenses
     .filter((c) => c.month === currentMonth && isActiveContentExpense(c))
@@ -238,16 +255,20 @@ export default function OzetPage() {
       icon: Wallet,
       href: "/kasa",
     },
-    {
-      key: "kasa-tron-ops",
-      title: "Ramiz cüzdanı",
-      value: fmt(kasaOzeti.tronOps),
-      trend: "neutral",
-      trendLabel: "Otomatik",
-      description: `${kasaOzeti.tronKasaAdi} · ${kasaOzeti.tronIslem} otomatik işlem`,
-      icon: Link2,
-      href: "/kasa",
-    },
+    ...(canRamizWallet
+      ? [
+          {
+            key: "kasa-tron-ops",
+            title: "Ramiz cüzdanı",
+            value: fmt(kasaOzeti.tronOps),
+            trend: "neutral" as const,
+            trendLabel: "Otomatik",
+            description: `${kasaOzeti.tronKasaAdi} · ${kasaOzeti.tronIslem} otomatik işlem`,
+            icon: Link2,
+            href: "/kasa",
+          },
+        ]
+      : []),
     {
       key: "bekleyen",
       title: "Bu Ay Bekleyen Ödeme",
@@ -481,9 +502,18 @@ export default function OzetPage() {
             <div>
               <p className="text-sm font-medium text-foreground">Kasa bakiyesi nasıl okunur?</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
-                Toplam bakiye {fmt(kasaOzeti.tumKasalar)}. Bu rakam {kasaOzeti.genelKasaAdi} +{" "}
-                {kasaOzeti.tronKasaAdi} toplamıdır. <strong>Ramiz cüzdanı</strong> otomatik TRON hareketleridir;{" "}
-                <strong>{kasaOzeti.genelKasaAdi}</strong> harcama kasasıdır.
+                {canRamizWallet ? (
+                  <>
+                    Toplam bakiye {fmt(kasaOzeti.tumKasalar)}. Bu rakam {kasaOzeti.genelKasaAdi} +{" "}
+                    {kasaOzeti.tronKasaAdi} toplamıdır. <strong>Ramiz cüzdanı</strong> otomatik TRON hareketleridir;{" "}
+                    <strong>{kasaOzeti.genelKasaAdi}</strong> harcama kasasıdır.
+                  </>
+                ) : (
+                  <>
+                    <strong>{kasaOzeti.genelKasaAdi}</strong> bakiyesi {fmt(kasaOzeti.genelBakiye)} — maaş ve
+                    gider ödemeleri için kullanılan ana kasa.
+                  </>
+                )}
               </p>
             </div>
             <Link
@@ -500,6 +530,8 @@ export default function OzetPage() {
                 {fmt(kasaOzeti.genelBakiye)}
               </p>
             </div>
+            {canRamizWallet && (
+            <>
             <div className="rounded-lg border border-emerald-300/50 bg-emerald-500/5 px-3 py-2.5">
               <p className="text-muted-foreground">Ramiz cüzdan toplam</p>
               <p className="text-lg font-bold tabular-nums text-emerald-800 dark:text-emerald-200">
@@ -512,6 +544,8 @@ export default function OzetPage() {
                 {fmt(kasaOzeti.tronOps)}
               </p>
             </div>
+            </>
+            )}
             <div className="rounded-lg border border-amber-300/50 bg-amber-500/5 px-3 py-2.5">
               <p className="text-muted-foreground">{kasaOzeti.genelKasaAdi} harcama</p>
               <p className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-200">

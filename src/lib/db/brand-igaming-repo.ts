@@ -1568,3 +1568,183 @@ export async function fetchBrandContentViolations(
     };
   });
 }
+
+function milestoneToRow(m: BrandDealMilestone) {
+  return {
+    id: m.id,
+    brand_id: m.brandId,
+    deal_id: m.dealId,
+    due_date: m.dueDate ?? null,
+    title: m.title,
+    kpi_type: m.kpiType ?? null,
+    kpi_target: m.kpiTarget ?? null,
+    kpi_actual: m.kpiActual ?? null,
+    payment_amount: m.paymentAmount ?? null,
+    status: m.status,
+  };
+}
+
+function trackingToRow(l: BrandDealTrackingLink) {
+  return {
+    id: l.id,
+    brand_id: l.brandId,
+    deal_id: l.dealId,
+    url: l.url,
+    promo_code: l.promoCode ?? null,
+    utm_source: l.utmSource ?? null,
+    utm_campaign: l.utmCampaign ?? null,
+    external_ref: l.externalRef ?? null,
+    attributed_ftd: l.attributedFtd,
+    attributed_deposit: l.attributedDeposit,
+  };
+}
+
+export async function upsertBrandDealMilestone(m: BrandDealMilestone): Promise<BrandDealMilestone> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_deal_milestones")
+    .upsert(milestoneToRow(m), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    if (missingTable(error)) throw new Error("brand_deal_milestones tablosu yok — migration gerekli");
+    throw new Error(error.message);
+  }
+  if (!data) throw new Error("Kilometre taşı kaydedilemedi");
+  const row = data as Record<string, unknown>;
+  return {
+    id: str(row.id),
+    brandId: str(row.brand_id),
+    dealId: str(row.deal_id),
+    dueDate: row.due_date ? str(row.due_date) : undefined,
+    title: str(row.title),
+    kpiType: row.kpi_type ? str(row.kpi_type) : undefined,
+    kpiTarget: row.kpi_target != null ? num(row.kpi_target) : undefined,
+    kpiActual: row.kpi_actual != null ? num(row.kpi_actual) : undefined,
+    paymentAmount: row.payment_amount != null ? num(row.payment_amount) : undefined,
+    status: pick(row.status, ["pending", "met", "missed", "paid"], "pending"),
+  };
+}
+
+export async function upsertBrandDealTrackingLink(l: BrandDealTrackingLink): Promise<BrandDealTrackingLink> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_deal_tracking_links")
+    .upsert(trackingToRow(l), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    if (missingTable(error)) throw new Error("brand_deal_tracking_links tablosu yok");
+    throw new Error(error.message);
+  }
+  if (!data) throw new Error("Takip linki kaydedilemedi");
+  return trackingFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandDealTrackingLink(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_deal_tracking_links").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/** Promo kod / external_ref ile affiliate istatistiklerinden FTD ve yatırım eşleştir. */
+export async function syncDealTrackingAttribution(brandId: string, dealId: string): Promise<BrandDealTrackingLink[]> {
+  const links = await fetchBrandDealTrackingLinks(brandId, dealId);
+  if (links.length === 0) return links;
+
+  const { data: partners } = await getSupabaseAdmin()
+    .from("affiliate_partners")
+    .select("id, external_ref, name")
+    .eq("brand_id", brandId);
+  const partnerByRef = new Map<string, string>();
+  for (const p of partners ?? []) {
+    const ref = String((p as Record<string, unknown>).external_ref ?? "").trim();
+    if (ref) partnerByRef.set(ref.toLowerCase(), String((p as Record<string, unknown>).id));
+  }
+
+  const updated: BrandDealTrackingLink[] = [];
+  for (const link of links) {
+    let partnerId: string | undefined;
+    const code = (link.promoCode ?? link.externalRef ?? "").trim().toLowerCase();
+    if (code) partnerId = partnerByRef.get(code);
+
+    let attributedFtd = link.attributedFtd;
+    let attributedDeposit = link.attributedDeposit;
+
+    if (partnerId) {
+      const { data: stats } = await getSupabaseAdmin()
+        .from("affiliate_daily_stats")
+        .select("ftd_count, deposit_amount")
+        .eq("brand_id", brandId)
+        .eq("partner_id", partnerId);
+      attributedFtd = (stats ?? []).reduce((s, r) => s + num((r as Record<string, unknown>).ftd_count), 0);
+      attributedDeposit = (stats ?? []).reduce(
+        (s, r) => s + num((r as Record<string, unknown>).deposit_amount),
+        0
+      );
+    }
+
+    const saved = await upsertBrandDealTrackingLink({
+      ...link,
+      attributedFtd,
+      attributedDeposit,
+    });
+    updated.push(saved);
+  }
+  return updated;
+}
+
+export async function upsertBrandPostApproval(a: BrandPostApproval): Promise<BrandPostApproval> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_post_approvals")
+    .upsert(
+      {
+        id: a.id,
+        brand_id: a.brandId,
+        post_id: a.postId,
+        status: a.status,
+        reviewed_by: a.reviewedBy ?? null,
+        reviewed_at: a.reviewedAt ?? null,
+        notes: a.notes,
+      },
+      { onConflict: "id" }
+    )
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    if (missingTable(error)) throw new Error("brand_post_approvals tablosu yok");
+    throw new Error(error.message);
+  }
+  if (!data) throw new Error("Onay kaydedilemedi");
+  const row = data as Record<string, unknown>;
+  return {
+    id: str(row.id),
+    brandId: str(row.brand_id),
+    postId: str(row.post_id),
+    status: pick(row.status, ["pending", "approved", "rejected"], "pending"),
+    reviewedBy: row.reviewed_by ? str(row.reviewed_by) : undefined,
+    reviewedAt: row.reviewed_at ? str(row.reviewed_at) : undefined,
+    notes: str(row.notes),
+  };
+}
+
+export async function upsertBrandContentViolation(v: BrandContentViolation): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_content_violations").upsert(
+    {
+      id: v.id,
+      brand_id: v.brandId,
+      post_id: v.postId ?? null,
+      violation_type: v.violationType,
+      severity: v.severity,
+      resolved_at: v.resolvedAt ?? null,
+      notes: v.notes,
+    },
+    { onConflict: "id" }
+  );
+  if (error && !missingTable(error)) throw new Error(error.message);
+}
+
+export async function clearPostViolations(brandId: string, postId: string): Promise<void> {
+  await getSupabaseAdmin()
+    .from("brand_content_violations")
+    .delete()
+    .eq("brand_id", brandId)
+    .eq("post_id", postId);
+}

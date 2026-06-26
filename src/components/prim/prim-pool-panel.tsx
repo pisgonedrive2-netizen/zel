@@ -28,6 +28,7 @@ import {
   buildPrimRules,
   buildPrimScenarioGuide,
   describePrimFormula,
+  describeViewPoolBonusRules,
   DEFAULT_BRAND_FEE_USD,
   DEFAULT_GUARANTEED_VIEWS,
   FAIR_PRIM_CONFIG,
@@ -454,7 +455,7 @@ export function PrimPoolPanel() {
   const setWeight = (id: string, v: number) =>
     commitSettings({ recipientWeights: { ...recipientWeights, [id]: v } });
   const setPoints = (id: string, v: number) =>
-    commitSettings({ recipientPoints: { ...recipientPoints, [id]: Math.max(0, Math.round(v)) } });
+    commitSettings({ recipientPoints: { ...recipientPoints, [id]: Math.max(0, Math.round(v * 100) / 100) } });
   const setQuality = (id: string, v: number) =>
     commitSettings({ recipientQuality: { ...recipientQuality, [id]: v } });
   const setRecipientField = (id: string, field: "name" | "nickname", value: string) => {
@@ -1127,24 +1128,34 @@ export function PrimPoolPanel() {
                       onChange={(e) => setConfigField({ viewPoolBonusEnabled: e.target.checked })}
                       className="rounded"
                     />
-                    <Eye size={13} /> Her 1M izlenme = $100 prim havuzuna (açık önerilir)
+                    <Eye size={13} /> İzlenme havuz bonusu (5M baraj + kademeli)
                   </label>
                   {config.viewPoolBonusEnabled && (
                     <>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-muted-foreground">Her kaç izlenmede bir? (1M)</label>
+                          <label className="text-[11px] text-muted-foreground">Min. baraj (toplam izlenme)</label>
+                          <NumberInput value={config.viewPoolBonusMinViews ?? 5_000_000} onChange={(v) => setConfigField({ viewPoolBonusMinViews: v })} min={0} step={500_000} className="h-8 text-xs" />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] text-muted-foreground">Adım boyutu (örn. 1M)</label>
                           <NumberInput value={config.viewPoolBonusThresholdViews ?? 1_000_000} onChange={(v) => setConfigField({ viewPoolBonusThresholdViews: v })} min={0} step={100_000} className="h-8 text-xs" />
                         </div>
                         <div className="flex flex-col gap-1">
-                          <label className="text-[11px] text-muted-foreground">Havuza eklenecek tutar ($)</label>
-                          <NumberInput value={config.viewPoolBonusPerStepUsd ?? 100} onChange={(v) => setConfigField({ viewPoolBonusPerStepUsd: v })} min={0} step={25} className="h-8 text-xs" />
+                          <label className="text-[11px] text-muted-foreground">1. kademe $/adım</label>
+                          <NumberInput value={config.viewPoolBonusPerStepUsd ?? 125} onChange={(v) => setConfigField({ viewPoolBonusPerStepUsd: v })} min={0} step={25} className="h-8 text-xs" />
                         </div>
                       </div>
                       <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Her 1 milyon izlenme = <strong className="text-foreground">{fmtPrimUsd(config.viewPoolBonusPerStepUsd ?? 100)}</strong> prim havuzuna eklenir — üst sınır yok (100M izlenme = {fmtPrimUsd(100 * (config.viewPoolBonusPerStepUsd ?? 100))}).
-                        {" "}Bu ay {fmtCompactViews(result.totalActualViews)} izlenme →{" "}
-                        <strong className="text-emerald-600 dark:text-emerald-400">{result.viewPoolBonusSteps} adım = +{fmtPrimUsd(result.poolBonusUsd)}</strong> havuza girdi.
+                        {describeViewPoolBonusRules({ ...result.config, ...config } as Required<PrimPoolConfig>)}
+                        {" "}Bu ay {fmtCompactViews(result.totalActualViews)} →{" "}
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {result.viewPoolBonusSteps} adım = +{fmtPrimUsd(result.poolBonusUsd)}
+                        </strong>
+                        {result.viewPoolBonusBillableViews > 0 && (
+                          <> (baraj sonrası {fmtCompactViews(result.viewPoolBonusBillableViews)})</>
+                        )}
+                        .
                       </p>
                     </>
                   )}

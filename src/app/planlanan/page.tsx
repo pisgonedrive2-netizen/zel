@@ -16,7 +16,12 @@ import {
   type Kasa,
   type KasaTransaction,
 } from "@/store/store";
-import { useIsReadOnly } from "@/store/auth";
+import { useAuth, useIsReadOnly } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+} from "@/lib/ramiz-wallet-access";
 import {
   computeTronPanelMetrics,
   kasaPaymentBalance,
@@ -448,10 +453,20 @@ export default function PlanlananPage() {
     addPlannedItemPayment, updatePlannedItemPayment, deletePlannedItemPayment,
     transferPlannedToExpense, transferPlannedToKasa,
   } = useStore();
+  const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const readOnly = useIsReadOnly();
   const defaultKasaId =
-    kasas.find((k) => k.isDefault && !k.archived)?.id
-    ?? kasas.find((k) => !k.archived)?.id
+    viewKasas.find((k) => k.isDefault && !k.archived)?.id
+    ?? viewKasas.find((k) => !k.archived)?.id
     ?? DEFAULT_KASA_ID;
 
   const [viewMonth, setViewMonth] = useState(() => toYearMonthLocal(new Date()));
@@ -915,8 +930,8 @@ export default function PlanlananPage() {
           <TransferForm
             item={transferModal.item}
             mode={transferModal.mode}
-            kasas={kasas}
-            kasaTransactions={kasaTransactions}
+            kasas={viewKasas}
+            kasaTransactions={viewKasaTransactions}
             defaultKasaId={defaultKasaId}
             monthYm={viewMonth}
             onClose={() => setTransferModal(null)}

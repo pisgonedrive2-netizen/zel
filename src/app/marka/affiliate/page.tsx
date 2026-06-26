@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Download,
   PlusCircle,
+  RefreshCcw,
   TrendingUp,
   Upload,
   Users,
@@ -46,6 +48,7 @@ import {
   computePartnerQualityScore,
   fetchAffiliateTiers,
   fetchBrandCampaigns,
+  syncCampaignAffiliate,
 } from "@/lib/marka-igaming-api";
 import {
   CAMPAIGN_STATUS_LABELS,
@@ -112,6 +115,9 @@ export default function MarkaAffiliatePage() {
   const [detailPartnerId, setDetailPartnerId] = useState<string | null>(null);
   const [tiers, setTiers] = useState<AffiliateTier[]>([]);
   const [campaigns, setCampaigns] = useState<BrandCampaign[]>([]);
+  const [closingPayouts, setClosingPayouts] = useState(false);
+  const [syncingCampaigns, setSyncingCampaigns] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const partners = useMemo(
     () => (brandId ? affiliatePartners.filter((p) => p.brandId === brandId) : []),
@@ -364,6 +370,65 @@ export default function MarkaAffiliatePage() {
 
   const canWrite = !readOnly;
 
+  const anomalyPartners = useMemo(
+    () =>
+      partnerRows.filter(
+        (r) =>
+          (r.clicks >= 50 && r.qualityScore < 30) ||
+          (r.registrations >= 20 && r.ftd / Math.max(1, r.registrations) < 0.03)
+      ),
+    [partnerRows]
+  );
+
+  const pendingPayouts = useMemo(
+    () =>
+      payouts.filter(
+        (p) =>
+          (p.status === "pending" || p.status === "approved") &&
+          p.periodStart.startsWith(month)
+      ),
+    [payouts, month]
+  );
+
+  async function handleClosePendingPayouts() {
+    if (pendingPayouts.length === 0) return;
+    const ok = window.confirm(
+      `${pendingPayouts.length} bekleyen ödeme "ödendi" olarak kapatılsın mı?`
+    );
+    if (!ok) return;
+    setClosingPayouts(true);
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      for (const p of pendingPayouts) {
+        const saved = await updateAffiliatePayout(p.id, { status: "paid", paidDate: today });
+        handlePayoutSaved(saved);
+      }
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Toplu kapanış başarısız");
+    } finally {
+      setClosingPayouts(false);
+    }
+  }
+
+  async function handleCampaignSync() {
+    if (!brandId) return;
+    setSyncingCampaigns(true);
+    setSyncResult(null);
+    try {
+      const res = await syncCampaignAffiliate(brandId);
+      setSyncResult(
+        `${res.linked.length} kampanya ↔ partner eşleşti` +
+          (res.orphanCampaigns.length > 0
+            ? ` · ${res.orphanCampaigns.length} kampanya eşleşmedi`
+            : "")
+      );
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : "Kampanya senkronu başarısız");
+    } finally {
+      setSyncingCampaigns(false);
+    }
+  }
+
   return (
     <MarkaPageGuard
       user={user}
@@ -440,6 +505,41 @@ export default function MarkaAffiliatePage() {
             </CardContent>
           </Card>
 
+          {anomalyPartners.length > 0 && (
+            <Card className="border-amber-300/60 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                  <AlertTriangle size={16} />
+                  Anomali & düşük kalite ({anomalyPartners.length})
+                </CardTitle>
+                <CardDescription>
+                  Düşük FTD dönüşümü veya kalite skoru — fraud incelemesi önerilir
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1.5 text-sm">
+                  {anomalyPartners.slice(0, 6).map((r) => (
+                    <li
+                      key={r.partner.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200/80 bg-background/60 px-2.5 py-1.5"
+                    >
+                      <span className="font-medium">{r.partner.name}</span>
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        Skor {r.qualityScore} · {r.clicks} tık · {r.ftd}/{r.registrations} FTD
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {syncResult && (
+            <div className="rounded-lg border border-emerald-500/40 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+              {syncResult}
+            </div>
+          )}
+
           {affiliateInsights && affiliateInsights.dailyFtd.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
@@ -492,12 +592,28 @@ export default function MarkaAffiliatePage() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Kampanyalar</CardTitle>
-                <CardDescription>
-                  {campaigns.length === 0
-                    ? "Henüz kampanya kaydı yok"
-                    : `${campaigns.length} kampanya`}
-                </CardDescription>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Kampanyalar</CardTitle>
+                    <CardDescription>
+                      {campaigns.length === 0
+                        ? "Henüz kampanya kaydı yok"
+                        : `${campaigns.length} kampanya`}
+                    </CardDescription>
+                  </div>
+                  {canWrite && campaigns.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={syncingCampaigns}
+                      onClick={() => void handleCampaignSync()}
+                    >
+                      <RefreshCcw size={12} className={syncingCampaigns ? "animate-spin" : undefined} />
+                      Affiliate senkron
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {campaigns.length === 0 ? (
@@ -693,17 +809,36 @@ export default function MarkaAffiliatePage() {
                   {payouts.length === 0
                     ? "Henüz ödeme kaydı yok."
                     : `${payouts.length} ödeme · ${payouts.filter((p) => p.status === "paid").length} ödendi`}
+                  {pendingPayouts.length > 0 && ` · ${pendingPayouts.length} bekleyen`}
                 </CardDescription>
               </div>
               {canWrite && (
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => setPayoutModal({ open: true, payout: null })}
-                  disabled={partners.length === 0}
-                >
-                  <PlusCircle size={14} /> Ödeme ekle
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {pendingPayouts.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      disabled={closingPayouts}
+                      onClick={() => void handleClosePendingPayouts()}
+                    >
+                      {closingPayouts ? (
+                        <RefreshCcw size={12} className="animate-spin" />
+                      ) : (
+                        <Wallet size={12} />
+                      )}
+                      Dönemi kapat ({pendingPayouts.length})
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setPayoutModal({ open: true, payout: null })}
+                    disabled={partners.length === 0}
+                  >
+                    <PlusCircle size={14} /> Ödeme ekle
+                  </Button>
+                </div>
               )}
             </CardHeader>
             <CardContent>

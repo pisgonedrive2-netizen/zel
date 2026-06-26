@@ -2,7 +2,7 @@
 
 export type AccCurrency = "USD" | "EUR" | "TRY";
 export type LedgerDirection = "income" | "expense";
-export type LedgerSource = "manual" | "affiliate_payout" | "crm_deal" | "staff_cost" | "invoice";
+export type LedgerSource = "manual" | "affiliate_payout" | "crm_deal" | "staff_cost" | "invoice" | "deal_milestone";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "cancelled";
 
 export interface BrandLedgerEntry {
@@ -44,6 +44,7 @@ export const LEDGER_SOURCE_LABELS: Record<LedgerSource, string> = {
   crm_deal: "CRM anlaşması",
   staff_cost: "Personel maliyeti",
   invoice: "Fatura",
+  deal_milestone: "Anlaşma milestone",
 };
 
 export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {

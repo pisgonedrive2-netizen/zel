@@ -19,6 +19,7 @@ import { downloadProfessionalCsv, numberedDetailSection, summarySection } from "
 import {
   fetchAccounting, saveLedgerEntry, deleteAccounting, syncAccounting,
 } from "@/lib/brand-accounting-api";
+import { BRAND_FX_RATES, convertToUsd } from "@/lib/marka-igaming-api";
 import {
   LEDGER_SOURCE_LABELS, LEDGER_EXPENSE_CATEGORIES, LEDGER_INCOME_CATEGORIES,
   type AccCurrency, type BrandLedgerEntry, type LedgerDirection,
@@ -144,6 +145,18 @@ export default function MarkaMuhasebePage() {
     const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
     return { income, expense, net: income - expense, cats, ggr, bonusCost, affiliateCommission, influencerCogs };
   }, [ledger, cur, scope, month]);
+
+  const multiCurrencyUsd = useMemo(() => {
+    let incomeUsd = 0;
+    let expenseUsd = 0;
+    for (const e of ledger) {
+      if (scope === "month" && ym(e.entryDate) !== month) continue;
+      const usd = convertToUsd(e.amount, e.currency);
+      if (e.direction === "income") incomeUsd += usd;
+      else expenseUsd += usd;
+    }
+    return { incomeUsd, expenseUsd, netUsd: incomeUsd - expenseUsd };
+  }, [ledger, scope, month]);
 
   // Son 6 ay trendi (seçili para birimi)
   const trend = useMemo(() => {
@@ -365,6 +378,35 @@ export default function MarkaMuhasebePage() {
             </CardContent>
           </Card>
         </div>
+
+        {currencies.length > 1 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Çok para birimi özeti (USD)</CardTitle>
+              <CardDescription>
+                Sabit FX: USD 1 · EUR {BRAND_FX_RATES.EUR} · TRY {BRAND_FX_RATES.TRY} — manuel kurlar
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Gelir (USD eşdeğeri)</p>
+                  <p className="font-bold tabular-nums text-green-600">${fmt(multiCurrencyUsd.incomeUsd)}</p>
+                </div>
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Gider (USD eşdeğeri)</p>
+                  <p className="font-bold tabular-nums text-red-600">${fmt(multiCurrencyUsd.expenseUsd)}</p>
+                </div>
+                <div className="rounded-lg border border-border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Net (USD)</p>
+                  <p className={`font-bold tabular-nums ${multiCurrencyUsd.netUsd >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    ${fmt(Math.abs(multiCurrencyUsd.netUsd))}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* iGaming P&L kırılımı */}
         <Card>

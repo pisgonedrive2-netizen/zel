@@ -182,10 +182,12 @@ export default function Sidebar() {
   const isOrkun = user ? isMainAdmin(user) : false;
   const screenShareMode = useUiPrefs((s) => s.screenShareMode);
   const toggleScreenShareMode = useUiPrefs((s) => s.toggleScreenShareMode);
+  /** Gizli mod yalnızca ana yönetici (Orkun) kullanabilir. */
+  const effectiveScreenShareMode = isOrkun && screenShareMode;
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
     (!n.mainAdminOnly || canAccessPrim(user)) &&
-    (!n.sensitive || !screenShareMode) &&
+    (!n.sensitive || !effectiveScreenShareMode) &&
     (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
   );
 
@@ -271,35 +273,35 @@ export default function Sidebar() {
           </div>
         )}
 
-        {/* Ekran paylaşımı (gizli mod) — finansal menüleri gizler */}
-        {!collapsed && (user?.role === "admin" || user?.role === "auditor") && (
+        {/* Ekran paylaşımı (gizli mod) — yalnızca Orkun; finansal menüleri gizler */}
+        {!collapsed && isOrkun && (
           <div className="px-4 pb-1">
             <button
               type="button"
               onClick={toggleScreenShareMode}
-              aria-pressed={screenShareMode}
-              title={screenShareMode ? "Gizli mod açık — finansal menüler gizli" : "Ekran paylaşımı için finansal menüleri gizle"}
+              aria-pressed={effectiveScreenShareMode}
+              title={effectiveScreenShareMode ? "Gizli mod açık — finansal menüler gizli" : "Ekran paylaşımı için finansal menüleri gizle"}
               className={cn(
                 "w-full flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                screenShareMode
+                effectiveScreenShareMode
                   ? "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300"
                   : "border-border bg-card text-muted-foreground hover:border-primary/40",
               )}
             >
               <span className="flex items-center gap-2">
-                {screenShareMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                Gizli mod {screenShareMode ? "(açık)" : ""}
+                {effectiveScreenShareMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                Gizli mod {effectiveScreenShareMode ? "(açık)" : ""}
               </span>
               <span
                 className={cn(
                   "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
-                  screenShareMode ? "bg-amber-500" : "bg-muted-foreground/30",
+                  effectiveScreenShareMode ? "bg-amber-500" : "bg-muted-foreground/30",
                 )}
               >
                 <span
                   className={cn(
                     "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
-                    screenShareMode ? "translate-x-3.5" : "translate-x-0.5",
+                    effectiveScreenShareMode ? "translate-x-3.5" : "translate-x-0.5",
                   )}
                 />
               </span>

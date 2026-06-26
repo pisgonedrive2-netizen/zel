@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormActions } from "@/components/ui/field";
 import {
-  fetchStaff, fetchTracking, saveTask, saveShift, deleteTracking,
+  fetchStaff, fetchTracking, saveTask, saveShift, deleteTracking, saveDailyBrandTasks,
 } from "@/lib/brand-personnel-api";
 import { fetchIgamingTasks, saveIgamingTask } from "@/lib/brand-igaming-api";
 import type { BrandIgamingTask } from "@/types/brand-igaming";
@@ -75,6 +75,10 @@ export default function MarkaTakipPage() {
   const [taskForm, setTaskForm] = useState(emptyTask);
   const [shiftOpen, setShiftOpen] = useState(false);
   const [shiftForm, setShiftForm] = useState(emptyShift);
+  const [dailyOpen, setDailyOpen] = useState(false);
+  const [dailyText, setDailyText] = useState("");
+  const [dailyStaffId, setDailyStaffId] = useState("");
+  const [dailyNotify, setDailyNotify] = useState(true);
 
   const load = useCallback(async () => {
     if (!brandId) return;
@@ -180,6 +184,33 @@ export default function MarkaTakipPage() {
     }
     return map;
   }, [tasks]);
+
+  const todayTasks = useMemo(
+    () => tasks.filter((t) => t.dueDate === todayKey && t.status !== "done" && t.status !== "cancelled"),
+    [tasks, todayKey],
+  );
+
+  const submitDailyPlan = async () => {
+    if (!brandId || !dailyText.trim()) return;
+    setBusy(true);
+    try {
+      const { created } = await saveDailyBrandTasks({
+        brandId,
+        text: dailyText,
+        staffId: dailyStaffId || undefined,
+        dueDate: todayKey,
+        notify: dailyNotify,
+      });
+      setDailyOpen(false);
+      setDailyText("");
+      void load();
+      window.alert(`${created} görev bugün için atandı${dailyNotify ? " · ekip bildirimi gönderildi" : ""}.`);
+    } catch (ex) {
+      setError(ex instanceof Error ? ex.message : "Plan atanamadı");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ── Görev işlemleri ─────────────────────────────────────────────────────
   const openNewTask = () => {
@@ -298,7 +329,12 @@ export default function MarkaTakipPage() {
               {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCcw size={13} />} Yenile
             </Button>
             {!readOnly && (
-              <Button size="sm" className="gap-1.5" onClick={openNewTask}><Plus size={14} /> Görev ekle</Button>
+              <>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDailyOpen((v) => !v)}>
+                  <CalendarDays size={14} /> Bugünkü plan
+                </Button>
+                <Button size="sm" className="gap-1.5" onClick={openNewTask}><Plus size={14} /> Görev ekle</Button>
+              </>
             )}
           </div>
         </div>
@@ -331,6 +367,64 @@ export default function MarkaTakipPage() {
             sub="aylık maliyetten tahmini"
           />
         </div>
+
+        {!readOnly && dailyOpen && (
+          <Card className="border-primary/25">
+            <CardContent className="space-y-3 pt-5">
+              <div>
+                <h2 className="text-sm font-semibold">Bugünkü görev planı — toplu atama</h2>
+                <p className="text-[11px] text-muted-foreground">
+                  Her satır bir görev. <code className="text-[10px]">Personel: görev</code> formatı veya varsayılan personel seçin.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Varsayılan personel">
+                  <Select
+                    value={dailyStaffId}
+                    onChange={(e) => setDailyStaffId(e.target.value)}
+                    options={[{ value: "", label: "— Satırdan" }, ...staff.map((s) => ({ value: s.id, label: s.name }))]}
+                  />
+                </Field>
+                <label className="flex items-end gap-2 pb-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={dailyNotify} onChange={(e) => setDailyNotify(e.target.checked)} />
+                  Marka ekibine bildirim gönder
+                </label>
+              </div>
+              <Field label="Görevler">
+                <Textarea
+                  value={dailyText}
+                  onChange={(e) => setDailyText(e.target.value)}
+                  rows={5}
+                  placeholder={"Ahmet: Slot raporu\nAyşe: Bonus kampanyası kontrolü"}
+                />
+              </Field>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setDailyOpen(false)}>İptal</Button>
+                <Button size="sm" disabled={busy} onClick={() => void submitDailyPlan()}>
+                  {busy ? "Atanıyor…" : "Bugün ata"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {todayTasks.length > 0 && (
+          <Card>
+            <CardContent className="pt-4">
+              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <ListTodo size={15} /> Bugün ({todayTasks.length})
+              </h2>
+              <ul className="space-y-1.5">
+                {todayTasks.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-xs">
+                    <span>{t.title}</span>
+                    <span className="text-muted-foreground">{staffName(t.staffId)}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Haftalık vardiya gridi */}
         <Card className="gap-0 overflow-hidden py-0">

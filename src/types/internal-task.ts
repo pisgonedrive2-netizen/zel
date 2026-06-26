@@ -1,6 +1,6 @@
 export type TaskStatus = "todo" | "in_progress" | "review" | "done" | "blocked";
 export type TaskPriority = "low" | "normal" | "high" | "urgent";
-export type TaskCategory = "general" | "onboarding";
+export type TaskCategory = "general" | "onboarding" | "daily" | "reminder";
 
 export interface InternalTask {
   id: string;
@@ -72,3 +72,12 @@ export const ONBOARDING_TEMPLATE: { title: string; description: string; offsetDa
   { title: "İlk hafta değerlendirme", description: "İlk haftanın gözden geçirilmesi ve geri bildirim.", offsetDays: 7, priority: "low" },
   { title: "30 gün değerlendirme", description: "Performans ve uyum değerlendirmesi.", offsetDays: 30, priority: "low" },
 ];
+
+/** Günlük hatırlatma şablonu satırları — `template: "daily"` ile toplu atanır. */
+export type DailyTaskItem = {
+  title: string;
+  description?: string;
+  assigneeEmployeeId?: string | null;
+  assigneeName?: string;
+  priority?: TaskPriority;
+};

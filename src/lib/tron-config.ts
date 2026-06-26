@@ -2,9 +2,18 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { kasaAccountFromRow } from "@/lib/db/mappers";
 import { findPrimaryTronKasa } from "@/lib/kasa-tron-metrics";
 import { kasaFromRow } from "@/lib/db/mappers";
+import { DEFAULT_TRON_KASA_ADDRESS } from "@/lib/tron-grid-auth";
 import type { Kasa } from "@/store/store";
 
 const DEFAULT_SYNC_FROM = "2025-04-01";
+
+function resolveEnvKasaAddress(): string {
+  return (
+    process.env.TRON_KASA_ADDRESS?.trim() ||
+    process.env.NEXT_PUBLIC_TRON_KASA_ADDRESS?.trim() ||
+    DEFAULT_TRON_KASA_ADDRESS
+  );
+}
 
 export type ResolvedTronConfig = {
   /** Bildirim + izleme adresi */
@@ -26,7 +35,7 @@ function normalizeAddr(addr: string): string {
 /** Env + Supabase kasa kaydından TRON adreslerini çözümler. */
 export async function resolveTronConfig(): Promise<ResolvedTronConfig> {
   const envWatch = process.env.TRON_WATCH_ADDRESS?.trim() ?? "";
-  const envKasa = process.env.TRON_KASA_ADDRESS?.trim() ?? "";
+  const envKasa = resolveEnvKasaAddress();
   const envSyncFrom =
     process.env.TRON_WATCH_FROM?.trim() ||
     process.env.TRON_SYNC_FROM?.trim() ||

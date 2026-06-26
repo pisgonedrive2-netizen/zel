@@ -1724,8 +1724,8 @@ const initialStreamerAccounts: StreamerAccount[] = [
   { id: "sa-ramiz-1",  employeeId: "emp-ramiz",  platform: "YouTube",  handle: "@ramiz",   url: "https://youtube.com/@ramiz",   notes: "Ana yayın kanalı",   status: "active" },
   { id: "sa-ramiz-2",  employeeId: "emp-ramiz",  platform: "Kick",     handle: "ramiz",    url: "https://kick.com/ramiz",       notes: "Canlı yayın",        status: "active" },
   { id: "sa-ramiz-3",  employeeId: "emp-ramiz",  platform: "Telegram", handle: "@ramiz",   url: "https://t.me/ramiz",           notes: "Duyuru kanalı",      status: "active" },
-  { id: "sa-lucy-1",   employeeId: "emp-lucy",   platform: "Kick",     handle: "lucy",     url: "https://kick.com/lucy",        notes: "Canlı yayın",        status: "active" },
-  { id: "sa-lucy-2",   employeeId: "emp-lucy",   platform: "Instagram",handle: "@lucy",    url: "https://instagram.com/lucy",   notes: "",                   status: "active" },
+  { id: "sa-lucy-1",   employeeId: "emp-lucy",   platform: "Kick",     handle: "lucy",     url: "https://kick.com/lucy",        notes: "İş çıkışı 18 Haz 2026", status: "inactive" },
+  { id: "sa-lucy-2",   employeeId: "emp-lucy",   platform: "Instagram",handle: "@lucy",    url: "https://instagram.com/lucy",   notes: "İş çıkışı 18 Haz 2026", status: "inactive" },
   { id: "sa-acelya-1", employeeId: "emp-acelya", platform: "Kick",     handle: "acebaby",  url: "https://kick.com/acebaby",     notes: "Ana yayın",          status: "active" },
   { id: "sa-acelya-2", employeeId: "emp-acelya", platform: "Instagram",handle: "@acebaby", url: "https://instagram.com/acebaby",notes: "",                   status: "active" },
 ];
@@ -1844,7 +1844,7 @@ export const initialKasas: Kasa[] = [
     archived: false,
     orderIndex: 90,
     notes: "TronGrid otomatik çekim için ayrılmış kasa. Manuel kasa bakiyesi etkilenmez.",
-    tronAddress: process.env.NEXT_PUBLIC_TRON_KASA_ADDRESS ?? "",
+    tronAddress: process.env.NEXT_PUBLIC_TRON_KASA_ADDRESS?.trim() || "TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE",
     tronSyncFrom: "2025-04-01",
   },
 ];

@@ -18,6 +18,7 @@ import {
   type Kasa, type KasaTransaction,
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import { canViewRamizWallet, RAMIZ_EMPLOYEE_ID, filterKasasForRamizViewer, filterKasaTransactionsForRamizViewer } from "@/lib/ramiz-wallet-access";
 import { usePanelView } from "@/store/panel-view";
 import { fmt, shiftCalendarMonthYm, toYearMonthLocal, toDateLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from "@/lib/content-expense";
@@ -114,8 +115,9 @@ function InlineEdit({ value, onSave, className = "", mono = false, readOnly = fa
 }
 
 // ── Employee Form ─────────────────────────────────────────────────────────
-function EmployeeForm({ initial, onSave, onDelete, onClose }: {
+function EmployeeForm({ initial, onSave, onDelete, onClose, hideWallet = false }: {
   initial?: Employee; onSave: (d: Omit<Employee, "id">) => void; onDelete?: () => void; onClose: () => void;
+  hideWallet?: boolean;
 }) {
   const [form, setForm] = useState<Omit<Employee, "id">>({
     name:              initial?.name              ?? "",
@@ -185,9 +187,11 @@ function EmployeeForm({ initial, onSave, onDelete, onClose }: {
             <DateTimePicker mode="date" value={form.startDate} onChange={(v) => set("startDate", v)} />
           </Field>
         </FormGrid>
+        {!hideWallet && (
         <Field label="Cüzdan Adresi" hint="TRC20, EVM veya diğer ağ adresi">
           <FInput value={form.walletAddress} onChange={e => set("walletAddress", e.target.value)} placeholder="T... veya 0x..." className="font-mono text-xs" />
         </Field>
+        )}
         <Field label="Durum">
           <Select value={form.status} onChange={e => set("status", e.target.value as Employee["status"])}
             options={[{ value:"active", label:"Aktif" },{ value:"inactive", label:"Pasif" }]} />
@@ -446,6 +450,15 @@ function EmployeeDetailRow({
     payContentExpense, settleContentExpenseToPayroll, unsettleContentExpenseFromPayroll,
   } = useStore();
   const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const enterStreamerPanel = usePanelView((s) => s.enterStreamerPanel);
   const router = useRouter();
 
@@ -1242,8 +1255,8 @@ function EmployeeDetailRow({
         employee={employee}
         month={month}
         payrollLines={payrollLines}
-        kasas={kasas}
-        kasaTransactions={kasaTransactions}
+        kasas={viewKasas}
+        kasaTransactions={viewKasaTransactions}
         status={status}
         netPayable={net}
         readOnly={readOnly}
@@ -1307,8 +1320,8 @@ function EmployeeDetailRow({
         employee={employee}
         month={month}
         expenses={monthContentExpenses}
-        kasas={kasas}
-        kasaTransactions={kasaTransactions}
+        kasas={viewKasas}
+        kasaTransactions={viewKasaTransactions}
         readOnly={readOnly}
         isAdmin={user?.role === "admin"}
         onPayFromKasa={payContentFromKasaBulk}
@@ -1350,8 +1363,8 @@ function EmployeeDetailRow({
                 : net
           }
           lineLabel={payTarget?.mode === "line" ? payTarget.line.label : undefined}
-          kasas={kasas}
-          kasaTransactions={kasaTransactions}
+          kasas={viewKasas}
+          kasaTransactions={viewKasaTransactions}
           onSave={(d) => {
             if (payTarget?.mode === "line") {
               payPayrollLine({
@@ -1522,6 +1535,7 @@ function PaySalaryForm({
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function MaaslarPage() {
   const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
   const {
     employees, advances, salaryExtras, paymentStatuses, contentExpenses,
     addEmployee, updateEmployee, deleteEmployee, processEmployeeExit,
@@ -1656,7 +1670,8 @@ export default function MaaslarPage() {
         totalPaidOut:     totalCashOutPaidForMonth(emp, ym, advances, salaryExtras, paymentStatuses, contentExpenses),
         paid:             status?.paid ?? false,
         paidDate:         status?.paidDate,
-        walletAddress:    emp.walletAddress,
+        walletAddress:
+          emp.id === RAMIZ_EMPLOYEE_ID && !canRamizWallet ? "" : emp.walletAddress,
       };
     });
   };
@@ -1903,7 +1918,9 @@ export default function MaaslarPage() {
                   <td className="px-3 py-3 tabular-nums font-medium whitespace-nowrap">{planAy > 0 ? fmt(planAy) : <span className="text-muted-foreground">—</span>}</td>
                   <td className="px-3 py-3 tabular-nums font-semibold text-green-700 whitespace-nowrap">{odenAy > 0 ? fmt(odenAy) : <span className="text-muted-foreground">—</span>}</td>
                   <td className="px-3 py-3">
-                    {emp.walletAddress ? (
+                    {emp.id === RAMIZ_EMPLOYEE_ID && !canRamizWallet ? (
+                      <span className="text-muted-foreground text-xs italic">Gizli</span>
+                    ) : emp.walletAddress ? (
                       <Tooltip>
                         <TooltipTrigger>
                           <span className="font-mono text-xs text-muted-foreground">
@@ -1967,6 +1984,7 @@ export default function MaaslarPage() {
       <Modal open={empModal !== null} onClose={() => setEmpModal(null)} title={empModal === "new" ? "Yeni Çalışan" : "Çalışanı Düzenle"}>
         <EmployeeForm
           initial={empModal !== "new" && empModal !== null ? empModal : undefined}
+          hideWallet={empModal !== "new" && empModal !== null && empModal.id === RAMIZ_EMPLOYEE_ID && !canRamizWallet}
           onSave={d => {
             if (empModal === "new") {
               addEmployee(d);

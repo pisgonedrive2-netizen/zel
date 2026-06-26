@@ -10,19 +10,20 @@ export const MONTHS = [
 
 /**
  * 2026 takvim yılı maaş bordrosu (net ödeme), USD.
- * Kaynak: 1) Ramiz Nis-Ara 2026 ($10k base + $1.300 kira − $3k avans Nis/May, sonra avans yok)
- *         2) Lucy   Nis-Ara 2026 ($3k base + $650 kira → her 17'sinde)
+ * Kaynak: 1) Ramiz Nis-Ara 2026 ($10k base + $1.400 kira − $3k avans Nis/May/Tem, sonra avans yok)
+ *         2) Lucy   Nis-Haz 2026 ($3k base + $500 kira · 18 Haz 2026 iş çıkışı, Tem+ yok)
  *         3) Acelya May 2026 ilk bordro ($3.5k + $1.55k kira − $300 avans → $4.75k);
  *            Haz–Tem $300/ay avans kesintisi; sonra $3.5k + $650/ay kira
  *         4) Orkun  bordroda yok (koordinatör)
  *
- *   Oca Şub Mar  Nis     May      Haz     Tem-Ara
- *    0   0   0  11.950  21.526  18.750   18.750 × 7
+ *   Oca Şub Mar  Nis     May      Haz     Tem     Ağu-Ara
+ *    0   0   0  11.950  21.526  17.550  12.250  15.250 × 5
  */
 export const maasAylik: readonly number[] = [
   0, 0, 0,
   11_950, 21_526,
-  18_750, 18_750, 18_750, 18_750, 18_750, 18_750, 18_750,
+  17_550, 12_250,
+  15_250, 15_250, 15_250, 15_250, 15_250,
 ];
 
 /**
@@ -42,7 +43,7 @@ export const giderlerAylik: readonly number[] = [ 1_200,  1_100,  1_500,  1_300,
 const sumN = (a: readonly number[]) => a.reduce((s, v) => s + v, 0);
 
 export const YILLIK = {
-  maas:     sumN(maasAylik),     // 164.726
+  maas:     sumN(maasAylik),     // ~154.776 (Lucy Haz 2026 çıkışı sonrası)
   disGelir: sumN(disGelirAylik), // 377.199
   icGelir:  sumN(icGelirAylik),  // 805.000
   giderler: sumN(giderlerAylik), // 15.800

@@ -86,8 +86,10 @@ import { ProofUploader } from "@/components/proof-uploader";
 import { canStreamerEditExpense, canStreamerWithdrawExpense, isActiveContentExpense } from "@/lib/content-expense";
 import { cn } from "@/lib/utils";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
-import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
+import { canViewRamizWallet, RAMIZ_EMPLOYEE_ID } from "@/lib/ramiz-wallet-access";
 import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
+import { StreamerTodayTasksCard } from "@/components/yayinci/streamer-today-tasks-card";
+import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const monthLabel = (ym: string) =>
@@ -1974,6 +1976,12 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         </Link>
       )}
 
+      {section === "maas" && (
+        <div className="mb-4">
+          <StreamerTodayTasksCard userId={user.id} />
+        </div>
+      )}
+
       {/* Top KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-blue-50/10 dark:border-blue-500/40 dark:from-blue-950/55 dark:to-blue-950/20 gap-2 py-5">
@@ -2194,7 +2202,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 </div>
               )}
 
-              {/* Cüzdan — inline edit */}
+              {/* Cüzdan — inline edit (Ramiz TRON adresi yalnızca Orkun/Ediz) */}
+              {(me.id !== RAMIZ_EMPLOYEE_ID || canViewRamizWallet(user)) && (
               <div className="mt-3 px-4 py-3 rounded-lg border border-border bg-muted/30">
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -2230,6 +2239,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                   </p>
                 )}
               </div>
+              )}
             </CardContent>
           </Card>
       )}
@@ -3425,7 +3435,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           </Card>
       )}
       {section === "bildirimler" && (
-        <StreamerNotificationsSection userId={user.id} />
+        <div className="space-y-4">
+          <StreamerTodayTasksCard userId={user.id} />
+          <StreamerNotificationsSection userId={user.id} />
+        </div>
       )}
 
       {section === "istatistikler" && (() => {

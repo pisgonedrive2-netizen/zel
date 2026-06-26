@@ -4,6 +4,7 @@ import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
 import { isMainAdminSession, MAIN_ADMIN_ID } from "@/lib/user-guards";
+import { sanitizeBootstrapRamizWallet } from "@/lib/ramiz-wallet-access";
 import type {
   AppHydratePayload,
   Brand,
@@ -548,7 +549,8 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     const eid = session.employeeId;
     const myLinks = brandLinks.filter((l) => l.ownerId === eid);
     const myLinkIds = new Set(myLinks.map((l) => l.id));
-    return {
+    return sanitizeBootstrapRamizWallet(
+      {
       employees: employees.filter((e) => e.id === eid),
       advances: advances.filter((a) => a.employeeId === eid),
       salaryExtras: salaryExtras.filter((s) => s.employeeId === eid),
@@ -584,7 +586,9 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
           n.forRole === "streamer" &&
           (!n.forUserId || n.forUserId === session.userId)
       ),
-    };
+    },
+    session,
+    );
   }
 
   if (session.role === "brand" && (session.brandId || (session.brandIds && session.brandIds.length > 0))) {
@@ -656,7 +660,7 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     };
   }
 
-  return payload;
+  return sanitizeBootstrapRamizWallet(payload, session);
 }
 
 /** Full replace for admin; scoped upsert for streamer/auditor. */

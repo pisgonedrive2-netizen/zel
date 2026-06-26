@@ -49,6 +49,7 @@ import {
   BrandActionQueue,
   buildActionQueueItems,
 } from "@/components/marka-igaming/brand-action-queue";
+import { BrandPackageGuaranteeCard } from "@/components/marka/brand-package-guarantee-card";
 import { useBrandIgaming } from "@/hooks/use-brand-igaming";
 import { deriveLiveDemoUsage } from "@/lib/brand-monthly-stats";
 import type { ExecutiveKpiSnapshot } from "@/types/brand-igaming";
@@ -462,6 +463,8 @@ export default function MarkaAnasayfaPage() {
             previous={executivePrevious}
             loading={igaming.loading}
           />
+
+          <BrandPackageGuaranteeCard actualViews={totalLinkViews} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <BrandAffiliateFunnel

@@ -44,9 +44,33 @@ import type {
 const SERVER_REPORTS = [
   { type: "stats" as const, title: "Operasyon istatistikleri", desc: "Tüm aylar — kayıt, FTD, GGR, NGR, komisyon" },
   { type: "affiliate" as const, title: "Affiliate performans", desc: "Seçili ay günlük tıklama, kayıt, FTD, komisyon" },
+  { type: "content" as const, title: "İçerik & izlenme", desc: "Seçili ay link bazlı izlenme export" },
   { type: "deals" as const, title: "CRM & kampanyalar", desc: "Pipeline fırsatları ve aktif kampanyalar" },
   { type: "compliance" as const, title: "Uyumluluk", desc: "Tüm compliance kontrol kayıtları" },
 ];
+
+const SCHEDULE_KEY = "marka-report-schedule";
+
+function downloadDashboardPdfTemplate(brandName: string, month: string, summary: IgamingDashboardSummary | null) {
+  const m = summary?.monthly;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${brandName} — ${month}</title>
+<style>body{font-family:system-ui,sans-serif;padding:32px;color:#111}h1{font-size:20px}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head>
+<body><h1>${brandName} — Aylık operasyon özeti</h1><p>Dönem: ${month}</p>
+<table><tr><th>Metrik</th><th>Değer</th></tr>
+<tr><td>Kayıt</td><td>${m?.newRegistrations ?? "—"}</td></tr>
+<tr><td>FTD</td><td>${m?.ftd ?? "—"}</td></tr>
+<tr><td>Yatırım</td><td>$${m?.depositAmount ?? "—"}</td></tr>
+<tr><td>GGR</td><td>$${m?.ggr ?? "—"}</td></tr>
+<tr><td>NGR</td><td>$${m?.ngr ?? "—"}</td></tr>
+<tr><td>Komisyon</td><td>$${m?.commissionTotal ?? "—"}</td></tr>
+</table><p style="margin-top:24px;font-size:12px;color:#666">Foxstream marka paneli — yazdır → PDF olarak kaydet</p></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
 
 const EVENT_TYPE_LABELS: Record<PlayerEventType, string> = {
   registration: "Kayıt",
@@ -158,6 +182,49 @@ export default function MarkaRaporlarPage() {
   const [events, setEvents] = useState<BrandPlayerEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleDay, setScheduleDay] = useState("1");
+  const [scheduleTypes, setScheduleTypes] = useState<string[]>(["stats", "affiliate"]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SCHEDULE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { day?: string; types?: string[] };
+      if (parsed.day) setScheduleDay(parsed.day);
+      if (parsed.types?.length) setScheduleTypes(parsed.types);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const saveSchedule = () => {
+    localStorage.setItem(
+      SCHEDULE_KEY,
+      JSON.stringify({ day: scheduleDay, types: scheduleTypes, brandId })
+    );
+  };
+
+  useEffect(() => {
+    if (!brandId) return;
+    try {
+      const raw = localStorage.getItem(SCHEDULE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { day?: string; types?: string[]; brandId?: string; lastRun?: string };
+      if (parsed.brandId && parsed.brandId !== brandId) return;
+      const today = new Date();
+      const dom = String(today.getDate());
+      const ym = today.toISOString().slice(0, 7);
+      const lastRun = parsed.lastRun ?? "";
+      if (parsed.day === dom && lastRun !== ym && parsed.types?.length) {
+        for (const t of parsed.types) {
+          downloadReport(brandId, t, t === "deals" || t === "compliance" ? undefined : month);
+        }
+        localStorage.setItem(SCHEDULE_KEY, JSON.stringify({ ...parsed, brandId, lastRun: ym }));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [brandId, month]);
 
   const range = useMemo(() => monthRange(month), [month]);
   const prevMonth = useMemo(() => previousMonthYm(month), [month]);
@@ -360,7 +427,7 @@ export default function MarkaRaporlarPage() {
                   <CardTitle className="text-base">{r.title}</CardTitle>
                   <CardDescription>{r.desc}</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -377,11 +444,67 @@ export default function MarkaRaporlarPage() {
                   >
                     <Download size={14} /> CSV indir
                   </Button>
+                  {r.type === "stats" && brand && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full gap-1.5 text-xs"
+                      onClick={() => downloadDashboardPdfTemplate(brand.name, month, summary)}
+                    >
+                      <FileSpreadsheet size={14} /> PDF şablonu (yazdır)
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ))}
           </div>
         </div>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Zamanlanmış rapor</CardTitle>
+            <CardDescription>
+              Her ay belirtilen günde otomatik CSV indirme (tarayıcı açıkken)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Ayın günü</label>
+              <select
+                className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                value={scheduleDay}
+                onChange={(e) => setScheduleDay(e.target.value)}
+              >
+                {Array.from({ length: 28 }, (_, i) => String(i + 1)).map((d) => (
+                  <option key={d} value={d}>
+                    {d}.
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SERVER_REPORTS.map((r) => (
+                <label key={r.type} className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={scheduleTypes.includes(r.type)}
+                    onChange={(e) => {
+                      setScheduleTypes((prev) =>
+                        e.target.checked
+                          ? [...prev, r.type]
+                          : prev.filter((t) => t !== r.type)
+                      );
+                    }}
+                  />
+                  {r.title}
+                </label>
+              ))}
+            </div>
+            <Button size="sm" variant="outline" onClick={saveSchedule}>
+              Zamanlamayı kaydet
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </MarkaPageGuard>
   );

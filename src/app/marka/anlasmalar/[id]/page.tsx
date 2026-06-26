@@ -33,6 +33,7 @@ import {
   FormGrid,
   Input,
   NumberInput,
+  OptionalNumberInput,
   Select,
   Textarea,
 } from "@/components/ui/field";
@@ -67,6 +68,12 @@ import {
 import type { BrandDeal, BrandPost } from "@/store/store";
 import { deliverableGaps } from "@/lib/marka-content-alerts";
 import { fetchDealMilestones, fetchDealTracking } from "@/lib/marka-igaming-api";
+import {
+  saveDealTrackingLink,
+  syncDealTrackingAttribution,
+  saveDealMilestone,
+  recordMilestonePayment,
+} from "@/lib/marka-igaming-api";
 import {
   BRAND_MILESTONE_STATUS_LABELS,
   type BrandDealMilestone,
@@ -269,9 +276,21 @@ export default function MarkaAnlasmaDetayPage() {
                 trackingLinks={trackingLinks}
               />
 
-              <TrackingLinksSection links={trackingLinks} />
+              <TrackingLinksSection
+                links={trackingLinks}
+                brandId={brandId ?? ""}
+                dealId={dealId}
+                readOnly={readOnly}
+                onLinksChange={setTrackingLinks}
+              />
 
-              <MilestonesPanel milestones={milestones} />
+              <MilestonesPanel
+                milestones={milestones}
+                brandId={brandId ?? ""}
+                dealId={dealId}
+                readOnly={readOnly}
+                onMilestonesChange={setMilestones}
+              />
 
               <MarkaDealAchievementPanel
                 deal={deal}
@@ -826,17 +845,106 @@ function PerformanceVsPlan({
   );
 }
 
-function TrackingLinksSection({ links }: { links: BrandDealTrackingLink[] }) {
+function TrackingLinksSection({
+  links,
+  brandId,
+  dealId,
+  readOnly,
+  onLinksChange,
+}: {
+  links: BrandDealTrackingLink[];
+  brandId: string;
+  dealId: string;
+  readOnly: boolean;
+  onLinksChange: (links: BrandDealTrackingLink[]) => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+  const [externalRef, setExternalRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!brandId || !url.trim()) return;
+    setBusy(true);
+    try {
+      const saved = await saveDealTrackingLink({
+        brandId,
+        dealId,
+        url: url.trim(),
+        promoCode: promoCode.trim() || undefined,
+        externalRef: externalRef.trim() || undefined,
+      });
+      onLinksChange([saved, ...links]);
+      setUrl("");
+      setPromoCode("");
+      setExternalRef("");
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Kaydedilemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSync() {
+    if (!brandId) return;
+    setSyncing(true);
+    try {
+      const updated = await syncDealTrackingAttribution(brandId, dealId);
+      onLinksChange(updated);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Senkron başarısız");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Link2 size={14} className="text-[#FF6B00]" />
-          Takip linkleri
-        </CardTitle>
-        <CardDescription>UTM, promo kod ve affiliate alt-id</CardDescription>
+      <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Link2 size={14} className="text-[#FF6B00]" />
+            Takip linkleri
+          </CardTitle>
+          <CardDescription>UTM, promo kod ve affiliate alt-id — FTD attribution</CardDescription>
+        </div>
+        {!readOnly && links.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 shrink-0"
+            onClick={() => void handleSync()}
+            disabled={syncing}
+          >
+            <RefreshCcw size={12} className={syncing ? "animate-spin" : undefined} />
+            Attribution senkron
+          </Button>
+        )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        {!readOnly && (
+          <form onSubmit={(e) => void handleAdd(e)} className="rounded-lg border border-dashed border-border p-3 space-y-2">
+            <FormGrid>
+              <Field label="URL">
+                <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." required />
+              </Field>
+              <Field label="Promo kod">
+                <Input value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="FOX2026" />
+              </Field>
+              <Field label="Operatör ref (aff_id)">
+                <Input value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder="aff_123" />
+              </Field>
+            </FormGrid>
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={busy || !url.trim()}>
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                Link ekle
+              </Button>
+            </div>
+          </form>
+        )}
         {links.length === 0 ? (
           <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-4 py-6 text-center">
             Henüz takip linki tanımlanmamış.
@@ -891,7 +999,66 @@ function TrackingLinksSection({ links }: { links: BrandDealTrackingLink[] }) {
   );
 }
 
-function MilestonesPanel({ milestones }: { milestones: BrandDealMilestone[] }) {
+function MilestonesPanel({
+  milestones,
+  brandId,
+  dealId,
+  readOnly,
+  onMilestonesChange,
+}: {
+  milestones: BrandDealMilestone[];
+  brandId: string;
+  dealId: string;
+  readOnly: boolean;
+  onMilestonesChange: (ms: BrandDealMilestone[]) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState<number | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!brandId || !title.trim()) return;
+    setBusy(true);
+    try {
+      const saved = await saveDealMilestone({
+        brandId,
+        dealId,
+        title: title.trim(),
+        dueDate: dueDate || undefined,
+        paymentAmount: paymentAmount,
+        status: "pending",
+      });
+      onMilestonesChange([saved, ...milestones]);
+      setTitle("");
+      setDueDate("");
+      setPaymentAmount(undefined);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Kaydedilemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRecordPayment(m: BrandDealMilestone) {
+    if (!brandId || m.status === "paid") return;
+    const ok = window.confirm(
+      `${m.title} için ${m.paymentAmount != null ? fmtBrandMoney(m.paymentAmount, "USD") : "ödeme"} kasaya kaydedilsin mi?`
+    );
+    if (!ok) return;
+    setPayingId(m.id);
+    try {
+      const saved = await recordMilestonePayment(brandId, m);
+      onMilestonesChange(milestones.map((x) => (x.id === m.id ? saved : x)));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Ödeme kaydı başarısız");
+    } finally {
+      setPayingId(null);
+    }
+  }
+
   return (
     <Card id="milestones">
       <CardHeader>
@@ -899,9 +1066,30 @@ function MilestonesPanel({ milestones }: { milestones: BrandDealMilestone[] }) {
           <Target size={14} className="text-[#22C55E]" />
           Kilometre taşları
         </CardTitle>
-        <CardDescription>Tarih, KPI ve ödeme bağlantıları</CardDescription>
+        <CardDescription>Tarih, KPI ve ödeme — kasa muhasebe entegrasyonu</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        {!readOnly && (
+          <form onSubmit={(e) => void handleAdd(e)} className="rounded-lg border border-dashed border-border p-3 space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Başlık">
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
+              </Field>
+              <Field label="Vade">
+                <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              </Field>
+              <Field label="Ödeme tutarı (USD)">
+                <OptionalNumberInput value={paymentAmount} onChange={setPaymentAmount} min={0} />
+              </Field>
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={busy || !title.trim()}>
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                Kilometre taşı ekle
+              </Button>
+            </div>
+          </form>
+        )}
         {milestones.length === 0 ? (
           <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-4 py-6 text-center">
             Bu anlaşma için kilometre taşı kaydı yok.
@@ -928,9 +1116,27 @@ function MilestonesPanel({ milestones }: { milestones: BrandDealMilestone[] }) {
                     )}
                   </p>
                 </div>
-                <Badge variant="outline" className="text-[10px]">
-                  {BRAND_MILESTONE_STATUS_LABELS[m.status]}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px]">
+                    {BRAND_MILESTONE_STATUS_LABELS[m.status]}
+                  </Badge>
+                  {!readOnly && m.status !== "paid" && m.paymentAmount != null && m.paymentAmount > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] gap-1"
+                      disabled={payingId === m.id}
+                      onClick={() => void handleRecordPayment(m)}
+                    >
+                      {payingId === m.id ? (
+                        <Loader2 size={10} className="animate-spin" />
+                      ) : (
+                        <CheckCircle2 size={10} />
+                      )}
+                      Kasaya kaydet
+                    </Button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

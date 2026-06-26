@@ -9,6 +9,7 @@ const SEED_USERS = [
   { id: "u-lucy", username: "lucy", pin: "lucy1234", name: "Lucy", role: "streamer" as const, employeeId: "emp-lucy", avatar: "L" },
   { id: "u-acelya", username: "acelya", pin: "acelya1234", name: "Açelya", role: "streamer" as const, employeeId: "emp-acelya", avatar: "A" },
   { id: "u-denetci", username: "denetci", pin: "denetim2026", name: "Denetim Ekibi", role: "auditor" as const, avatar: "D" },
+  { id: "u-ediz", username: "ediz", pin: "ediz2026", name: "Ediz", role: "admin" as const, avatar: "E" },
   { id: "u-brand-gala", username: "galabet", pin: "marka2026", name: "Galabet (Marka)", role: "brand" as const, brandId: "br-gala", avatar: "G" },
   { id: "u-brand-boffice", username: "betoffice", pin: "marka2026", name: "Betoffice (Marka)", role: "brand" as const, brandId: "br-boffice", avatar: "B" },
   { id: "u-brand-pipo", username: "betpipo", pin: "marka2026", name: "Betpipo (Marka)", role: "brand" as const, brandId: "br-pipo", avatar: "P" },

@@ -204,6 +204,17 @@ export default function MarkaEntegrasyonPage() {
           </Button>
         </div>
 
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/45 dark:bg-amber-950/30">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="text-sm">
+            <p className="font-semibold text-amber-800 dark:text-amber-200">Bu modül geliştirme aşamasında</p>
+            <p className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-300/90">
+              Operatör webhook senkronu, otomatik import ve canlı API bağlantıları üzerinde çalışıyoruz.
+              Aşağıdaki ekranlar önizleme amaçlıdır; üretim bağlantıları yakında devreye alınacaktır.
+            </p>
+          </div>
+        </div>
+
         {error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}

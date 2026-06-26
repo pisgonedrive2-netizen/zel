@@ -9,7 +9,12 @@ import {
   type Kasa,
   type KasaTransaction,
 } from "@/store/store";
-import { useIsReadOnly } from "@/store/auth";
+import { useAuth, useIsReadOnly } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+} from "@/lib/ramiz-wallet-access";
 import { fmt, CHART_COLORS } from "@/lib/data";
 import {
   computeTronPanelMetrics,
@@ -253,6 +258,16 @@ export default function GiderlerPage() {
     kasas,
     kasaTransactions,
   } = useStore();
+  const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const readOnly = useIsReadOnly();
   const [modal, setModal] = useState<"new" | ExpenseEntry | null>(null);
   const [filterCat, setFilterCat] = useState("Tümü");
@@ -267,14 +282,14 @@ export default function GiderlerPage() {
   const [minAmount, setMinAmount] = useState<number>(0);
   const [maxAmount, setMaxAmount] = useState<number>(0);
   const defaultKasaId =
-    kasas.find((k) => k.isDefault && !k.archived)?.id ??
-    kasas.find((k) => !k.archived)?.id ??
+    viewKasas.find((k) => k.isDefault && !k.archived)?.id ??
+    viewKasas.find((k) => !k.archived)?.id ??
     DEFAULT_KASA_ID;
   const kasaNameById = useMemo(() => {
     const m = new Map<string, string>();
-    kasas.forEach((k) => m.set(k.id, k.name));
+    viewKasas.forEach((k) => m.set(k.id, k.name));
     return m;
-  }, [kasas]);
+  }, [viewKasas]);
   const kasaTxIndex = useMemo(() => {
     const m = new Map<string, KasaTransaction>();
     kasaTransactions.forEach((t) => m.set(t.id, t));
@@ -443,7 +458,7 @@ export default function GiderlerPage() {
             onChange={(e) => setFilterKasa(e.target.value)}
             options={[
               { value: "Tümü", label: "Tüm kasalar" },
-              ...kasas
+              ...viewKasas
                 .filter((k) => !k.archived)
                 .map((k) => ({ value: k.id, label: k.name })),
             ]}
@@ -649,10 +664,10 @@ export default function GiderlerPage() {
         <ExpenseForm
           initial={modal !== "new" && modal !== null ? modal : undefined}
           readOnly={readOnly}
-          kasas={kasas}
+          kasas={viewKasas}
           brands={activeBrands}
           defaultKasaId={defaultKasaId}
-          kasaTransactions={kasaTransactions}
+          kasaTransactions={viewKasaTransactions}
           onSave={(data) => {
             if (modal === "new") addExpense(data);
             else if (modal !== null) updateExpense(modal.id, data);

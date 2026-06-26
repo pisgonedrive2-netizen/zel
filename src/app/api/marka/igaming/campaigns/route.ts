@@ -2,12 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { ensureBrandAccess, ensureOrgCapability, resolveBrandId, writeAudit } from "@/lib/org-access";
-import {
-  deleteBrandCampaign,
-  fetchBrandCampaigns,
-  findBrandCampaignById,
-  upsertBrandCampaign,
-} from "@/lib/db/brand-igaming-repo";
+import { deleteBrandCampaign, fetchBrandCampaigns, findBrandCampaignById, upsertBrandCampaign } from "@/lib/db/brand-igaming-repo";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { BrandCampaign } from "@/types/brand-igaming";
 
 export const runtime = "nodejs";
@@ -36,12 +32,56 @@ export async function POST(req: NextRequest) {
   if (!isSupabaseEnabled()) return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as Partial<BrandCampaign> | null;
+  const body = (await req.json().catch(() => null)) as Partial<BrandCampaign> & { action?: string } | null;
   if (!body) return NextResponse.json({ error: "JSON gerekli" }, { status: 400 });
   const brandId = resolveBrandId(session, String(body.brandId ?? "").trim());
   if (!brandId) return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
   const guard = ensureBrandAccess(session, brandId, "write");
   if (guard) return guard;
+
+  if (body.action === "sync-affiliate") {
+    const capGuard = ensureOrgCapability(session, "bonus_ops");
+    if (capGuard) return capGuard;
+    try {
+      const [campaigns, { data: partners }] = await Promise.all([
+        fetchBrandCampaigns(brandId),
+        getSupabaseAdmin().from("affiliate_partners").select("id, name, external_ref, notes").eq("brand_id", brandId),
+      ]);
+      const partnerList = (partners ?? []) as Array<{
+        id: string;
+        name: string;
+        external_ref?: string | null;
+        notes?: string | null;
+      }>;
+      const linked: Array<{ campaignId: string; campaignName: string; partnerId: string; partnerName: string; promoCode: string }> = [];
+      const orphanCampaigns: string[] = [];
+      for (const c of campaigns) {
+        const code = (c.promoCode ?? "").trim().toLowerCase();
+        if (!code || c.status === "ended") continue;
+        const match = partnerList.find((p) => {
+          const ref = (p.external_ref ?? "").trim().toLowerCase();
+          const notes = (p.notes ?? "").toLowerCase();
+          return ref === code || notes.includes(code) || p.name.toLowerCase().includes(code);
+        });
+        if (match) {
+          linked.push({
+            campaignId: c.id,
+            campaignName: c.name,
+            partnerId: match.id,
+            partnerName: match.name,
+            promoCode: c.promoCode!,
+          });
+        } else {
+          orphanCampaigns.push(c.name);
+        }
+      }
+      await writeAudit(session, "campaign_affiliate_sync", `linked=${linked.length} orphan=${orphanCampaigns.length}`);
+      return NextResponse.json({ ok: true, linked, orphanCampaigns });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Senkron başarısız" }, { status: 500 });
+    }
+  }
+
   const capGuard = ensureOrgCapability(session, "bonus_ops");
   if (capGuard) return capGuard;
   const name = String(body.name ?? "").trim();

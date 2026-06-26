@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isSupabaseEnabled } from "@/lib/env";
+import { canViewRamizWalletSession } from "@/lib/ramiz-wallet-access";
 import { resolveTronConfig } from "@/lib/tron-config";
 import { fetchTronWalletOnChainBalances } from "@/lib/tron-wallet-balances";
 
@@ -35,6 +36,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getSession();
   if (!session || (session.role !== "admin" && session.role !== "auditor")) {
+    return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
+  }
+  if (!canViewRamizWalletSession(session)) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
 

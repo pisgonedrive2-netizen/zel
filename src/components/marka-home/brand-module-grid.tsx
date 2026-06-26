@@ -134,6 +134,11 @@ export function BrandModuleGrid({ orgRole, month }: BrandModuleGridProps) {
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                         <span className="truncate">{item.label}</span>
+                        {item.inDevelopment && (
+                          <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">
+                            Geliştiriliyor
+                          </span>
+                        )}
                         {item.cap && (
                           <Lock
                             size={10}

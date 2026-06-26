@@ -15,6 +15,11 @@ import {
   type KasaTransaction,
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+} from "@/lib/ramiz-wallet-access";
 import { logAudit } from "@/store/audit-log";
 import { fmt, defaultSnapshotDateInMonth, toYearMonthLocal } from "@/lib/data";
 import {
@@ -322,6 +327,7 @@ function SlaTile({ label, count, accent }: { label: string; count: number; accen
 
 function ContentExpensesPageInner() {
   const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
   const readOnly = useIsReadOnly();
   const {
     contentExpenses, brands, employees,
@@ -332,10 +338,18 @@ function ContentExpensesPageInner() {
     kasas, kasaTransactions,
     pushNotification,
   } = useStore();
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const searchParams = useSearchParams();
   const defaultKasaId =
-    kasas.find((k) => k.isDefault && !k.archived)?.id ??
-    kasas.find((k) => !k.archived)?.id ??
+    viewKasas.find((k) => k.isDefault && !k.archived)?.id ??
+    viewKasas.find((k) => !k.archived)?.id ??
     DEFAULT_KASA_ID;
 
   const [modal, setModal]    = useState<"new" | ContentExpense | null>(null);
@@ -459,8 +473,8 @@ function ContentExpensesPageInner() {
     // Aktif kasa varsa varsayılan kasaya `out` hareketi yaratıp bağla;
     // hiç kasa tanımlanmadıysa eski davranışı koru.
     const activeKasa =
-      kasas.find((k) => k.id === defaultKasaId && !k.archived) ??
-      kasas.find((k) => !k.archived);
+      viewKasas.find((k) => k.id === defaultKasaId && !k.archived) ??
+      viewKasas.find((k) => !k.archived);
     if (activeKasa) {
       payContentExpense({
         contentExpenseId: e.id,
@@ -856,8 +870,8 @@ function ContentExpensesPageInner() {
             reviewerId={user?.id ?? ""}
             employees={employees}
             canMarkPaid={canMarkPaid}
-            kasas={kasas}
-            kasaTransactions={kasaTransactions}
+            kasas={viewKasas}
+            kasaTransactions={viewKasaTransactions}
             defaultKasaId={defaultKasaId}
             onApprove={(note, settlement, kasaPayload) => {
               const today = new Date().toISOString().slice(0, 10);

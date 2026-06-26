@@ -112,6 +112,83 @@ export interface BrandStaffActivity {
   createdAt: string;
 }
 
+// ── Mesai / Puantaj (giriş-çıkış-mola) ───────────────────────────────────────
+export type AttendanceStatus = "in" | "on_break" | "out";
+
+export interface BrandStaffAttendance {
+  id: string;
+  brandId: string;
+  staffId: string;
+  /** YYYY-MM-DD */
+  workDate: string;
+  checkIn?: string;
+  checkOut?: string;
+  status: AttendanceStatus;
+  /** Tamamlanan molaların toplamı (dakika). */
+  breakMinutes: number;
+  /** Şu an molada ise molanın başladığı an (ISO). */
+  breakStartedAt?: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const ATTENDANCE_STATUS_LABELS: Record<AttendanceStatus, string> = {
+  in: "Mesaide",
+  on_break: "Molada",
+  out: "Çıkış yaptı",
+};
+
+export type AttendanceAction = "check_in" | "break_start" | "break_end" | "check_out";
+
+/** Net çalışılan dakika (varsa çıkış, yoksa "şimdi"ye kadar) — mola düşülür. */
+export function attendanceWorkedMinutes(a: BrandStaffAttendance, nowMs = Date.now()): number {
+  if (!a.checkIn) return 0;
+  const start = new Date(a.checkIn).getTime();
+  const end = a.checkOut ? new Date(a.checkOut).getTime() : nowMs;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0;
+  let liveBreak = 0;
+  if (a.status === "on_break" && a.breakStartedAt) {
+    const bs = new Date(a.breakStartedAt).getTime();
+    if (Number.isFinite(bs) && nowMs > bs) liveBreak = (nowMs - bs) / 60000;
+  }
+  const gross = (end - start) / 60000;
+  const net = gross - a.breakMinutes - liveBreak;
+  return Math.max(0, Math.round(net));
+}
+
+// ── Personel duyuruları / bilgilendirme ──────────────────────────────────────
+export type AnnouncementAudience = "all" | "department" | "staff";
+export type AnnouncementLevel = "info" | "warning" | "urgent";
+
+export interface BrandStaffAnnouncement {
+  id: string;
+  brandId: string;
+  title: string;
+  body: string;
+  audience: AnnouncementAudience;
+  departmentId?: string;
+  staffId?: string;
+  level: AnnouncementLevel;
+  pinned: boolean;
+  createdBy?: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const ANNOUNCEMENT_LEVEL_LABELS: Record<AnnouncementLevel, string> = {
+  info: "Bilgi",
+  warning: "Uyarı",
+  urgent: "Acil",
+};
+
+export const ANNOUNCEMENT_AUDIENCE_LABELS: Record<AnnouncementAudience, string> = {
+  all: "Tüm ekip",
+  department: "Departman",
+  staff: "Kişi",
+};
+
 export const STAFF_STATUS_LABELS: Record<StaffStatus, string> = {
   active: "Aktif",
   passive: "Pasif",

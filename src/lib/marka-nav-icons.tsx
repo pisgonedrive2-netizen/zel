@@ -24,6 +24,8 @@ import {
   Banknote,
   Wallet,
   UserCog,
+  Clock,
+  Megaphone,
   Bell,
 } from "lucide-react";
 import type { MarkaNavIconKey } from "./marka-nav";
@@ -53,6 +55,8 @@ const ICON_MAP: Record<MarkaNavIconKey, LucideIcon> = {
   Banknote,
   Wallet,
   UserCog,
+  Clock,
+  Megaphone,
   Bell,
 };
 

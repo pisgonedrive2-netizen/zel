@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ClipboardList, Plus, Trash2, UserPlus, CalendarClock,
-  ChevronLeft, ChevronRight, X,
+  ChevronLeft, ChevronRight, X, CalendarDays, Eraser,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { useStore } from "@/store/store";
@@ -17,6 +17,9 @@ import {
   type InternalTask, type TaskStatus, type TaskPriority,
 } from "@/types/internal-task";
 import { cn } from "@/lib/utils";
+import { DailyPlanPanel } from "@/components/tasks/daily-plan-panel";
+
+type TaskView = "all" | "today" | "overdue";
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
   low: "bg-muted text-muted-foreground",
@@ -45,6 +48,8 @@ export default function GorevlerPage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [showOnboard, setShowOnboard] = useState(false);
+  const [showDaily, setShowDaily] = useState(false);
+  const [taskView, setTaskView] = useState<TaskView>("all");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -54,7 +59,7 @@ export default function GorevlerPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/tasks", { cache: "no-store" });
+      const res = await fetch("/api/tasks?hideExited=1", { cache: "no-store" });
       const json = await res.json();
       if (res.ok) setTasks(json.tasks ?? []);
     } finally {
@@ -70,6 +75,24 @@ export default function GorevlerPage() {
     () => employees.filter((e) => e.status !== "inactive"),
     [employees],
   );
+
+  const todayKey = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const visibleTasks = useMemo(() => {
+    if (taskView === "today") {
+      return tasks.filter((t) => t.dueDate === todayKey && t.status !== "done");
+    }
+    if (taskView === "overdue") {
+      return tasks.filter((t) => isOverdue(t));
+    }
+    return tasks;
+  }, [tasks, taskView, todayKey]);
+
+  const todayCount = useMemo(
+    () => tasks.filter((t) => t.dueDate === todayKey && t.status !== "done").length,
+    [tasks, todayKey],
+  );
+  const overdueCount = useMemo(() => tasks.filter((t) => isOverdue(t)).length, [tasks]);
 
   const patchTask = async (id: string, patch: Record<string, unknown>) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patchToTask(patch) } : t)));
@@ -96,9 +119,28 @@ export default function GorevlerPage() {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const t of tasks) c[t.status] = (c[t.status] ?? 0) + 1;
+    for (const t of visibleTasks) c[t.status] = (c[t.status] ?? 0) + 1;
     return c;
-  }, [tasks]);
+  }, [visibleTasks]);
+
+  const cleanupExited = async () => {
+    if (!window.confirm("İşten ayrılan personelin (ör. Lucy) tamamlanmamış onboarding görevleri silinsin mi?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: "cleanup-exited" }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        window.alert(`${json.deleted ?? 0} görev temizlendi.`);
+        await load();
+      } else window.alert(json.error ?? "Temizlenemedi.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (!user || !allowed) {
     return (
@@ -112,21 +154,71 @@ export default function GorevlerPage() {
     <PageShell size="2xl">
       <PageHeader
         title="Görevler"
-        description="Ekip görevleri: kim ne yapacak, ne planlanıyor, hangi durumda. Görev oluştur, kişiye ata, durumunu takip et."
+        description="Ekip görevleri ve günlük planlar. Yayıncılara otomatik bildirim gider; kendi panellerinde görev panosu yoktur."
         icon={<ClipboardList className="h-5 w-5 text-primary" />}
         actions={
           canEdit ? (
             <>
-              <Button size="sm" variant="outline" onClick={() => { setShowOnboard((v) => !v); setShowNew(false); }}>
-                <UserPlus className="mr-1 h-3.5 w-3.5" /> Onboarding planı
+              <Button size="sm" variant="outline" onClick={() => { setShowDaily((v) => !v); setShowNew(false); setShowOnboard(false); }}>
+                <CalendarDays className="mr-1 h-3.5 w-3.5" /> Bugünkü plan
               </Button>
-              <Button size="sm" onClick={() => { setShowNew((v) => !v); setShowOnboard(false); }}>
+              <Button size="sm" variant="outline" onClick={() => { setShowOnboard((v) => !v); setShowNew(false); setShowDaily(false); }}>
+                <UserPlus className="mr-1 h-3.5 w-3.5" /> Onboarding
+              </Button>
+              <Button size="sm" onClick={() => { setShowNew((v) => !v); setShowOnboard(false); setShowDaily(false); }}>
                 <Plus className="mr-1 h-3.5 w-3.5" /> Yeni görev
               </Button>
             </>
           ) : null
         }
       />
+
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {(["all", "today", "overdue"] as TaskView[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setTaskView(v)}
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              taskView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80",
+            )}
+          >
+            {v === "all" ? "Tümü" : v === "today" ? `Bugün (${todayCount})` : `Geciken (${overdueCount})`}
+          </button>
+        ))}
+        {canEdit && (
+          <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs text-muted-foreground" onClick={() => void cleanupExited()} disabled={busy}>
+            <Eraser className="mr-1 h-3 w-3" /> Ayrılan personel görevlerini temizle
+          </Button>
+        )}
+      </div>
+
+      {showDaily && canEdit && (
+        <DailyPlanPanel
+          employees={activeEmployees.map((e) => ({ id: e.id, name: e.name }))}
+          busy={busy}
+          onClose={() => setShowDaily(false)}
+          onSubmit={async (payload) => {
+            setBusy(true);
+            try {
+              const res = await fetch("/api/tasks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ template: "daily", ...payload }),
+              });
+              const json = await res.json();
+              if (res.ok) {
+                setShowDaily(false);
+                await load();
+                if (payload.notify && json.notified > 0) {
+                  window.alert(`${json.created} görev oluşturuldu · ${json.notified} bildirim gönderildi.`);
+                }
+              } else window.alert(json.error ?? "Plan atanamadı.");
+            } finally { setBusy(false); }
+          }}
+        />
+      )}
 
       {showNew && canEdit && (
         <NewTaskForm
@@ -170,7 +262,7 @@ export default function GorevlerPage() {
 
       {loading ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Görevler yükleniyor…</p>
-      ) : tasks.length === 0 ? (
+      ) : visibleTasks.length === 0 ? (
         <Card className="mt-2">
           <CardContent className="py-10 text-center">
             <ClipboardList className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
@@ -182,7 +274,7 @@ export default function GorevlerPage() {
       ) : (
         <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           {STATUS_ORDER.map((status) => {
-            const colTasks = tasks
+            const colTasks = visibleTasks
               .filter((t) => t.status === status)
               .sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt.localeCompare(b.createdAt));
             return (
@@ -271,6 +363,11 @@ function TaskCard({
         {task.category === "onboarding" && (
           <span className="rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-300">
             onboarding
+          </span>
+        )}
+        {task.category === "daily" && (
+          <span className="rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 dark:text-sky-300">
+            günlük
           </span>
         )}
         {task.assigneeName && (
@@ -432,7 +529,7 @@ function OnboardingForm({
           </button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          İşe giriş tarihine göre takvimli görevler (sözleşme, erişim, tanışma, ilk içerik, 30 gün değerlendirme…) otomatik oluşturulur.
+          Sadece aktif personel listelenir. İşten ayrılanlar (ör. Lucy, 18 Haz 2026) için plan oluşturulamaz.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Personel (kayıtlı)">

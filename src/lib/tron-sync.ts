@@ -8,6 +8,7 @@ import {
 } from "@/lib/tron-grid-config";
 import { calcKasaBalance, type Kasa, type KasaTransaction } from "@/store/store";
 import { parseTrc20UsdtAmount } from "@/lib/tron-amount";
+import { isTronGridAuthError, tronGridHeaders, DEFAULT_TRON_KASA_ADDRESS } from "@/lib/tron-grid-auth";
 
 const USDT_TRC20 = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const DEFAULT_SYNC_FROM = "2025-04-01";
@@ -65,7 +66,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Kasa kaydında TRON adresi yoksa ortam değişkeninden yazar. */
 export async function ensureTronKasaConfigured(kasa: Kasa): Promise<Kasa> {
-  const envAddr = process.env.TRON_KASA_ADDRESS?.trim();
+  const envAddr =
+    process.env.TRON_KASA_ADDRESS?.trim() ||
+    process.env.NEXT_PUBLIC_TRON_KASA_ADDRESS?.trim() ||
+    DEFAULT_TRON_KASA_ADDRESS;
   const envFrom = process.env.TRON_SYNC_FROM?.trim() || DEFAULT_SYNC_FROM;
   const updates: Record<string, unknown> = {};
   if (!kasa.tronAddress?.trim() && envAddr) updates.tron_address = envAddr;
@@ -88,7 +92,7 @@ async function fetchTrc20Page(opts: {
   minTs: number;
   fingerprint?: string;
   pass: FetchPass;
-  headers: Record<string, string>;
+  apiKey?: string;
 }): Promise<{ txs: TronTrc20Tx[]; fingerprint?: string }> {
   const url = new URL(
     `https://api.trongrid.io/v1/accounts/${opts.address}/transactions/trc20`
@@ -108,13 +112,15 @@ async function fetchTrc20Page(opts: {
   const retries = 4;
   let lastStatus = 0;
   let lastBody = "";
+  let useApiKey = Boolean(opts.apiKey?.trim());
+  let headers = tronGridHeaders(useApiKey ? opts.apiKey : undefined);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     await sleep(TRON_REQUEST_GAP_MS);
     let res: Response;
     try {
       res = await fetch(url.toString(), {
-        headers: opts.headers,
+        headers,
         signal: AbortSignal.timeout(25_000),
       });
     } catch (netErr) {
@@ -141,9 +147,15 @@ async function fetchTrc20Page(opts: {
       continue;
     }
 
+    if (isTronGridAuthError(res.status) && useApiKey) {
+      useApiKey = false;
+      headers = tronGridHeaders(undefined);
+      continue;
+    }
+
     if (res.status === 401 || res.status === 403) {
       throw new Error(
-        `TronGrid yetkilendirme hatası (${res.status}). TRONGRID_API_KEY kontrol edin.`
+        `TronGrid yetkilendirme hatası (${res.status}). TRONGRID_API_KEY kontrol edin veya TronGrid panelinden yeni anahtar oluşturun.`
       );
     }
     throw new Error(
@@ -200,7 +212,7 @@ function resolveMinTimestamp(opts: {
 async function collectTrc20Transfers(opts: {
   address: string;
   minTs: number;
-  headers: Record<string, string>;
+  apiKey?: string;
   maxPagesPerPass: number;
 }): Promise<{ txs: Map<string, TronTrc20Tx>; pagesFetched: number; truncated: boolean }> {
   const collected = new Map<string, TronTrc20Tx>();
@@ -217,7 +229,7 @@ async function collectTrc20Transfers(opts: {
         minTs: opts.minTs,
         fingerprint,
         pass,
-        headers: opts.headers,
+        apiKey: opts.apiKey,
       });
       pagesFetched++;
       for (const tx of txs) {
@@ -265,9 +277,7 @@ export async function syncTronTransfersForKasa(
 
   const maxPagesPerPass = isFullFromDate ? TRON_PAGES_FULL : TRON_PAGES_INCREMENTAL;
 
-  const headers: Record<string, string> = { Accept: "application/json" };
   const apiKey = process.env.TRONGRID_API_KEY?.trim();
-  if (apiKey) headers["TRON-PRO-API-KEY"] = apiKey;
 
   const db = getSupabaseAdmin();
   const { data: existing } = await db
@@ -291,7 +301,7 @@ export async function syncTronTransfersForKasa(
   const { txs: collected, pagesFetched, truncated } = await collectTrc20Transfers({
     address,
     minTs,
-    headers,
+    apiKey,
     maxPagesPerPass,
   });
 

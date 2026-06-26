@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isSupabaseEnabled } from "@/lib/env";
+import { canViewRamizWalletSession } from "@/lib/ramiz-wallet-access";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { kasaAccountFromRow } from "@/lib/db/mappers";
 import { persistKasaTronFields } from "@/lib/tron-config";
@@ -29,6 +30,9 @@ export async function POST(req: NextRequest) {
     if (!session || (session.role !== "admin" && session.role !== "auditor")) {
       return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
     }
+    if (!canViewRamizWalletSession(session)) {
+      return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
+    }
 
     const body = (await req.json().catch(() => ({}))) as {
       kasaId?: string;
@@ -45,12 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "kasaId gerekli" }, { status: 400 });
     }
 
-    if (!process.env.TRONGRID_API_KEY?.trim()) {
-      return NextResponse.json({
-        ok: false,
-        error: "TRONGRID_API_KEY tanımlı değil — .env.local veya Vercel ortam değişkenlerine ekleyin.",
-      }, { status: 503 });
-    }
+    const apiKeySet = Boolean(process.env.TRONGRID_API_KEY?.trim());
 
     const { data, error } = await getSupabaseAdmin()
       .from("kasas")
@@ -108,9 +107,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       ...summary,
+      apiKeySet,
       hint: summary.truncated
         ? "TronGrid sayfa limiti doldu; daha yakın bir tarihten tekrar çekin veya birkaç dakika sonra yenileyin."
-        : undefined,
+        : !apiKeySet
+          ? "TRONGRID_API_KEY yok — public tier (düşük kota) kullanıldı."
+          : undefined,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "TRON senkron hatası";

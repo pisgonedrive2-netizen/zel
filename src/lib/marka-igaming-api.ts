@@ -219,3 +219,78 @@ export function fetchPostApprovals(brandId: string) {
     violations: d.violations ?? [],
   }));
 }
+
+export function saveDealTrackingLink(input: Partial<BrandDealTrackingLink> & { brandId: string; dealId: string; url: string }) {
+  return jsonFetch<{ link: BrandDealTrackingLink }>("/api/marka/igaming/deal-tracking", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }).then((d) => d.link);
+}
+
+export function syncDealTrackingAttribution(brandId: string, dealId: string) {
+  return jsonFetch<{ links: BrandDealTrackingLink[] }>("/api/marka/igaming/deal-tracking", {
+    method: "POST",
+    body: JSON.stringify({ brandId, dealId, action: "sync-attribution" }),
+  }).then((d) => d.links ?? []);
+}
+
+export function saveDealMilestone(input: Partial<BrandDealMilestone> & { brandId: string; dealId: string; title: string }) {
+  return jsonFetch<{ milestone: BrandDealMilestone }>("/api/marka/igaming/deal-milestones", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }).then((d) => d.milestone);
+}
+
+export function recordMilestonePayment(brandId: string, milestone: BrandDealMilestone) {
+  return jsonFetch<{ milestone: BrandDealMilestone }>("/api/marka/igaming/deal-milestones", {
+    method: "POST",
+    body: JSON.stringify({ ...milestone, brandId, action: "record-payment" }),
+  }).then((d) => d.milestone);
+}
+
+export function savePostApproval(input: {
+  brandId: string;
+  postId: string;
+  status: BrandPostApproval["status"];
+  notes?: string;
+}) {
+  return jsonFetch<{ approval: BrandPostApproval }>("/api/marka/igaming/post-approvals", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }).then((d) => d.approval);
+}
+
+export function scanPostComplianceApi(brandId: string, postId: string) {
+  return jsonFetch<{ scan: { ok: boolean }; violations: BrandContentViolation[] }>(
+    "/api/marka/igaming/post-approvals",
+    { method: "POST", body: JSON.stringify({ brandId, postId, action: "scan" }) }
+  );
+}
+
+/** Sabit FX kurları — çok para birimi özet için (manuel güncelleme). */
+export const BRAND_FX_RATES: Record<string, number> = {
+  USD: 1,
+  EUR: 1.08,
+  TRY: 0.031,
+};
+
+export function convertToUsd(amount: number, currency: string): number {
+  const rate = BRAND_FX_RATES[currency.toUpperCase()] ?? 1;
+  return Math.round(amount * rate * 100) / 100;
+}
+
+export function syncCampaignAffiliate(brandId: string) {
+  return jsonFetch<{
+    linked: Array<{
+      campaignId: string;
+      campaignName: string;
+      partnerId: string;
+      partnerName: string;
+      promoCode: string;
+    }>;
+    orphanCampaigns: string[];
+  }>("/api/marka/igaming/campaigns", {
+    method: "POST",
+    body: JSON.stringify({ brandId, action: "sync-affiliate" }),
+  });
+}

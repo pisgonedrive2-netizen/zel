@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { isSupabaseEnabled } from "@/lib/env";
+import { canViewRamizWalletSession } from "@/lib/ramiz-wallet-access";
 import { getTronWatchConfig, watchTronWallet } from "@/lib/tron-watch";
 import { notifyTronWalletTransactions } from "@/lib/tron-notify";
 
@@ -19,6 +20,9 @@ export async function POST(req: NextRequest) {
   const isCron = Boolean(cronSecret && auth === `Bearer ${cronSecret}`);
 
   if (!isCron && (!session || (session.role !== "admin" && session.role !== "auditor"))) {
+    return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
+  }
+  if (!isCron && session && !canViewRamizWalletSession(session)) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   }
 

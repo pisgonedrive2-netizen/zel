@@ -1,5 +1,10 @@
 import { parseTrc20UsdtAmount } from "@/lib/tron-amount";
 import { tronAddressBalanceOfParameter } from "@/lib/tron-base58";
+import {
+  isTronGridAuthError,
+  tronGridHeaders,
+  tronGridHeadersWithFallback,
+} from "@/lib/tron-grid-auth";
 
 /** Tether USDT (TRC20) — senkron edilen token. */
 export const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
@@ -15,10 +20,15 @@ export type TronWalletOnChainBalances = {
   fetchedAt: string;
 };
 
-function tronGridHeaders(apiKey?: string): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (apiKey?.trim()) headers["TRON-PRO-API-KEY"] = apiKey.trim();
-  return headers;
+export type TronWalletFetchResult = {
+  balances: TronWalletOnChainBalances | null;
+  /** Geçersiz API anahtarı nedeniyle public tier kullanıldı. */
+  usedPublicTier?: boolean;
+  error?: string;
+};
+
+function tronGridHeadersLocal(apiKey?: string): Record<string, string> {
+  return tronGridHeaders(apiKey);
 }
 
 function parseTrc20BalanceMap(trc20: unknown): Record<string, string> {
@@ -84,7 +94,7 @@ async function fetchTrc20BalanceViaContract(
       "https://api.trongrid.io/wallet/triggerconstantcontract",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...tronGridHeaders(apiKey) },
+        headers: { "Content-Type": "application/json", ...tronGridHeadersLocal(apiKey) },
         body: JSON.stringify({
           owner_address: ownerAddress,
           contract_address: contractAddress,
@@ -108,33 +118,53 @@ async function fetchTrc20BalanceViaContract(
   }
 }
 
-/**
- * TronGrid — cüzdandaki TRX + TRC20 USDT/USDC (canlı zincir).
- * USDT/USDC için `balanceOf` yedek okuma (trc20 listesi eksik kalabiliyor).
- */
 export async function fetchTronWalletOnChainBalances(
   address: string,
   apiKey?: string
 ): Promise<TronWalletOnChainBalances | null> {
+  const result = await fetchTronWalletOnChainBalancesDetailed(address, apiKey);
+  return result.balances;
+}
+
+/** TronGrid — cüzdandaki TRX + TRC20 USDT/USDC (canlı zincir). Geçersiz API anahtarında public tier dener. */
+export async function fetchTronWalletOnChainBalancesDetailed(
+  address: string,
+  apiKey?: string
+): Promise<TronWalletFetchResult> {
   const addr = address.trim();
-  if (!addr) return null;
+  if (!addr) return { balances: null, error: "Adres boş" };
+
+  let usedPublicTier = false;
+  let accountRes: Response;
 
   try {
-    const res = await fetch(
+    accountRes = await fetch(
       `https://api.trongrid.io/v1/accounts/${encodeURIComponent(addr)}`,
       {
-        headers: tronGridHeaders(apiKey),
+        headers: tronGridHeadersWithFallback(apiKey, true),
         signal: AbortSignal.timeout(12_000),
         cache: "no-store",
       }
     );
 
+    if (isTronGridAuthError(accountRes.status) && apiKey?.trim()) {
+      usedPublicTier = true;
+      accountRes = await fetch(
+        `https://api.trongrid.io/v1/accounts/${encodeURIComponent(addr)}`,
+        {
+          headers: tronGridHeadersWithFallback(apiKey, false),
+          signal: AbortSignal.timeout(12_000),
+          cache: "no-store",
+        }
+      );
+    }
+
     let trx = 0;
     let usdt = 0;
     let usdc = 0;
 
-    if (res.ok) {
-      const json = (await res.json()) as {
+    if (accountRes.ok) {
+      const json = (await accountRes.json()) as {
         data?: Array<{
           balance?: number;
           trc20?: unknown;
@@ -153,26 +183,41 @@ export async function fetchTronWalletOnChainBalances(
       }
     }
 
+    const effectiveKey = usedPublicTier ? undefined : apiKey;
     const [usdtChain, usdcChain, usdcLegacyChain] = await Promise.all([
-      fetchTrc20BalanceViaContract(addr, TRON_USDT_CONTRACT, apiKey),
-      fetchTrc20BalanceViaContract(addr, TRON_USDC_CONTRACT, apiKey),
-      fetchTrc20BalanceViaContract(addr, TRON_USDC_LEGACY_CONTRACT, apiKey),
+      fetchTrc20BalanceViaContract(addr, TRON_USDT_CONTRACT, effectiveKey),
+      fetchTrc20BalanceViaContract(addr, TRON_USDC_CONTRACT, effectiveKey),
+      fetchTrc20BalanceViaContract(addr, TRON_USDC_LEGACY_CONTRACT, effectiveKey),
     ]);
 
     usdt = Math.max(usdt, usdtChain);
     usdc = Math.max(usdc, usdcChain + usdcLegacyChain);
 
-    if (!res.ok && usdt === 0 && usdc === 0 && trx === 0) {
-      return null;
+    if (!accountRes.ok && usdt === 0 && usdc === 0 && trx === 0) {
+      const errText = await accountRes.text().catch(() => accountRes.statusText);
+      return {
+        balances: null,
+        usedPublicTier,
+        error: `TronGrid HTTP ${accountRes.status}: ${errText.slice(0, 120)}`,
+      };
     }
 
     return {
-      trx,
-      usdt: Math.round(usdt * 100) / 100,
-      usdc: Math.round(usdc * 100) / 100,
-      fetchedAt: new Date().toISOString(),
+      balances: {
+        trx,
+        usdt: Math.round(usdt * 100) / 100,
+        usdc: Math.round(usdc * 100) / 100,
+        fetchedAt: new Date().toISOString(),
+      },
+      usedPublicTier,
+      error: usedPublicTier
+        ? "TRONGRID_API_KEY geçersiz — public tier ile okundu (düşük kota)."
+        : undefined,
     };
-  } catch {
-    return null;
+  } catch (e) {
+    return {
+      balances: null,
+      error: e instanceof Error ? e.message : "TronGrid bağlantı hatası",
+    };
   }
 }

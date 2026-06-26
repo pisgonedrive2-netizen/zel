@@ -4,6 +4,11 @@ import type {
   BrandStaffActivity,
   BrandStaffShift,
   BrandStaffTask,
+  BrandStaffAttendance,
+  BrandStaffAnnouncement,
+  AttendanceStatus,
+  AnnouncementAudience,
+  AnnouncementLevel,
   StaffCurrency,
   StaffStatus,
   TaskPriority,
@@ -24,6 +29,9 @@ const STATUS: readonly StaffStatus[] = ["active", "passive", "invited"];
 const CURRENCY: readonly StaffCurrency[] = ["USD", "EUR", "TRY"];
 const TASK_STATUS: readonly TaskStatus[] = ["todo", "in_progress", "done", "cancelled"];
 const TASK_PRIORITY: readonly TaskPriority[] = ["low", "medium", "high"];
+const ATTENDANCE_STATUS: readonly AttendanceStatus[] = ["in", "on_break", "out"];
+const ANNOUNCEMENT_AUDIENCE: readonly AnnouncementAudience[] = ["all", "department", "staff"];
+const ANNOUNCEMENT_LEVEL: readonly AnnouncementLevel[] = ["info", "warning", "urgent"];
 
 // ── Staff ──────────────────────────────────────────────────────────────────
 function staffFromRow(r: Record<string, unknown>): BrandStaff {
@@ -281,4 +289,149 @@ export async function insertBrandActivity(a: {
     detail: a.detail,
   });
   if (error) throw new Error(`brand_staff_activity: ${error.message}`);
+}
+
+// ── Attendance (mesai / puantaj) ─────────────────────────────────────────────
+function attendanceFromRow(r: Record<string, unknown>): BrandStaffAttendance {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    staffId: str(r.staff_id),
+    workDate: str(r.work_date),
+    checkIn: r.check_in ? str(r.check_in) : undefined,
+    checkOut: r.check_out ? str(r.check_out) : undefined,
+    status: pick(r.status, ATTENDANCE_STATUS, "out"),
+    breakMinutes: num(r.break_minutes),
+    breakStartedAt: r.break_started_at ? str(r.break_started_at) : undefined,
+    note: str(r.note),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+function attendanceToRow(a: BrandStaffAttendance) {
+  return {
+    id: a.id,
+    brand_id: a.brandId,
+    staff_id: a.staffId,
+    work_date: a.workDate,
+    check_in: a.checkIn ?? null,
+    check_out: a.checkOut ?? null,
+    status: a.status,
+    break_minutes: a.breakMinutes,
+    break_started_at: a.breakStartedAt ?? null,
+    note: a.note,
+  };
+}
+
+export async function fetchBrandAttendance(
+  brandIds: string[],
+  opts?: { fromDate?: string; toDate?: string; staffId?: string }
+): Promise<BrandStaffAttendance[]> {
+  if (brandIds.length === 0) return [];
+  let q = getSupabaseAdmin()
+    .from("brand_staff_attendance")
+    .select("*")
+    .in("brand_id", brandIds)
+    .order("work_date", { ascending: false });
+  if (opts?.fromDate) q = q.gte("work_date", opts.fromDate);
+  if (opts?.toDate) q = q.lte("work_date", opts.toDate);
+  if (opts?.staffId) q = q.eq("staff_id", opts.staffId);
+  const { data, error } = await q;
+  if (error) throw new Error(`brand_staff_attendance: ${error.message}`);
+  return (data ?? []).map((r) => attendanceFromRow(r as Record<string, unknown>));
+}
+
+export async function findAttendanceForDay(
+  brandId: string,
+  staffId: string,
+  workDate: string
+): Promise<BrandStaffAttendance | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_staff_attendance")
+    .select("*")
+    .eq("brand_id", brandId)
+    .eq("staff_id", staffId)
+    .eq("work_date", workDate)
+    .maybeSingle();
+  if (error) throw new Error(`brand_staff_attendance: ${error.message}`);
+  return data ? attendanceFromRow(data as Record<string, unknown>) : null;
+}
+
+export async function upsertBrandAttendance(a: BrandStaffAttendance): Promise<BrandStaffAttendance> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_staff_attendance")
+    .upsert(attendanceToRow(a), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_staff_attendance: ${error.message}`);
+  if (!data) throw new Error("brand_staff_attendance: upsert sonuç dönmedi.");
+  return attendanceFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandAttendance(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_staff_attendance").delete().eq("id", id);
+  if (error) throw new Error(`brand_staff_attendance: ${error.message}`);
+}
+
+// ── Announcements (personel duyuruları) ──────────────────────────────────────
+function announcementFromRow(r: Record<string, unknown>): BrandStaffAnnouncement {
+  return {
+    id: str(r.id),
+    brandId: str(r.brand_id),
+    title: str(r.title),
+    body: str(r.body),
+    audience: pick(r.audience, ANNOUNCEMENT_AUDIENCE, "all"),
+    departmentId: r.department_id ? str(r.department_id) : undefined,
+    staffId: r.staff_id ? str(r.staff_id) : undefined,
+    level: pick(r.level, ANNOUNCEMENT_LEVEL, "info"),
+    pinned: Boolean(r.pinned),
+    createdBy: r.created_by ? str(r.created_by) : undefined,
+    createdByName: str(r.created_by_name),
+    createdAt: str(r.created_at),
+    updatedAt: str(r.updated_at),
+  };
+}
+function announcementToRow(a: BrandStaffAnnouncement) {
+  return {
+    id: a.id,
+    brand_id: a.brandId,
+    title: a.title,
+    body: a.body,
+    audience: a.audience,
+    department_id: a.departmentId ?? null,
+    staff_id: a.staffId ?? null,
+    level: a.level,
+    pinned: a.pinned,
+    created_by: a.createdBy ?? null,
+    created_by_name: a.createdByName,
+  };
+}
+
+export async function fetchBrandAnnouncements(brandIds: string[]): Promise<BrandStaffAnnouncement[]> {
+  if (brandIds.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_staff_announcements")
+    .select("*")
+    .in("brand_id", brandIds)
+    .order("pinned", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (error) throw new Error(`brand_staff_announcements: ${error.message}`);
+  return (data ?? []).map((r) => announcementFromRow(r as Record<string, unknown>));
+}
+
+export async function upsertBrandAnnouncement(a: BrandStaffAnnouncement): Promise<BrandStaffAnnouncement> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("brand_staff_announcements")
+    .upsert(announcementToRow(a), { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(`brand_staff_announcements: ${error.message}`);
+  if (!data) throw new Error("brand_staff_announcements: upsert sonuç dönmedi.");
+  return announcementFromRow(data as Record<string, unknown>);
+}
+
+export async function deleteBrandAnnouncement(id: string): Promise<void> {
+  const { error } = await getSupabaseAdmin().from("brand_staff_announcements").delete().eq("id", id);
+  if (error) throw new Error(`brand_staff_announcements: ${error.message}`);
 }

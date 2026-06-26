@@ -12,6 +12,9 @@ import {
   Heart,
   FileVideo,
   ShieldAlert,
+  Check,
+  X,
+  ScanSearch,
 } from "lucide-react";
 import { useMarkaPortal } from "@/hooks/use-marka-portal";
 import { clientIsReadOnly } from "@/lib/org-capability";
@@ -47,7 +50,7 @@ import {
   type BrandPostStatus,
 } from "@/types/brand-deals";
 import type { BrandDeal, BrandPost } from "@/store/store";
-import { fetchPostApprovals } from "@/lib/marka-igaming-api";
+import { fetchPostApprovals, savePostApproval, scanPostComplianceApi } from "@/lib/marka-igaming-api";
 import {
   BRAND_POST_APPROVAL_LABELS,
   type BrandContentViolation,
@@ -77,6 +80,7 @@ export default function MarkaPostlarPage() {
   const [violationsByPost, setViolationsByPost] = useState<
     Map<string, BrandContentViolation[]>
   >(new Map());
+  const [complianceBusy, setComplianceBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!brandId) return;
@@ -182,6 +186,40 @@ export default function MarkaPostlarPage() {
       setPosts((arr) => arr.filter((p) => p.id !== id));
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Silme başarısız");
+    }
+  }
+
+  async function handleScanCompliance(postId: string) {
+    if (!brandId) return;
+    setComplianceBusy(postId);
+    try {
+      const { violations } = await scanPostComplianceApi(brandId, postId);
+      setViolationsByPost((prev) => {
+        const next = new Map(prev);
+        next.set(postId, violations);
+        return next;
+      });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Tarama başarısız");
+    } finally {
+      setComplianceBusy(null);
+    }
+  }
+
+  async function handleApproval(postId: string, status: BrandPostApproval["status"]) {
+    if (!brandId) return;
+    setComplianceBusy(postId);
+    try {
+      const approval = await savePostApproval({ brandId, postId, status });
+      setApprovalsByPost((prev) => {
+        const next = new Map(prev);
+        next.set(postId, approval);
+        return next;
+      });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Onay kaydedilemedi");
+    } finally {
+      setComplianceBusy(null);
     }
   }
 
@@ -465,6 +503,36 @@ export default function MarkaPostlarPage() {
                             </a>
                             {!readOnly && (
                               <>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleScanCompliance(post.id)}
+                                  disabled={complianceBusy === post.id}
+                                  className="rounded-md border border-border bg-background p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                                  title="Uyumluluk tara (#ad, 18+)"
+                                >
+                                  <ScanSearch
+                                    size={11}
+                                    className={complianceBusy === post.id ? "animate-pulse" : undefined}
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleApproval(post.id, "approved")}
+                                  disabled={complianceBusy === post.id}
+                                  className="rounded-md border border-emerald-300 bg-background p-1 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                                  title="Onayla"
+                                >
+                                  <Check size={11} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleApproval(post.id, "rejected")}
+                                  disabled={complianceBusy === post.id}
+                                  className="rounded-md border border-red-300 bg-background p-1 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                  title="Reddet"
+                                >
+                                  <X size={11} />
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => handleRefresh(post.id)}

@@ -157,7 +157,50 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ type, rowCount: rows.length });
     }
 
-    return NextResponse.json({ error: "Geçersiz type — stats, affiliate, deals, compliance" }, { status: 400 });
+    if (type === "content") {
+      const monthStart = `${month}-01`;
+      const { data: links } = await getSupabaseAdmin()
+        .from("brand_links")
+        .select("id, platform, url, last_views, brand_id")
+        .eq("brand_id", brandId);
+      const linkIds = (links ?? []).map((l) => String((l as Record<string, unknown>).id));
+      let snapByLink = new Map<string, number>();
+      if (linkIds.length > 0) {
+        const { data: snaps } = await getSupabaseAdmin()
+          .from("link_snapshots")
+          .select("link_id, views, snapshot_date")
+          .in("link_id", linkIds)
+          .gte("snapshot_date", monthStart)
+          .lte("snapshot_date", monthStart.slice(0, 8) + "31");
+        for (const s of snaps ?? []) {
+          const row = s as Record<string, unknown>;
+          const lid = String(row.link_id);
+          snapByLink.set(lid, (snapByLink.get(lid) ?? 0) + Number(row.views ?? 0));
+        }
+      }
+      const rows = (links ?? []).map((l) => {
+        const row = l as Record<string, unknown>;
+        const id = String(row.id);
+        return [
+          id,
+          row.platform,
+          row.url,
+          snapByLink.get(id) ?? row.last_views ?? 0,
+        ];
+      });
+      const csv = toCsv(["Link ID", "Platform", "URL", "Ay izlenme"], rows);
+      if (download) {
+        return new NextResponse(csv, {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="marka-content-${brandId}-${month}.csv"`,
+          },
+        });
+      }
+      return NextResponse.json({ type, rowCount: rows.length, preview: rows.slice(0, 5) });
+    }
+
+    return NextResponse.json({ error: "Geçersiz type — stats, affiliate, deals, compliance, content" }, { status: 400 });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Export başarısız" }, { status: 500 });
   }

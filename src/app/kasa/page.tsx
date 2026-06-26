@@ -22,6 +22,12 @@ import {
   transactionsForGenelKasaView,
 } from "@/lib/kasa-genel-view";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+  isRamizTronAddress,
+} from "@/lib/ramiz-wallet-access";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
 import { fmt } from "@/lib/data";
 import { Button } from "@/components/ui/button";
@@ -60,6 +66,18 @@ function shortTxid(t?: string) {
   return t.slice(0, 8) + "…" + t.slice(-6);
 }
 
+/** TRON (TRC20) base58 cüzdan adresi mi? (T ile başlar, 34 karakter) */
+function looksLikeTronAddress(v?: string): boolean {
+  if (!v) return false;
+  return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(v.trim());
+}
+/** Adresi maskeler: ilk 4 + son 4 görünür, ortası gizli. */
+function maskTronAddress(v: string): string {
+  const s = v.trim();
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 4)}…${s.slice(-4)}`;
+}
+
 const KASA_KIND_OPTIONS: Array<{ value: Kasa["kind"]; label: string }> = [
   { value: "general", label: "Genel" },
   { value: "usdt",    label: "USDT cüzdan" },
@@ -73,16 +91,55 @@ function InlineCounterparty({
   value,
   readOnly,
   onSave,
+  canRevealTron = false,
 }: {
   value: string;
   readOnly: boolean;
   onSave: (next: string) => void;
+  /** Ramiz TRON adresini gösterme yetkisi (Orkun / Ediz). */
+  canRevealTron?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const [revealed, setRevealed] = useState(false);
   useEffect(() => {
     if (!editing) setDraft(value);
   }, [value, editing]);
+
+  const isAddress = looksLikeTronAddress(value);
+  const hideRamizAddress = isAddress && isRamizTronAddress(value) && !canRevealTron;
+
+  // Güvenlik: çekilen/gönderilen TRON cüzdan adresleri varsayılan olarak blurlanır.
+  if (isAddress && !editing && !hideRamizAddress) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setRevealed((r) => !r)}
+          className={`font-mono text-xs text-muted-foreground transition-all ${revealed ? "" : "select-none blur-[5px] hover:blur-[4px]"}`}
+          title={revealed ? "Gizlemek için tıkla" : "Güvenlik için gizli — görmek için tıkla"}
+          aria-label={revealed ? "Adresi gizle" : "Adresi göster"}
+        >
+          {revealed ? maskTronAddress(value) : "T••••••••"}
+        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-muted-foreground/50 hover:text-foreground"
+            title="Etiket gir (ör. isim)"
+            aria-label="Etiketle"
+          >
+            <Pencil size={10} />
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  if (hideRamizAddress && !editing) {
+    return <span className="text-xs text-muted-foreground italic">TRON cüzdan</span>;
+  }
 
   if (readOnly) {
     return <span className="text-xs text-muted-foreground">{value || "—"}</span>;
@@ -388,6 +445,15 @@ export default function KasaPage() {
   } = useStore();
   const { user } = useAuth();
   const readOnly = useIsReadOnly();
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const [modal, setModal]               = useState<"new" | KasaTransaction | null>(null);
   const [kasaModal, setKasaModal]       = useState<"new" | Kasa | null>(null);
   const [search, setSearch]             = useState("");
@@ -619,8 +685,8 @@ export default function KasaPage() {
   };
 
   const visibleKasas = useMemo(
-    () => [...kasas].sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
-    [kasas]
+    () => [...viewKasas].sort((a, b) => a.orderIndex - b.orderIndex || a.name.localeCompare(b.name)),
+    [viewKasas]
   );
 
   const defaultKasaId = useMemo(() => {
@@ -631,29 +697,30 @@ export default function KasaPage() {
   }, [visibleKasas]);
 
   const tronPanel = useMemo(
-    () => computeTronPanelMetrics(kasas, kasaTransactions),
-    [kasas, kasaTransactions]
+    () => (canRamizWallet ? computeTronPanelMetrics(viewKasas, viewKasaTransactions) : null),
+    [canRamizWallet, viewKasas, viewKasaTransactions]
   );
   const tronKasa = tronPanel?.tronKasa ?? null;
   const genelKasaId = tronPanel?.genelKasa?.id;
 
   useEffect(() => {
+    if (!canRamizWallet) return;
     const addr = tronPanel?.tronAddress?.trim();
     if (!addr || tronInfo?.walletBalances) return;
     void refreshWalletBalances(addr);
-  }, [tronPanel?.tronAddress, tronInfo?.walletBalances, refreshWalletBalances]);
+  }, [canRamizWallet, tronPanel?.tronAddress, tronInfo?.walletBalances, refreshWalletBalances]);
 
   const txnsForSelected = useMemo(() => {
-    if (selectedKasaId === "all") return kasaTransactions;
+    if (selectedKasaId === "all") return viewKasaTransactions;
     if (genelKasaId && selectedKasaId === genelKasaId) {
       return transactionsForGenelKasaView(
-        kasaTransactions,
+        viewKasaTransactions,
         genelKasaId,
         tronPanel?.tronKasa?.id
       );
     }
-    return kasaTransactions.filter((t) => t.kasaId === selectedKasaId);
-  }, [kasaTransactions, selectedKasaId, genelKasaId, tronPanel?.tronKasa?.id]);
+    return viewKasaTransactions.filter((t) => t.kasaId === selectedKasaId);
+  }, [viewKasaTransactions, selectedKasaId, genelKasaId, tronPanel?.tronKasa?.id]);
 
   const availableMonths = useMemo(
     () => listAvailableMonths(txnsForSelected.map((t) => t.date)),
@@ -707,9 +774,9 @@ export default function KasaPage() {
 
   const currentBalance = useMemo(
     () => selectedKasaId === "all"
-      ? calcKasaBalance(kasaTransactions)
-      : calcKasaBalance(kasaTransactions, undefined, selectedKasaId),
-    [kasaTransactions, selectedKasaId]
+      ? calcKasaBalance(viewKasaTransactions)
+      : calcKasaBalance(viewKasaTransactions, undefined, selectedKasaId),
+    [viewKasaTransactions, selectedKasaId]
   );
   const totalIn        = txnsForSelected.filter(t => t.direction === "in").reduce((s, t) => s + t.amountUsd, 0);
   const totalOut       = txnsForSelected.filter(t => t.direction === "out").reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
@@ -727,23 +794,23 @@ export default function KasaPage() {
       visibleKasas
         .filter((k) => !k.archived)
         .map((k) => {
-          const display = getKasaDisplayBalance(k, kasas, kasaTransactions, tronPanel);
+          const display = getKasaDisplayBalance(k, viewKasas, viewKasaTransactions, tronPanel);
           return {
             kasa: k,
             balance: display.balance,
             ledgerBalance: display.ledgerBalance,
             sublabel: display.sublabel,
-            count: kasaTransactions.filter((t) => t.kasaId === k.id).length,
+            count: viewKasaTransactions.filter((t) => t.kasaId === k.id).length,
             isTronWallet: tronPanel?.tronKasa.id === k.id,
             isGenelKasa: tronPanel?.genelKasa?.id === k.id,
           };
         }),
-    [visibleKasas, kasaTransactions, kasas, tronPanel]
+    [visibleKasas, viewKasaTransactions, viewKasas, tronPanel]
   );
 
   const totalDisplayBalance = useMemo(
-    () => sumKasaDisplayBalances(visibleKasas.filter((k) => !k.archived), kasaTransactions),
-    [visibleKasas, kasaTransactions]
+    () => sumKasaDisplayBalances(visibleKasas.filter((k) => !k.archived), viewKasaTransactions),
+    [visibleKasas, viewKasaTransactions]
   );
 
   const currentBalanceDisplay = useMemo(() => {
@@ -754,10 +821,10 @@ export default function KasaPage() {
 
   const currentLedgerBalance = useMemo(() => {
     if (selectedKasaId === "all") {
-      return calcKasaBalance(kasaTransactions);
+      return calcKasaBalance(viewKasaTransactions);
     }
     return currentBalance;
-  }, [selectedKasaId, kasaTransactions, currentBalance]);
+  }, [selectedKasaId, viewKasaTransactions, currentBalance]);
 
   // TRON harcamalarını topluca Genel Kasa giderine dahil et / hariç tut.
   const setAllTronGenelInclusion = (include: boolean) => {
@@ -1041,8 +1108,8 @@ export default function KasaPage() {
         )}
       </div>
 
-      {/* TRON USDT cüzdan — manuel kasadan ayrı çalışır */}
-      {(() => {
+      {/* TRON USDT cüzdan — yalnızca Orkun / Ediz */}
+      {canRamizWallet && (() => {
         if (!tronPanel || !tronKasa) return null;
         const isActive = selectedKasaId === tronKasa.id;
         const genelName = tronPanel.genelKasa?.name ?? "Genel Kasa";
@@ -1665,6 +1732,7 @@ export default function KasaPage() {
                     <InlineCounterparty
                       value={t.counterparty}
                       readOnly={readOnly}
+                      canRevealTron={canRamizWallet}
                       onSave={(next) =>
                         updateKasaTransaction(t.id, { counterparty: next })
                       }

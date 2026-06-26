@@ -5,9 +5,11 @@ import {
   buildPrimRules,
   buildPrimScenarioGuide,
   buildPrimBaseInputs,
+  calcViewPoolBonus,
   describePrimFormula,
   DEFAULT_PRIM_CONFIG,
   FAIR_PRIM_CONFIG,
+  DEFAULT_VIEW_POOL_TIERS,
   DEFAULT_SCENARIOS,
   monthProgress,
   projectMonthEndViews,
@@ -361,6 +363,7 @@ describe("computePrimPool", () => {
       config: {
         ...DEFAULT_PRIM_CONFIG,
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
       },
@@ -395,6 +398,8 @@ describe("computePrimPool", () => {
         fixedPrimUsd: 8_000,
         viewBonusMode: "off",
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
         minNetFloorUsd: 0,
@@ -444,6 +449,8 @@ describe("computePrimPool", () => {
         basePrimMode: "fixed",
         fixedPrimUsd: 8_000,
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
         minNetFloorUsd: 5_000,
@@ -472,6 +479,8 @@ describe("computePrimPool", () => {
         fixedPrimUsd: 8_000,
         viewBonusMode: "off",
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
         viewPoolBonusUncapped: true,
@@ -500,6 +509,8 @@ describe("computePrimPool", () => {
         ...DEFAULT_PRIM_CONFIG,
         minNetFloorUsd: 20_000,
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusUncapped: true,
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
@@ -528,6 +539,8 @@ describe("computePrimPool", () => {
         fixedPrimUsd: 8_000,
         viewBonusMode: "off",
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusPerStepUsd: 100,
         maxPrimPerPersonUsd: 5_000,
       },
@@ -583,6 +596,8 @@ describe("computePrimPool", () => {
         viewBonusMode: "cpm",
         viewCpmBonusUsd: 2,
         viewPoolBonusEnabled: true,
+        viewPoolBonusMinViews: 0,
+        viewPoolBonusTiers: [],
         viewPoolBonusThresholdViews: 1_000_000,
         viewPoolBonusPerStepUsd: 100,
         minNetFloorUsd: 5_000,
@@ -693,5 +708,67 @@ describe("computePrimPool", () => {
       expenses: [],
     });
     expect(base.recipients.map((r) => r.id)).toEqual(["emp-ramiz"]);
+  });
+
+  it("5M barajı altında izlenme havuz bonusu yok", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands: [brands[0]],
+      brandFees: { b1: 10_000 },
+      brandGuarantees: { b1: 1_000_000 },
+      brandViews: { b1: 4_000_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1, points: 1 }],
+      config: { ...FAIR_PRIM_CONFIG, viewBonusMode: "off" },
+    });
+    expect(r.viewPoolBonusBillableViews).toBe(0);
+    expect(r.poolBonusUsd).toBe(0);
+  });
+
+  it("5M barajı sonrası kademeli izlenme bonusu hesaplar", () => {
+    const poolCfg = {
+      viewPoolBonusEnabled: true,
+      viewPoolBonusMinViews: 5_000_000,
+      viewPoolBonusThresholdViews: 1_000_000,
+      viewPoolBonusPerStepUsd: 125,
+      viewPoolBonusTiers: DEFAULT_VIEW_POOL_TIERS,
+    };
+    expect(calcViewPoolBonus(10_000_000, poolCfg).bonusUsd).toBe(625);
+    expect(calcViewPoolBonus(100_000_000, poolCfg).bonusUsd).toBe(8_625);
+    const extreme = calcViewPoolBonus(200_000_000, poolCfg);
+    expect(extreme.bonusUsd).toBe(12_375);
+    expect(extreme.steps).toBe(145);
+  });
+
+  it("puan oranına göre prim bölünür", () => {
+    const r = computePrimPool({
+      monthYm: "2026-06",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 500_000, b2: 500_000 },
+      payrollUsd: 0,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [
+        { id: "e1", name: "A", kind: "streamer", weight: 2, points: 2 },
+        { id: "e2", name: "B", kind: "streamer", weight: 1, points: 1 },
+        { id: "e3", name: "C", kind: "moderator", weight: 1, points: 1 },
+      ],
+      config: {
+        ...DEFAULT_PRIM_CONFIG,
+        basePrimMode: "fixed",
+        fixedPrimUsd: 4_000,
+        viewBonusMode: "off",
+        viewPoolBonusEnabled: false,
+        distributionMode: "weighted",
+      },
+    });
+    expect(r.recipients[0].totalUsd).toBeCloseTo(2_000, 0);
+    expect(r.recipients[1].totalUsd).toBeCloseTo(1_000, 0);
+    expect(r.recipients[2].totalUsd).toBeCloseTo(1_000, 0);
+    expect(r.recipients[0].sharePct).toBeCloseTo(0.5, 2);
   });
 });

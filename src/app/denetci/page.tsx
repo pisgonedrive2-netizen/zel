@@ -18,6 +18,11 @@ import {
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
+import {
+  canViewRamizWallet,
+  filterKasasForRamizViewer,
+  filterKasaTransactionsForRamizViewer,
+} from "@/lib/ramiz-wallet-access";
 import { fmt, toYearMonthLocal } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +41,15 @@ export default function DenetciPage() {
   } = useStore();
 
   const currentMonth = toYearMonthLocal(new Date());
+  const canRamizWallet = canViewRamizWallet(user);
+  const viewKasas = useMemo(
+    () => filterKasasForRamizViewer(kasas, canRamizWallet),
+    [kasas, canRamizWallet],
+  );
+  const viewKasaTransactions = useMemo(
+    () => filterKasaTransactionsForRamizViewer(kasaTransactions, canRamizWallet),
+    [kasaTransactions, canRamizWallet],
+  );
   const kasaOzeti = useMemo(() => {
     const balanceFor = (rows: KasaTransaction[]) =>
       rows.reduce(
@@ -43,23 +57,27 @@ export default function DenetciPage() {
         0
       );
     const genelKasa =
-      kasas.find((k) => k.id === DEFAULT_KASA_ID) ??
-      kasas.find((k) => k.isDefault && !k.tronAddress);
-    const tronKasa = kasas.find((k) => Boolean(k.tronAddress) && !k.archived);
+      viewKasas.find((k) => k.id === DEFAULT_KASA_ID) ??
+      viewKasas.find((k) => k.isDefault && !k.tronAddress);
+    const tronKasa = canRamizWallet
+      ? viewKasas.find((k) => Boolean(k.tronAddress) && !k.archived)
+      : undefined;
     const genelRows = genelKasa
-      ? kasaTransactions.filter((t) => t.kasaId === genelKasa.id)
+      ? viewKasaTransactions.filter((t) => t.kasaId === genelKasa.id)
       : [];
     const tronRows = tronKasa
-      ? kasaTransactions.filter((t) => t.kasaId === tronKasa.id)
+      ? viewKasaTransactions.filter((t) => t.kasaId === tronKasa.id)
       : [];
     return {
       genel: balanceFor(genelRows),
       tronToplam: balanceFor(tronRows),
       tronOps: balanceFor(tronRows.filter((t) => t.autoImported)),
       tronLokal: balanceFor(tronRows.filter((t) => !t.autoImported)),
-      tum: calcKasaBalance(kasaTransactions),
+      tum: canRamizWallet
+        ? calcKasaBalance(viewKasaTransactions)
+        : balanceFor(genelRows),
     };
-  }, [kasas, kasaTransactions]);
+  }, [canRamizWallet, viewKasas, viewKasaTransactions]);
   const activeExpenses = contentExpenses.filter(isActiveContentExpense);
   const pending      = contentExpenses.filter(e => e.reviewStatus === "pending");
   const approved     = contentExpenses.filter(e => e.reviewStatus === "approved");
@@ -107,10 +125,12 @@ export default function DenetciPage() {
           <CardContent className="pb-0">
             <p className="text-2xl font-bold tabular-nums">{fmt(kasaOzeti.genel)}</p>
             <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-              TRON iş {fmt(kasaOzeti.tronOps)} · lokal {fmt(kasaOzeti.tronLokal)}
+              {canRamizWallet
+                ? `TRON iş ${fmt(kasaOzeti.tronOps)} · lokal ${fmt(kasaOzeti.tronLokal)}`
+                : "İşletme kasası bakiyesi"}
             </p>
             <p className="text-[10px] text-muted-foreground/80 mt-0.5">
-              Tüm kasalar: {fmt(kasaOzeti.tum)}
+              {canRamizWallet ? `Tüm kasalar: ${fmt(kasaOzeti.tum)}` : `Genel kasa: ${fmt(kasaOzeti.genel)}`}
             </p>
           </CardContent>
         </Card>

@@ -5,6 +5,7 @@ import { useAuth } from "@/store/auth";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
 import { findPrimaryTronKasa } from "@/lib/kasa-tron-metrics";
+import { canViewRamizWallet } from "@/lib/ramiz-wallet-access";
 import {
   TRON_BACKGROUND_POLL_MS,
   TRON_BACKGROUND_RECENT_DAYS,
@@ -22,6 +23,7 @@ export function KasaTronSyncEffect() {
   useEffect(() => {
     if (!isSupabaseClientMode()) return;
     if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
+    if (!canViewRamizWallet(user)) return;
 
     const run = async () => {
       if (running.current) return;

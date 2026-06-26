@@ -9,6 +9,7 @@ import {
 } from "@/store/store";
 import { fmt, shiftCalendarMonthYm, toDateLocal, toYearMonthLocal } from "@/lib/data";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import { canViewRamizWallet, RAMIZ_EMPLOYEE_ID } from "@/lib/ramiz-wallet-access";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -92,6 +93,7 @@ function WalletCell({ address }: { address: string }) {
 export default function RaporPage() {
   const { employees, advances, salaryExtras, paymentStatuses, contentExpenses, setPaymentStatus } = useStore();
   const { user } = useAuth();
+  const canRamizWallet = canViewRamizWallet(user);
   const readOnly = useIsReadOnly();
   const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
 
@@ -145,7 +147,8 @@ export default function RaporPage() {
         totalPaidOut:     paidOut,
         paid:             status?.paid ?? false,
         paidDate:         status?.paidDate,
-        walletAddress:    emp.walletAddress,
+        walletAddress:
+          emp.id === RAMIZ_EMPLOYEE_ID && !canRamizWallet ? "" : emp.walletAddress,
       };
     });
   };
@@ -315,7 +318,13 @@ export default function RaporPage() {
                   </td>
                   <td className="px-3 py-3 tabular-nums font-medium whitespace-nowrap">{fmt(row.plannedTotalOut)}</td>
                   <td className="px-3 py-3 tabular-nums font-semibold text-green-700 whitespace-nowrap">{fmt(row.totalPaidOut)}</td>
-                  <td className="px-3 py-3"><WalletCell address={row.walletAddress} /></td>
+                  <td className="px-3 py-3">
+                    {row.id === RAMIZ_EMPLOYEE_ID && !canRamizWallet ? (
+                      <span className="text-muted-foreground text-xs italic">Gizli</span>
+                    ) : (
+                      <WalletCell address={row.walletAddress} />
+                    )}
+                  </td>
                   <td className="px-3 py-3">
                     {readOnly ? (
                       <Badge
