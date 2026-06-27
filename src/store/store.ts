@@ -943,6 +943,8 @@ interface AppStore {
   // Kasa & İçerik harcamaları
   kasas: Kasa[];
   kasaTransactions: KasaTransaction[];
+  /** Bootstrap'tan gelir; TRON gizli oturumlarda Toplam Kasa KPI. */
+  kasaMetrics: { operatingTotal: number; genelDisplayBalance: number | null } | null;
   contentExpenses: ContentExpense[];
 
   // Yayıncı haftalık planı ve bildirimler
@@ -2197,6 +2199,7 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       brandPosts:          initialBrandPosts,
       kasas:               initialKasas,
       kasaTransactions:    initialKasaTransactions,
+      kasaMetrics:         null,
       contentExpenses:     initialContentExpenses,
       weeklyPlans:         initialWeeklyPlans,
       weekBrandReels:      initialWeekBrandReels,

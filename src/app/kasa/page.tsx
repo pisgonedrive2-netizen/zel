@@ -438,7 +438,7 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function KasaPage() {
   const {
-    kasas, kasaTransactions,
+    kasas, kasaTransactions, kasaMetrics,
     addKasa, updateKasa, deleteKasa,
     addKasaTransaction, updateKasaTransaction, deleteKasaTransaction,
     bulkSetKasaCountInGenel,
@@ -805,9 +805,14 @@ export default function KasaPage() {
         .filter((k) => !k.archived)
         .map((k) => {
           const display = getKasaDisplayBalance(k, viewKasas, viewKasaTransactions, tronPanel);
+          // TRON gizli oturumda Genel Kasa, görünmeyen TRON gelirleriyle dengelenir.
+          const useServerGenel =
+            !canRamizWallet &&
+            k.id === DEFAULT_KASA_ID &&
+            kasaMetrics?.genelDisplayBalance != null;
           return {
             kasa: k,
-            balance: display.balance,
+            balance: useServerGenel ? kasaMetrics!.genelDisplayBalance! : display.balance,
             ledgerBalance: display.ledgerBalance,
             sublabel: display.sublabel,
             count: viewKasaTransactions.filter((t) => t.kasaId === k.id).length,
@@ -815,18 +820,20 @@ export default function KasaPage() {
             isGenelKasa: tronPanel?.genelKasa?.id === k.id,
           };
         }),
-    [visibleKasas, viewKasaTransactions, viewKasas, tronPanel]
+    [visibleKasas, viewKasaTransactions, viewKasas, tronPanel, canRamizWallet, kasaMetrics]
   );
 
-  const totalDisplayBalance = useMemo(
-    () =>
-      sumOperatingKasaLedgerBalance(
-        visibleKasas.filter((k) => !k.archived),
-        viewKasaTransactions,
-        tronPanel,
-      ),
-    [visibleKasas, viewKasaTransactions, tronPanel],
-  );
+  const totalDisplayBalance = useMemo(() => {
+    // TRON gizli oturumlar (Ediz vb.): TRON gelirleri istemcide görünmediği için
+    // Genel Kasa giderleri tek başına eksi görünür. Sunucu, tam veriyle hesaplanan
+    // gerçek işletme toplamını gönderir; onu kullanırız.
+    if (!canRamizWallet && kasaMetrics) return kasaMetrics.operatingTotal;
+    return sumOperatingKasaLedgerBalance(
+      visibleKasas.filter((k) => !k.archived),
+      viewKasaTransactions,
+      tronPanel,
+    );
+  }, [canRamizWallet, kasaMetrics, visibleKasas, viewKasaTransactions, tronPanel]);
 
   const currentBalanceDisplay = useMemo(() => {
     if (selectedKasaId === "all") return totalDisplayBalance;

@@ -375,6 +375,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         patch.paymentStatuses = mergeCanonicalPaymentStatuses(
           (patch.paymentStatuses ?? useStore.getState().paymentStatuses) as import("@/store/store").MonthPaymentStatus[],
         );
+        // Sunucu, TRON gizli oturumlar için gerçek işletme kasası toplamını hesaplar.
+        const serverKasaMetrics = (data as { kasaMetrics?: unknown }).kasaMetrics;
+        patch.kasaMetrics = serverKasaMetrics ?? null;
         useStore.setState(patch);
         try {
           const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {

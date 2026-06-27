@@ -527,12 +527,18 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     }
     try {
       const { ensureTronKasaConfigured } = await import("@/lib/tron-sync");
-      const genel = payload.kasas?.find((k) => k.isDefault && !k.archived) ?? payload.kasas?.[0];
-      if (genel) {
-        const updated = await ensureTronKasaConfigured(genel);
+      const { findPrimaryTronKasa } = await import("@/lib/kasa-tron-metrics");
+      // TRON adresi YALNIZCA TRON kasasına yazılır; varsayılan (Genel) kasaya değil.
+      const tronKasa =
+        payload.kasas?.find((k) => k.id === "kasa-tron" && !k.archived) ??
+        findPrimaryTronKasa(payload.kasas ?? [], kasaTransactions) ??
+        payload.kasas?.find((k) => k.kind === "usdt" && !k.archived) ??
+        null;
+      if (tronKasa) {
+        const updated = await ensureTronKasaConfigured(tronKasa);
         if (
-          updated.tronAddress !== genel.tronAddress ||
-          updated.tronSyncFrom !== genel.tronSyncFrom
+          updated.tronAddress !== tronKasa.tronAddress ||
+          updated.tronSyncFrom !== tronKasa.tronSyncFrom
         ) {
           await upsertRows("kasas", [kasaAccountToRow(updated)]);
           payload.kasas = (payload.kasas ?? []).map((k) =>

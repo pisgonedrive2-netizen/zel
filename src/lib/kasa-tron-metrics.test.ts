@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeKasaOperatingMetrics,
   computeTronPanelMetrics,
   kasaPaymentBalance,
   kasaSelectOptionLabel,
@@ -100,26 +101,42 @@ describe("kasa payment balance", () => {
     expect(kasaPaymentBalance("kasa-genel", kasas, kasaTransactions, panel)).toBe(6_000);
   });
 
-  it("Toplam Kasa KPI TRON cüzdanını ve dahil TRON düzeltmesini toplamaz", () => {
+  it("Toplam Kasa KPI: TRON cüzdanını saymaz, Genel'e dahil TRON gelir/giderini nettler", () => {
+    // Gerçek senaryo: Genel Kasa giderleri TRON gelirleriyle finanse edilir.
+    // Genel ledger −27.091,81 + dahil TRON gelir 27.226 − dahil TRON gider 134 ≈ 0.
     const kasaTransactions: KasaTransaction[] = [
       {
-        id: "in-genel",
+        id: "genel-out",
         kasaId: "kasa-genel",
         date: "2026-06-01T10:00",
-        direction: "in",
-        amountUsd: 100,
+        direction: "out",
+        amountUsd: 27_091.81,
         feeUsd: 0,
-        purpose: "Giriş",
+        purpose: "Genel gider",
         counterparty: "",
         proof: "",
         notes: "",
       },
       {
-        id: "tron-out",
+        id: "tron-in",
         kasaId: "kasa-tron",
         date: "2026-06-02T10:00",
+        direction: "in",
+        amountUsd: 27_226,
+        feeUsd: 0,
+        purpose: "TRON gelen",
+        counterparty: "",
+        proof: "",
+        notes: "",
+        countInGenel: true,
+        autoImported: true,
+      },
+      {
+        id: "tron-out",
+        kasaId: "kasa-tron",
+        date: "2026-06-03T10:00",
         direction: "out",
-        amountUsd: 27_000,
+        amountUsd: 134,
         feeUsd: 0,
         purpose: "TRON harcama",
         counterparty: "",
@@ -131,9 +148,13 @@ describe("kasa payment balance", () => {
     ];
     const kasas = [genelKasa, tronKasa];
     const panel = computeTronPanelMetrics(kasas, kasaTransactions);
-    expect(kasaPaymentBalance("kasa-genel", kasas, kasaTransactions, panel)).toBe(-26_900);
+    // İşletme toplamı ≈ 0 (TRON cüzdan bakiyesi sayılmaz).
     expect(
       sumOperatingKasaLedgerBalance(kasas, kasaTransactions, panel),
-    ).toBe(100);
+    ).toBeCloseTo(0.19, 2);
+    // Sunucu metriği de aynı sonucu verir (TRON gizli oturumlar için).
+    const metrics = computeKasaOperatingMetrics(kasas, kasaTransactions);
+    expect(metrics.operatingTotal).toBeCloseTo(0.19, 2);
+    expect(metrics.genelDisplayBalance).toBeCloseTo(0.19, 2);
   });
 });

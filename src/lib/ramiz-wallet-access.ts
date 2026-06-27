@@ -1,5 +1,9 @@
 import type { AppUser } from "@/store/auth";
 import type { SessionPayload } from "@/lib/session";
+import {
+  computeKasaOperatingMetrics,
+  type KasaOperatingMetrics,
+} from "@/lib/kasa-tron-metrics";
 import type { Employee, Kasa, KasaTransaction } from "@/store/store";
 import {
   canAccessPrim,
@@ -100,6 +104,7 @@ export type RamizBootstrapSlice = {
   kasas?: Kasa[];
   kasaTransactions?: KasaTransaction[];
   employees?: Employee[];
+  kasaMetrics?: KasaOperatingMetrics;
 };
 
 /** Bootstrap yanıtından Ramiz cüzdan verisini çıkarır (yetkisiz oturumlar). */
@@ -108,11 +113,15 @@ export function sanitizeBootstrapRamizWallet<T extends RamizBootstrapSlice>(
   session: SessionPayload,
 ): T {
   if (canViewRamizWalletSession(session)) return payload;
+  const kasas = payload.kasas ?? [];
+  const kasaTransactions = payload.kasaTransactions ?? [];
+  const kasaMetrics = computeKasaOperatingMetrics(kasas, kasaTransactions);
   return {
     ...payload,
-    kasas: filterKasasForRamizViewer(payload.kasas ?? [], false),
+    kasaMetrics,
+    kasas: filterKasasForRamizViewer(kasas, false),
     kasaTransactions: filterKasaTransactionsForRamizViewer(
-      payload.kasaTransactions ?? [],
+      kasaTransactions,
       false,
     ),
     employees: payload.employees
