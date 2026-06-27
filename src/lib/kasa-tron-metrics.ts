@@ -218,3 +218,18 @@ export function sumKasaDisplayBalances(
       0,
     );
 }
+
+/**
+ * Toplam Kasa KPI: işletme kasası defter bakiyesi.
+ * Ramiz TRON cüzdanı ayrı kartta gösterilir; dahil TRON düzeltmeleri burada çift sayılmaz.
+ */
+export function sumOperatingKasaLedgerBalance(
+  kasas: Kasa[],
+  kasaTransactions: KasaTransaction[],
+  panel: TronPanelMetrics | null = computeTronPanelMetrics(kasas, kasaTransactions),
+): number {
+  const tronId = panel?.tronKasa.id;
+  return kasas
+    .filter((k) => !k.archived && k.id !== tronId)
+    .reduce((s, k) => s + calcKasaBalance(kasaTransactions, undefined, k.id), 0);
+}

@@ -45,7 +45,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
     // Login ekranındaysa ve kullanıcı varsa → kendi landing'e
     if (isLogin && user) {
-      router.replace(landingFor(user.role));
+      router.replace(landingFor(user.role, user));
       return;
     }
 
@@ -57,7 +57,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
     // Erişim yetkisi yoksa kendi landing'e
     if (user && !canAccess(pathname, user.role, panelViewAs, brandViewAs, user)) {
-      router.replace(landingFor(user.role));
+      router.replace(landingFor(user.role, user));
       return;
     }
 

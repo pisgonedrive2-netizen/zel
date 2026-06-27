@@ -25,7 +25,7 @@ export function isMainAdminSession(session: SessionPayload | null | undefined): 
   );
 }
 
-/** Prim havuzu yalnızca ana yönetici (Orkun) — impersonation oturumunda kapalı. */
+/** Prim havuzu ve Özet — yalnızca ana yönetici (Orkun); impersonation oturumunda kapalı. */
 export function canAccessPrim(
   u: Pick<AppUser, "id" | "username" | "impersonatorId"> | null | undefined,
 ): boolean {

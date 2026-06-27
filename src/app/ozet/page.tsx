@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   useStore,
   calcNetPayable,
@@ -15,6 +16,7 @@ import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
+import { canAccessPrim } from "@/lib/user-guards";
 import {
   canViewRamizWallet,
   filterKasasForRamizViewer,
@@ -67,13 +69,22 @@ function CustomTooltip({ active, payload, label }: any) {
 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function OzetPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const allowed = canAccessPrim(user);
+
+  useEffect(() => {
+    if (user && !allowed) {
+      router.replace("/maaslar");
+    }
+  }, [user, allowed, router]);
+
   const {
     companies, projects, expenses, employees,
     salaryExtras, advances, paymentStatuses,
     kasas, kasaTransactions, contentExpenses, brandLinks, brands, notifications,
     brandViewership, linkSnapshots,
   } = useStore();
-  const { user } = useAuth();
   const canRamizWallet = canViewRamizWallet(user);
   const viewKasas = useMemo(
     () => filterKasasForRamizViewer(kasas, canRamizWallet),
@@ -426,6 +437,14 @@ export default function OzetPage() {
       href: "/maaslar" as const,
     },
   ];
+
+  if (!user || !allowed) {
+    return (
+      <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1280px]">
+        <p className="text-sm text-muted-foreground py-8 text-center">Yükleniyor…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1280px]">

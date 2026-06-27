@@ -51,7 +51,7 @@ type NavItem = {
 };
 
 const ADMIN_NAV: NavItem[] = [
-  { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol", sensitive: true },
+  { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/gorevler",             label: "Görevler",           icon: ClipboardList,   group: "Kontrol" },
   { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro", sensitive: true },

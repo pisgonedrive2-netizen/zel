@@ -2,59 +2,27 @@ import type { AppUser } from "@/store/auth";
 import type { SessionPayload } from "@/lib/session";
 import type { Employee, Kasa, KasaTransaction } from "@/store/store";
 import {
-  isMainAdmin,
+  canAccessPrim,
   isMainAdminSession,
-  MAIN_ADMIN_ID,
-  MAIN_ADMIN_USERNAME,
 } from "@/lib/user-guards";
 
-/** Ramiz TRON cüzdanını görebilen ikinci yönetici. */
-export const RAMIZ_WALLET_VIEWER_USERNAME = "ediz";
-export const RAMIZ_WALLET_VIEWER_ID = "u-ediz";
 export const RAMIZ_EMPLOYEE_ID = "emp-ramiz";
 export const TRON_KASA_ID = "kasa-tron";
 
 const RAMIZ_TRON_ADDRESS_FALLBACK = "TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE";
 
-export function isEdiz(u: Pick<AppUser, "id" | "username"> | null | undefined): boolean {
-  if (!u) return false;
-  return (
-    u.id === RAMIZ_WALLET_VIEWER_ID ||
-    u.username.toLowerCase().trim() === RAMIZ_WALLET_VIEWER_USERNAME
-  );
-}
-
-function impersonatorMayViewRamizWallet(
-  impersonatorId?: string,
-  impersonatorName?: string,
-): boolean {
-  if (impersonatorId === MAIN_ADMIN_ID) return true;
-  if (impersonatorId === RAMIZ_WALLET_VIEWER_ID) return true;
-  const name = impersonatorName?.toLowerCase().trim();
-  return name === MAIN_ADMIN_USERNAME || name === RAMIZ_WALLET_VIEWER_USERNAME;
-}
-
-/** Ramiz TRON cüzdanı ve otomatik transferleri — yalnızca Orkun ve Ediz. */
+/** Ramiz TRON cüzdanı — yalnızca Orkun, impersonation dahil değil. */
 export function canViewRamizWallet(
-  u: Pick<AppUser, "id" | "username" | "impersonatorId" | "impersonatorName"> | null | undefined,
+  u: Pick<AppUser, "id" | "username" | "impersonatorId"> | null | undefined,
 ): boolean {
-  if (!u) return false;
-  if (isMainAdmin(u) || isEdiz(u)) return true;
-  return impersonatorMayViewRamizWallet(u.impersonatorId, u.impersonatorName);
+  return canAccessPrim(u);
 }
 
 export function canViewRamizWalletSession(
   session: SessionPayload | null | undefined,
 ): boolean {
-  if (!session) return false;
-  if (isMainAdminSession(session)) return true;
-  if (
-    session.userId === RAMIZ_WALLET_VIEWER_ID ||
-    session.username.toLowerCase().trim() === RAMIZ_WALLET_VIEWER_USERNAME
-  ) {
-    return true;
-  }
-  return impersonatorMayViewRamizWallet(session.impersonatorId, session.impersonatorName);
+  if (!session || session.impersonatorId) return false;
+  return isMainAdminSession(session);
 }
 
 export function getRamizTronAddress(): string {

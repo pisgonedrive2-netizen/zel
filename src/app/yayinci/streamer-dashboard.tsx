@@ -2202,7 +2202,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 </div>
               )}
 
-              {/* Cüzdan — inline edit (Ramiz TRON adresi yalnızca Orkun/Ediz) */}
+              {/* Cüzdan — inline edit (Ramiz TRON adresi yalnızca Orkun) */}
               {(me.id !== RAMIZ_EMPLOYEE_ID || canViewRamizWallet(user)) && (
               <div className="mt-3 px-4 py-3 rounded-lg border border-border bg-muted/30">
                 <div className="flex items-center justify-between mb-1.5">

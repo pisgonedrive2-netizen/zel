@@ -614,7 +614,7 @@ export const ROUTE_ACCESS = {
   adminBlocked: ["/login"],
 
   /** Yalnızca ana yönetici (Orkun) — marka/yayıncı/denetçi/diğer adminler erişemez. */
-  mainAdminOnly: ["/prim"],
+  mainAdminOnly: ["/prim", "/ozet"],
 };
 
 export function canAccess(
@@ -659,9 +659,14 @@ export function canAccess(
   return ROUTE_ACCESS.streamer.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-/** Her rol için varsayılan landing. */
-export function landingFor(role: Role): string {
-  if (role === "admin")   return "/ozet";
+/** Her rol için varsayılan landing. Özet yalnızca Orkun — diğer adminler maaşlara gider. */
+export function landingFor(
+  role: Role,
+  user?: Pick<AppUser, "id" | "username"> | null,
+): string {
+  if (role === "admin") {
+    return user && isMainAdmin(user) ? "/ozet" : "/maaslar";
+  }
   if (role === "auditor") return "/denetci";
   if (role === "brand")   return "/marka/anasayfa";
   return "/yayinci/maas";

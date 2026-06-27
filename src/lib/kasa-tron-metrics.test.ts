@@ -3,6 +3,7 @@ import {
   computeTronPanelMetrics,
   kasaPaymentBalance,
   kasaSelectOptionLabel,
+  sumOperatingKasaLedgerBalance,
 } from "./kasa-tron-metrics";
 import type { Kasa, KasaTransaction } from "@/store/store";
 
@@ -97,5 +98,42 @@ describe("kasa payment balance", () => {
     const kasas = [genelKasa, tronKasa];
     const panel = computeTronPanelMetrics(kasas, kasaTransactions);
     expect(kasaPaymentBalance("kasa-genel", kasas, kasaTransactions, panel)).toBe(6_000);
+  });
+
+  it("Toplam Kasa KPI TRON cüzdanını ve dahil TRON düzeltmesini toplamaz", () => {
+    const kasaTransactions: KasaTransaction[] = [
+      {
+        id: "in-genel",
+        kasaId: "kasa-genel",
+        date: "2026-06-01T10:00",
+        direction: "in",
+        amountUsd: 100,
+        feeUsd: 0,
+        purpose: "Giriş",
+        counterparty: "",
+        proof: "",
+        notes: "",
+      },
+      {
+        id: "tron-out",
+        kasaId: "kasa-tron",
+        date: "2026-06-02T10:00",
+        direction: "out",
+        amountUsd: 27_000,
+        feeUsd: 0,
+        purpose: "TRON harcama",
+        counterparty: "",
+        proof: "",
+        notes: "",
+        countInGenel: true,
+        autoImported: true,
+      },
+    ];
+    const kasas = [genelKasa, tronKasa];
+    const panel = computeTronPanelMetrics(kasas, kasaTransactions);
+    expect(kasaPaymentBalance("kasa-genel", kasas, kasaTransactions, panel)).toBe(-26_900);
+    expect(
+      sumOperatingKasaLedgerBalance(kasas, kasaTransactions, panel),
+    ).toBe(100);
   });
 });

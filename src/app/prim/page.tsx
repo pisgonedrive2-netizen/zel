@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/store/auth";
+import { useAuth, landingFor } from "@/store/auth";
 import { canAccessPrim } from "@/lib/user-guards";
 import { PageShell } from "@/components/page-shell";
 import { PrimPoolPanel } from "@/components/prim/prim-pool-panel";
@@ -14,7 +14,7 @@ export default function PrimPage() {
 
   useEffect(() => {
     if (user && !allowed) {
-      router.replace("/ozet");
+      router.replace(landingFor(user.role, user));
     }
   }, [user, allowed, router]);
 

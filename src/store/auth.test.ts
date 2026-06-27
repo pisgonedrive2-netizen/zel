@@ -14,7 +14,11 @@ describe("canAccess", () => {
   });
 
   it("allows admin on agency routes", () => {
-    expect(canAccess("/ozet", "admin")).toBe(true);
+    const orkun = { id: "u-admin", username: "orkun" };
+    const otherAdmin = { id: "u-other", username: "admin2" };
+    expect(canAccess("/ozet", "admin", null, null, orkun)).toBe(true);
+    expect(canAccess("/ozet", "admin", null, null, otherAdmin)).toBe(false);
+    expect(canAccess("/ozet", "admin")).toBe(false);
     expect(canAccess("/izlenme/markalar", "admin")).toBe(true);
     expect(canAccess("/izlenme/api", "admin")).toBe(true);
   });
@@ -77,7 +81,9 @@ describe("canAccess", () => {
 
 describe("landingFor", () => {
   it("returns role-specific home routes", () => {
-    expect(landingFor("admin")).toBe("/ozet");
+    expect(landingFor("admin", { id: "u-admin", username: "orkun" })).toBe("/ozet");
+    expect(landingFor("admin", { id: "u-other", username: "admin2" })).toBe("/maaslar");
+    expect(landingFor("admin")).toBe("/maaslar");
     expect(landingFor("auditor")).toBe("/denetci");
     expect(landingFor("brand")).toBe("/marka/anasayfa");
     expect(landingFor("streamer")).toBe("/yayinci/maas");

@@ -6,7 +6,7 @@ import {
   ClipboardList, Plus, Trash2, UserPlus, CalendarClock,
   ChevronLeft, ChevronRight, X, CalendarDays, Eraser,
 } from "lucide-react";
-import { useAuth } from "@/store/auth";
+import { useAuth, landingFor } from "@/store/auth";
 import { useStore } from "@/store/store";
 import { PageShell, PageHeader } from "@/components/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,7 +53,7 @@ export default function GorevlerPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (user && !allowed) router.replace("/ozet");
+    if (user && !allowed) router.replace(landingFor(user.role, user));
   }, [user, allowed, router]);
 
   const load = useCallback(async () => {

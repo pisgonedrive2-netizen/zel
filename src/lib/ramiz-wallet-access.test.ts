@@ -11,9 +11,9 @@ import {
 import type { KasaTransaction } from "@/store/store";
 
 describe("ramiz-wallet-access", () => {
-  it("orkun ve ediz görebilir", () => {
+  it("yalnızca orkun görebilir", () => {
     expect(canViewRamizWallet({ id: "u-admin", username: "orkun" })).toBe(true);
-    expect(canViewRamizWallet({ id: "u-ediz", username: "ediz" })).toBe(true);
+    expect(canViewRamizWallet({ id: "u-ediz", username: "ediz" })).toBe(false);
   });
 
   it("diğer adminler ve denetçi göremez", () => {
@@ -22,15 +22,14 @@ describe("ramiz-wallet-access", () => {
     expect(canViewRamizWallet({ id: "u-ramiz", username: "ramiz" })).toBe(false);
   });
 
-  it("orkun impersonation ile görebilir", () => {
+  it("impersonation oturumunda tron görünmez", () => {
     expect(
       canViewRamizWallet({
         id: "u-ramiz",
         username: "ramiz",
         impersonatorId: "u-admin",
-        impersonatorName: "orkun",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("otomatik TRON işlemlerini filtreler", () => {

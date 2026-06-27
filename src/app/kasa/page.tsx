@@ -15,7 +15,7 @@ import {
   computeTronPanelMetrics,
   getKasaDisplayBalance,
   isTronGenelToggleable,
-  sumKasaDisplayBalances,
+  sumOperatingKasaLedgerBalance,
 } from "@/lib/kasa-tron-metrics";
 import {
   isTronReflectedInGenelView,
@@ -96,7 +96,7 @@ function InlineCounterparty({
   value: string;
   readOnly: boolean;
   onSave: (next: string) => void;
-  /** Ramiz TRON adresini gösterme yetkisi (Orkun / Ediz). */
+  /** Ramiz TRON adresini gösterme yetkisi (yalnızca Orkun). */
   canRevealTron?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -569,8 +569,18 @@ export default function KasaPage() {
   }, []);
 
   useEffect(() => {
+    if (!canRamizWallet && sourceFilter === "tron-auto") {
+      setSourceFilter("all");
+    }
+  }, [canRamizWallet, sourceFilter]);
+
+  useEffect(() => {
+    if (!canRamizWallet) {
+      setTronInfo(null);
+      return;
+    }
     void loadTronInfo();
-  }, [loadTronInfo]);
+  }, [canRamizWallet, loadTronInfo]);
 
   const selectedKasa = useMemo(
     () => (selectedKasaId === "all" ? null : kasas.find((k) => k.id === selectedKasaId)),
@@ -809,8 +819,13 @@ export default function KasaPage() {
   );
 
   const totalDisplayBalance = useMemo(
-    () => sumKasaDisplayBalances(visibleKasas.filter((k) => !k.archived), viewKasaTransactions),
-    [visibleKasas, viewKasaTransactions]
+    () =>
+      sumOperatingKasaLedgerBalance(
+        visibleKasas.filter((k) => !k.archived),
+        viewKasaTransactions,
+        tronPanel,
+      ),
+    [visibleKasas, viewKasaTransactions, tronPanel],
   );
 
   const currentBalanceDisplay = useMemo(() => {
@@ -1108,7 +1123,7 @@ export default function KasaPage() {
         )}
       </div>
 
-      {/* TRON USDT cüzdan — yalnızca Orkun / Ediz */}
+      {/* TRON USDT cüzdan — yalnızca Orkun */}
       {canRamizWallet && (() => {
         if (!tronPanel || !tronKasa) return null;
         const isActive = selectedKasaId === tronKasa.id;
@@ -1435,7 +1450,7 @@ export default function KasaPage() {
         );
       })()}
 
-      {tronInfo && (
+      {canRamizWallet && tronInfo && (
         <Card className="mb-5 border-border/80">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -1519,7 +1534,12 @@ export default function KasaPage() {
             <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
           </p>
           <p className="text-2xl font-bold tabular-nums text-blue-900 dark:text-blue-100">{fmtUsdt(currentBalanceDisplay)}</p>
-          {currentBalanceDisplay !== currentLedgerBalance && tronPanel && (tronPanel.includedTronOut > 0 || tronPanel.includedTronIn > 0) && (
+          {selectedKasaId === "all" && canRamizWallet && tronPanel && (
+            <p className="mt-0.5 text-[10px] text-blue-700/70 dark:text-blue-300/70">
+              İşletme kasası · Ramiz TRON cüzdanı ayrı gösterilir
+            </p>
+          )}
+          {selectedKasaId !== "all" && currentBalanceDisplay !== currentLedgerBalance && tronPanel && (tronPanel.includedTronOut > 0 || tronPanel.includedTronIn > 0) && (
             <p className="mt-0.5 text-[10px] text-blue-700/70 dark:text-blue-300/70">
               Defter {fmtUsdt(currentLedgerBalance)}
               {tronPanel.includedTronOut > 0 && ` · TRON gider −${fmtUsdt(tronPanel.includedTronOut)}`}
@@ -1582,7 +1602,7 @@ export default function KasaPage() {
         </p>
       </div>
 
-      {genelKasaId && selectedKasaId === genelKasaId && (tronPanel?.includedTronCount ?? 0) > 0 && (
+      {canRamizWallet && genelKasaId && selectedKasaId === genelKasaId && (tronPanel?.includedTronCount ?? 0) > 0 && (
         <div className="mb-3 rounded-xl border border-amber-300/50 bg-amber-50/60 dark:border-amber-500/35 dark:bg-amber-950/30 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-100">
           <strong>{tronPanel.includedTronCount}</strong> TRON cüzdan hareketi &quot;Dahil&quot; olarak
           işaretlendi — gelenler işletme gelirine, gidenler giderine yansır (Ramiz cüzdan satırı).
@@ -1604,7 +1624,9 @@ export default function KasaPage() {
         <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-card">
           {([
             { value: "all", label: "Tüm kaynak" },
-            { value: "tron-auto", label: "TRON otomatik" },
+            ...(canRamizWallet
+              ? [{ value: "tron-auto" as const, label: "TRON otomatik" }]
+              : []),
             { value: "manual", label: "Manuel" },
           ] as const).map((opt) => (
             <button

@@ -912,7 +912,7 @@ export default function LoginPage() {
   const [modal, setModal] = useState<AuthModal>(null);
 
   useEffect(() => {
-    if (user) router.replace(landingFor(user.role));
+    if (user) router.replace(landingFor(user.role, user));
   }, [user, router]);
 
   const closeModal = () => {

@@ -6,7 +6,6 @@ import type { AppNotification } from "@/store/store";
 import type { TronNewTx } from "@/lib/tron-sync";
 import { notificationHrefFor } from "@/lib/notification-href";
 import { MAIN_ADMIN_ID } from "@/lib/user-guards";
-import { RAMIZ_WALLET_VIEWER_ID } from "@/lib/ramiz-wallet-access";
 
 async function insertNotifOnce(notif: AppNotification): Promise<void> {
   const db = getSupabaseAdmin();
@@ -52,7 +51,7 @@ export async function notifyTronWalletTransactions(args: {
       `İzlenen cüzdan (${args.walletLabel}): ${walletShort}`,
     ].join("\n");
 
-    for (const forUserId of [MAIN_ADMIN_ID, RAMIZ_WALLET_VIEWER_ID]) {
+    for (const forUserId of [MAIN_ADMIN_ID]) {
       await insertNotifOnce({
         id: `n-${crypto.randomUUID().slice(0, 12)}`,
         type: "general",
