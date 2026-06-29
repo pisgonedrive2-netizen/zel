@@ -3,5 +3,5 @@ import { toYearMonthLocal } from "@/lib/data";
 
 export default function MarkaIndexPage() {
   const month = toYearMonthLocal(new Date());
-  redirect(`/marka/anasayfa?month=${month}`);
+  redirect(`/marka/izlenmeler?month=${month}`);
 }

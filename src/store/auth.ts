@@ -668,7 +668,7 @@ export function landingFor(
     return user && isMainAdmin(user) ? "/ozet" : "/maaslar";
   }
   if (role === "auditor") return "/denetci";
-  if (role === "brand")   return "/marka/anasayfa";
+  if (role === "brand")   return "/marka/izlenmeler";
   return "/yayinci/maas";
 }
 

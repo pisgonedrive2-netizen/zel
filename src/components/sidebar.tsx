@@ -157,7 +157,7 @@ export default function Sidebar() {
     user?.role === "auditor"  ? AUDITOR_NAV  :
     user?.role === "brand"    ? BRAND_NAV    :
     STREAMER_NAV;
-  const BRAND_GROUPS: NavItem["group"][] = ["Genel", "İş Birliği", "İzlenme", "Büyüme", "Ekip", "Finans", "Hesap"];
+  const BRAND_GROUPS: NavItem["group"][] = ["İzlenme", "Genel", "İş Birliği", "Büyüme", "Ekip", "Finans", "Hesap"];
   const STREAMER_GROUPS: NavItem["group"][] = ["Yayıncı", "İş Birliği", "Hesap"];
   const groups: NavItem["group"][] =
     adminViewingStreamer     ? STREAMER_GROUPS :

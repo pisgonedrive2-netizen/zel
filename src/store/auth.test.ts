@@ -85,7 +85,7 @@ describe("landingFor", () => {
     expect(landingFor("admin", { id: "u-other", username: "admin2" })).toBe("/maaslar");
     expect(landingFor("admin")).toBe("/maaslar");
     expect(landingFor("auditor")).toBe("/denetci");
-    expect(landingFor("brand")).toBe("/marka/anasayfa");
+    expect(landingFor("brand")).toBe("/marka/izlenmeler");
     expect(landingFor("streamer")).toBe("/yayinci/maas");
   });
 });

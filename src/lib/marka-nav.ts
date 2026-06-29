@@ -56,9 +56,9 @@ export interface MarkaNavItemDef {
 }
 
 export const MARKA_NAV_GROUP_ORDER: MarkaNavGroup[] = [
+  "İzlenme",
   "Genel",
   "İş Birliği",
-  "İzlenme",
   "Büyüme",
   "Ekip",
   "Finans",

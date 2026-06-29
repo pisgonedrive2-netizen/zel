@@ -74,9 +74,9 @@ export default function MarkaOnboardingPage() {
     }
   }, [org, brand]);
 
-  // Onboarding zaten tamamlanmışsa anasayfaya dön.
+  // Onboarding zaten tamamlanmışsa izlenme paneline dön.
   useEffect(() => {
-    if (org && org.onboardingCompleted) router.replace("/marka/anasayfa");
+    if (org && org.onboardingCompleted) router.replace("/marka/izlenmeler");
   }, [org, router]);
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export default function MarkaOnboardingPage() {
       if (bid) {
         await saveOnboardingStep(bid, "license_info", true).catch(() => {});
       }
-      router.replace("/marka/anasayfa");
+      router.replace("/marka/izlenmeler");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Kaydedilemedi");
       setBusy(false);
