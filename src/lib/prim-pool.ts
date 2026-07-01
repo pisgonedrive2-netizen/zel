@@ -512,6 +512,8 @@ export function computePrimPool(input: {
   }[];
   /** Aktif kasaların toplam bakiyesi (USD). kasa_share modunda kullanılır. */
   kasaBalanceUsd?: number;
+  /** Marka ücretleri dışında eklenen mutlak gelir (senaryo: "25k gelse") — USD. */
+  extraRevenueUsd?: number;
   config?: PrimPoolConfig;
 }): PrimPoolResult {
   const config = normalizeConfig(input.config);
@@ -538,7 +540,9 @@ export function computePrimPool(input: {
     };
   });
 
-  const totalRevenueUsd = brandRows.reduce((s, r) => s + r.monthlyFeeUsd, 0);
+  const brandRevenueUsd = brandRows.reduce((s, r) => s + r.monthlyFeeUsd, 0);
+  const extraRevenueUsd = Math.max(0, input.extraRevenueUsd ?? 0);
+  const totalRevenueUsd = brandRevenueUsd + extraRevenueUsd;
   const manualExpenseUsd = (config.manualExpenses ?? []).reduce(
     (s, e) => s + (Number.isFinite(e.amountUsd) ? e.amountUsd : 0),
     0,
@@ -755,6 +759,8 @@ export type PrimScenario = {
   revenueMultiplier: number;
   expenseMultiplier: number;
   viewsMultiplier: number;
+  /** Çarpan dışında eklenen mutlak gelir (ör. "25k prim gelse") — USD. */
+  extraRevenueUsd?: number;
 };
 
 export const DEFAULT_SCENARIOS: PrimScenario[] = [
@@ -911,6 +917,8 @@ export function computeWithScenario(base: PrimBaseInputs, scenario: PrimScenario
     contentExpenseUsd: base.contentExpenseUsd * scenario.expenseMultiplier,
     generalExpenseUsd: base.generalExpenseUsd * scenario.expenseMultiplier,
     recipients: base.recipients,
+    // Mutlak ek gelir (ör. "25k gelse") — çarpandan bağımsız olarak gelire eklenir.
+    extraRevenueUsd: Math.max(0, scenario.extraRevenueUsd ?? 0),
     config: scenarioPrimConfig(base),
   };
 

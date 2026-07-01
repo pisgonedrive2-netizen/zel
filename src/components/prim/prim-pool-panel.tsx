@@ -205,7 +205,7 @@ export function PrimPoolPanel() {
   const [newExpenseLabel, setNewExpenseLabel] = useState("");
   const [newExpenseAmount, setNewExpenseAmount] = useState(0);
 
-  const [customScn, setCustomScn] = useState({ revenue: 100, expense: 100, views: 100 });
+  const [customScn, setCustomScn] = useState({ revenue: 100, expense: 100, views: 100, extraRevenue: 0 });
 
   const hydrated = useRef(false);
 
@@ -445,6 +445,7 @@ export function PrimPoolPanel() {
     revenueMultiplier: customScn.revenue / 100,
     expenseMultiplier: customScn.expense / 100,
     viewsMultiplier: customScn.views / 100,
+    extraRevenueUsd: customScn.extraRevenue,
   }), [base, customScn]);
 
   const history = useMemo(
@@ -564,7 +565,7 @@ export function PrimPoolPanel() {
     const fresh = defaultPrimStoredSettings();
     storedRef.current = fresh;
     applyMonthSlice(fresh, month);
-    setCustomScn({ revenue: 100, expense: 100, views: 100 });
+    setCustomScn({ revenue: 100, expense: 100, views: 100, extraRevenue: 0 });
     savePrimStoredSettings(fresh);
     try {
       if (typeof window !== "undefined") {
@@ -986,10 +987,42 @@ export function PrimPoolPanel() {
                   <SliderRow label="Gelir çarpanı" value={customScn.revenue} min={50} max={200} suffix="%" accent="emerald" asMultiplier onChange={(v) => setCustomScn((s) => ({ ...s, revenue: v }))} />
                   <SliderRow label="Gider çarpanı" value={customScn.expense} min={50} max={200} suffix="%" accent="rose" asMultiplier onChange={(v) => setCustomScn((s) => ({ ...s, expense: v }))} />
                   <SliderRow label="İzlenme çarpanı" value={customScn.views} min={30} max={300} suffix="%" accent="blue" asMultiplier onChange={(v) => setCustomScn((s) => ({ ...s, views: v }))} />
+                  <div className="flex flex-col gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[12px] font-medium text-foreground/90">Ek gelir gelirse (prim/tahsilat) +$</label>
+                      <span className="text-[11px] tabular-nums font-semibold text-emerald-600 dark:text-emerald-400">
+                        +{fmtPrimUsd(customScn.extraRevenue)}
+                      </span>
+                    </div>
+                    <NumberInput
+                      value={customScn.extraRevenue}
+                      onChange={(v) => setCustomScn((s) => ({ ...s, extraRevenue: Math.max(0, v) }))}
+                      min={0}
+                      step={5000}
+                      className="h-8 text-xs"
+                    />
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[0, 10000, 25000, 50000].map((amt) => (
+                        <Button
+                          key={amt}
+                          variant={customScn.extraRevenue === amt ? "default" : "outline"}
+                          size="sm"
+                          className="h-6 text-[10px] px-2"
+                          onClick={() => setCustomScn((s) => ({ ...s, extraRevenue: amt }))}
+                        >
+                          {amt === 0 ? "Yok" : `+$${(amt / 1000).toLocaleString("tr-TR")}K`}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">
+                      Çarpanlardan bağımsız, doğrudan gelire eklenir. Marka geliri düşük/0 olsa bile
+                      &quot;25K gelse ne olur&quot; senaryosu için primi hesaplar.
+                    </p>
+                  </div>
                   <div className="flex gap-2 flex-wrap pt-1">
                     {DEFAULT_SCENARIOS.map((s) => (
                       <Button key={s.key} variant="outline" size="sm" className="h-7 text-[11px]"
-                        onClick={() => setCustomScn({ revenue: Math.round(s.revenueMultiplier * 100), expense: Math.round(s.expenseMultiplier * 100), views: Math.round(s.viewsMultiplier * 100) })}>
+                        onClick={() => setCustomScn((prev) => ({ ...prev, revenue: Math.round(s.revenueMultiplier * 100), expense: Math.round(s.expenseMultiplier * 100), views: Math.round(s.viewsMultiplier * 100) }))}>
                         {s.label}
                       </Button>
                     ))}

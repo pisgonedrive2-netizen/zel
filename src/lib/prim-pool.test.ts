@@ -286,6 +286,35 @@ describe("computePrimPool", () => {
     expect(worst.totalPrimUsd).toBeLessThan(12_000);
   });
 
+  it("mutlak ek gelir (25k gelse) marka geliri 0 olsa bile prim üretir", () => {
+    const base: PrimBaseInputs = {
+      monthYm: "2026-07",
+      brands,
+      brandFees: { b1: 0, b2: 0 },
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 0, b2: 0 },
+      payrollUsd: 3_000,
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      kasaBalanceUsd: 0,
+      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "net_share", basePrimRate: 0.1, minNetFloorUsd: 0 },
+    };
+    const noExtra = computeWithScenario(base, {
+      key: "c", label: "", description: "", detail: "",
+      revenueMultiplier: 2, expenseMultiplier: 1, viewsMultiplier: 1,
+    });
+    const with25k = computeWithScenario(base, {
+      key: "c", label: "", description: "", detail: "",
+      revenueMultiplier: 2, expenseMultiplier: 1, viewsMultiplier: 1, extraRevenueUsd: 25_000,
+    });
+    // Çarpan gelir yaratamaz (0 × 2 = 0) → prim yok
+    expect(noExtra.totalPrimUsd).toBe(0);
+    // Mutlak +25k → net havuz pozitif → prim > 0
+    expect(with25k.totalRevenueUsd).toBe(25_000);
+    expect(with25k.totalPrimUsd).toBeGreaterThan(0);
+  });
+
   it("senaryolar baz girdiyi çarpanlarla ölçekler", () => {
     const base: PrimBaseInputs = {
       monthYm: "2026-06",
