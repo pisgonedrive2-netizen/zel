@@ -15,6 +15,7 @@ import {
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
+import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import {
   mergeBrandViewershipHydrate,
@@ -3244,9 +3245,33 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
 
       // Link snapshot
       addLinkSnapshot: (sn) => {
-        const row = { ...sn, id: uid() };
-        set((s) => ({ linkSnapshots: [...s.linkSnapshots, row] }));
-        persistEntity("link_snapshot", row);
+        const dateKey = sn.date.slice(0, 10);
+        set((s) => {
+          const idx = s.linkSnapshots.findIndex(
+            (x) => x.linkId === sn.linkId && x.date.slice(0, 10) === dateKey
+          );
+          const prev = idx >= 0 ? s.linkSnapshots[idx] : null;
+          const id = prev?.id ?? snapshotIdForLinkDate(sn.linkId, dateKey);
+          const row: LinkSnapshot = {
+            linkId: sn.linkId,
+            date: dateKey,
+            views: sn.views,
+            notes: sn.notes || (prev?.notes === "auto" ? prev.notes : "manual"),
+            likes: sn.likes ?? prev?.likes,
+            comments: sn.comments ?? prev?.comments,
+            shares: sn.shares ?? prev?.shares,
+            refreshedAt: prev?.refreshedAt,
+            id,
+          };
+          if (idx >= 0) {
+            const next = [...s.linkSnapshots];
+            next[idx] = row;
+            persistEntity("link_snapshot", row);
+            return { linkSnapshots: next };
+          }
+          persistEntity("link_snapshot", row);
+          return { linkSnapshots: [...s.linkSnapshots, row] };
+        });
       },
       upsertLinkSnapshot: (sn) => {
         set((s) => {

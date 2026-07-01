@@ -1,4 +1,4 @@
-import type { Brand, BrandLink, ContentExpense, LinkSnapshot } from "@/store/store";
+import type { Brand, BrandLink, BrandViewership, ContentExpense, LinkSnapshot } from "@/store/store";
 import { expenseReviewStatus } from "@/lib/content-expense";
 import {
   brandExpenseShareUsd,
@@ -177,10 +177,30 @@ export function fmtCompactViews(n: number): string {
   return v.toLocaleString("tr-TR");
 }
 
+/**
+ * Aynı yayıncı + marka için link snapshot'ı varsa brand_viewership satırını
+ * sayma — çift sayım olmasın (API/manuel link takibi öncelikli).
+ */
+export function shouldSkipManualViewership(
+  v: BrandViewership,
+  links: BrandLink[],
+  monthYm: string,
+  allSnaps: LinkSnapshot[],
+  todayYm: string
+): boolean {
+  if (!v.employeeId || !v.brandId) return false;
+  return links.some(
+    (l) =>
+      l.ownerId === v.employeeId &&
+      l.brandId === v.brandId &&
+      linkViewsForMonth(l, monthYm, allSnaps, todayYm).lastViews > 0
+  );
+}
+
 /** Link snapshot + yayıncı manuel raporları (çift sayım olmadan toplam KPI). */
 export function totalViewsForMonth(
   links: BrandLink[],
-  viewership: { month: string; views: number }[],
+  viewership: BrandViewership[],
   monthYm: string,
   allSnaps: LinkSnapshot[],
   todayYm: string
@@ -188,6 +208,7 @@ export function totalViewsForMonth(
   const linkTotal = totalLinkViewsForMonth(links, monthYm, allSnaps, todayYm);
   const manual = viewership
     .filter((v) => v.month === monthYm)
+    .filter((v) => !shouldSkipManualViewership(v, links, monthYm, allSnaps, todayYm))
     .reduce((s, v) => s + v.views, 0);
   return linkTotal + manual;
 }

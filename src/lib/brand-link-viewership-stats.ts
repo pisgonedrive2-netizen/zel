@@ -1,5 +1,6 @@
 import type { BrandLink, LinkSnapshot } from "@/store/store";
 import { linkViewsForMonth, totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
+import { totalLinkEngagementForMonth } from "@/lib/brand-engagement-metrics";
 
 /** Linkin sisteme eklendiği ay (YYYY-MM). */
 export function linkAddedMonthYm(link: BrandLink, snapshots: LinkSnapshot[]): string | null {
@@ -43,6 +44,12 @@ export interface BrandLinkViewershipStats {
   /** Ay ay izlenme (snapshot olan aylar) */
   monthlyBreakdown: MonthViewershipRow[];
   activeLinkCount: number;
+  engagement: {
+    likes: number;
+    comments: number;
+    shares: number;
+    interactions: number;
+  };
 }
 
 function uniqueMonthsFromSnapshots(snapshots: LinkSnapshot[], linkIds: Set<string>): string[] {
@@ -65,6 +72,7 @@ export function computeBrandLinkViewershipStats(
 
   const monthTotalViews = totalLinkViewsForMonth(active, viewMonth, snapshots, todayYm);
   const lifetimeTotalViews = active.reduce((s, l) => s + linkLatestViews(l, snapshots), 0);
+  const engagement = totalLinkEngagementForMonth(active, viewMonth, snapshots, todayYm);
 
   const addedInMonth = active.filter((l) => linkAddedInMonth(l, viewMonth, snapshots));
   const viewsFromLinksAddedInMonth = totalLinkViewsForMonth(
@@ -108,5 +116,11 @@ export function computeBrandLinkViewershipStats(
     viewsFromLinksAddedInMonth,
     monthlyBreakdown,
     activeLinkCount: active.length,
+    engagement: {
+      likes: engagement.likes,
+      comments: engagement.comments,
+      shares: engagement.shares,
+      interactions: engagement.interactions,
+    },
   };
 }

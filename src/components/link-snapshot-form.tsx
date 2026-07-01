@@ -27,6 +27,9 @@ export function LinkSnapshotForm({
     date: initial?.date ?? defaultDateForNew,
     views: initial?.views ?? suggestedViewsForNew ?? 0,
     notes: initial?.notes ?? "",
+    likes: initial?.likes,
+    comments: initial?.comments,
+    shares: initial?.shares,
   });
 
   return (
@@ -52,6 +55,45 @@ export function LinkSnapshotForm({
             value={form.views}
             onChange={(e) => setForm({ ...form, views: Number(e.target.value) || 0 })}
             required
+          />
+        </Field>
+        <Field label="Beğeni" hint="Opsiyonel — API'den gelmiyorsa manuel">
+          <Input
+            type="number"
+            min={0}
+            value={form.likes ?? ""}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                likes: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+              })
+            }
+          />
+        </Field>
+        <Field label="Yorum">
+          <Input
+            type="number"
+            min={0}
+            value={form.comments ?? ""}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                comments: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+              })
+            }
+          />
+        </Field>
+        <Field label="Paylaşım">
+          <Input
+            type="number"
+            min={0}
+            value={form.shares ?? ""}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                shares: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+              })
+            }
           />
         </Field>
       </FormGrid>

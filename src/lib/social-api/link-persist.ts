@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { FetchedMetrics } from "./clients";
+import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import {
   ensureWeekBrandReelFromBrandLink,
   fetchBrandLinkForAchievement,
@@ -16,7 +17,7 @@ export async function recordLinkSnapshot(
   targetDate?: string,
 ): Promise<string> {
   const date = targetDate ?? new Date().toISOString().slice(0, 10);
-  const id = `s-auto-${linkId.slice(0, 8)}-${date.replace(/-/g, "")}`;
+  const id = snapshotIdForLinkDate(linkId, date);
   const { error } = await getSupabaseAdmin().from("link_snapshots").upsert(
     {
       id,

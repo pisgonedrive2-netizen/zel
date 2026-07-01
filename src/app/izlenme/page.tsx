@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Eye, Briefcase, Users, Link2, BarChart3, Activity, RefreshCw,
   TrendingUp, TrendingDown, ArrowRight, Sparkles, Layers, Cable,
-  Calendar, Crown, Trophy, Filter,
+  Calendar, Crown, Trophy, Filter, Heart, MessageCircle, Share2, ClipboardEdit,
 } from "lucide-react";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis,
@@ -21,7 +21,9 @@ import {
   totalLinkViewsForMonth,
   totalViewsForMonth,
   totalContentExpensesForMonth,
+  shouldSkipManualViewership,
 } from "@/lib/brand-month-metrics";
+import { totalLinkEngagementForMonth, fmtEngagement } from "@/lib/brand-engagement-metrics";
 import { aggregateStreamersForMonth } from "@/lib/streamer-month-metrics";
 import { brandChartColor } from "@/lib/brand-viewership-series";
 import { Badge } from "@/components/ui/badge";
@@ -390,6 +392,11 @@ export default function IzlenmePage() {
     [scopedLinks, brandViewership, linkSnapshots, viewMonth, todayYm]
   );
 
+  const engagementMonth = useMemo(
+    () => totalLinkEngagementForMonth(scopedLinks, viewMonth, linkSnapshots, todayYm),
+    [scopedLinks, viewMonth, linkSnapshots, todayYm]
+  );
+
   const totalViewsLive = useMemo(
     () => brandLinks.reduce((s, l) => s + (l.lastViews ?? 0), 0),
     [brandLinks]
@@ -419,6 +426,7 @@ export default function IzlenmePage() {
         const views = totalLinkViewsForMonth(links, viewMonth, linkSnapshots, todayYm);
         const streamerViews = brandViewership
           .filter((v) => v.brandId === b.id && v.month === viewMonth)
+          .filter((v) => !shouldSkipManualViewership(v, scopedLinks, viewMonth, linkSnapshots, todayYm))
           .reduce((s, v) => s + v.views, 0);
         return { brand: b, views: views + streamerViews };
       })
@@ -685,6 +693,39 @@ export default function IzlenmePage() {
           trend={momPct}
         />
       </div>
+
+      {engagementMonth.interactions > 0 && (
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-6">
+          <StatTile
+            label="Toplam etkileşim"
+            value={fmtEngagement(engagementMonth.interactions)}
+            sub={`♥ ${fmtEngagement(engagementMonth.likes)} · 💬 ${fmtEngagement(engagementMonth.comments)} · ↗ ${fmtEngagement(engagementMonth.shares)}`}
+            icon={Heart}
+            accent="rose"
+          />
+          <StatTile
+            label="Beğeni"
+            value={fmtEngagement(engagementMonth.likes)}
+            sub={`${engagementMonth.linksWithData} link · API`}
+            icon={Heart}
+            accent="rose"
+          />
+          <StatTile
+            label="Yorum"
+            value={fmtEngagement(engagementMonth.comments)}
+            sub="YouTube · IG · TikTok"
+            icon={MessageCircle}
+            accent="amber"
+          />
+          <StatTile
+            label="Paylaşım"
+            value={fmtEngagement(engagementMonth.shares)}
+            sub="Özellikle TikTok"
+            icon={Share2}
+            accent="violet"
+          />
+        </div>
+      )}
 
       {/* Trend mini chart */}
       <Card className="mb-6 overflow-hidden border-border/70">

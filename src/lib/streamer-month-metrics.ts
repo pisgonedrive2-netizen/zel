@@ -1,5 +1,5 @@
 import type { BrandLink, BrandViewership, Employee, LinkSnapshot } from "@/store/store";
-import { linkViewsForMonth } from "@/lib/brand-month-metrics";
+import { linkViewsForMonth, shouldSkipManualViewership } from "@/lib/brand-month-metrics";
 
 export interface StreamerMonthAggregate {
   employeeId: string;
@@ -54,6 +54,7 @@ export function aggregateStreamersForMonth(opts: {
 
   for (const v of brandViewership) {
     if (v.month !== monthYm || !v.employeeId) continue;
+    if (shouldSkipManualViewership(v, brandLinks, monthYm, linkSnapshots, todayYm)) continue;
     const row = ensure(v.employeeId);
     row.manualViews += v.views;
     if (v.brandId) row.brandIds.add(v.brandId);
@@ -79,6 +80,7 @@ export function totalViewsIncludingViewership(
   );
   const manual = brandViewership
     .filter((v) => v.month === monthYm)
+    .filter((v) => !shouldSkipManualViewership(v, brandLinks, monthYm, linkSnapshots, todayYm))
     .reduce((s, v) => s + v.views, 0);
   return linkTotal + manual;
 }

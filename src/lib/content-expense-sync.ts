@@ -132,46 +132,52 @@ export async function syncContentExpensesAndSalaryExtras(
   }
 }
 
-/** Tek işlem: bordro kalemi önce, sonra içerik harcaması bağlantısı. */
+/**
+ * Tek bordro kalemi kaydı. `content_expense_id`, ilgili içerik harcaması henüz
+ * DB'de yoksa null'a düşürülür (döngüsel FK ihlali olmasın); bağlantı, içerik
+ * harcaması kaydedilince `persistContentExpenseRow` tarafından geri kurulur.
+ */
 export async function persistSalaryExtraRow(extra: SalaryExtra): Promise<void> {
-  const known = extra.contentExpenseId
-    ? new Set([extra.contentExpenseId])
-    : new Set<string>();
-  await upsertSalaryExtras([salaryExtraToRow(extra)], known);
+  await upsertSalaryExtras([salaryExtraToRow(extra)], new Set());
 }
 
+/**
+ * Tek içerik harcaması kaydı. Çembersel FK'ye dayanıklıdır:
+ *  1) Bağlı bordro kalemi (salary_extra) DB'de yoksa `salary_extra_id` null'a
+ *     düşürülür (hata fırlatılmaz — kırmızı senkron hatası oluşmaz).
+ *  2) Kalem varsa, içerik harcaması kaydedildikten sonra bordro kaleminin geri
+ *     bağlantısı (`content_expense_id`) kurulur; böylece döngü kapanır.
+ */
 export async function persistContentExpenseRow(expense: ContentExpense): Promise<void> {
+  const admin = getSupabaseAdmin();
   let row = contentExpenseToRow(expense);
+
+  let salaryExtraExists = false;
   if (expense.salaryExtraId) {
-    const { data } = await getSupabaseAdmin()
+    const { data } = await admin
       .from("salary_extras")
       .select("id")
       .eq("id", expense.salaryExtraId)
       .maybeSingle();
-    if (!data) {
-      const phase1 = { ...row, salary_extra_id: null };
-      const phase1Safe = (await nullifyMissingFk(
-        [phase1],
-        "kasa_tx_id",
-        "kasa_transactions"
-      ))[0];
-      await upsertRows("content_expenses", [phase1Safe]);
-      throw new Error(
-        "Bordro kalemi henüz kayıtlı değil — önce salary_extra kaydedilmeli."
-      );
+    salaryExtraExists = !!data;
+    if (!salaryExtraExists) {
+      // Bordro kalemi henüz yoksa bağlantıyı geçici olarak kopar (hard-fail yok).
+      row = { ...row, salary_extra_id: null };
     }
   }
-  if (expense.kasaTxId) {
-    const { data } = await getSupabaseAdmin()
-      .from("kasa_transactions")
-      .select("id")
-      .eq("id", expense.kasaTxId)
-      .maybeSingle();
-    if (!data) {
-      row = { ...row, kasa_tx_id: null };
-    }
-  }
+
+  row = (await nullifyMissingFk([row], "kasa_tx_id", "kasa_transactions"))[0];
   await upsertRows("content_expenses", [row]);
+
+  // İçerik harcaması artık DB'de; döngüyü kapat: bordro kaleminin geri
+  // bağlantısını (content_expense_id) kur.
+  if (expense.salaryExtraId && salaryExtraExists) {
+    const { error } = await admin
+      .from("salary_extras")
+      .update({ content_expense_id: expense.id })
+      .eq("id", expense.salaryExtraId);
+    if (error) throw new Error(`salary_extras backlink: ${error.message}`);
+  }
 }
 
 export async function persistContentExpenseSettlement(

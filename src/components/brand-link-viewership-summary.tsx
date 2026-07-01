@@ -24,7 +24,7 @@ function StatTile({
   label: string;
   value: string;
   hint?: string;
-  accent?: "blue" | "violet" | "emerald" | "amber";
+  accent?: "blue" | "violet" | "emerald" | "amber" | "rose";
 }) {
   const border =
     accent === "blue"
@@ -35,7 +35,9 @@ function StatTile({
           ? "border-emerald-300/60 bg-emerald-50/40 dark:border-emerald-500/35 dark:bg-emerald-950/20"
           : accent === "amber"
             ? "border-amber-300/60 bg-amber-50/40 dark:border-amber-500/35 dark:bg-amber-950/20"
-            : "border-border bg-card/60";
+            : accent === "rose"
+              ? "border-rose-300/60 bg-rose-50/40 dark:border-rose-500/35 dark:bg-rose-950/20"
+              : "border-border bg-card/60";
   return (
     <div className={cn("rounded-lg border px-3 py-2.5 min-w-0", border)}>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">{label}</p>
@@ -74,6 +76,32 @@ export function BrandLinkViewershipSummary({
 
   const content = (
     <div className="space-y-3">
+      {stats.engagement.interactions > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <StatTile
+            label="Toplam etkileşim"
+            value={fmtCompactViews(stats.engagement.interactions)}
+            hint={`♥ ${fmtCompactViews(stats.engagement.likes)} · 💬 ${fmtCompactViews(stats.engagement.comments)} · ↗ ${fmtCompactViews(stats.engagement.shares)}`}
+            accent="rose"
+          />
+          <StatTile
+            label="Beğeni"
+            value={fmtCompactViews(stats.engagement.likes)}
+            accent="rose"
+          />
+          <StatTile
+            label="Yorum"
+            value={fmtCompactViews(stats.engagement.comments)}
+            accent="amber"
+          />
+          <StatTile
+            label="Paylaşım"
+            value={fmtCompactViews(stats.engagement.shares)}
+            accent="violet"
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         <StatTile
           label={`${monthLabel(viewMonth)} toplam`}
