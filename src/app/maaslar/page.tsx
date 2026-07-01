@@ -14,7 +14,7 @@ import {
   plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
   DEFAULT_KASA_ID,
-  type Employee, type Advance, type SalaryExtra,
+  type Employee, type Advance, type SalaryExtra, type ContentExpense, type MonthPaymentStatus,
   type Kasa, type KasaTransaction,
 } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
@@ -70,6 +70,46 @@ function nextMonth(m: string) { return shiftCalendarMonthYm(m, 1); }
 const MONTH_NAMES = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 function monthLabel(m: string) { const [y, mo] = m.split("-"); return `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y}`; }
 function initials(name: string) { return name.split(/[\s(]/).map(p => p[0]).filter(Boolean).join("").toUpperCase().slice(0, 2); }
+
+/** Seçili ayda bordro kartı gösterilecek ay (çıkış sonrası ödenmemiş son bordro dahil). */
+function employeePayrollMonthForView(
+  employee: Employee,
+  viewMonth: string,
+  advances: Advance[],
+  salaryExtras: SalaryExtra[],
+  contentExpenses: ContentExpense[],
+  paymentStatuses: MonthPaymentStatus[],
+): string | null {
+  if (employee.kind === "coordinator") return null;
+  if (isPayrollActive(employee, viewMonth)) return viewMonth;
+  const end = employee.payrollEndMonth;
+  if (!end || viewMonth < end) return null;
+  const lines = buildPayrollPaymentLines(
+    employee,
+    end,
+    advances,
+    salaryExtras,
+    contentExpenses,
+    paymentStatuses,
+  );
+  if (lines.length > 0 && payrollPaymentPhase(lines) !== "full") return end;
+  return null;
+}
+
+function payrollAmountDue(
+  net: number,
+  unpaidLineTotal: number,
+  isFullyPaid: boolean,
+  paidOut: number,
+  payrollLines: PayrollLineItem[],
+): number {
+  if (isFullyPaid) return paidOut > 0 ? paidOut : net;
+  if (unpaidLineTotal > 0) return unpaidLineTotal;
+  if (payrollPaymentPhase(payrollLines) === "partial") {
+    return Math.max(0, net - sumPaidPayrollLines(payrollLines));
+  }
+  return net;
+}
 
 // ── Inline-editable cell ──────────────────────────────────────────────────
 function InlineEdit({ value, onSave, className = "", mono = false, readOnly = false }: {
@@ -432,7 +472,7 @@ function PayrollCardSection({
 // ── Employee detail card (monthly view) ───────────────────────────────────
 function EmployeeDetailRow({
   employee,
-  month,
+  month: viewMonth,
   readOnly,
   currentUserId,
   onBulkRent,
@@ -471,8 +511,27 @@ function EmployeeDetailRow({
   const [contentPayModalOpen, setContentPayModalOpen] = useState(false);
   const [payrollLinesModalOpen, setPayrollLinesModalOpen] = useState(false);
 
+  const payrollMonth = useMemo(() => {
+    if (isPayrollActive(employee, viewMonth)) return viewMonth;
+    const end = employee.payrollEndMonth;
+    if (end && viewMonth >= end) {
+      const lines = buildPayrollPaymentLines(
+        employee,
+        end,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      );
+      if (lines.length > 0 && payrollPaymentPhase(lines) !== "full") return end;
+    }
+    return viewMonth;
+  }, [employee, viewMonth, advances, salaryExtras, contentExpenses, paymentStatuses]);
+  const finalPayrollCarryover = payrollMonth !== viewMonth && isPayrollActive(employee, payrollMonth);
+  const month = payrollMonth;
+
   const active = isPayrollActive(employee, month);
-  const upcoming = isPayrollUpcoming(employee, month);
+  const upcoming = isPayrollUpcoming(employee, viewMonth);
   const firstPayrollNet = estimateFirstPayrollNet(employee);
 
   const empAdv     = advances.filter(a => a.employeeId === employee.id && a.month === month);
@@ -511,6 +570,7 @@ function EmployeeDetailRow({
   const contentPayroll = sumPayrollSettledContentExpenses(contentExpenses, employee.id, month);
   const plannedOut  = plannedPayrollPlusApprovedContent(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidOut     = totalCashOutPaidForMonth(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
+  const amountDue = payrollAmountDue(net, unpaidLineTotal, isFullyPaid, paidOut, payrollLines);
   const monthContentExpenses = useMemo(
     () =>
       contentExpenses
@@ -613,6 +673,16 @@ function EmployeeDetailRow({
               <Badge variant="outline" className="text-[10px] gap-1 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/40">
                 <CalendarClock size={10} /> {employee.paymentDay}
               </Badge>
+              {finalPayrollCarryover && (
+                <Badge variant="outline" className="text-[10px] text-amber-800 border-amber-400/50 bg-amber-50/60 dark:text-amber-200">
+                  Son bordro · {monthLabel(payrollMonth)}
+                </Badge>
+              )}
+              {employee.status === "inactive" && active && (
+                <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                  Ayrıldı
+                </Badge>
+              )}
             </div>
             <p className="text-muted-foreground text-xs truncate mt-0.5">{employee.role} · {employee.department}</p>
             {upcoming && (
@@ -749,11 +819,7 @@ function EmployeeDetailRow({
               style={{ fontSize: "clamp(1rem, 2.5vw, 1.25rem)" }}
             >
               {active
-                ? isFullyPaid
-                  ? fmt(paidOut > 0 ? paidOut : net)
-                  : isPartial
-                    ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
-                    : fmt(net)
+                ? fmt(amountDue)
                 : upcoming
                   ? fmt(firstPayrollNet)
                   : "—"}
@@ -808,13 +874,7 @@ function EmployeeDetailRow({
               )}
               <PayrollStatCell
                 label={isFullyPaid ? "Net ödendi" : isPartial ? "Kalan" : "Net ödenecek"}
-                value={
-                  isFullyPaid
-                    ? fmt(paidOut > 0 ? paidOut : net)
-                    : isPartial
-                      ? fmt(unpaidLineTotal > 0 ? unpaidLineTotal : Math.max(0, net - sumPaidPayrollLines(payrollLines)))
-                      : fmt(net)
-                }
+                value={fmt(amountDue)}
                 accent={isFullyPaid ? "green" : isPartial ? "amber" : undefined}
               />
             </div>
@@ -1141,10 +1201,10 @@ function EmployeeDetailRow({
             }
             summary={
               isFullyPaid
-                ? `Tamamlandı · ${fmt(paidOut > 0 ? paidOut : net)}`
+                ? `Tamamlandı · ${fmt(amountDue)}`
                 : isPartial
                   ? `${formatPayrollLineStatusSummary(payrollLines)} · kalan ${fmt(unpaidLineTotal)}`
-                  : `Bekliyor · ${fmt(unpaidLineTotal || net)}`
+                  : `Bekliyor · ${fmt(amountDue)}`
             }
             defaultOpen={false}
             trailing={
@@ -1270,7 +1330,7 @@ function EmployeeDetailRow({
         kasas={viewKasas}
         kasaTransactions={viewKasaTransactions}
         status={status}
-        netPayable={net}
+        netPayable={amountDue}
         readOnly={readOnly}
         isFullyPaid={isFullyPaid}
         isPartial={isPartial}
@@ -1370,9 +1430,7 @@ function EmployeeDetailRow({
           netAmount={
             payTarget?.mode === "line"
               ? payTarget.line.amountUsd
-              : unpaidLineTotal > 0
-                ? unpaidLineTotal
-                : net
+              : amountDue
           }
           lineLabel={payTarget?.mode === "line" ? payTarget.line.label : undefined}
           kasas={viewKasas}
@@ -1561,13 +1619,80 @@ export default function MaaslarPage() {
   const [bulkRent, setBulkRent] = useState<{ employeeId?: string } | null>(null);
 
   const bordrolu = employees.filter(e => e.kind !== "coordinator" && e.status === "active");
-  const aktifBuAy = bordrolu.filter(e => isPayrollActive(e, month));
-  const totalBase = aktifBuAy.reduce((s, e) => s + e.baseSalary, 0);
-  const totalNet  = aktifBuAy.reduce(
-    (s, e) => s + calcPayrollPayoutDue(e, month, advances, salaryExtras, paymentStatuses, contentExpenses),
-    0,
+  const payrollCardEmployees = useMemo(
+    () =>
+      employees.filter(
+        (e) =>
+          employeePayrollMonthForView(
+            e,
+            month,
+            advances,
+            salaryExtras,
+            contentExpenses,
+            paymentStatuses,
+          ) !== null,
+      ),
+    [employees, month, advances, salaryExtras, contentExpenses, paymentStatuses],
   );
-  const paidCnt   = aktifBuAy.filter(e => paymentStatuses.find(p => p.employeeId === e.id && p.month === month && p.paid)).length;
+  const aktifBuAy = payrollCardEmployees.filter((e) => {
+    const pm =
+      employeePayrollMonthForView(
+        e,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      ) ?? month;
+    return isPayrollActive(e, pm);
+  });
+  const totalBase = aktifBuAy.reduce((s, e) => s + e.baseSalary, 0);
+  const totalNet  = aktifBuAy.reduce((s, e) => {
+    const pm =
+      employeePayrollMonthForView(
+        e,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      ) ?? month;
+    const lines = buildPayrollPaymentLines(
+      e,
+      pm,
+      advances,
+      salaryExtras,
+      contentExpenses,
+      paymentStatuses,
+    );
+    return s + payrollAmountDue(
+      calcPayrollPayoutDue(e, pm, advances, salaryExtras, paymentStatuses, contentExpenses),
+      sumUnpaidPayrollLines(lines),
+      payrollPaymentPhase(lines) === "full",
+      totalCashOutPaidForMonth(e, pm, advances, salaryExtras, paymentStatuses, contentExpenses),
+      lines,
+    );
+  }, 0);
+  const paidCnt   = aktifBuAy.filter((e) => {
+    const pm =
+      employeePayrollMonthForView(
+        e,
+        month,
+        advances,
+        salaryExtras,
+        contentExpenses,
+        paymentStatuses,
+      ) ?? month;
+    const lines = buildPayrollPaymentLines(
+      e,
+      pm,
+      advances,
+      salaryExtras,
+      contentExpenses,
+      paymentStatuses,
+    );
+    return lines.length > 0 && payrollPaymentPhase(lines) === "full";
+  }).length;
   const openAdvTotal = bordrolu.reduce((s, e) => s + calcOpenAdvanceBalance(e, month, salaryExtras), 0);
 
   const totalContentAprv = aktifBuAy.reduce((s, e) => s + sumApprovedContentExpenses(contentExpenses, e.id, month), 0);
@@ -1575,10 +1700,19 @@ export default function MaaslarPage() {
   const totalPaidOutAll  = aktifBuAy.reduce((s, e) => s + totalCashOutPaidForMonth(e, month, advances, salaryExtras, paymentStatuses, contentExpenses), 0);
 
   const monthUnpaidEmployeeCount = useMemo(() => {
-    return aktifBuAy.filter((emp) => {
+    return payrollCardEmployees.filter((emp) => {
+      const pm =
+        employeePayrollMonthForView(
+          emp,
+          month,
+          advances,
+          salaryExtras,
+          contentExpenses,
+          paymentStatuses,
+        ) ?? month;
       const lines = buildPayrollPaymentLines(
         emp,
-        month,
+        pm,
         advances,
         salaryExtras,
         contentExpenses,
@@ -1586,13 +1720,22 @@ export default function MaaslarPage() {
       );
       return lines.length > 0 && payrollPaymentPhase(lines) !== "full";
     }).length;
-  }, [aktifBuAy, month, advances, salaryExtras, contentExpenses, paymentStatuses]);
+  }, [payrollCardEmployees, month, advances, salaryExtras, contentExpenses, paymentStatuses]);
 
   const markEntireMonthPaid = () => {
-    const targets = aktifBuAy.filter((emp) => {
+    const targets = payrollCardEmployees.filter((emp) => {
+      const pm =
+        employeePayrollMonthForView(
+          emp,
+          month,
+          advances,
+          salaryExtras,
+          contentExpenses,
+          paymentStatuses,
+        ) ?? month;
       const lines = buildPayrollPaymentLines(
         emp,
-        month,
+        pm,
         advances,
         salaryExtras,
         contentExpenses,
@@ -1610,9 +1753,18 @@ export default function MaaslarPage() {
     if (!ok) return;
     const paidDate = toDateLocal(new Date());
     for (const emp of targets) {
+      const pm =
+        employeePayrollMonthForView(
+          emp,
+          month,
+          advances,
+          salaryExtras,
+          contentExpenses,
+          paymentStatuses,
+        ) ?? month;
       markEmployeePayrollLinesPaid({
         employeeId: emp.id,
-        month,
+        month: pm,
         paidDate,
         paidBy: user?.id,
       });
@@ -1813,7 +1965,7 @@ export default function MaaslarPage() {
 
       {/* Monthly cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-        {bordrolu
+        {payrollCardEmployees
           .filter(e => e.name.toLowerCase().includes(search.toLowerCase()))
           .map(emp => (
             <EmployeeDetailRow
@@ -1846,20 +1998,81 @@ export default function MaaslarPage() {
             </thead>
             <tbody>
               {filtered.map(emp => {
+                const payrollPm = employeePayrollMonthForView(
+                  emp,
+                  month,
+                  advances,
+                  salaryExtras,
+                  contentExpenses,
+                  paymentStatuses,
+                );
                 const openAdv = calcOpenAdvanceBalance(emp, month, salaryExtras);
-                const kiraAy = isPayrollActive(emp, month)
-                  ? getRentForMonth(emp, month, salaryExtras)
+                const kiraAy = payrollPm && isPayrollActive(emp, payrollPm)
+                  ? getRentForMonth(emp, payrollPm, salaryExtras)
                   : 0;
-                const kiraKalem = salaryExtras
-                  .filter(e => e.employeeId === emp.id && e.month === month && e.type === "rent")
-                  .reduce((s, e) => s + e.amount, 0);
+                const kiraKalem = payrollPm
+                  ? salaryExtras
+                      .filter(e => e.employeeId === emp.id && e.month === payrollPm && e.type === "rent")
+                      .reduce((s, e) => s + e.amount, 0)
+                  : 0;
                 const upcomingAy = isPayrollUpcoming(emp, month);
-                const netAy = isPayrollActive(emp, month)
-                  ? calcPayrollPayoutDue(emp, month, advances, salaryExtras, paymentStatuses, contentExpenses)
+                const netLines = payrollPm
+                  ? buildPayrollPaymentLines(
+                      emp,
+                      payrollPm,
+                      advances,
+                      salaryExtras,
+                      contentExpenses,
+                      paymentStatuses,
+                    )
+                  : [];
+                const netAy = payrollPm
+                  ? payrollAmountDue(
+                      calcPayrollPayoutDue(
+                        emp,
+                        payrollPm,
+                        advances,
+                        salaryExtras,
+                        paymentStatuses,
+                        contentExpenses,
+                      ),
+                      sumUnpaidPayrollLines(netLines),
+                      payrollPaymentPhase(netLines) === "full",
+                      totalCashOutPaidForMonth(
+                        emp,
+                        payrollPm,
+                        advances,
+                        salaryExtras,
+                        paymentStatuses,
+                        contentExpenses,
+                      ),
+                      netLines,
+                    )
                   : 0;
-                const icAy = sumApprovedContentExpenses(contentExpenses, emp.id, month);
-                const planAy = plannedPayrollPlusApprovedContent(emp, month, advances, salaryExtras, paymentStatuses, contentExpenses);
-                const odenAy = totalCashOutPaidForMonth(emp, month, advances, salaryExtras, paymentStatuses, contentExpenses);
+                const icAy = payrollPm
+                  ? sumApprovedContentExpenses(contentExpenses, emp.id, payrollPm)
+                  : 0;
+                const planAy = payrollPm
+                  ? plannedPayrollPlusApprovedContent(
+                      emp,
+                      payrollPm,
+                      advances,
+                      salaryExtras,
+                      paymentStatuses,
+                      contentExpenses,
+                    )
+                  : 0;
+                const odenAy = payrollPm
+                  ? totalCashOutPaidForMonth(
+                      emp,
+                      payrollPm,
+                      advances,
+                      salaryExtras,
+                      paymentStatuses,
+                      contentExpenses,
+                    )
+                  : 0;
+                const netCarryover = payrollPm !== null && payrollPm !== month;
                 return (
                 <tr key={emp.id} className="border-b border-border/60 hover:bg-accent/30 transition-colors">
                   <td className="px-3 py-3 w-10">
@@ -1907,8 +2120,19 @@ export default function MaaslarPage() {
                   </td>
                   <td className="px-3 py-3 text-muted-foreground text-xs whitespace-nowrap">{emp.payrollStartMonth}</td>
                   <td className="px-3 py-3 tabular-nums whitespace-nowrap">
-                    {isPayrollActive(emp, month) ? (
-                      fmt(netAy)
+                    {payrollPm ? (
+                      netCarryover ? (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <span className="text-amber-700 dark:text-amber-300 font-medium">{fmt(netAy)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            {monthLabel(payrollPm)} son bordro · {monthLabel(month)} ödemesi
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        fmt(netAy)
+                      )
                     ) : upcomingAy ? (
                       <Tooltip>
                         <TooltipTrigger>
