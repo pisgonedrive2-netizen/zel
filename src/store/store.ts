@@ -1346,7 +1346,7 @@ export const initialEmployees: Employee[] = [
     avatar: "A",
     notes:
       "3 Mayıs 2026'da aramıza katıldı. Mayıs 2026: $300 avans kesintisi · kira $1.550 (ödendi) · net $4.750. " +
-      "29 Haziran 2026 iş çıkışı — son bordro: floor($3.500×29/30) − kalan $600 avans = $2.783 maaş · " +
+      "29 Haziran 2026 iş çıkışı — son bordro: floor(3.500 / 30 × 29) − kalan $600 avans = $2.783 maaş · " +
       "Haziran kirası $1.550 (5 Haziran'da ayrı ödendi). Temmuz 2026 ve sonrası bordro yok.",
     kind: "streamer",
   },
@@ -1451,7 +1451,7 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
       amount: 600,
       note:
         "Açık avans geri ödemesi (final · kalan $600) · 29 Haziran iş çıkışı · " +
-        "floor($3.500×29/30) − $600 = $2.783 net maaş",
+        "floor(3.500 / 30 × 29) − $600 = $2.783 net maaş",
     },
   ];
   acelyaAdvancePlan.forEach((p) => {
