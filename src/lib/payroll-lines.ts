@@ -184,6 +184,8 @@ export function buildPayrollLinePlan(
 
   for (const e of empExtras) {
     if (e.type === "deduction" || e.type === "rent") continue;
+    // Bordroya işlenmiş içerik — aşağıda content: satırı olarak eklenir; çift sayma olmasın.
+    if (e.contentExpenseId) continue;
     lines.push({
       lineId: `extra:${e.id}`,
       kind: e.type === "bonus" ? "bonus" : e.type === "expense" ? "expense" : "other",

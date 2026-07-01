@@ -1297,8 +1297,8 @@ export const initialEmployees: Employee[] = [
       "Maaş $10.000/ay. Başlangıçta $20.000 avans alınmış, $12.000 geri ödenmiş, " +
       "kalan $8.000 borç var. Nisan 2026: $2.000 kesinti (bu ay net $8.000 ödendi 1 May 2026). " +
       "Mayıs 2026: $3.000 kesinti (1 Haziran 2026 ödemesi · kalan borç $3.000). " +
-      "Temmuz 2026 bordrosunda son $3.000 kesinti yapılır (1 Ağustos 2026 ödemesi) ve borç kapanır. " +
-      "Haziran 2026 ek kesinti yok. Aylık $1.400 ev kira desteği — şirket öder. " +
+      "Haziran 2026: son $3.000 avans kesintisi (1–5 Temmuz 2026 ödemesi) · borç kapanır. " +
+      "Aylık $1.400 ev kira desteği — şirket öder. " +
       "Aylık içerik/marka harcamaları ay sonu raporla iletilir; şirket karşılar.",
     kind: "streamer",
   },
@@ -1388,12 +1388,11 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
       type: "rent",
     });
   });
-  // Avans geri ödemesi — Nis $2k (paid), May $3k (paid 1 Haz), Tem $3k (paid 1 Ağu = final). Toplam $8k.
-  // Haziran bordrosunda kesinti YOKTUR.
+  // Avans geri ödemesi — Nis $2k, May $3k, Haz $3k (final · 1–5 Temmuz ödemesi). Toplam $8k.
   const advancePlan: Array<{ month: string; amount: number; note: string }> = [
     { month: "2026-04", amount: 2000, note: "Açık avans geri ödemesi (1/3) · $8.000 → kalan $6.000" },
     { month: "2026-05", amount: 3000, note: "Açık avans geri ödemesi (2/3) · 1 Haziran 2026 · kalan $3.000" },
-    { month: "2026-07", amount: 3000, note: "Açık avans geri ödemesi (3/3 · final) · 1 Ağustos 2026 · borç kapanır" },
+    { month: "2026-06", amount: 3000, note: "Açık avans geri ödemesi (3/3 · final) · 1–5 Temmuz 2026 · borç kapanır" },
   ];
   advancePlan.forEach((p) => {
     list.push({
@@ -1502,6 +1501,11 @@ export const CANONICAL_SALARY_EXTRA_BY_ID: Readonly<
     description:
       "Açık avans geri ödemesi (final · kalan $600) · 29 Haziran iş çıkışı · net maaş $2.783",
   },
+  "se-ramiz-adv-2026-06": {
+    amount: 3000,
+    description:
+      "Açık avans geri ödemesi (3/3 · final) · 1–5 Temmuz 2026 · borç kapanır",
+  },
 };
 
 function isLockedCanonicalRent(e: SalaryExtra): boolean {
@@ -1582,6 +1586,16 @@ export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[]
       byId.delete(id);
     }
     if (id === "se-acelya-adv-2026-07") byId.delete(id);
+    if (id === "se-ramiz-adv-2026-07") byId.delete(id);
+    // Eski/yinelenen Ramiz Haziran avans satırı (canonical se-ramiz-adv-2026-06 kullanılır).
+    if (
+      row.employeeId === "emp-ramiz" &&
+      row.month === "2026-06" &&
+      row.type === "deduction" &&
+      id !== "se-ramiz-adv-2026-06"
+    ) {
+      byId.delete(id);
+    }
   }
   return Array.from(byId.values());
 }
@@ -1589,7 +1603,7 @@ export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[]
 /**
  * Geçmişten gelen `Advance` kayıtları kullanılmıyor — Ramiz'in açık avans bakiyesi
  * `Employee.initialAdvance` ($8.000) + `SalaryExtra` türünde "deduction" satırlarıyla
- * (Nis −$2.000, May −$3.000, Tem −$3.000 · Haz kesintisiz) yönetiliyor.
+ * (Nis −$2.000, May −$3.000, Haz −$3.000 final) yönetiliyor.
  *
  * Tarihsel referans: Ramiz Nisan 2025'te $20.000 avans almıştır, $12.000'ı zaten
  * geçmiş aylarda geri ödenmiştir; sisteme yalnızca proje devri (1 Nis 2026) anındaki
