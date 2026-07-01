@@ -45,6 +45,7 @@ import {
   isPrimEligible,
   isFinalPayrollMonth,
   payrollProrationFactor,
+  proRatedBaseSalary,
   ymGte,
   ymGt,
 } from "@/lib/payroll-utils";
@@ -1336,14 +1337,17 @@ export const initialEmployees: Employee[] = [
     initialAdvance: 900,
     paymentDay: "1-5",
     payrollStartMonth: "2026-05",
+    payrollEndMonth: "2026-06",
+    exitDate: "2026-06-29",
+    exitReason: "termination",
     startDate: "2026-05-03",
-    status: "active",
+    status: "inactive",
     walletAddress: "",
     avatar: "A",
     notes:
-      "3 Mayıs 2026'da aramıza katıldı. Toplam $900 avans; Mayıs 2026 ilk bordro: " +
-      "$300 avans kesintisi (1/3) · Mayıs kira desteği $1.550 · net $4.750 ($3.500 + $1.550 − $300) · 1–5 Haziran ödemesi. " +
-      "Haziran'dan itibaren $650/ay kira + avans kesintisi planı.",
+      "3 Mayıs 2026'da aramıza katıldı. Mayıs 2026: $300 avans kesintisi · kira $1.550 (ödendi) · net $4.750. " +
+      "29 Haziran 2026 iş çıkışı — son bordro: floor($3.500×29/30) − kalan $600 avans = $2.783 maaş · " +
+      "Haziran kirası $1.550 (5 Haziran'da ayrı ödendi). Temmuz 2026 ve sonrası bordro yok.",
     kind: "streamer",
   },
   {
@@ -1445,13 +1449,10 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     },
     {
       month: "2026-06",
-      amount: 300,
-      note: "Açık avans geri ödemesi (2/3) · 1–5 Temmuz 2026 · kalan $300",
-    },
-    {
-      month: "2026-07",
-      amount: 300,
-      note: "Açık avans geri ödemesi (3/3 · final) · 1–5 Ağustos 2026 · borç kapanır",
+      amount: 600,
+      note:
+        "Açık avans geri ödemesi (final · kalan $600) · 29 Haziran iş çıkışı · " +
+        "floor($3.500×29/30) − $600 = $2.783 net maaş",
     },
   ];
   acelyaAdvancePlan.forEach((p) => {
@@ -1472,22 +1473,13 @@ const buildInitialSalaryExtras = (): SalaryExtra[] => {
     description: "Ev kira desteği (Mayıs 2026 · ilk bordro)",
     type: "rent",
   });
-  const acelyaStandardRentMonths: string[] = [];
-  for (let y = 2026; y <= 2027; y++) {
-    const startM = y === 2026 ? 6 : 1;
-    for (let m = startM; m <= 12; m++) {
-      acelyaStandardRentMonths.push(`${y}-${String(m).padStart(2, "0")}`);
-    }
-  }
-  acelyaStandardRentMonths.forEach((m) => {
-    list.push({
-      id: `se-acelya-rent-${m}`,
-      employeeId: "emp-acelya",
-      month: m,
-      amount: 650,
-      description: "Ev kira desteği (aylık · ortak konut)",
-      type: "rent",
-    });
+  list.push({
+    id: "se-acelya-rent-2026-06",
+    employeeId: "emp-acelya",
+    month: "2026-06",
+    amount: 1550,
+    description: "Ev kira desteği (Haziran · 5 Haziran'da ödendi)",
+    type: "rent",
   });
 
   return list;
@@ -1498,6 +1490,18 @@ export const initialSalaryExtras: SalaryExtra[] = buildInitialSalaryExtras();
 /** Seed kira kalemleri — reconcile/propagate sözleşme tutarını bunların üzerine yazmaz. */
 export const CANONICAL_RENT_BY_EXTRA_ID: Readonly<Record<string, number>> = {
   "se-acelya-rent-2026-05": 1550,
+  "se-acelya-rent-2026-06": 1550,
+};
+
+/** Kilitli bordro kalemleri (avans, kira vb.) — bootstrap ile ezilmez. */
+export const CANONICAL_SALARY_EXTRA_BY_ID: Readonly<
+  Record<string, { amount: number; description?: string }>
+> = {
+  "se-acelya-adv-2026-06": {
+    amount: 600,
+    description:
+      "Açık avans geri ödemesi (final · kalan $600) · 29 Haziran iş çıkışı · net maaş $2.783",
+  },
 };
 
 function isLockedCanonicalRent(e: SalaryExtra): boolean {
@@ -1545,6 +1549,7 @@ export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[]
   const byId = new Map(stored.map((e) => [e.id, e]));
   for (const seed of initialSalaryExtras) {
     const locked = CANONICAL_RENT_BY_EXTRA_ID[seed.id];
+    const canonical = CANONICAL_SALARY_EXTRA_BY_ID[seed.id];
     if (locked != null) {
       const cur = byId.get(seed.id);
       if (!cur) {
@@ -1554,9 +1559,29 @@ export function mergeCanonicalSalaryExtras(stored: SalaryExtra[]): SalaryExtra[]
       }
       continue;
     }
+    if (canonical) {
+      const cur = byId.get(seed.id);
+      if (!cur) {
+        byId.set(seed.id, { ...seed, ...canonical });
+      } else {
+        byId.set(seed.id, {
+          ...cur,
+          amount: canonical.amount,
+          description: canonical.description ?? cur.description,
+        });
+      }
+      continue;
+    }
     if (seed.type === "rent" && !byId.has(seed.id)) {
       byId.set(seed.id, seed);
     }
+  }
+  const acelyaEnd = "2026-06";
+  for (const [id, row] of [...byId.entries()]) {
+    if (row.employeeId === "emp-acelya" && row.month > acelyaEnd) {
+      byId.delete(id);
+    }
+    if (id === "se-acelya-adv-2026-07") byId.delete(id);
   }
   return Array.from(byId.values());
 }
@@ -1945,12 +1970,12 @@ const initialNotifications: AppNotification[] = [];
  * - Ramiz Nisan 2026: 1 Mayıs 2026 net $8.000 (Telegram: "Bu ay yatacak olan maaş tutarı: 8 bin $").
  * - Lucy Nisan 2026: nakit ödendi 30 Nisan 2026 — $3.000 maaş + $500 kira + $1.600 telefon desteği.
  * - Lucy Mayıs 2026: plan geçişi · 1 Haziran 2026 net $2.000 (yarım dönem).
- * - Lucy Haziran 2026: 18 Haziran iş çıkışı · oransal son bordro (1–5 Temmuz ödemesi).
+ * - Lucy Haziran 2026: 18 Haziran iş çıkışı · $2.300 ödendi (oransal maaş + kira).
+ * - Acelya Haziran 2026: 29 Haziran iş çıkışı · kira $1.550 ödendi · net maaş $2.783 bekliyor.
  */
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
   { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },
   { employeeId: "emp-lucy",  month: "2026-04", paid: true, paidDate: "2026-04-30" },
-  // Mayıs plan geçişi: yarım maaş ($1.500) ödendi · kira ($500) bekliyor.
   {
     employeeId: "emp-lucy",
     month: "2026-05",
@@ -1966,9 +1991,48 @@ export const initialPaymentStatuses: MonthPaymentStatus[] = [
       },
     ],
   },
+  {
+    employeeId: "emp-lucy",
+    month: "2026-06",
+    paid: true,
+    paidDate: "2026-07-01",
+    linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş (oransal %60)",
+        amountUsd: 1800,
+        paid: true,
+        paidDate: "2026-07-01",
+      },
+      {
+        lineId: "rent",
+        kind: "rent",
+        label: "Kira desteği",
+        amountUsd: 500,
+        paid: true,
+        paidDate: "2026-07-01",
+      },
+    ],
+  },
+  {
+    employeeId: "emp-acelya",
+    month: "2026-06",
+    paid: false,
+    linePayments: [
+      {
+        lineId: "rent",
+        kind: "rent",
+        label: "Kira desteği",
+        amountUsd: 1550,
+        paid: true,
+        paidDate: "2026-06-05",
+      },
+    ],
+  },
 ];
 
-/** Eski tam-ödendi kayıtlarını kalem bazlı kısmi ödemeye yükseltir (Lucy Mayıs 2026). */
+/** Eski tam-ödendi kayıtlarını kalem bazlı kısmi ödemeye yükseltir; kritik bordro durumlarını korur. */
 export function mergeCanonicalPaymentStatuses(
   stored: MonthPaymentStatus[],
 ): MonthPaymentStatus[] {
@@ -1987,22 +2051,99 @@ export function mergeCanonicalPaymentStatuses(
       },
     ],
   };
-  const idx = stored.findIndex(
+  const lucyJunePaid: MonthPaymentStatus = {
+    employeeId: "emp-lucy",
+    month: "2026-06",
+    paid: true,
+    paidDate: "2026-07-01",
+    linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş (oransal %60)",
+        amountUsd: 1800,
+        paid: true,
+        paidDate: "2026-07-01",
+      },
+      {
+        lineId: "rent",
+        kind: "rent",
+        label: "Kira desteği",
+        amountUsd: 500,
+        paid: true,
+        paidDate: "2026-07-01",
+      },
+    ],
+  };
+  const acelyaJunePartial: MonthPaymentStatus = {
+    employeeId: "emp-acelya",
+    month: "2026-06",
+    paid: false,
+    linePayments: [
+      {
+        lineId: "rent",
+        kind: "rent",
+        label: "Kira desteği",
+        amountUsd: 1550,
+        paid: true,
+        paidDate: "2026-06-05",
+      },
+    ],
+  };
+
+  let next = [...stored];
+  const upsert = (canonical: MonthPaymentStatus) => {
+    const idx = next.findIndex(
+      (p) => p.employeeId === canonical.employeeId && p.month === canonical.month,
+    );
+    if (idx < 0) {
+      next = [...next, canonical];
+      return;
+    }
+    const existing = next[idx];
+    if (canonical.employeeId === "emp-lucy" && canonical.month === "2026-05") {
+      if (existing.paid && !(existing.linePayments?.length)) {
+        next = [...next];
+        next[idx] = lucyMayPartial;
+      }
+      return;
+    }
+    if (canonical.employeeId === "emp-lucy" && canonical.month === "2026-06") {
+      if (!existing.paid) {
+        next = [...next];
+        next[idx] = lucyJunePaid;
+      }
+      return;
+    }
+    if (canonical.employeeId === "emp-acelya" && canonical.month === "2026-06") {
+      const rentPaid = existing.linePayments?.some((l) => l.lineId === "rent" && l.paid);
+      if (!rentPaid) {
+        next = [...next];
+        next[idx] = {
+          ...existing,
+          linePayments: [
+            ...(existing.linePayments ?? []),
+            ...(acelyaJunePartial.linePayments ?? []),
+          ],
+        };
+      }
+    }
+  };
+
+  for (const seed of initialPaymentStatuses) {
+    upsert(seed);
+  }
+
+  const hasLucyMay = next.some(
     (p) => p.employeeId === "emp-lucy" && p.month === "2026-05",
   );
-  if (idx < 0) {
-    const hasLucyMay = initialPaymentStatuses.some(
-      (p) => p.employeeId === "emp-lucy" && p.month === "2026-05",
-    );
-    return hasLucyMay ? [...stored, lucyMayPartial] : stored;
+  if (!hasLucyMay && initialPaymentStatuses.some(
+    (p) => p.employeeId === "emp-lucy" && p.month === "2026-05",
+  )) {
+    next = [...next, lucyMayPartial];
   }
-  const existing = stored[idx];
-  if (existing.paid && !(existing.linePayments?.length)) {
-    const next = [...stored];
-    next[idx] = lucyMayPartial;
-    return next;
-  }
-  return stored;
+
+  return next;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4036,7 +4177,13 @@ export function calcNetPayable(
     .filter((e) => e.type === "deduction")
     .reduce((s, e) => s + e.amount, 0);
 
-  return employee.baseSalary * factor + totalAdd - totalDeduc - totalAdvance - carryFwd;
+  return (
+    proRatedBaseSalary(employee.baseSalary, factor) +
+    totalAdd -
+    totalDeduc -
+    totalAdvance -
+    carryFwd
+  );
 }
 
 /** Bu ay için onaylı içerik harcaması toplamı (red / onay bekleyen / bilgi istenen hariç). */

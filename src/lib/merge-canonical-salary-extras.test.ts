@@ -31,6 +31,6 @@ describe("mergeCanonicalSalaryExtras", () => {
     const employees = initialEmployees.filter((e) => e.id === "emp-acelya");
     const fixed = reconcileRentExtrasForAllEmployees(employees, extras);
     expect(fixed.find((e) => e.id === "se-acelya-rent-2026-05")?.amount).toBe(1550);
-    expect(fixed.find((e) => e.id === "se-acelya-rent-2026-06")?.amount).toBe(650);
+    expect(fixed.find((e) => e.id === "se-acelya-rent-2026-06")?.amount).toBe(1550);
   });
 });

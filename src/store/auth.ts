@@ -67,7 +67,7 @@ const INITIAL_USERS: AppUser[] = [
   },
   { id: "u-ramiz",   username: "ramiz",   pin: "ramiz1234",    name: "Ramiz",         role: "streamer", employeeId: "emp-ramiz",  avatar: "R", active: true },
   { id: "u-lucy",    username: "lucy",    pin: "lucy1234",     name: "Lucy",          role: "streamer", employeeId: "emp-lucy",   avatar: "L", active: false },
-  { id: "u-acelya",  username: "acelya",  pin: "acelya1234",   name: "Açelya",        role: "streamer", employeeId: "emp-acelya", avatar: "A", active: true },
+  { id: "u-acelya",  username: "acelya",  pin: "acelya1234",   name: "Açelya",        role: "streamer", employeeId: "emp-acelya", avatar: "A", active: false },
   { id: "u-denetci", username: "denetci", pin: "denetim2026",  name: "Denetim Ekibi", role: "auditor",  avatar: "D", active: true },
   { id: "u-ediz",    username: "ediz",    pin: "ediz2026",     name: "Ediz",          role: "admin",    avatar: "E", active: true },
   { id: "u-brand-gala",    username: "galabet",    pin: "marka2026", name: "Galabet (Marka)",    role: "brand", brandId: "br-gala",    avatar: "G", active: true },

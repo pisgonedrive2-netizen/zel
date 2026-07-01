@@ -638,7 +638,18 @@ function EmployeeDetailRow({
                 </span>
               </p>
             )}
-            {employee.id === "emp-acelya" && active && month !== "2026-05" && openAdv > 0 && (
+            {employee.id === "emp-acelya" && month === "2026-06" && active && (
+              <p className="text-violet-800 dark:text-violet-200 text-[11px] mt-1 leading-snug">
+                29 Haziran iş çıkışı · floor({fmt(3500)}×29/30) − kalan avans {fmt(600)}
+                {" → "}
+                <span className="font-medium">net maaş {fmt(2783)}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · kira {fmt(1550)} 5 Haziran&apos;da ödendi
+                </span>
+              </p>
+            )}
+            {employee.id === "emp-acelya" && active && month !== "2026-05" && month !== "2026-06" && openAdv > 0 && (
               <p className="text-violet-800 dark:text-violet-200 text-[11px] mt-1 leading-snug">
                 Açık avans {fmt(openAdv)}
                 {totalDeduc > 0 && (

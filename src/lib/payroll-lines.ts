@@ -5,7 +5,11 @@ import type {
   MonthPaymentStatus,
   SalaryExtra,
 } from "@/store/store";
-import { isPayrollActive, payrollProrationFactor } from "@/lib/payroll-utils";
+import {
+  isPayrollActive,
+  payrollProrationFactor,
+  proRatedBaseSalary,
+} from "@/lib/payroll-utils";
 
 function ymGt(a: string, b: string): boolean {
   return a > b;
@@ -151,7 +155,7 @@ export function buildPayrollLinePlan(
   const factor = payrollProrationFactor(employee, month);
   const netBaseSalary = Math.max(
     0,
-    employee.baseSalary * factor - totalDeduc - totalAdvance - carryFwd,
+    proRatedBaseSalary(employee.baseSalary, factor) - totalDeduc - totalAdvance - carryFwd,
   );
   const lines: Omit<
     PayrollLineItem,

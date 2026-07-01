@@ -12,6 +12,12 @@ export function isPayrollActive(employee: Employee, month: string): boolean {
   return true;
 }
 
+/** Oransal temel maaş — tam dolar (29/30 × 3500 → 3383 gibi). */
+export function proRatedBaseSalary(baseSalary: number, factor: number): number {
+  if (factor >= 1) return baseSalary;
+  return Math.floor(baseSalary * factor);
+}
+
 /** İş çıkışı ayında gün bazlı oransal maaş çarpanı (0–1). */
 export function payrollProrationFactor(employee: Employee, month: string): number {
   if (!employee.payrollEndMonth || employee.payrollEndMonth !== month) return 1;
