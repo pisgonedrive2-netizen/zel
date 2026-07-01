@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { upsertAppUser, deleteAppUser, fetchUsers } from "@/lib/db/repository";
-import { canApplyUserPatch, canDeleteUser } from "@/lib/user-guards";
+import { canApplyUserPatch, canDeleteUser, isMainAdminSession } from "@/lib/user-guards";
 import { resolvePlainPin } from "@/lib/pin-update";
+import { sanitizePermissions } from "@/lib/permissions";
 import type { AppUser } from "@/store/auth";
 
 export async function PATCH(
@@ -27,10 +28,18 @@ export async function PATCH(
     return NextResponse.json({ error: guard.reason }, { status: 403 });
   }
   const newPin = resolvePlainPin(patch);
-  const { pin: _pin, newPin: _newPin, ...profilePatch } = patch;
+  const { pin: _pin, newPin: _newPin, permissions: _perm, ...profilePatch } = patch;
+  // Yetki override'ları yalnızca ana yönetici tarafından değiştirilebilir
+  // (prim/cüzdan gibi hassas alanlara yetki verebildiği için ayrıcalık yükseltme koruması).
+  const permissions = isMainAdminSession(session)
+    ? Object.prototype.hasOwnProperty.call(patch, "permissions")
+      ? sanitizePermissions(patch.permissions)
+      : prev.permissions
+    : prev.permissions;
   const next: AppUser = {
     ...prev,
     ...profilePatch,
+    permissions,
     id,
     pin: "",
     username: patch.username ? patch.username.toLowerCase().trim() : prev.username,

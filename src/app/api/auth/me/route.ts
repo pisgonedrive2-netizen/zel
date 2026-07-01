@@ -21,6 +21,7 @@ export async function GET() {
       organizationId: session.organizationId,
       orgRole: session.orgRole,
       brandIds: session.brandIds,
+      permissions: session.permissions,
       avatar: session.avatar,
       pin: "",
       active: true,

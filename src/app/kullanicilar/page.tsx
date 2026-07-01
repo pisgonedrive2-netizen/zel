@@ -24,6 +24,14 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmtDateTime, fmtDateShort } from "@/lib/fmt-date";
 import { cacheAdminPin, mergeUsersWithPinCache } from "@/lib/admin-pin-cache";
 import { isMainAdmin } from "@/lib/user-guards";
+import {
+  CAPABILITY_CATALOG,
+  ROLE_DEFAULT_CAPABILITIES,
+  hasCapability,
+  type Capability,
+  type CapabilityGroup,
+  type UserPermissions,
+} from "@/lib/permissions";
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
@@ -168,6 +176,126 @@ export interface NewBrandInput {
   customPin?: string;
 }
 
+const CAP_GROUP_ORDER: CapabilityGroup[] = ["Sayfalar", "Hassas veri", "İşlemler"];
+const CAP_GROUP_HINT: Record<CapabilityGroup, string> = {
+  "Sayfalar": "Hangi sayfaları görebilir?",
+  "Hassas veri": "Cüzdan, işlem günlüğü gibi hassas bilgiler",
+  "İşlemler": "Düzenleme / yazma yetkileri (kapalı = salt-okunur)",
+};
+
+/** Tek bir yetki satırı — açık/kapalı pill toggle. */
+function CapToggle({
+  checked, isDefault, disabled, onToggle,
+}: { checked: boolean; isDefault: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onToggle}
+      className={cn(
+        "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+        checked ? "bg-emerald-500" : "bg-muted-foreground/30",
+        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+        !isDefault && "ring-2 ring-amber-400/70 ring-offset-1 ring-offset-background",
+      )}
+      title={isDefault ? "Rol varsayılanı" : "Özelleştirildi (varsayılandan farklı)"}
+    >
+      <span className={cn(
+        "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+        checked ? "translate-x-4" : "translate-x-0.5",
+      )} />
+    </button>
+  );
+}
+
+/**
+ * İnce ayarlı yetki editörü — yönetici (admin) / denetçi (auditor) hesapları için.
+ * Yalnızca ana yönetici (Orkun) düzenleyebilir. Kapatılan/açılan her yetki rol
+ * varsayılanını ezer; "varsayılana dön" tüm override'ları temizler.
+ */
+function PermissionEditor({
+  role, value, disabled, onChange,
+}: {
+  role: Role;
+  value: UserPermissions | undefined;
+  disabled?: boolean;
+  onChange: (next: UserPermissions | undefined) => void;
+}) {
+  const roleDefaults = ROLE_DEFAULT_CAPABILITIES[role];
+  const effective = (cap: Capability) => value?.[cap] ?? roleDefaults?.has(cap) ?? false;
+  const toggle = (cap: Capability) => {
+    if (disabled) return;
+    const next: UserPermissions = { ...(value ?? {}), [cap]: !effective(cap) };
+    onChange(next);
+  };
+  const setGroup = (group: CapabilityGroup, on: boolean) => {
+    if (disabled) return;
+    const next: UserPermissions = { ...(value ?? {}) };
+    for (const c of CAPABILITY_CATALOG) if (c.group === group) next[c.key] = on;
+    onChange(next);
+  };
+  const overrideCount = value ? Object.keys(value).length : 0;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Bu hesabın <strong className="text-foreground">neleri görüp göremeyeceğini</strong> tek tek seçin.
+          Sarı çerçeveli anahtarlar rol varsayılanından farklıdır.
+          {overrideCount > 0 && <> ({overrideCount} özel ayar)</>}
+        </p>
+        {overrideCount > 0 && !disabled && (
+          <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 text-[11px]"
+            onClick={() => onChange(undefined)}>
+            Varsayılana dön
+          </Button>
+        )}
+      </div>
+
+      {CAP_GROUP_ORDER.map((group) => {
+        const caps = CAPABILITY_CATALOG.filter((c) => c.group === group);
+        if (caps.length === 0) return null;
+        return (
+          <div key={group} className="space-y-1.5">
+            <div className="flex items-center justify-between border-b border-border/60 pb-1">
+              <div>
+                <span className="text-xs font-semibold text-foreground">{group}</span>
+                <span className="ml-2 text-[10px] text-muted-foreground">{CAP_GROUP_HINT[group]}</span>
+              </div>
+              {!disabled && (
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => setGroup(group, true)}
+                    className="text-[10px] text-emerald-600 hover:underline dark:text-emerald-400">tümü</button>
+                  <span className="text-[10px] text-muted-foreground">·</span>
+                  <button type="button" onClick={() => setGroup(group, false)}
+                    className="text-[10px] text-rose-600 hover:underline dark:text-rose-400">hiçbiri</button>
+                </div>
+              )}
+            </div>
+            <div className="grid gap-1">
+              {caps.map((c) => {
+                const on = effective(c.key);
+                const isDefault = value?.[c.key] === undefined;
+                return (
+                  <div key={c.key} className="flex items-start justify-between gap-3 rounded-md px-1.5 py-1 hover:bg-accent/30">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground leading-tight">{c.label}</p>
+                      <p className="text-[10px] text-muted-foreground leading-tight">{c.description}</p>
+                    </div>
+                    <CapToggle checked={on} isDefault={isDefault} disabled={disabled} onToggle={() => toggle(c.key)} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function UserForm({ initial, onSave, onCreateBrand, onClose }: {
   initial?: AppUser;
   onSave: (d: Omit<AppUser, "id">, generatedPin?: string) => void;
@@ -175,8 +303,11 @@ function UserForm({ initial, onSave, onCreateBrand, onClose }: {
   onClose: () => void;
 }) {
   const { employees, brands } = useStore();
+  const currentUser = useAuth((s) => s.user);
   const isNew = !initial;
   const lockedMainAdmin = !!initial && isMainAdmin(initial);
+  // Yetki override'larını yalnızca ana yönetici (Orkun) düzenleyebilir.
+  const canEditPermissions = isMainAdmin(currentUser);
   const [form, setForm] = useState<Omit<AppUser, "id">>({
     username:   initial?.username   ?? "",
     pin:        isNew ? generatePin() : "",
@@ -186,6 +317,7 @@ function UserForm({ initial, onSave, onCreateBrand, onClose }: {
     brandId:    initial?.brandId,
     avatar:     initial?.avatar     ?? "",
     active:     initial?.active     ?? true,
+    permissions: initial?.permissions,
   });
   // Marka rolü: yeni bağımsız marka aç (kiracı) veya mevcut markaya kullanıcı ekle.
   const [brandMode, setBrandMode] = useState<"new" | "existing">("new");
@@ -344,6 +476,24 @@ function UserForm({ initial, onSave, onCreateBrand, onClose }: {
               />
             </Field>
           )
+        )}
+
+        {(form.role === "admin" || form.role === "auditor") && !lockedMainAdmin && (
+          <>
+            <FormSection>Neleri görebilir? (ince ayarlı yetkiler)</FormSection>
+            {canEditPermissions ? (
+              <PermissionEditor
+                role={form.role}
+                value={form.permissions}
+                onChange={(perms) => set("permissions", perms)}
+              />
+            ) : (
+              <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 px-3 py-2 text-[11px] leading-relaxed text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/25 dark:text-amber-100">
+                Yetki override&apos;ları yalnızca <strong>ana yönetici</strong> tarafından düzenlenebilir.
+                Bu hesap şu an rol varsayılanlarını kullanıyor.
+              </div>
+            )}
+          </>
         )}
 
         <FormSection>Giriş bilgileri</FormSection>
@@ -1019,6 +1169,8 @@ function UsersPage() {
       ...data,
       employeeId: data.role === "streamer" ? data.employeeId : undefined,
       brandId: data.role === "brand" ? data.brandId : undefined,
+      permissions:
+        data.role === "admin" || data.role === "auditor" ? data.permissions : undefined,
     };
     if (modal === "new") {
       const r = await addUser(sanitized);
@@ -1571,10 +1723,12 @@ function UsersPage() {
         </CardContent>
       </Card>
 
-      <AuditLogPanel
-        auditEntries={auditEntries}
-        supabaseMode={supabaseMode}
-      />
+      {hasCapability(currentUser, "data.audit_log") && (
+        <AuditLogPanel
+          auditEntries={auditEntries}
+          supabaseMode={supabaseMode}
+        />
+      )}
 
       <div className="mt-6 px-4 py-3 rounded-xl border border-blue-200 bg-blue-50/40 dark:border-blue-500/40 dark:bg-blue-950/35">
         <p className="text-sm text-blue-900 dark:text-blue-100 font-medium mb-1 flex items-center gap-1.5">

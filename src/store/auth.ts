@@ -2,7 +2,8 @@
 
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
-import { canApplyUserPatch, canDeleteUser, isMainAdmin, canAccessPrim } from "@/lib/user-guards";
+import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
+import { routeCapability, hasCapabilityFor } from "@/lib/permissions";
 import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit, purgeAuditEntriesForActor, refreshAuditFromServer } from "@/store/audit-log";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
@@ -28,6 +29,11 @@ export interface AppUser {
   /** Erişilen tüm marka id'leri. */
   brandIds?: string[];
   avatar: string;
+  /**
+   * İnce ayarlı yetki override'ları (yalnızca admin/auditor için anlamlı).
+   * Verilmezse rol varsayılanları uygulanır (bkz. `@/lib/permissions`).
+   */
+  permissions?: import("@/lib/permissions").UserPermissions;
   /** Hesap aktif mi? (admin pasifleştirebilir) */
   active: boolean;
   /** Son giriş zaman damgası (ISO). */
@@ -124,6 +130,7 @@ function syncSessionUser(session: AppUser, row: AppUser): AppUser {
     role: row.role,
     employeeId: row.employeeId,
     brandId: row.brandId,
+    permissions: row.permissions,
     active: row.active,
     lastLoginAt: row.lastLoginAt,
     pin: session.pin || row.pin,
@@ -334,6 +341,7 @@ const authCreator: StateCreator<AuthState> = (set, get) => {
                 brandId: row.brandId,
                 avatar: row.avatar,
                 active: row.active,
+                permissions: row.permissions,
                 pin: u.pin,
               }),
             });
@@ -622,17 +630,25 @@ export function canAccess(
   role: Role | null,
   panelViewAs?: PanelViewAs | null,
   brandViewAs?: BrandViewAs | null,
-  user?: Pick<AppUser, "id" | "username" | "impersonatorId"> | null,
+  user?: Pick<AppUser, "id" | "username" | "impersonatorId" | "permissions"> | null,
 ): boolean {
   if (ROUTE_ACCESS.public.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
   if (!role) return false;
 
-  const mainAdminRoute = ROUTE_ACCESS.mainAdminOnly.some(
-    (p) => pathname === p || pathname.startsWith(p + "/"),
-  );
-  if (mainAdminRoute) {
-    return canAccessPrim(user);
-  }
+  // İnce ayarlı yetki: rotanın gerektirdiği sayfa yetkisi (varsa) kontrol edilir.
+  // Rol varsayılanları mevcut davranışı korur; kullanıcıya özel override ezer.
+  const cap = routeCapability(pathname);
+  const hasRouteCap = () =>
+    cap === undefined ||
+    hasCapabilityFor(
+      {
+        isMainAdmin: isMainAdmin(user ?? undefined),
+        role,
+        impersonating: !!user?.impersonatorId,
+        permissions: user?.permissions,
+      },
+      cap,
+    );
 
   if (role === "admin") {
     if (
@@ -647,10 +663,14 @@ export function canAccess(
     ) {
       return true;
     }
-    return !ROUTE_ACCESS.adminBlocked.includes(pathname);
+    if (ROUTE_ACCESS.adminBlocked.includes(pathname)) return false;
+    return hasRouteCap();
   }
   if (role === "auditor") {
-    return ROUTE_ACCESS.auditor.some((p) => pathname === p || pathname.startsWith(p + "/"));
+    if (!ROUTE_ACCESS.auditor.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      return false;
+    }
+    return hasRouteCap();
   }
   if (role === "brand") {
     return ROUTE_ACCESS.brand.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -672,9 +692,17 @@ export function landingFor(
   return "/yayinci/maas";
 }
 
-/** UI'da CRUD butonlarını gizlemek için. */
-export function useIsReadOnly(): boolean {
+/**
+ * UI'da CRUD butonlarını gizlemek için. İsteğe bağlı `writeCap` verilirse, o
+ * yazma yetkisi olmayan yöneticiler de salt-okunur olur (denetçi her zaman
+ * salt-okunur; ana yönetici her zaman tam yetkili).
+ */
+export function useIsReadOnly(writeCap?: import("@/lib/permissions").Capability): boolean {
   const user = useAuth((s) => s.user);
   if (user && isMainAdmin(user)) return false;
-  return user?.role === "auditor";
+  if (user?.role === "auditor") return true;
+  if (writeCap && !hasCapabilityFor({ role: user?.role ?? null, impersonating: !!user?.impersonatorId, permissions: user?.permissions }, writeCap)) {
+    return true;
+  }
+  return false;
 }

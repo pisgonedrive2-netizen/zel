@@ -12,6 +12,7 @@ import type {
   BrandDeal, BrandDealDeliverable, BrandPost,
 } from "@/store/store";
 import type { AppUser } from "@/store/auth";
+import { sanitizePermissions } from "@/lib/permissions";
 import { pgDate, pgTime, pgTimestamptz } from "@/lib/db/pg-value";
 import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 
@@ -974,6 +975,7 @@ export function appUserFromRow(r: Record<string, unknown>): AppUser {
     avatar: str(r.avatar),
     active: bool(r.active, true),
     lastLoginAt: r.last_login_at ? str(r.last_login_at) : undefined,
+    permissions: sanitizePermissions(r.permissions),
   };
 }
 
@@ -1109,6 +1111,7 @@ export function appUserToRow(u: AppUser, pinHash: string) {
     avatar: u.avatar,
     active: u.active,
     last_login_at: u.lastLoginAt ?? null,
+    permissions: u.permissions ?? null,
   };
 }
 

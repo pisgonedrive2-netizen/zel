@@ -33,7 +33,8 @@ import { fmtDateShort } from "@/lib/fmt-date";
 import { MARKA_NAV_ITEMS } from "@/lib/marka-nav";
 import { markaNavIcon } from "@/lib/marka-nav-icons";
 import { notificationsHrefForRole } from "@/lib/notification-href";
-import { isMainAdmin, canAccessPrim } from "@/lib/user-guards";
+import { isMainAdmin } from "@/lib/user-guards";
+import { hasCapability, routeCapability } from "@/lib/permissions";
 
 type NavItem = {
   href:  string;
@@ -184,9 +185,15 @@ export default function Sidebar() {
   const toggleScreenShareMode = useUiPrefs((s) => s.toggleScreenShareMode);
   /** Gizli mod yalnızca ana yönetici (Orkun) kullanabilir. */
   const effectiveScreenShareMode = isOrkun && screenShareMode;
+  // Sayfa yetkisi: rotanın gerektirdiği yetki (varsa) kullanıcıda olmalı.
+  // Rol varsayılanları mevcut davranışı korur; yöneticiye özel override ezer.
+  const navItemAllowed = (n: NavItem) => {
+    const cap = routeCapability(n.href);
+    return cap === undefined || hasCapability(user, cap);
+  };
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
-    (!n.mainAdminOnly || canAccessPrim(user)) &&
+    navItemAllowed(n) &&
     (!n.sensitive || !effectiveScreenShareMode) &&
     (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
   );

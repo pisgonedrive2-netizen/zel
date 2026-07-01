@@ -328,7 +328,7 @@ function SlaTile({ label, count, accent }: { label: string; count: number; accen
 function ContentExpensesPageInner() {
   const { user } = useAuth();
   const canRamizWallet = canViewRamizWallet(user);
-  const readOnly = useIsReadOnly();
+  const readOnly = useIsReadOnly("write.content_review");
   const {
     contentExpenses, brands, employees,
     addContentExpense, updateContentExpense, deleteContentExpense,

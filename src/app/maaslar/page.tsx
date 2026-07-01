@@ -1542,7 +1542,7 @@ export default function MaaslarPage() {
     addEmployee, updateEmployee, deleteEmployee, processEmployeeExit,
     markEmployeePayrollLinesPaid,
   } = useStore();
-  const readOnly = useIsReadOnly();
+  const readOnly = useIsReadOnly("write.payroll");
   const [month, setMonth]     = useState(() => toYearMonthLocal(new Date()));
   const [search, setSearch]   = useState("");
   const [empModal, setEmpModal] = useState<"new" | Employee | null>(null);

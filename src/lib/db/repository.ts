@@ -4,6 +4,7 @@ import { appUserExists, upsertAppUser } from "@/lib/db/upsert-app-user";
 export { upsertAppUser, appUserExists };
 import type { SessionPayload } from "@/lib/session";
 import { isMainAdminSession, MAIN_ADMIN_ID } from "@/lib/user-guards";
+import { sanitizePermissions } from "@/lib/permissions";
 import { sanitizeBootstrapRamizWallet } from "@/lib/ramiz-wallet-access";
 import type {
   AppHydratePayload,
@@ -361,6 +362,7 @@ async function sessionFromUserRow(row: Record<string, unknown>): Promise<Session
     organizationId: org.organizationId,
     orgRole: org.orgRole,
     brandIds: org.brandIds && org.brandIds.length > 0 ? org.brandIds : brandId ? [brandId] : undefined,
+    permissions: sanitizePermissions(row.permissions),
   };
   return enrichSessionForMainAdmin(session);
 }

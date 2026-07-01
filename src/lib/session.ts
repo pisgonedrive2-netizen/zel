@@ -21,6 +21,8 @@ export interface SessionPayload {
   orgRole?: string;
   /** Erişebildiği tüm marka id'leri (scope_all_brands ise org'un tüm markaları). */
   brandIds?: string[];
+  /** İnce ayarlı yetki override'ları (admin/auditor). Yoksa rol varsayılanı. */
+  permissions?: import("@/lib/permissions").UserPermissions;
   /**
    * Denetim/impersonation: bu oturum başka bir kullanıcı tarafından (ana yönetici)
    * "hesabına girilerek" başlatıldıysa, asıl yöneticinin kimliği. Boşsa normal oturum.
@@ -57,6 +59,10 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       organizationId: typeof p.organizationId === "string" ? p.organizationId : undefined,
       orgRole: typeof p.orgRole === "string" ? p.orgRole : undefined,
       brandIds: Array.isArray(p.brandIds) ? (p.brandIds as unknown[]).map(String) : undefined,
+      permissions:
+        p.permissions && typeof p.permissions === "object"
+          ? (p.permissions as SessionPayload["permissions"])
+          : undefined,
       impersonatorId: typeof p.impersonatorId === "string" ? p.impersonatorId : undefined,
       impersonatorName: typeof p.impersonatorName === "string" ? p.impersonatorName : undefined,
     };

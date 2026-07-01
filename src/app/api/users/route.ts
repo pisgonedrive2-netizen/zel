@@ -3,6 +3,8 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import { fetchUsers, upsertAppUser } from "@/lib/db/repository";
 import type { AppUser } from "@/store/auth";
+import { sanitizePermissions } from "@/lib/permissions";
+import { isMainAdminSession } from "@/lib/user-guards";
 
 /** GET /api/users — yalnızca yönetici (kullanıcı listesi senkronu). */
 export async function GET() {
@@ -43,6 +45,7 @@ export async function POST(req: Request) {
     brandId: body.brandId,
     avatar: body.avatar ?? body.name.slice(0, 1).toUpperCase(),
     active: body.active ?? true,
+    permissions: isMainAdminSession(session) ? sanitizePermissions(body.permissions) : undefined,
   };
   try {
     await upsertAppUser(user, body.pin);

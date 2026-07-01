@@ -444,7 +444,7 @@ export default function KasaPage() {
     bulkSetKasaCountInGenel,
   } = useStore();
   const { user } = useAuth();
-  const readOnly = useIsReadOnly();
+  const readOnly = useIsReadOnly("write.kasa");
   const canRamizWallet = canViewRamizWallet(user);
   const viewKasas = useMemo(
     () => filterKasasForRamizViewer(kasas, canRamizWallet),

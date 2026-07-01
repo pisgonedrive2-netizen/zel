@@ -3,14 +3,14 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, landingFor } from "@/store/auth";
-import { canAccessPrim } from "@/lib/user-guards";
+import { hasCapability } from "@/lib/permissions";
 import { PageShell } from "@/components/page-shell";
 import { PrimPoolPanel } from "@/components/prim/prim-pool-panel";
 
 export default function PrimPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const allowed = canAccessPrim(user);
+  const allowed = hasCapability(user, "page.prim");
 
   useEffect(() => {
     if (user && !allowed) {

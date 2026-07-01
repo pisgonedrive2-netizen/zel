@@ -34,6 +34,7 @@ function profileFields(user: AppUser) {
     avatar: user.avatar,
     active: user.active,
     last_login_at: user.lastLoginAt ?? null,
+    permissions: user.permissions ?? null,
   };
 }
 

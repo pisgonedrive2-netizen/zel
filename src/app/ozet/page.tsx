@@ -16,7 +16,7 @@ import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
 import { isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
-import { canAccessPrim } from "@/lib/user-guards";
+import { hasCapability } from "@/lib/permissions";
 import {
   canViewRamizWallet,
   filterKasasForRamizViewer,
@@ -71,7 +71,7 @@ function CustomTooltip({ active, payload, label }: any) {
 export default function OzetPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const allowed = canAccessPrim(user);
+  const allowed = hasCapability(user, "page.ozet");
 
   useEffect(() => {
     if (user && !allowed) {
