@@ -3999,7 +3999,9 @@ export function calcNetPayable(
   const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
   const carryFwd     = calcCarryForward(employee.id, month, advances, paymentStatuses);
 
-  const rentAdd = getRentForMonth(employee, month, extras) * factor;
+  // Kira desteği sabit aylık bir kalem (ortak konut) — çıkış ayında gün bazlı
+  // orantılanmaz; yalnızca temel maaş 29 günlük gibi orantılanır.
+  const rentAdd = getRentForMonth(employee, month, extras);
   const otherAdd = empExtras
     .filter((e) => e.type !== "deduction" && e.type !== "rent")
     .reduce((s, e) => s + e.amount, 0);

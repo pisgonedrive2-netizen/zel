@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useStore, calcKasaBalance } from "@/store/store";
+import { useStore } from "@/store/store";
+import { sumKasaDisplayBalances } from "@/lib/kasa-tron-metrics";
 import { useAuth } from "@/store/auth";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { fmt } from "@/lib/data";
@@ -15,6 +16,7 @@ import { fmt } from "@/lib/data";
 export function KasaLowAlertEffect() {
   const kasas = useStore((s) => s.kasas);
   const kasaTransactions = useStore((s) => s.kasaTransactions);
+  const kasaMetrics = useStore((s) => s.kasaMetrics);
   const notifications = useStore((s) => s.notifications);
   const bootstrapReady = kasas.length > 0;
   const supabaseMode = isSupabaseClientMode();
@@ -61,7 +63,13 @@ export function KasaLowAlertEffect() {
     if (!user || (user.role !== "admin" && user.role !== "auditor")) return;
     if (silenced.current.has("kasa_low")) return;
 
-    const balance = calcKasaBalance(kasaTransactions);
+    // Ham ledger toplamı (calcKasaBalance) yanıltıcı: Genel Kasa'daki TRON ile
+    // finanse edilen giderler tek başına eksi görünür. Gerçek işletme bakiyesini
+    // kullan — TRON gizli oturumlarda sunucudan gelen kasaMetrics, aksi halde
+    // TRON düzeltmeli gösterim bakiyeleri toplamı.
+    const balance = kasaMetrics
+      ? kasaMetrics.operatingTotal
+      : sumKasaDisplayBalances(kasas, kasaTransactions);
     if (balance > threshold.current) return;
 
     const today = new Date().toISOString().slice(0, 10);
@@ -93,7 +101,7 @@ export function KasaLowAlertEffect() {
         refId: refAud,
       });
     }
-  }, [bootstrapReady, user, kasaTransactions, notifications]);
+  }, [bootstrapReady, user, kasas, kasaTransactions, kasaMetrics, notifications]);
 
   return null;
 }

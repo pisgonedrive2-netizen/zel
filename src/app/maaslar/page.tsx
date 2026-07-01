@@ -239,7 +239,8 @@ function ExitEmployeeForm({
     payrollEndMonth,
   );
   const proratedBase = employee.baseSalary * factor;
-  const proratedRent = (employee.rentSupport ?? 0) * factor;
+  // Kira sabit aylık kalem; çıkış ayında orantılanmaz.
+  const proratedRent = employee.rentSupport ?? 0;
 
   return (
     <form

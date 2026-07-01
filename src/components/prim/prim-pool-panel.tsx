@@ -11,7 +11,8 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, ResponsiveContainer, Cell,
 } from "recharts";
-import { useStore, calcKasaBalance } from "@/store/store";
+import { useStore } from "@/store/store";
+import { sumKasaDisplayBalances } from "@/lib/kasa-tron-metrics";
 import { useUiPrefs } from "@/store/ui-prefs";
 import { isPayrollActive, isPrimEligible } from "@/lib/payroll-utils";
 import { shiftCalendarMonthYm, toYearMonthLocal } from "@/lib/data";
@@ -323,9 +324,12 @@ export function PrimPoolPanel() {
     return [...real, ...customAsBrand];
   }, [activeBrands, customBrands, brandMeta]);
 
+  // Ham ledger toplamı yerine TRON düzeltmeli gerçek kasa bakiyesi. Genel Kasa'daki
+  // TRON ile finanse edilen giderler tek başına -24k gibi yanıltıcı bir negatif
+  // gösterir; bu da senaryolarda "prim yok" izlenimi yaratıyordu.
   const kasaBalanceUsd = useMemo(
-    () => calcKasaBalance(kasaTransactions),
-    [kasaTransactions],
+    () => sumKasaDisplayBalances(kasas, kasaTransactions),
+    [kasas, kasaTransactions],
   );
 
   const storeArgs = useMemo(() => ({

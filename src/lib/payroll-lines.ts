@@ -167,7 +167,8 @@ export function buildPayrollLinePlan(
     });
   }
 
-  const rent = getRentForMonth(employee, month, extras) * factor;
+  // Kira sabit aylık kalem; çıkış ayında orantılanmaz (yalnızca temel maaş).
+  const rent = getRentForMonth(employee, month, extras);
   if (rent > 0) {
     lines.push({
       lineId: "rent",
