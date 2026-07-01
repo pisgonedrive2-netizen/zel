@@ -1,5 +1,5 @@
 import { shiftCalendarMonthYm } from "@/lib/data";
-import { totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
+import { totalLinkViewsForMonth, shouldSkipManualViewership } from "@/lib/brand-month-metrics";
 import type { BrandLink, BrandViewership, LinkSnapshot } from "@/store/store";
 
 export type GlobalTrendPoint = {
@@ -34,6 +34,9 @@ export function buildGlobalMonthlyTrend(opts: {
     );
     const streamerViews = opts.brandViewership
       .filter((v) => v.month === ym)
+      .filter((v) =>
+        !shouldSkipManualViewership(v, opts.scopedLinks, ym, opts.linkSnapshots, opts.todayYm)
+      )
       .reduce((s, v) => s + v.views, 0);
     arr.push({
       key: ym,

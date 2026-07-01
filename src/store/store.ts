@@ -1121,7 +1121,7 @@ interface AppStore {
   deleteBrand: (id: string) => void;
 
   // Brand link
-  addBrandLink: (l: Omit<BrandLink, "id">) => void;
+  addBrandLink: (l: Omit<BrandLink, "id"> & { id?: string }) => void;
   updateBrandLink: (id: string, l: Partial<BrandLink>) => void;
   deleteBrandLink: (id: string) => void;
 
@@ -3211,16 +3211,17 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       },
 
       // Brand link
-      addBrandLink: (l) => {
+      addBrandLink: (l: Omit<BrandLink, "id"> & { id?: string }) => {
         set((s) => {
           const dup = findDuplicateBrandLink(s.brandLinks, l.url, undefined, {
             brandId: l.brandId,
             ownerId: l.ownerId,
           });
           if (dup) return s;
+          const { id: presetId, ...rest } = l;
           const row = {
-            ...l,
-            id: uid(),
+            ...rest,
+            id: presetId ?? uid(),
             createdAt: l.createdAt ?? new Date().toISOString(),
           };
           persistEntity("brand_link", row);

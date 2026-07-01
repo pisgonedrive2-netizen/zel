@@ -1,14 +1,16 @@
 import type { BrandLink } from "@/store/store";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 
+type LinkTrackInput = Pick<BrandLink, "url" | "platform" | "handle" | "autoTrack" | "externalRef">;
+
 /** API cron / RapidAPI ile otomatik takip edilebilir link. */
-export function isApiTrackedLink(link: BrandLink): boolean {
+export function isApiTrackedLink(link: LinkTrackInput): boolean {
   if (link.autoTrack === false) return false;
   return isAutoTrackable(link.url, link.platform, link.handle, link.externalRef);
 }
 
 /** Kick, Twitter vb. — personelin manuel snapshot girmesi gereken linkler. */
-export function needsManualTracking(link: BrandLink): boolean {
+export function needsManualTracking(link: LinkTrackInput): boolean {
   if (!link.url?.trim() && !link.handle?.trim()) return false;
   return !isApiTrackedLink(link);
 }

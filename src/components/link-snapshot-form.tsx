@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Field, Input, Textarea, FormGrid, FormActions } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { TrendingUp } from "lucide-react";
 import type { BrandLink, LinkSnapshot } from "@/store/store";
+import {
+  previousLinkSnapshot,
+  snapshotViewsDelta,
+  linkDisplayTitle,
+  linkSiteLabel,
+} from "@/lib/link-snapshot-delta";
+import { fmtCompactViews } from "@/lib/brand-month-metrics";
 
 export function LinkSnapshotForm({
   link,
+  brandName,
+  allSnapshots = [],
   initial,
   defaultDateForNew,
   suggestedViewsForNew,
@@ -15,6 +26,8 @@ export function LinkSnapshotForm({
   onClose,
 }: {
   link: BrandLink;
+  brandName?: string;
+  allSnapshots?: LinkSnapshot[];
   initial?: LinkSnapshot;
   defaultDateForNew: string;
   suggestedViewsForNew?: number;
@@ -32,15 +45,67 @@ export function LinkSnapshotForm({
     shares: initial?.shares,
   });
 
+  const site = linkSiteLabel(link.url);
+  const title = linkDisplayTitle(link);
+
+  const previous = useMemo(
+    () => previousLinkSnapshot(link.id, form.date, allSnapshots, initial?.id),
+    [link.id, form.date, allSnapshots, initial?.id]
+  );
+
+  const delta = snapshotViewsDelta(form.views, previous?.views ?? link.lastViews);
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
+        if (form.views < (previous?.views ?? link.lastViews ?? 0)) {
+          const ok = window.confirm(
+            "Yeni değer önceki snapshot'tan düşük. Platform sayacı gerilemiş olabilir — yine de kaydedilsin mi?"
+          );
+          if (!ok) return;
+        }
         onSave(form);
       }}
     >
+      <div className="mb-4 rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5 text-xs space-y-1">
+        {brandName && (
+          <p>
+            <span className="text-muted-foreground">Marka:</span>{" "}
+            <span className="font-semibold text-foreground">{brandName}</span>
+          </p>
+        )}
+        <p>
+          <span className="text-muted-foreground">İçerik:</span>{" "}
+          <span className="font-medium">{title}</span>
+          {site && (
+            <Badge variant="outline" className="ml-1.5 text-[9px]">
+              {site}
+            </Badge>
+          )}
+        </p>
+        <p className="text-muted-foreground truncate font-mono">{link.url || "—"}</p>
+        {(previous?.views != null || link.lastViews != null) && (
+          <p>
+            <span className="text-muted-foreground">Önceki kayıt:</span>{" "}
+            <span className="tabular-nums font-medium">
+              {fmtCompactViews(previous?.views ?? link.lastViews ?? 0)}
+            </span>
+            {previous?.date && (
+              <span className="text-muted-foreground"> ({previous.date.slice(0, 10)})</span>
+            )}
+          </p>
+        )}
+        {delta > 0 && (
+          <p className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold">
+            <TrendingUp size={12} />
+            +{fmtCompactViews(delta)} artış panoya yansıyacak
+          </p>
+        )}
+      </div>
+
       <FormGrid>
-        <Field label="Tarih">
+        <Field label="Tarih" hint="Kontrol ettiğiniz gün">
           <DateTimePicker
             mode="date"
             value={form.date}
@@ -48,7 +113,7 @@ export function LinkSnapshotForm({
             required
           />
         </Field>
-        <Field label="Toplam izlenme">
+        <Field label="Toplam izlenme" hint="Platformdaki güncel kümülatif sayı">
           <Input
             type="number"
             min={0}
@@ -57,7 +122,7 @@ export function LinkSnapshotForm({
             required
           />
         </Field>
-        <Field label="Beğeni" hint="Opsiyonel — API'den gelmiyorsa manuel">
+        <Field label="Beğeni" hint="Opsiyonel">
           <Input
             type="number"
             min={0}
@@ -97,7 +162,7 @@ export function LinkSnapshotForm({
           />
         </Field>
       </FormGrid>
-      <Field label="Not" hint="Opsiyonel açıklama">
+      <Field label="Not" hint="Kampanya, yayın adı, ek açıklama">
         <Textarea
           rows={2}
           value={form.notes ?? ""}
@@ -107,7 +172,7 @@ export function LinkSnapshotForm({
       <FormActions
         onCancel={onClose}
         onDelete={onDelete}
-        submitLabel={initial ? "Güncelle" : "Snapshot kaydet"}
+        submitLabel={initial ? "Güncelle" : "Kaydet — artışı yansıt"}
       />
     </form>
   );

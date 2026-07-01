@@ -24,6 +24,7 @@ import {
   shouldSkipManualViewership,
 } from "@/lib/brand-month-metrics";
 import { totalLinkEngagementForMonth, fmtEngagement } from "@/lib/brand-engagement-metrics";
+import { totalLinkViewsGainInMonth } from "@/lib/link-snapshot-delta";
 import { aggregateStreamersForMonth } from "@/lib/streamer-month-metrics";
 import { brandChartColor } from "@/lib/brand-viewership-series";
 import { Badge } from "@/components/ui/badge";
@@ -397,6 +398,11 @@ export default function IzlenmePage() {
     [scopedLinks, viewMonth, linkSnapshots, todayYm]
   );
 
+  const viewsGainMonth = useMemo(
+    () => totalLinkViewsGainInMonth(scopedLinks, viewMonth, linkSnapshots, todayYm),
+    [scopedLinks, viewMonth, linkSnapshots, todayYm]
+  );
+
   const totalViewsLive = useMemo(
     () => brandLinks.reduce((s, l) => s + (l.lastViews ?? 0), 0),
     [brandLinks]
@@ -652,9 +658,11 @@ export default function IzlenmePage() {
           metricCaption="Views"
           label={`${monthTitleYm(viewMonth)} · Toplam`}
           sub={
-            totalViewsLive > 0
-              ? `Canlı toplam: ${fmtViews(totalViewsLive)}`
-              : "Bu aya kayıtlı snapshot'ların toplamı"
+            viewsGainMonth > 0
+              ? `+${fmtViews(viewsGainMonth)} ${monthTitleYm(viewMonth)} artışı`
+              : totalViewsLive > 0
+                ? `Canlı toplam: ${fmtViews(totalViewsLive)}`
+                : "Bu aya kayıtlı snapshot'ların toplamı"
           }
           accent="violet"
           className="col-span-2 lg:col-span-2"
