@@ -286,6 +286,24 @@ describe("computePrimPool", () => {
     expect(worst.totalPrimUsd).toBeLessThan(12_000);
   });
 
+  it("prim garantisi: zarar ayında bile aylık gelirin %X'i kadar prim çıkar (0 olmaz)", () => {
+    const r = computePrimPool({
+      monthYm: "2026-07",
+      brands,
+      brandFees: { b1: 10_000, b2: 10_000 }, // 20k gelir
+      brandGuarantees: { b1: 1_000_000, b2: 1_000_000 },
+      brandViews: { b1: 0, b2: 0 },
+      payrollUsd: 30_000, // giderler gelirden fazla → net zarar
+      contentExpenseUsd: 0,
+      generalExpenseUsd: 0,
+      recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
+      config: { ...DEFAULT_PRIM_CONFIG, model: "net_share", basePrimRate: 0.1, revenueGuaranteeRate: 0.05 },
+    });
+    // Net havuz negatif → normalde 0; garanti ile 20k × %5 = 1000
+    expect(r.netPoolUsd).toBeLessThan(0);
+    expect(r.totalPrimUsd).toBeCloseTo(1000, 0);
+  });
+
   it("mutlak ek gelir (25k gelse) marka geliri 0 olsa bile prim üretir", () => {
     const base: PrimBaseInputs = {
       monthYm: "2026-07",
@@ -298,7 +316,7 @@ describe("computePrimPool", () => {
       generalExpenseUsd: 0,
       recipients: [{ id: "e1", name: "A", kind: "streamer", weight: 1 }],
       kasaBalanceUsd: 0,
-      config: { ...DEFAULT_PRIM_CONFIG, basePrimMode: "net_share", basePrimRate: 0.1, minNetFloorUsd: 0 },
+      config: { ...DEFAULT_PRIM_CONFIG, model: "net_share", basePrimRate: 0.1, minNetFloorUsd: 0 },
     };
     const noExtra = computeWithScenario(base, {
       key: "c", label: "", description: "", detail: "",
@@ -657,6 +675,7 @@ describe("computePrimPool", () => {
         reserveRate: 0.9,
         viewPoolBonusEnabled: false,
         viewBonusMode: "off",
+        revenueGuaranteeRate: 0, // bu test net-kâr tavanını izole eder; garanti kapalı
       },
     });
     expect(r.payrollContentNetUsd).toBe(0);

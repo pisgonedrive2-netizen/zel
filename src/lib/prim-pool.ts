@@ -41,6 +41,12 @@ export type PrimPoolConfig = {
   basePrimNetBasis?: PrimBaseNetBasis;
   /** Brüt gelirden pay oranı (revenue_share/hybrid). */
   revenueShareRate?: number;
+  /**
+   * Prim garantisi: taban prim, aylık brüt gelirin en az bu oranı kadar olur
+   * (0 = kapalı). Net kâr/dağıtılabilir havuz tabanından bağımsızdır — ay
+   * zararda olsa bile gelir varsa prim 0 çıkmaz. "Her zaman aylık gelen tutardan".
+   */
+  revenueGuaranteeRate?: number;
   /** Dağıtımdan önce gelecek aylar/kuru aylar için ayrılan pay oranı (0.15 = %15). */
   reserveRate?: number;
   /** Sabit aylık rezerv (sürekli/öngörülen & sürpriz giderler tamponu) USD. */
@@ -137,6 +143,8 @@ export const FAIR_PRIM_CONFIG: PrimPoolConfig = {
   basePrimNetBasis: "after_payroll_content",
   fixedPrimUsd: 0,
   revenueShareRate: 0.04,
+  // Prim asla 0 olmasın: taban prim aylık brüt gelirin en az %5'i.
+  revenueGuaranteeRate: 0.05,
   reserveRate: 0,
   monthlyReserveUsd: 0,
   viewBonusMode: "off",
@@ -344,6 +352,7 @@ function normalizeConfig(config?: PrimPoolConfig): Required<PrimPoolConfig> {
     basePrimRate: c.basePrimRate,
     basePrimNetBasis: c.basePrimNetBasis ?? "after_payroll_content",
     revenueShareRate: c.revenueShareRate ?? 0.05,
+    revenueGuaranteeRate: c.revenueGuaranteeRate ?? 0,
     reserveRate: c.reserveRate ?? 0,
     monthlyReserveUsd: c.monthlyReserveUsd ?? 0,
     viewBonusMode: c.viewBonusMode ?? "multiplier",
@@ -605,6 +614,14 @@ export function computePrimPool(input: {
       // hybrid
       rawBasePrimUsd = distributablePoolUsd * config.basePrimRate + totalRevenueUsd * config.revenueShareRate;
     }
+  }
+
+  // Prim garantisi — taban prim, aylık brüt gelirin en az %X'i olur. Net kâr
+  // tabanı/dağıtılabilir havuz kısıtından ve floor'dan bağımsızdır: gelir varsa
+  // prim 0 çıkmaz ("her zaman aylık gelen tutardan hesaplanır").
+  const revenueGuaranteedBaseUsd = Math.max(0, totalRevenueUsd * config.revenueGuaranteeRate);
+  if (revenueGuaranteedBaseUsd > rawBasePrimUsd) {
+    rawBasePrimUsd = revenueGuaranteedBaseUsd;
   }
 
   // İzlenme primi.

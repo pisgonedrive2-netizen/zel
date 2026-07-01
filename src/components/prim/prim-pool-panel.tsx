@@ -1066,6 +1066,32 @@ export function PrimPoolPanel() {
                   {" "}<strong className="text-foreground">2)</strong> Kalanın %{Math.round((config.basePrimRate ?? 0.1) * 100)}&apos;u havuza + link izlenmeleri (her 1M = $100).
                   {" "}<strong className="text-foreground">3)</strong> Dağıtım sekmesinden kişi ekle/çıkar, puan × kalite ile böl.
                 </div>
+
+                {/* Prim garantisi — asla 0 çıkmasın, her zaman aylık gelirden */}
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
+                  <label className="text-[12px] font-medium text-foreground/90 flex items-center gap-1.5">
+                    <ShieldCheck size={13} className="text-emerald-600" /> Prim garantisi — asla 0 olmasın
+                  </label>
+                  <SliderRow
+                    label="Aylık brüt gelirin en az yüzdesi taban prim olur"
+                    value={Math.round((config.revenueGuaranteeRate ?? 0) * 100)}
+                    min={0}
+                    max={25}
+                    suffix="%"
+                    accent="emerald"
+                    onChange={(v) => setConfigField({ revenueGuaranteeRate: v / 100 })}
+                  />
+                  <div className="rounded-md bg-background/60 px-2.5 py-2 text-[11px] leading-relaxed">
+                    Aylık gelir <strong className="tabular-nums text-foreground">{fmtPrimUsd(result.totalRevenueUsd)}</strong>
+                    {" "}× %{Math.round((config.revenueGuaranteeRate ?? 0) * 100)} ={" "}
+                    <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {fmtPrimUsd(result.totalRevenueUsd * (config.revenueGuaranteeRate ?? 0))}
+                    </strong>
+                    {" "}garanti taban prim. Net kâr/kasa tabanından bağımsızdır; ay zararda olsa bile
+                    gelir varsa prim <strong className="text-foreground">0 çıkmaz</strong>. (0 = kapalı.)
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <LabeledSelect label="Taban prim modu" value={config.basePrimMode ?? "rate"}
                     options={Object.entries(PRIM_BASE_MODE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
