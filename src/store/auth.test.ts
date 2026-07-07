@@ -82,11 +82,11 @@ describe("canAccess", () => {
 describe("landingFor", () => {
   it("returns role-specific home routes", () => {
     expect(landingFor("admin", { id: "u-admin", username: "orkun" })).toBe("/ozet");
-    expect(landingFor("admin", { id: "u-other", username: "admin2" })).toBe("/maaslar");
-    expect(landingFor("admin")).toBe("/maaslar");
+    expect(landingFor("admin", { id: "u-other", username: "admin2" })).toBe("/panel");
+    expect(landingFor("admin")).toBe("/panel");
     expect(landingFor("auditor")).toBe("/denetci");
-    expect(landingFor("brand")).toBe("/marka/izlenmeler");
-    expect(landingFor("streamer")).toBe("/yayinci/maas");
+    expect(landingFor("brand")).toBe("/marka/anasayfa");
+    expect(landingFor("streamer")).toBe("/yayinci/anasayfa");
   });
 });
 

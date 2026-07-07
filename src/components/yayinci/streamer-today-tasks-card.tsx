@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { CalendarDays, CheckCircle2, Circle, ListTodo } from "lucide-react";
 import { useStore } from "@/store/store";
 import { streamerTodayTasks } from "@/lib/streamer-today-tasks";
+import { markNotificationCompletedPersisted } from "@/lib/notification-actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { fmtDateTime } from "@/lib/fmt-date";
 
 export function StreamerTodayTasksCard({ userId }: { userId: string }) {
   const notifications = useStore((s) => s.notifications);
   const todayKey = new Date().toISOString().slice(0, 10);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const tasks = useMemo(
     () => streamerTodayTasks(notifications, userId, todayKey),
@@ -19,6 +22,15 @@ export function StreamerTodayTasksCard({ userId }: { userId: string }) {
   );
 
   const unread = tasks.filter((t) => !t.read).length;
+
+  async function handleComplete(taskId: string) {
+    setBusyId(taskId);
+    try {
+      await markNotificationCompletedPersisted(taskId);
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent">
@@ -30,7 +42,7 @@ export function StreamerTodayTasksCard({ userId }: { userId: string }) {
               Bugün yapılacaklar
             </CardTitle>
             <CardDescription>
-              Yönetici atadığı günlük görevler — tam pano yok, buradan takip edin
+              Yönetici atadığı günlük görevler — tamamladığında işaretleyin
             </CardDescription>
           </div>
           {unread > 0 && (
@@ -64,6 +76,16 @@ export function StreamerTodayTasksCard({ userId }: { userId: string }) {
                     {fmtDateTime(t.createdAt)}
                   </p>
                 </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0 text-[10px]"
+                  disabled={busyId === t.id}
+                  onClick={() => handleComplete(t.id)}
+                >
+                  Tamamlandı
+                </Button>
               </li>
             ))}
           </ul>

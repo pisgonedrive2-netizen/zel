@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Archive,
   ArrowUpRight,
@@ -12,6 +13,7 @@ import {
   Flame,
   Layers,
   Link2,
+  LogIn,
   MoreVertical,
   Rocket,
   Search,
@@ -36,6 +38,7 @@ import {
 } from "recharts";
 import { useStore } from "@/store/store";
 import { useAuth, useIsReadOnly } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
 import {
   Card,
@@ -129,6 +132,8 @@ function lastContentDateLabel(iso: string): string {
 export default function MarkalarPage() {
   const readOnly = useIsReadOnly();
   const { user } = useAuth();
+  const router = useRouter();
+  const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
   const isAdmin = user?.role === "admin";
   const [brandActionBusy, setBrandActionBusy] = useState<string | null>(null);
   const {
@@ -698,6 +703,10 @@ export default function MarkalarPage() {
                   actionBusy={brandActionBusy === row.brand.id}
                   onArchive={() => handleArchiveBrand(row.brand.id, row.brand.name)}
                   onDelete={() => handleDeleteBrand(row.brand.id, row.brand.name)}
+                  onEnterPanel={() => {
+                    enterBrandPanel(row.brand.id, row.brand.name);
+                    router.push("/marka/anasayfa");
+                  }}
                 />
               ))}
             </div>
@@ -1049,6 +1058,7 @@ function BrandCard({
   actionBusy,
   onArchive,
   onDelete,
+  onEnterPanel,
 }: {
   row: BrandRowVm;
   viewMonth: string;
@@ -1057,6 +1067,7 @@ function BrandCard({
   actionBusy?: boolean;
   onArchive?: () => void;
   onDelete?: () => void;
+  onEnterPanel?: () => void;
 }) {
   const {
     brand,
@@ -1158,6 +1169,18 @@ function BrandCard({
                     <MoreVertical size={12} />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
+                    {onEnterPanel && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onEnterPanel();
+                        }}
+                      >
+                        <LogIn size={14} className="mr-2" />
+                        Marka paneli
+                      </DropdownMenuItem>
+                    )}
                     {brand.status !== "inactive" && (
                       <DropdownMenuItem
                         onClick={(e) => {

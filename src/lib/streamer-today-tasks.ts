@@ -16,6 +16,7 @@ export function streamerTodayTasks(
 ): AppNotification[] {
   return notifications
     .filter((n) => n.forUserId === userId && isStreamerTaskNotification(n))
+    .filter((n) => !n.completedAt)
     .filter((n) => {
       const msg = n.message ?? "";
       if (msg.includes(`Son tarih: ${todayKey}`)) return true;

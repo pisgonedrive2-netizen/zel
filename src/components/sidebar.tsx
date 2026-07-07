@@ -5,7 +5,7 @@ import { AppLink as Link } from "@/components/app-link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  LayoutDashboard, Users, ArrowUpRight,
+  LayoutDashboard, Home, Users, ArrowUpRight, CheckCircle2,
   FolderKanban, Receipt, CalendarRange,
   FileSpreadsheet, ChevronLeft, ChevronRight,
   Search, X, CalendarDays, Eye, EyeOff,
@@ -52,6 +52,8 @@ type NavItem = {
 };
 
 const ADMIN_NAV: NavItem[] = [
+  { href: "/panel",                label: "Kontrol Paneli",     icon: LayoutDashboard, group: "Kontrol" },
+  { href: "/onaylar",              label: "Onay Merkezi",       icon: CheckCircle2,    group: "Kontrol" },
   { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/gorevler",             label: "Görevler",           icon: ClipboardList,   group: "Kontrol" },
@@ -74,6 +76,7 @@ const ADMIN_NAV: NavItem[] = [
 ];
 
 const STREAMER_NAV: NavItem[] = [
+  { href: "/yayinci/anasayfa",       label: "Anasayfa",           icon: Home,            group: "Yayıncı" },
   { href: "/yayinci/maas",           label: "Maaş",               icon: Wallet,          group: "Yayıncı" },
   { href: "/yayinci/harcamalar",     label: "Harcamalarım",       icon: Clapperboard,    group: "Yayıncı" },
   { href: "/yayinci/takvim",         label: "Haftalık Planım",    icon: CalendarDays,    group: "Yayıncı" },
@@ -149,6 +152,18 @@ export default function Sidebar() {
     user?.role === "admin" && !!panelViewAs && pathname.startsWith("/yayinci");
   const adminViewingBrand =
     user?.role === "admin" && !!brandViewAs && pathname.startsWith("/marka");
+
+  const sidebarBrand = adminViewingBrand
+    ? { letter: "M", title: "Marka Paneli", subtitle: brandViewAs?.brandName ?? "FOXSTREAM" }
+    : adminViewingStreamer
+      ? { letter: "Y", title: "Yayıncı Paneli", subtitle: panelViewAs?.employeeName ?? "Görüntüleme" }
+      : user?.role === "admin"
+        ? { letter: "F", title: "Yönetim Paneli", subtitle: "FOXSTREAM" }
+        : user?.role === "auditor"
+          ? { letter: "D", title: "Denetim Paneli", subtitle: "FOXSTREAM" }
+          : user?.role === "brand"
+            ? { letter: "M", title: "Marka Paneli", subtitle: "FOXSTREAM" }
+            : { letter: "Y", title: "Yayıncı Paneli", subtitle: "FOXSTREAM" };
 
   // Rol bazlı nav
   const nav: NavItem[] =
@@ -235,19 +250,19 @@ export default function Sidebar() {
           {!collapsed && (
             <div className="flex items-center space-x-2.5">
               <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shadow-sm">
-                <span className="text-primary-foreground font-bold text-base">Y</span>
+                <span className="text-primary-foreground font-bold text-base">{sidebarBrand.letter}</span>
               </div>
               <div className="flex flex-col">
                 <span className="font-semibold text-sidebar-foreground text-base leading-tight">
-                  Yayıncı Dashboard
+                  {sidebarBrand.title}
                 </span>
-                <span className="text-xs text-muted-foreground">Proje Takip</span>
+                <span className="text-xs text-muted-foreground truncate max-w-[9rem]">{sidebarBrand.subtitle}</span>
               </div>
             </div>
           )}
           {collapsed && (
             <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center mx-auto shadow-sm">
-              <span className="text-primary-foreground font-bold text-base">Y</span>
+              <span className="text-primary-foreground font-bold text-base">{sidebarBrand.letter}</span>
             </div>
           )}
           <button

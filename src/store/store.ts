@@ -892,6 +892,8 @@ export interface AppNotification {
   /** ISO zaman damgası. */
   createdAt: string;
   read: boolean;
+  /** Yayıncı günlük görev bildirimini tamamladığında (ISO). */
+  completedAt?: string;
   /** Action linki (sayfayı açma kısayolu). */
   href?: string;
 }
@@ -1183,6 +1185,7 @@ interface AppStore {
   // Notifications
   pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
   markNotificationRead: (id: string) => void;
+  markNotificationCompleted: (id: string, completedAt: string) => void;
   markAllNotificationsRead: (forRole: "admin" | "auditor" | "streamer" | "brand", forUserId?: string) => void;
   deleteNotification: (id: string) => void;
 
@@ -3866,6 +3869,11 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       })),
       markNotificationRead: (id) => set((s) => ({
         notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      })),
+      markNotificationCompleted: (id, completedAt) => set((s) => ({
+        notifications: s.notifications.map((n) =>
+          n.id === id ? { ...n, read: true, completedAt } : n
+        ),
       })),
       markAllNotificationsRead: (forRole, forUserId) => set((s) => ({
         notifications: s.notifications.map((n) => {

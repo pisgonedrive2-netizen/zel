@@ -161,6 +161,28 @@ export async function markAllPanelNotificationsReadPersisted(): Promise<boolean>
   }
 }
 
+/** Tek bildirimi tamamlandı işaretle (yayıncı görevleri). */
+export async function markNotificationCompletedPersisted(id: string): Promise<boolean> {
+  const completedAt = new Date().toISOString();
+  if (!isSupabaseClientMode()) {
+    useStore.getState().markNotificationCompleted(id, completedAt);
+    return true;
+  }
+  try {
+    const res = await fetch("/api/notifications", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, completedAt: true }),
+    });
+    if (!res.ok) return false;
+    useStore.getState().markNotificationCompleted(id, completedAt);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Rol için tümünü okundu işaretle. */
 export async function markAllNotificationsReadPersisted(
   forRole: AppNotification["forRole"],

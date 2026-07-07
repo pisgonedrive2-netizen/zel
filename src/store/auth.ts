@@ -685,11 +685,11 @@ export function landingFor(
   user?: Pick<AppUser, "id" | "username"> | null,
 ): string {
   if (role === "admin") {
-    return user && isMainAdmin(user) ? "/ozet" : "/maaslar";
+    return user && isMainAdmin(user) ? "/ozet" : "/panel";
   }
   if (role === "auditor") return "/denetci";
-  if (role === "brand")   return "/marka/izlenmeler";
-  return "/yayinci/maas";
+  if (role === "brand")   return "/marka/anasayfa";
+  return "/yayinci/anasayfa";
 }
 
 /**

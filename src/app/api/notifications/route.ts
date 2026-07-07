@@ -236,6 +236,7 @@ export async function PATCH(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as {
     id?: string;
     read?: boolean;
+    completedAt?: boolean;
     markAll?: boolean;
     markAllPanel?: boolean;
     forRole?: AppNotification["forRole"];
@@ -283,6 +284,56 @@ export async function PATCH(req: NextRequest) {
     const { error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+  if (body.id && body.completedAt === true) {
+    const completedIso = new Date().toISOString();
+    if (session.role === "streamer") {
+      const { data: existing, error: fetchErr } = await db
+        .from("app_notifications")
+        .select("*")
+        .eq("id", body.id)
+        .eq("for_role", "streamer")
+        .eq("for_user_id", session.userId)
+        .maybeSingle();
+      if (fetchErr || !existing) {
+        return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
+      }
+      const { error, count } = await db
+        .from("app_notifications")
+        .update({ read: true, completed_at: completedIso }, { count: "exact" })
+        .eq("id", body.id)
+        .eq("for_role", "streamer")
+        .eq("for_user_id", session.userId);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if ((count ?? 0) === 0) {
+        return NextResponse.json({ error: "Bildirim bulunamadı veya yetki yok" }, { status: 404 });
+      }
+      const row = existing as Record<string, unknown>;
+      const adminNotif: AppNotification = {
+        id: `n-${crypto.randomUUID().slice(0, 12)}`,
+        type: "general",
+        title: "Görev tamamlandı",
+        message: String(row.message ?? row.title ?? "Yayıncı bir görevi tamamladı olarak işaretledi."),
+        forRole: "admin",
+        refId: body.id,
+        triggeredBy: session.userId,
+        createdAt: new Date().toISOString(),
+        read: false,
+        href: "/gorevler",
+      };
+      await db.from("app_notifications").insert(notificationToRow(adminNotif));
+      return NextResponse.json({ ok: true, completedAt: completedIso });
+    }
+    if (isElevated) {
+      const { error } = await db
+        .from("app_notifications")
+        .update({ read: true, completed_at: completedIso })
+        .eq("id", body.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true, completedAt: completedIso });
+    }
+    return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
   }
 
   if (body.id && body.read === true) {

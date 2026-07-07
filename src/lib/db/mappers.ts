@@ -942,6 +942,7 @@ export function notificationFromRow(r: Record<string, unknown>): AppNotification
     triggeredBy: r.triggered_by ? str(r.triggered_by) : undefined,
     createdAt: str(r.created_at),
     read: bool(r.read),
+    completedAt: r.completed_at ? str(r.completed_at) : undefined,
     href: r.href ? str(r.href) : undefined,
   };
 }
@@ -959,6 +960,7 @@ export function notificationToRow(n: AppNotification) {
     triggered_by: n.triggeredBy ?? null,
     created_at: n.createdAt,
     read: n.read,
+    completed_at: n.completedAt ?? null,
     href: n.href ?? null,
   };
 }

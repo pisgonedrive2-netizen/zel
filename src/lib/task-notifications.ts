@@ -37,7 +37,7 @@ export async function notifyStreamerTaskReminder(opts: {
     triggeredBy: opts.triggeredBy,
     createdAt: new Date().toISOString(),
     read: false,
-    href: "/yayinci/bildirimler",
+    href: "/yayinci/anasayfa",
   };
   const { error } = await db.from("app_notifications").insert(notificationToRow(notif));
   if (error) {

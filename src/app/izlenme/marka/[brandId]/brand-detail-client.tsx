@@ -431,7 +431,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
               className="gap-1 h-8 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-500/45 dark:text-amber-300 dark:hover:bg-amber-950/40"
               onClick={() => {
                 enterBrandPanel(brand.id, brand.name);
-                router.push("/marka/izlenmeler");
+                router.push("/marka/anasayfa");
               }}
               title="Bu markanın paneline gir"
             >
