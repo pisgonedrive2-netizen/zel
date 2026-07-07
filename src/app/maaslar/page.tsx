@@ -60,6 +60,10 @@ import {
   sumUnpaidPayrollLines,
   type PayrollLineItem,
 } from "@/lib/payroll-lines";
+import {
+  employeePayrollMonthForView,
+  payrollAmountDue,
+} from "@/lib/payroll-view";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function prevMonth(m: string) { return shiftCalendarMonthYm(m, -1); }
@@ -70,46 +74,6 @@ function nextMonth(m: string) { return shiftCalendarMonthYm(m, 1); }
 const MONTH_NAMES = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 function monthLabel(m: string) { const [y, mo] = m.split("-"); return `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y}`; }
 function initials(name: string) { return name.split(/[\s(]/).map(p => p[0]).filter(Boolean).join("").toUpperCase().slice(0, 2); }
-
-/** Seçili ayda bordro kartı gösterilecek ay (çıkış sonrası ödenmemiş son bordro dahil). */
-function employeePayrollMonthForView(
-  employee: Employee,
-  viewMonth: string,
-  advances: Advance[],
-  salaryExtras: SalaryExtra[],
-  contentExpenses: ContentExpense[],
-  paymentStatuses: MonthPaymentStatus[],
-): string | null {
-  if (employee.kind === "coordinator") return null;
-  if (isPayrollActive(employee, viewMonth)) return viewMonth;
-  const end = employee.payrollEndMonth;
-  if (!end || viewMonth < end) return null;
-  const lines = buildPayrollPaymentLines(
-    employee,
-    end,
-    advances,
-    salaryExtras,
-    contentExpenses,
-    paymentStatuses,
-  );
-  if (lines.length > 0 && payrollPaymentPhase(lines) !== "full") return end;
-  return null;
-}
-
-function payrollAmountDue(
-  net: number,
-  unpaidLineTotal: number,
-  isFullyPaid: boolean,
-  paidOut: number,
-  payrollLines: PayrollLineItem[],
-): number {
-  if (isFullyPaid) return paidOut > 0 ? paidOut : net;
-  if (unpaidLineTotal > 0) return unpaidLineTotal;
-  if (payrollPaymentPhase(payrollLines) === "partial") {
-    return Math.max(0, net - sumPaidPayrollLines(payrollLines));
-  }
-  return net;
-}
 
 // ── Inline-editable cell ──────────────────────────────────────────────────
 function InlineEdit({ value, onSave, className = "", mono = false, readOnly = false }: {

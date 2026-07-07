@@ -61,6 +61,7 @@ export function PayrollLinesPayModal({
   const [markPaidDate, setMarkPaidDate] = useState(() => toDateLocal(new Date()));
   const paidTotal = sumPaidPayrollLines(payrollLines);
   const unpaidTotal = sumUnpaidPayrollLines(payrollLines);
+  const planTotal = payrollLines.reduce((s, l) => s + l.amountUsd, 0);
   const paidCount = payrollLines.filter((l) => l.paid).length;
   const unpaidLines = payrollLines.filter((l) => !l.paid);
   const paidLines = payrollLines.filter((l) => l.paid);
@@ -75,7 +76,7 @@ export function PayrollLinesPayModal({
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { label: "Net ödenecek", value: fmt(netPayable), cls: "text-foreground" },
+            { label: "Bordro toplamı", value: fmt(planTotal), cls: "text-foreground" },
             { label: "Ödenen", value: fmt(paidTotal), cls: "text-green-700 dark:text-green-300" },
             { label: "Kalan", value: fmt(unpaidTotal), cls: unpaidTotal > 0 ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground" },
             { label: "Kalem", value: `${paidCount}/${payrollLines.length}`, cls: "text-muted-foreground" },
@@ -115,7 +116,8 @@ export function PayrollLinesPayModal({
               </Field>
             </div>
             <p className="text-[10px] text-muted-foreground pb-1 max-w-xs">
-              Kasa hareketi oluşturmadan kayıt işaretler. Nakit ödeme için kalemlerde <strong>Öde</strong> kullanın.
+              Nakit dışı ödemeler için <strong>Ödendi işaretle</strong> kullanın — kasa hareketi oluşturmaz.
+              Kasadan ödeme için kalemlerde <strong>Öde</strong> kullanın.
             </p>
           </div>
         )}
@@ -175,8 +177,7 @@ export function PayrollLinesPayModal({
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
-                  className="h-8 text-xs gap-1"
+                  className="h-8 text-xs gap-1 bg-green-600 hover:bg-green-500 text-white border-0"
                   onClick={() => onMarkAllPaid(markPaidDate)}
                   disabled={unpaidLines.length === 0}
                 >
@@ -186,12 +187,13 @@ export function PayrollLinesPayModal({
                 <Button
                   type="button"
                   size="sm"
-                  className="h-8 text-xs gap-1 bg-green-600 hover:bg-green-500 text-white border-0"
+                  variant="outline"
+                  className="h-8 text-xs gap-1"
                   onClick={onPayAll}
                   disabled={netPayable <= 0}
                 >
                   <Wallet size={12} />
-                  Tümünü öde ({fmt(netPayable)})
+                  Kasadan öde ({fmt(netPayable)})
                 </Button>
               </>
             )}
@@ -260,8 +262,7 @@ function LineRow({
               {onMarkPaid && (
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="h-7 text-[10px] gap-1"
+                  className="h-7 text-[10px] gap-1 bg-green-600 hover:bg-green-500 border-0 text-white"
                   onClick={onMarkPaid}
                 >
                   <Stamp size={10} />
@@ -271,11 +272,12 @@ function LineRow({
               {onPay && (
                 <Button
                   size="sm"
-                  className="h-7 text-[10px] bg-green-600 hover:bg-green-500 border-0 text-white gap-1"
+                  variant="outline"
+                  className="h-7 text-[10px] gap-1"
                   onClick={onPay}
                 >
                   <Wallet size={10} />
-                  Öde
+                  Kasadan öde
                 </Button>
               )}
             </div>

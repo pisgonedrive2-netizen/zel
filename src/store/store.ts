@@ -1986,9 +1986,11 @@ const initialNotifications: AppNotification[] = [];
  * - Lucy Mayıs 2026: plan geçişi · 1 Haziran 2026 net $2.000 (yarım dönem).
  * - Lucy Haziran 2026: 18 Haziran iş çıkışı · $2.300 ödendi (oransal maaş + kira).
  * - Acelya Haziran 2026: 29 Haziran iş çıkışı · kira $1.550 ödendi · net maaş $2.783 bekliyor.
+ * - Ramiz Haziran 2026: 1–5 Temmuz 2026 · $13.364 tam ödendi.
  */
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
   { employeeId: "emp-ramiz", month: "2026-04", paid: true, paidDate: "2026-05-01" },
+  { employeeId: "emp-ramiz", month: "2026-06", paid: true, paidDate: "2026-07-05" },
   { employeeId: "emp-lucy",  month: "2026-04", paid: true, paidDate: "2026-04-30" },
   {
     employeeId: "emp-lucy",
@@ -2140,6 +2142,13 @@ export function mergeCanonicalPaymentStatuses(
             ...(acelyaJunePartial.linePayments ?? []),
           ],
         };
+      }
+      return;
+    }
+    if (canonical.employeeId === "emp-ramiz" && canonical.month === "2026-06") {
+      if (!existing.paid) {
+        next = [...next];
+        next[idx] = canonical;
       }
     }
   };
@@ -4184,7 +4193,12 @@ export function calcNetPayable(
   // orantılanmaz; yalnızca temel maaş 29 günlük gibi orantılanır.
   const rentAdd = getRentForMonth(employee, month, extras);
   const otherAdd = empExtras
-    .filter((e) => e.type !== "deduction" && e.type !== "rent")
+    .filter(
+      (e) =>
+        e.type !== "deduction" &&
+        e.type !== "rent" &&
+        !e.contentExpenseId,
+    )
     .reduce((s, e) => s + e.amount, 0);
   const totalAdd = otherAdd + rentAdd;
   const totalDeduc = empExtras
@@ -4338,18 +4352,17 @@ export function calcPayrollPayoutDue(
     return sumApprovedContentExpenses(contentExpenses, employee.id, month);
   }
   const net = calcNetPayable(employee, month, advances, extras, paymentStatuses);
-  const orphanPayroll = payrollSettledContentNotInExtras(
+  const payrollContent = sumPayrollSettledContentExpenses(
+    contentExpenses,
     employee.id,
     month,
-    extras,
-    contentExpenses,
   );
   const pendingApproved = sumApprovedContentExpenses(
     contentExpenses,
     employee.id,
     month,
   );
-  return net + orphanPayroll + pendingApproved;
+  return net + payrollContent + pendingApproved;
 }
 
 /** Planlanan ay çıkışı — `calcPayrollPayoutDue` ile aynı. */
