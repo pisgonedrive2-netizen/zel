@@ -13,6 +13,7 @@ import {
   markAllNotificationsReadPersisted,
   markNotificationReadPersisted,
   deleteNotificationPersisted,
+  refreshMyNotificationsFromServer,
 } from "@/lib/notification-actions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +81,36 @@ export default function MarkaBildirimlerPage() {
     return null;
   }, [user, users, brandId]);
 
+  useEffect(() => {
+    if (!targetUserId) return;
+    void refreshMyNotificationsFromServer("brand", targetUserId);
+    const t = setInterval(() => {
+      void refreshMyNotificationsFromServer("brand", targetUserId);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [targetUserId]);
+
+  async function handleMarkRead(id: string) {
+    const ok = await markNotificationReadPersisted(id);
+    if (!ok) window.alert("Okundu işaretlenemedi. Tekrar deneyin.");
+  }
+
+  async function handleDelete(id: string) {
+    const ok = await deleteNotificationPersisted(id);
+    if (!ok) window.alert("Bildirim silinemedi. Tekrar deneyin.");
+  }
+
+  async function handleMarkAllRead() {
+    if (!targetUserId) return;
+    const ok = await markAllNotificationsReadPersisted(
+      "brand",
+      targetUserId,
+      brandId ?? undefined,
+      brandId ? [brandId] : undefined,
+    );
+    if (!ok) window.alert("Tümü okundu işaretlenemedi.");
+  }
+
   const myNotifications = useMemo(() => {
     if (!targetUserId) return [];
     return visibleNotificationsForRole(notifications, "brand", targetUserId, brandId ? [brandId] : undefined);
@@ -130,7 +161,7 @@ export default function MarkaBildirimlerPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => void markAllNotificationsReadPersisted("brand", targetUserId)}
+            onClick={() => void handleMarkAllRead()}
           >
             <CheckCheck size={14} /> Tümünü okundu işaretle ({unread})
           </Button>
@@ -294,7 +325,7 @@ export default function MarkaBildirimlerPage() {
                       {!n.read && (
                         <button
                           type="button"
-                          onClick={() => void markNotificationReadPersisted(n.id)}
+                          onClick={() => void handleMarkRead(n.id)}
                           className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                           title="Okundu işaretle"
                         >
@@ -303,7 +334,7 @@ export default function MarkaBildirimlerPage() {
                       )}
                       <button
                         type="button"
-                        onClick={() => void deleteNotificationPersisted(n.id)}
+                        onClick={() => void handleDelete(n.id)}
                         className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         title="Sil"
                       >

@@ -182,3 +182,29 @@ ALTER TABLE public.app_notifications
 ---
 
 *Son güncelleme: 7 Temmuz 2026*
+
+---
+
+## Ek güncelleme — Bildirimler & izlenme metrikleri
+
+### Bildirim düzeltmeleri
+- Marka bildirimleri artık sunucudan **60 sn'de bir yenileniyor**
+- Okundu / sil işlemlerinde hata mesajı gösteriliyor
+- "Tümünü okundu işaretle" marka kapsamına göre filtreleniyor (`forBrandId`)
+- Bootstrap'ta marka bildirimleri doğru scope ile yükleniyor
+
+### İzlenme metrikleri (tüm markalar)
+**Marka → İzlenmeler** ve **Anasayfa** üzerinde yeni metrikler:
+
+| Metrik | Açıklama |
+|--------|----------|
+| Tüm linkler · toplam | Güncel kümülatif izlenme |
+| Ay · snapshot | O ayki snapshot toplamı |
+| Ay · artış | Ay içi izlenme kazancı (delta) |
+| Yeni link · o ay | O ay eklenen linklerin o ayki izlenmesi |
+| Yeni link · toplam | O ay eklenenlerin bugüne kadar kümülatif izlenmesi |
+| Link bazlı tablo | Her link için ay/artış/toplam |
+| Aylık breakdown | Tüm linklerin ay ay toplamı |
+
+Manuel girilen link/snapshot verileri Supabase'de korunur (`brand_links`, `link_snapshots` — bulk sync dışında).
+

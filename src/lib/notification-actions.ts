@@ -186,10 +186,12 @@ export async function markNotificationCompletedPersisted(id: string): Promise<bo
 /** Rol için tümünü okundu işaretle. */
 export async function markAllNotificationsReadPersisted(
   forRole: AppNotification["forRole"],
-  forUserId?: string
+  forUserId?: string,
+  forBrandId?: string,
+  brandIds?: string[],
 ): Promise<boolean> {
   if (!isSupabaseClientMode()) {
-    useStore.getState().markAllNotificationsRead(forRole, forUserId);
+    useStore.getState().markAllNotificationsRead(forRole, forUserId, forBrandId, brandIds);
     return true;
   }
   try {
@@ -197,10 +199,10 @@ export async function markAllNotificationsReadPersisted(
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markAll: true, forRole, forUserId }),
+      body: JSON.stringify({ markAll: true, forRole, forUserId, forBrandId }),
     });
     if (!res.ok) return false;
-    useStore.getState().markAllNotificationsRead(forRole, forUserId);
+    useStore.getState().markAllNotificationsRead(forRole, forUserId, forBrandId, brandIds);
     return true;
   } catch {
     return false;

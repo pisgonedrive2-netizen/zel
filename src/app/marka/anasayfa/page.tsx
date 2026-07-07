@@ -49,6 +49,7 @@ import {
   BrandActionQueue,
   buildActionQueueItems,
 } from "@/components/marka-igaming/brand-action-queue";
+import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 import { BrandPackageGuaranteeCard } from "@/components/marka/brand-package-guarantee-card";
 import { useBrandIgaming } from "@/hooks/use-brand-igaming";
 import { deriveLiveDemoUsage } from "@/lib/brand-monthly-stats";
@@ -455,6 +456,17 @@ export default function MarkaAnasayfaPage() {
             }}
             compact
           />
+
+          {linksForBrand.length > 0 && (
+            <BrandLinkViewershipSummary
+              links={linksForBrand}
+              snapshots={linkSnapshots}
+              viewMonth={month}
+              todayYm={todayYm}
+              title="Link izlenme metrikleri"
+              compact
+            />
+          )}
 
           <BrandExecutiveKpis
             monthTitle={monthTitle}

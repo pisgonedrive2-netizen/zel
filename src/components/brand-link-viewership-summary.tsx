@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BarChart3, Calendar, ChevronDown } from "lucide-react";
+import { BarChart3, Calendar, ChevronDown, Link2, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { BrandLink, LinkSnapshot } from "@/store/store";
@@ -24,7 +24,7 @@ function StatTile({
   label: string;
   value: string;
   hint?: string;
-  accent?: "blue" | "violet" | "emerald" | "amber" | "rose";
+  accent?: "blue" | "violet" | "emerald" | "amber" | "rose" | "cyan";
 }) {
   const border =
     accent === "blue"
@@ -37,7 +37,9 @@ function StatTile({
             ? "border-amber-300/60 bg-amber-50/40 dark:border-amber-500/35 dark:bg-amber-950/20"
             : accent === "rose"
               ? "border-rose-300/60 bg-rose-50/40 dark:border-rose-500/35 dark:bg-rose-950/20"
-              : "border-border bg-card/60";
+              : accent === "cyan"
+                ? "border-cyan-300/60 bg-cyan-50/40 dark:border-cyan-500/35 dark:bg-cyan-950/20"
+                : "border-border bg-card/60";
   return (
     <div className={cn("rounded-lg border px-3 py-2.5 min-w-0", border)}>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">{label}</p>
@@ -67,6 +69,7 @@ export function BrandLinkViewershipSummary({
   className,
 }: BrandLinkViewershipSummaryProps) {
   const [breakdownOpen, setBreakdownOpen] = useState(!compact);
+  const [perLinkOpen, setPerLinkOpen] = useState(false);
   const stats: BrandLinkViewershipStats = useMemo(
     () => computeBrandLinkViewershipStats(links, snapshots, viewMonth, todayYm),
     [links, snapshots, viewMonth, todayYm]
@@ -75,59 +78,69 @@ export function BrandLinkViewershipSummary({
   if (stats.activeLinkCount === 0) return null;
 
   const content = (
-    <div className="space-y-3">
-      {stats.engagement.interactions > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Genel özet
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
           <StatTile
-            label="Toplam etkileşim"
-            value={fmtCompactViews(stats.engagement.interactions)}
-            hint={`♥ ${fmtCompactViews(stats.engagement.likes)} · 💬 ${fmtCompactViews(stats.engagement.comments)} · ↗ ${fmtCompactViews(stats.engagement.shares)}`}
-            accent="rose"
+            label="Tüm linkler · toplam"
+            value={fmtCompactViews(stats.lifetimeTotalViews)}
+            hint="Güncel kümülatif izlenme"
+            accent="violet"
           />
           <StatTile
-            label="Beğeni"
-            value={fmtCompactViews(stats.engagement.likes)}
-            accent="rose"
+            label={`${monthLabel(viewMonth)} · snapshot`}
+            value={fmtCompactViews(stats.monthTotalViews)}
+            hint={`${stats.activeLinkCount} aktif link`}
+            accent="blue"
           />
           <StatTile
-            label="Yorum"
-            value={fmtCompactViews(stats.engagement.comments)}
+            label={`${monthLabel(viewMonth)} · artış`}
+            value={fmtCompactViews(stats.monthTotalGain)}
+            hint="Ay içi izlenme kazancı (delta)"
+            accent="cyan"
+          />
+          <StatTile
+            label={`${monthLabel(viewMonth)} · yeni link`}
+            value={String(stats.linksAddedInMonth)}
+            hint="Bu ay eklenen"
             accent="amber"
           />
           <StatTile
-            label="Paylaşım"
-            value={fmtCompactViews(stats.engagement.shares)}
-            accent="violet"
+            label="Yeni link · o ay"
+            value={fmtCompactViews(stats.viewsFromLinksAddedInMonth)}
+            hint="Eklenenlerin sadece o ayki izlenmesi"
+            accent="emerald"
+          />
+          <StatTile
+            label="Yeni link · toplam"
+            value={fmtCompactViews(stats.cohortLifetimeViews)}
+            hint="Eklenenlerin o ay ve sonrası (kümülatif)"
+            accent="emerald"
           />
         </div>
-      )}
+      </section>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-        <StatTile
-          label={`${monthLabel(viewMonth)} toplam`}
-          value={fmtCompactViews(stats.monthTotalViews)}
-          hint={`${stats.activeLinkCount} aktif link`}
-          accent="blue"
-        />
-        <StatTile
-          label="Tüm zamanlar toplam"
-          value={fmtCompactViews(stats.lifetimeTotalViews)}
-          hint="Güncel kümülatif izlenme"
-          accent="violet"
-        />
-        <StatTile
-          label={`${monthLabel(viewMonth)} eklenen`}
-          value={String(stats.linksAddedInMonth)}
-          hint="Bu ay sisteme eklenen link"
-          accent="amber"
-        />
-        <StatTile
-          label="Yeni linklerin izlenmesi"
-          value={fmtCompactViews(stats.viewsFromLinksAddedInMonth)}
-          hint={`Sadece ${monthLabel(viewMonth)} eklenenler`}
-          accent="emerald"
-        />
-      </div>
+      {stats.engagement.interactions > 0 && (
+        <section className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Etkileşim
+          </p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <StatTile
+              label="Toplam etkileşim"
+              value={fmtCompactViews(stats.engagement.interactions)}
+              hint={`♥ ${fmtCompactViews(stats.engagement.likes)} · 💬 ${fmtCompactViews(stats.engagement.comments)}`}
+              accent="rose"
+            />
+            <StatTile label="Beğeni" value={fmtCompactViews(stats.engagement.likes)} accent="rose" />
+            <StatTile label="Yorum" value={fmtCompactViews(stats.engagement.comments)} accent="amber" />
+            <StatTile label="Paylaşım" value={fmtCompactViews(stats.engagement.shares)} accent="violet" />
+          </div>
+        </section>
+      )}
 
       {stats.monthlyBreakdown.length > 0 && (
         <div className="rounded-lg border border-border/60 overflow-hidden">
@@ -137,7 +150,7 @@ export function BrandLinkViewershipSummary({
             onClick={() => setBreakdownOpen((o) => !o)}
           >
             <span className="text-xs font-medium flex items-center gap-1.5">
-              <Calendar size={12} /> Ay ay izlenme
+              <Calendar size={12} /> Tüm linkler · aylık izlenme
             </span>
             <ChevronDown
               size={14}
@@ -176,6 +189,65 @@ export function BrandLinkViewershipSummary({
           )}
         </div>
       )}
+
+      {stats.perLinkRows.length > 0 && (
+        <div className="rounded-lg border border-border/60 overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent/30 transition-colors"
+            onClick={() => setPerLinkOpen((o) => !o)}
+          >
+            <span className="text-xs font-medium flex items-center gap-1.5">
+              <Link2 size={12} /> Link bazlı · {stats.perLinkRows.length} kayıt
+            </span>
+            <ChevronDown
+              size={14}
+              className={cn("text-muted-foreground transition-transform", perLinkOpen && "rotate-180")}
+            />
+          </button>
+          {perLinkOpen && (
+            <div className="border-t border-border/60 max-h-[min(50vh,360px)] overflow-auto">
+              <table className="w-full text-[11px]">
+                <thead className="bg-muted/40 text-muted-foreground sticky top-0 z-10">
+                  <tr>
+                    <th className="py-1.5 px-3 text-left font-medium">Link</th>
+                    <th className="py-1.5 px-3 text-left font-medium hidden sm:table-cell">Eklendi</th>
+                    <th className="py-1.5 px-3 text-right font-medium">{monthLabel(viewMonth)}</th>
+                    <th className="py-1.5 px-3 text-right font-medium">
+                      <span className="inline-flex items-center gap-0.5 justify-end">
+                        <TrendingUp size={10} /> Artış
+                      </span>
+                    </th>
+                    <th className="py-1.5 px-3 text-right font-medium">Toplam</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.perLinkRows.map((row) => (
+                    <tr key={row.linkId} className="border-t border-border/40 align-top">
+                      <td className="py-1.5 px-3 max-w-[10rem]">
+                        <p className="font-medium truncate" title={row.title}>{row.title}</p>
+                        <p className="text-[10px] text-muted-foreground">{row.platform}</p>
+                      </td>
+                      <td className="py-1.5 px-3 text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                        {row.addedMonthYm ? monthLabel(row.addedMonthYm) : "—"}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums font-medium">
+                        {fmtCompactViews(row.monthViews)}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-emerald-700 dark:text-emerald-300">
+                        +{fmtCompactViews(row.monthGain)}
+                      </td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">
+                        {fmtCompactViews(row.lifetimeViews)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -191,7 +263,7 @@ export function BrandLinkViewershipSummary({
           {title}
         </CardTitle>
         <CardDescription className="text-xs">
-          Tüm yüklenen linklerin aylık ve kümülatif izlenme dağılımı
+          Toplam, aylık, yeni link kohortu ve link bazlı izlenme metrikleri — manuel girilen veriler korunur.
         </CardDescription>
       </CardHeader>
       <CardContent>{content}</CardContent>

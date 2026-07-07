@@ -241,6 +241,7 @@ export async function PATCH(req: NextRequest) {
     markAllPanel?: boolean;
     forRole?: AppNotification["forRole"];
     forUserId?: string;
+    forBrandId?: string;
   };
 
   const db = getSupabaseAdmin();
@@ -277,8 +278,13 @@ export async function PATCH(req: NextRequest) {
     if (!body.forRole) {
       return NextResponse.json({ error: "forRole gerekli" }, { status: 400 });
     }
-    let q = db.from("app_notifications").update({ read: true }).eq("for_role", body.forRole);
-    if (body.forUserId) {
+    let q = db.from("app_notifications").update({ read: true }).eq("for_role", body.forRole).eq("read", false);
+    if (body.forRole === "brand" && body.forBrandId) {
+      const parts = [`for_brand_id.eq.${body.forBrandId}`];
+      if (body.forUserId) parts.push(`for_user_id.eq.${body.forUserId}`);
+      parts.push(`and(for_user_id.is.null,for_brand_id.is.null)`);
+      q = q.or(parts.join(","));
+    } else if (body.forUserId) {
       q = q.or(`for_user_id.is.null,for_user_id.eq.${body.forUserId}`);
     }
     const { error } = await q;

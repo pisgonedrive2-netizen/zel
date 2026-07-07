@@ -1186,7 +1186,12 @@ interface AppStore {
   pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
   markNotificationRead: (id: string) => void;
   markNotificationCompleted: (id: string, completedAt: string) => void;
-  markAllNotificationsRead: (forRole: "admin" | "auditor" | "streamer" | "brand", forUserId?: string) => void;
+  markAllNotificationsRead: (
+    forRole: "admin" | "auditor" | "streamer" | "brand",
+    forUserId?: string,
+    forBrandId?: string,
+    brandIds?: string[],
+  ) => void;
   deleteNotification: (id: string) => void;
 
   /** Yedek dosyasından uygulama verisini birleştirir (mevcut alanların üzerine yazar). */
@@ -3886,9 +3891,19 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           n.id === id ? { ...n, read: true, completedAt } : n
         ),
       })),
-      markAllNotificationsRead: (forRole, forUserId) => set((s) => ({
+      markAllNotificationsRead: (forRole, forUserId, forBrandId, brandIds) => set((s) => ({
         notifications: s.notifications.map((n) => {
-          const match = n.forRole === forRole && (!forUserId || !n.forUserId || n.forUserId === forUserId);
+          if (n.forRole !== forRole) return n;
+          if (forRole === "brand") {
+            const ids = brandIds?.length ? brandIds : forBrandId ? [forBrandId] : [];
+            const brandSet = new Set(ids);
+            const match =
+              (forUserId && n.forUserId === forUserId) ||
+              (n.forBrandId && brandSet.has(n.forBrandId)) ||
+              (!n.forUserId && !n.forBrandId);
+            return match ? { ...n, read: true } : n;
+          }
+          const match = !forUserId || n.forUserId === forUserId;
           return match ? { ...n, read: true } : n;
         }),
       })),

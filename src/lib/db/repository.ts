@@ -31,6 +31,7 @@ import {
   filterBrandLinksWithValidBrands,
   loadValidBrandIds,
 } from "@/lib/brand-links-sync";
+import { notificationMatchesBrandScope } from "@/lib/brand-notification-scope";
 import { filterWeeklyPlansForBrand } from "@/lib/weekly-plan-brand-match";
 import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
 import type { AppUser } from "@/store/auth";
@@ -662,8 +663,8 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       contentExpenses: contentExpenses.filter((c) => inScope(c.brandId)),
       weeklyPlans: myWeeklyPlans,
       weekBrandReels: weekBrandReels.filter((r) => inScope(r.brandId)),
-      notifications: notifications.filter(
-        (n) => n.forRole === "brand" && (!n.forUserId || n.forUserId === session.userId)
+      notifications: notifications.filter((n) =>
+        notificationMatchesBrandScope(n, session.userId, bidList)
       ),
     };
   }

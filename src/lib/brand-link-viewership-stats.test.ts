@@ -30,6 +30,9 @@ describe("brand-link-viewership-stats", () => {
     expect(stats.lifetimeTotalViews).toBe(5800);
     expect(stats.linksAddedInMonth).toBe(1);
     expect(stats.viewsFromLinksAddedInMonth).toBe(800);
+    expect(stats.cohortLifetimeViews).toBe(800);
+    expect(stats.monthTotalGain).toBeGreaterThanOrEqual(0);
+    expect(stats.perLinkRows).toHaveLength(2);
     expect(linkAddedInMonth(links[1], "2026-06", snapshots)).toBe(true);
     expect(linkLatestViews(links[0], snapshots)).toBe(5000);
   });
