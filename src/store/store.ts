@@ -1988,7 +1988,7 @@ const initialNotifications: AppNotification[] = [];
  * - Lucy Nisan 2026: nakit ödendi 30 Nisan 2026 — $3.000 maaş + $500 kira + $1.600 telefon desteği.
  * - Lucy Mayıs 2026: plan geçişi · 1 Haziran 2026 net $2.000 (yarım dönem).
  * - Lucy Haziran 2026: 18 Haziran iş çıkışı · $2.300 ödendi (oransal maaş + kira).
- * - Acelya Haziran 2026: 29 Haziran iş çıkışı · kira $1.550 ödendi · net maaş $2.783 bekliyor.
+ * - Acelya Haziran 2026: 29 Haziran iş çıkışı · kira $1.550 (5 Haziran) + net maaş $2.783 · 5 Temmuz 2026 tam ödendi.
  * - Ramiz Haziran 2026: 1–5 Temmuz 2026 · $13.364 tam ödendi.
  */
 export const initialPaymentStatuses: MonthPaymentStatus[] = [
@@ -2037,8 +2037,17 @@ export const initialPaymentStatuses: MonthPaymentStatus[] = [
   {
     employeeId: "emp-acelya",
     month: "2026-06",
-    paid: false,
+    paid: true,
+    paidDate: "2026-07-05",
     linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş (oransal %97)",
+        amountUsd: 2783,
+        paid: true,
+        paidDate: "2026-07-05",
+      },
       {
         lineId: "rent",
         kind: "rent",
@@ -2094,11 +2103,20 @@ export function mergeCanonicalPaymentStatuses(
       },
     ],
   };
-  const acelyaJunePartial: MonthPaymentStatus = {
+  const acelyaJunePaid: MonthPaymentStatus = {
     employeeId: "emp-acelya",
     month: "2026-06",
-    paid: false,
+    paid: true,
+    paidDate: "2026-07-05",
     linePayments: [
+      {
+        lineId: "base",
+        kind: "base_salary",
+        label: "Temel maaş (oransal %97)",
+        amountUsd: 2783,
+        paid: true,
+        paidDate: "2026-07-05",
+      },
       {
         lineId: "rent",
         kind: "rent",
@@ -2135,16 +2153,9 @@ export function mergeCanonicalPaymentStatuses(
       return;
     }
     if (canonical.employeeId === "emp-acelya" && canonical.month === "2026-06") {
-      const rentPaid = existing.linePayments?.some((l) => l.lineId === "rent" && l.paid);
-      if (!rentPaid) {
+      if (!existing.paid) {
         next = [...next];
-        next[idx] = {
-          ...existing,
-          linePayments: [
-            ...(existing.linePayments ?? []),
-            ...(acelyaJunePartial.linePayments ?? []),
-          ],
-        };
+        next[idx] = acelyaJunePaid;
       }
       return;
     }
