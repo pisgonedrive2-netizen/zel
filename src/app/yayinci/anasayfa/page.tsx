@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   CalendarDays,
@@ -34,10 +34,10 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StreamerTodayTasksCard } from "@/components/yayinci/streamer-today-tasks-card";
 import { StreamerQuickActions } from "@/components/yayinci/streamer-quick-actions";
-import {
-  StreamerGettingStarted,
+import { StreamerGettingStarted,
   type StreamerGettingStartedStep,
 } from "@/components/yayinci/streamer-getting-started";
+import { refreshMyNotificationsFromServer } from "@/lib/notification-actions";
 
 function timeGreeting(): string {
   const h = new Date().getHours();
@@ -95,6 +95,15 @@ export default function YayinciAnasayfaPage() {
   const streamerNotifs = user
     ? visibleNotificationsForRole(notifications, "streamer", user.id)
     : [];
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void refreshMyNotificationsFromServer("streamer", user.id);
+    const t = setInterval(() => {
+      void refreshMyNotificationsFromServer("streamer", user.id);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [user?.id]);
 
   const pendingCount = myExpenses.filter((e) => e.reviewStatus === "pending").length;
   const needsInfoCount = myExpenses.filter((e) => e.reviewStatus === "needs_info").length;
@@ -158,10 +167,10 @@ export default function YayinciAnasayfaPage() {
     const myPlans = weeklyPlans.filter((p) => p.employeeId === me.id);
     return [
       {
-        id: "profil",
-        label: "Havuz profilini tamamla",
-        description: "Başlık, bio ve kategori — markalar seni bulsun",
-        href: "/yayinci/profil",
+        id: "onboarding",
+        label: "Havuz profilini kur",
+        description: "Sihirbaz ile başlık, bio ve ücret",
+        href: "/yayinci/onboarding",
         done: poolProfileComplete(me.id, streamerPoolProfiles),
       },
       {
@@ -343,7 +352,7 @@ export default function YayinciAnasayfaPage() {
           </CardContent>
         </Card>
 
-        {viewershipSummary && (
+        {viewershipSummary ? (
           <Card className="border-emerald-200/70 bg-emerald-50/25 dark:border-emerald-500/40 dark:bg-emerald-950/35">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm">
@@ -365,6 +374,27 @@ export default function YayinciAnasayfaPage() {
                 className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
               >
                 İzlenme detayı →
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="border-dashed">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Link2 size={14} className="text-muted-foreground" />
+                İzlenme özeti
+              </CardTitle>
+              <CardDescription>Henüz izlenme verisi yok</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Marka linkleri ekledikten sonra aylık izlenmeler burada görünür.
+              </p>
+              <Link
+                href="/yayinci/marka-linkleri"
+                className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
+              >
+                Marka linki ekle →
               </Link>
             </CardContent>
           </Card>

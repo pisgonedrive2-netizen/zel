@@ -23,6 +23,7 @@ import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { PageShell, PageHeader } from "@/components/page-shell";
 import { AdminActionInbox } from "@/components/admin/admin-action-inbox";
+import { SystemBackupStatusCard } from "@/components/admin/system-backup-status-card";
 import { useAdminDashboardMetrics } from "@/lib/admin-dashboard-metrics";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +77,12 @@ export default function PanelPage() {
       <div className="mb-5">
         <AdminActionInbox />
       </div>
+
+      {showOzetLink && (
+        <div className="mb-5">
+          <SystemBackupStatusCard compact />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <KpiCard

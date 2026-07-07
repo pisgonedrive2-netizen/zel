@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/tron-sync",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/system-backup",
+      "schedule": "0 2,14 * * *"
     }
   ]
 }

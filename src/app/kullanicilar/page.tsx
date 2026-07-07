@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, FormGrid, FormActions } from "@/components/ui/field";
+import { SystemBackupStatusCard } from "@/components/admin/system-backup-status-card";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { BrandRegistrationsPanel } from "@/components/brand-registrations-panel";
 import { StreamerRegistrationsPanel } from "@/components/streamer-registrations-panel";
@@ -1419,6 +1420,11 @@ function UsersPage() {
         <StreamerRegistrationsPanel />
       ) : (
       <>
+      {currentUser && isMainAdmin(currentUser) && (
+        <div className="mb-4">
+          <SystemBackupStatusCard />
+        </div>
+      )}
       {/* Kayıtlı kullanıcılar — kart filtre + tablo (tüm kolonlar korunur) */}
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-2 flex-wrap border-b border-border/60 pb-4">

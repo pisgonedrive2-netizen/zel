@@ -189,7 +189,12 @@ export async function upsertBrandLinksMerged(
   await upsertRows("brand_links", merged.map(brandLinkToRow));
 }
 
-async function deleteNotIn(table: string, ids: string[], extraFilter?: { column: string; value: string }) {
+async function deleteNotIn(
+  table: string,
+  ids: string[],
+  extraFilter?: { column: string; value: string },
+  options?: { allowBulkDelete?: boolean }
+) {
   let q = getSupabaseAdmin().from(table).select("id");
   if (extraFilter) q = q.eq(extraFilter.column, extraFilter.value);
   const { data, error } = await q;
@@ -202,6 +207,15 @@ async function deleteNotIn(table: string, ids: string[], extraFilter?: { column:
     throw new Error(
       `${table}: senkronizasyon güvenliği — boş listeyle mevcut ${existing.length} satır silinemez.`
     );
+  }
+  // Güvenlik: otomatik senkronizasyonda toplu silme devre dışı (%5 üzeri).
+  if (!options?.allowBulkDelete && existing.length > 0) {
+    const deleteRatio = toDelete.length / existing.length;
+    if (deleteRatio > 0.05) {
+      throw new Error(
+        `${table}: senkronizasyon güvenliği — ${toDelete.length}/${existing.length} satır silinmek istendi (%${(deleteRatio * 100).toFixed(0)}). Veri koruma: toplu silme engellendi.`
+      );
+    }
   }
   const { error: delErr } = await getSupabaseAdmin().from(table).delete().in("id", toDelete);
   if (delErr) throw new Error(`${table} delete: ${delErr.message}`);
@@ -745,16 +759,18 @@ async function syncAdminFull(payload: AppHydratePayload) {
     skipDelete?: boolean;
     mergeUpsert?: boolean;
   }> = [
-    { table: "employees", rows: (payload.employees ?? []).map(employeeToRow) },
+    // Veri koruma: admin tam senkronizasyonunda toplu silme YAPILMAZ.
+    // Kayıt silme yalnızca özel admin API'leri ile (tek tek, onaylı) yapılır.
+    { table: "employees", rows: (payload.employees ?? []).map(employeeToRow), skipDelete: true },
     { table: "brands", rows: (payload.brands ?? []).map(brandToRow), skipDelete: true },
-    { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow) },
-    { table: "advances", rows: (payload.advances ?? []).map(advanceToRow) },
-    { table: "sponsor_transactions", rows: (payload.sponsorTransactions ?? []).map(sponsorTxToRow) },
-    { table: "internal_projects", rows: (payload.projects ?? []).map(projectToRow) },
-    { table: "internal_project_payments", rows: (payload.projectPayments ?? []).map(projectPaymentToRow) },
-    { table: "expense_entries", rows: (payload.expenses ?? []).map(expenseEntryToRow) },
-    { table: "planned_items", rows: (payload.plannedItems ?? []).map(plannedToRow) },
-    { table: "planned_item_payments", rows: (payload.plannedItemPayments ?? []).map(plannedPaymentToRow) },
+    { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow), skipDelete: true },
+    { table: "advances", rows: (payload.advances ?? []).map(advanceToRow), skipDelete: true },
+    { table: "sponsor_transactions", rows: (payload.sponsorTransactions ?? []).map(sponsorTxToRow), skipDelete: true },
+    { table: "internal_projects", rows: (payload.projects ?? []).map(projectToRow), skipDelete: true },
+    { table: "internal_project_payments", rows: (payload.projectPayments ?? []).map(projectPaymentToRow), skipDelete: true },
+    { table: "expense_entries", rows: (payload.expenses ?? []).map(expenseEntryToRow), skipDelete: true },
+    { table: "planned_items", rows: (payload.plannedItems ?? []).map(plannedToRow), skipDelete: true },
+    { table: "planned_item_payments", rows: (payload.plannedItemPayments ?? []).map(plannedPaymentToRow), skipDelete: true },
     { table: "streamer_accounts", rows: (payload.streamerAccounts ?? []).map(streamerAccountToRow), skipDelete: true },
     { table: "schedule_slots", rows: (payload.scheduleSlots ?? []).map(scheduleSlotToRow), skipDelete: true },
     // brand_links / link_snapshots / brand_viewership: toplu sync YOK — yalnızca row-persist,
@@ -789,13 +805,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
     payloadDeduped.salaryExtras ?? []
   );
 
-  // Yerelde silinen manuel maaş ek kalemlerini DB'den de düş. Yalnızca admin
-  // TAM senkronizasyonunda çalışır (tüm salary_extras gönderilir); scoped/streamer
-  // sync'te ÇALIŞMAZ çünkü oraya kısmi liste gider. deleteNotIn'in boş-liste
-  // güvenliği (mevcut satır varken boş listeyle silmeyi reddeder) korunur.
-  if (salaryExtrasDeduped.length > 0) {
-    await deleteNotIn("salary_extras", salaryExtrasDeduped.map((e) => e.id));
-  }
+  // salary_extras toplu silme kaldırıldı — veri koruma politikası.
 
   const validBrandIds = await loadValidBrandIds(payload.brands ?? []);
   const brandStats = (payload.brandMonthlyStats ?? []).filter((s) =>

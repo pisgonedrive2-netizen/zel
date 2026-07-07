@@ -10,6 +10,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,9 @@ const TABS: Array<{ id: StatusTab; label: string }> = [
 
 export default function YayinciTekliflerPage() {
   const { user } = useAuth();
+  const panelViewAs = usePanelView((s) => s.panelViewAs);
   const brands = useStore((s) => s.brands);
+  const isAdminView = user?.role === "admin" && !!panelViewAs;
 
   const [offers, setOffers] = useState<BrandOffer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +98,7 @@ export default function YayinciTekliflerPage() {
     [brands]
   );
 
-  if (!user || user.role !== "streamer") {
+  if (!user || (!isAdminView && user.role !== "streamer")) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
         <p className="text-sm text-muted-foreground">

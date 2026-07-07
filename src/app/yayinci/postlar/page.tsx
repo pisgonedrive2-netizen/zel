@@ -11,6 +11,7 @@ import {
   Video,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,8 @@ import type { BrandDeal, BrandPost } from "@/store/store";
 
 export default function YayinciPostlarPage() {
   const { user } = useAuth();
+  const panelViewAs = usePanelView((s) => s.panelViewAs);
+  const isAdminView = user?.role === "admin" && !!panelViewAs;
   const brands = useStore((s) => s.brands);
   const weekBrandReels = useStore((s) => s.weekBrandReels);
   const storeBrandPosts = useStore((s) => s.brandPosts);
@@ -55,7 +58,7 @@ export default function YayinciPostlarPage() {
   const addWeekBrandReel = useStore((s) => s.addWeekBrandReel);
   const updateWeekBrandReel = useStore((s) => s.updateWeekBrandReel);
   const deleteWeekBrandReel = useStore((s) => s.deleteWeekBrandReel);
-  const employeeId = user?.employeeId;
+  const employeeId = panelViewAs?.employeeId ?? user?.employeeId;
 
   const [posts, setPosts] = useState<BrandPost[]>([]);
   const [deals, setDeals] = useState<BrandDeal[]>([]);
@@ -171,7 +174,7 @@ export default function YayinciPostlarPage() {
     }
   }
 
-  if (!user || user.role !== "streamer") {
+  if (!user || (!isAdminView && user.role !== "streamer")) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
         <p className="text-sm text-muted-foreground">

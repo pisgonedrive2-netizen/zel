@@ -69,7 +69,7 @@ export const MARKA_NAV_GROUP_ORDER: MarkaNavGroup[] = [
 export const MARKA_NAV_ITEMS: MarkaNavItemDef[] = [
   { id: "anasayfa", href: "/marka/anasayfa", label: "Anasayfa", group: "Genel", icon: "LayoutDashboard", description: "Özet KPI ve hızlı erişim", moduleColor: "orange" },
   { id: "operasyon", href: "/marka/operasyon", label: "Operasyon özeti", group: "Genel", icon: "BarChart3", description: "Günlük operasyon ve aktivite", moduleColor: "orange" },
-  { id: "entegrasyon", href: "/marka/entegrasyon", label: "Entegrasyon", group: "Genel", icon: "Plug", description: "API ve üçüncü taraf bağlantılar", moduleColor: "orange" },
+  { id: "entegrasyon", href: "/marka/entegrasyon", label: "Entegrasyon", group: "Genel", icon: "Plug", description: "API ve üçüncü taraf bağlantılar", moduleColor: "orange", inDevelopment: true },
   { id: "raporlar", href: "/marka/raporlar", label: "Raporlar", group: "Genel", icon: "FileSpreadsheet", description: "Özet ve dışa aktarma raporları", moduleColor: "orange" },
 
   { id: "havuz", href: "/marka/havuz", label: "Yayıncı havuzu", group: "İş Birliği", icon: "Users", description: "Yayıncıları keşfet ve teklif gönder", moduleColor: "orange" },

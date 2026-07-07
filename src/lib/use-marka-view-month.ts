@@ -19,8 +19,8 @@ export function useMarkaViewMonth() {
   const [viewMonth, setViewMonthState] = useState(urlMonth);
 
   useEffect(() => {
-    if (urlMonth !== viewMonth) setViewMonthState(urlMonth);
-  }, [urlMonth, viewMonth]);
+    setViewMonthState(urlMonth);
+  }, [urlMonth]);
 
   const setViewMonth = useCallback(
     (next: string) => {

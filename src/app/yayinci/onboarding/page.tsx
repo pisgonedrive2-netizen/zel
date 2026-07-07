@@ -52,7 +52,7 @@ export default function YayinciOnboardingPage() {
             rateMaxUsd: existing.rateMaxUsd ?? 0,
           });
           // Profili zaten yayınlanmışsa onboarding'e gerek yok.
-          if (existing.status === "published") router.replace("/yayinci/maas");
+          if (existing.status === "published") router.replace("/yayinci/anasayfa");
         } else if (me) {
           setForm((f) => ({ ...f, displayName: me.name }));
         }
@@ -89,7 +89,7 @@ export default function YayinciOnboardingPage() {
         status: "published",
         visibility: "public",
       });
-      router.replace("/yayinci/maas");
+      router.replace("/yayinci/anasayfa");
     } catch (e) {
       if (isPoolNotReadyError(e)) {
         setNotReady(true);
@@ -150,7 +150,7 @@ export default function YayinciOnboardingPage() {
                 <li className="flex items-center gap-2"><DollarSign size={15} className="text-primary" /> Ücret aralığın</li>
               </ul>
               <div className="mt-6 flex justify-between">
-                <Button type="button" variant="ghost" onClick={() => router.replace("/yayinci/maas")}>
+                <Button type="button" variant="ghost" onClick={() => router.replace("/yayinci/anasayfa")}>
                   Şimdilik geç
                 </Button>
                 <Button type="button" onClick={next}>

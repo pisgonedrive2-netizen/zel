@@ -23,7 +23,9 @@ import {
   markAllNotificationsReadPersisted,
   deleteNotificationPersisted,
   refreshMyNotificationsFromServer,
+  markNotificationCompletedPersisted,
 } from "@/lib/notification-actions";
+import { isStreamerTaskNotification } from "@/lib/streamer-today-tasks";
 import { STREAMER_NOTIFICATION_TYPE_LABELS } from "@/store/store";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { useAuth, type AppUser } from "@/store/auth";
@@ -1163,6 +1165,10 @@ function AddWeekReelForm({
 
 export type StreamerSection = "maas" | "harcamalar" | "takvim" | "izlenmeler" | "hesaplar" | "marka-linkleri" | "kesif" | "gecmis" | "bildirimler" | "istatistikler";
 
+const KPI_SECTIONS: StreamerSection[] = ["maas", "harcamalar", "izlenmeler", "marka-linkleri"];
+const HEADER_ACTION_SECTIONS: StreamerSection[] = ["maas", "harcamalar", "takvim"];
+const UNREAD_BANNER_SECTIONS: StreamerSection[] = ["maas", "harcamalar", "bildirimler"];
+
 // ── Page ─────────────────────────────────────────────────────────────────
 /**
  * Dış sarmalayıcı: yetki/çalışan doğrulamalarını yapar, gövdeyi yalnızca
@@ -1935,6 +1941,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   return (
     <div className="w-full min-w-0 max-w-[1400px] mx-auto pb-8 pt-1">
+      {KPI_SECTIONS.includes(section) && (
+      <>
       {/* Header (kompakt) */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -1946,6 +1954,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             <p className="text-sm text-muted-foreground">{me.role}</p>
           </div>
         </div>
+        {HEADER_ACTION_SECTIONS.includes(section) && (
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} className="gap-1.5">
             <Plus size={14} /> Harcama Gönder
@@ -1954,9 +1963,23 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             <Plus size={14} /> Plan Ekle
           </Button>
         </div>
+        )}
       </div>
+      </>
+      )}
 
-      {unreadMessages > 0 && (
+      {HEADER_ACTION_SECTIONS.includes(section) && !KPI_SECTIONS.includes(section) && (
+        <div className="flex items-center justify-end gap-2 mb-4">
+          <Button variant="outline" size="sm" onClick={() => openNewExpense(month !== todayYm ? `${month}-01` : undefined)} className="gap-1.5">
+            <Plus size={14} /> Harcama Gönder
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setPlanModal({ mode: "new", weekStart: section === "takvim" ? weekView : thisWeek })} className="gap-1.5">
+            <Plus size={14} /> Plan Ekle
+          </Button>
+        </div>
+      )}
+
+      {UNREAD_BANNER_SECTIONS.includes(section) && unreadMessages > 0 && (
         <Link
           href="/yayinci/bildirimler"
           className="mb-4 flex items-center gap-3 rounded-xl border border-primary/35 bg-primary/10 px-4 py-3 text-sm hover:bg-primary/15 transition-colors"
@@ -1983,6 +2006,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
       )}
 
       {/* Top KPI grid */}
+      {KPI_SECTIONS.includes(section) && (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-blue-50/10 dark:border-blue-500/40 dark:from-blue-950/55 dark:to-blue-950/20 gap-2 py-5">
           <CardHeader className="pb-0">
@@ -2069,6 +2093,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Ay seçici — Maaş / Harcamalar / Geçmiş için (KPI ile uyumlu) */}
       {(section === "maas" || section === "harcamalar" || section === "gecmis" || section === "izlenmeler" || section === "marka-linkleri") && (
@@ -3977,6 +4002,15 @@ function StreamerNotificationsSection({ userId }: { userId: string }) {
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
+                    {isStreamerTaskNotification(n) && !n.completedAt && (
+                      <button
+                        type="button"
+                        onClick={() => void markNotificationCompletedPersisted(n.id)}
+                        className="text-[10px] text-emerald-700 hover:underline dark:text-emerald-400"
+                      >
+                        Tamamlandı
+                      </button>
+                    )}
                     {!n.read && (
                       <button
                         type="button"

@@ -155,7 +155,7 @@ export default function MarkaBildirimlerPage() {
             </p>
           </div>
         </div>
-        {unread > 0 && targetUserId && (
+        {unread > 0 && targetUserId && !readOnly && (
           <Button
             type="button"
             variant="outline"
@@ -281,7 +281,18 @@ export default function MarkaBildirimlerPage() {
           {filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               <Inbox className="mx-auto mb-2 opacity-50" size={20} />
-              Bildirim yok.
+              <p>Bildirim yok.</p>
+              <p className="mt-2 text-xs">
+                Takvim güncellemeleri ve içerik bildirimleri için{" "}
+                <Link href="/marka/takvim" className="text-primary underline">
+                  takvim
+                </Link>{" "}
+                ve{" "}
+                <Link href="/marka/operasyon" className="text-primary underline">
+                  operasyon
+                </Link>{" "}
+                sayfalarını kullanın.
+              </p>
             </div>
           ) : (
             filtered.map((n) => {
@@ -322,7 +333,7 @@ export default function MarkaBildirimlerPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {!n.read && (
+                      {!readOnly && !n.read && (
                         <button
                           type="button"
                           onClick={() => void handleMarkRead(n.id)}
@@ -332,14 +343,16 @@ export default function MarkaBildirimlerPage() {
                           <CheckCheck size={12} />
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete(n.id)}
-                        className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        title="Sil"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(n.id)}
+                          className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          title="Sil"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>

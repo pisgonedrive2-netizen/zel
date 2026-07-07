@@ -34,16 +34,16 @@ export function useIzlenmeViewMonth() {
   const [apiDateMode, setApiDateModeState] = useState<IzlenmeApiDateMode>(urlApiDateMode);
 
   useEffect(() => {
-    if (urlMonth !== viewMonth) setViewMonthState(urlMonth);
-  }, [urlMonth, viewMonth]);
+    setViewMonthState(urlMonth);
+  }, [urlMonth]);
 
   useEffect(() => {
-    if (urlLinkScope !== linkScope) setLinkScopeState(urlLinkScope);
-  }, [urlLinkScope, linkScope]);
+    setLinkScopeState(urlLinkScope);
+  }, [urlLinkScope]);
 
   useEffect(() => {
-    if (urlApiDateMode !== apiDateMode) setApiDateModeState(urlApiDateMode);
-  }, [urlApiDateMode, apiDateMode]);
+    setApiDateModeState(urlApiDateMode);
+  }, [urlApiDateMode]);
 
   const replaceQuery = useCallback(
     (patch: { month?: string; links?: IzlenmeLinkScope; apiDate?: IzlenmeApiDateMode }) => {

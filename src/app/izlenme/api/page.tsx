@@ -28,7 +28,7 @@ import {
   splitActiveLinksByApiSupport,
 } from "@/lib/social-api/api-platform-filter";
 import { resolveRefreshTargetDate } from "@/lib/izlenme-refresh";
-import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
 import type { BrandLink } from "@/store/store";
 
 const fmtViews = (n: number) => {
@@ -87,6 +87,8 @@ export default function IzlenmeApiPage() {
     setApiDateMode,
     filterLinks,
   } = useIzlenmeViewMonth();
+  const izHref = (path: string) =>
+    izlenmeHref(path, viewMonth, { linkScope, apiDateMode });
   const scopedLinks = useMemo(
     () => filterLinks(brandLinks, linkSnapshots),
     [brandLinks, linkSnapshots, filterLinks]
@@ -723,7 +725,7 @@ export default function IzlenmeApiPage() {
                       <tr key={l.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-1.5 pr-2 font-medium truncate max-w-[140px]">
                           {brand ? (
-                            <Link href={`/izlenme/marka/${brand.id}`} className="hover:underline">
+                            <Link href={izHref(`/izlenme/marka/${brand.id}`)} className="hover:underline">
                               {brand.name}
                             </Link>
                           ) : (

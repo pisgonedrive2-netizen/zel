@@ -316,7 +316,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   if (!brand) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
-        <Link href="/izlenme" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+        <Link href={izlenmeHref("/izlenme", viewMonth, { linkScope, apiDateMode })} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
           <ArrowLeft size={14} /> İzlenmeye dön
         </Link>
         <Card>
@@ -384,7 +384,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
 
       <div className="mb-4 flex items-center gap-2 flex-wrap">
         <Link
-          href={izlenmeHref("/izlenme/markalar", viewMonth)}
+          href={izlenmeHref("/izlenme/markalar", viewMonth, { linkScope, apiDateMode })}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft size={14} /> Tüm markalar

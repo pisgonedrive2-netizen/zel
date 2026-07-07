@@ -50,7 +50,7 @@ const MORE_NAV: NavItem[] = [
   { href: "/yayinci/teklifler", label: "Teklifler", match: "teklifler", icon: Send },
   { href: "/yayinci/postlar", label: "Postlar", match: "postlar", icon: Video },
   { href: "/yayinci/gecmis", label: "Geçmiş aylar", match: "gecmis", icon: CalendarRange },
-  { href: "/yayinci/bildirimler", label: "Mesajlar", match: "bildirimler", icon: Bell },
+  { href: "/yayinci/bildirimler", label: "Bildirimler", match: "bildirimler", icon: Bell },
 ];
 
 function isActive(pathname: string, href: string): boolean {

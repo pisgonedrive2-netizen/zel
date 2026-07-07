@@ -72,7 +72,7 @@ import {
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
-import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -157,6 +157,8 @@ export default function MarkalarPage() {
     setApiDateMode,
     filterLinks,
   } = useIzlenmeViewMonth();
+  const izHref = (path: string) =>
+    izlenmeHref(path, viewMonth, { linkScope, apiDateMode });
   const scopedLinks = useMemo(
     () => filterLinks(brandLinks, linkSnapshots),
     [brandLinks, linkSnapshots, filterLinks]
@@ -582,7 +584,7 @@ export default function MarkalarPage() {
                 totalNow={r.totalNow}
                 totalPrev={r.totalPrev}
                 mom={r.mom ?? 0}
-                viewMonth={viewMonth}
+                detailHref={izHref(`/izlenme/marka/${r.brand.id}`)}
               />
             ))}
           </div>
@@ -690,14 +692,14 @@ export default function MarkalarPage() {
 
         <CardContent className="pt-0">
           {rows.length === 0 ? (
-            <EmptyState hasBrands={brands.length > 0} />
+            <EmptyState hasBrands={brands.length > 0} backHref={izHref("/izlenme")} />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {rows.map((row) => (
                 <BrandCard
                   key={row.brand.id}
                   row={row}
-                  viewMonth={viewMonth}
+                  detailHref={izHref(`/izlenme/marka/${row.brand.id}`)}
                   onDownloadPdf={() => exportBrandPdf(row.brand.id)}
                   isAdmin={isAdmin && !readOnly}
                   actionBusy={brandActionBusy === row.brand.id}
@@ -769,7 +771,7 @@ export default function MarkalarPage() {
                     >
                       <td className="py-2 pr-3 font-medium text-foreground">
                         <Link
-                          href={`/izlenme/marka/${r.brand.id}?month=${viewMonth}`}
+                          href={izHref(`/izlenme/marka/${r.brand.id}`)}
                           className="inline-flex items-center gap-1.5 hover:text-primary transition-colors"
                         >
                           <BrandLogo
@@ -1005,7 +1007,13 @@ function Chip({
   );
 }
 
-function EmptyState({ hasBrands }: { hasBrands: boolean }) {
+function EmptyState({
+  hasBrands,
+  backHref,
+}: {
+  hasBrands: boolean;
+  backHref: string;
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
       <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground">
@@ -1023,7 +1031,7 @@ function EmptyState({ hasBrands }: { hasBrands: boolean }) {
       </div>
       {!hasBrands && (
         <Link
-          href="/izlenme"
+          href={backHref}
           className="inline-flex items-center gap-1.5 rounded-full border border-foreground/15 bg-foreground text-background px-3 py-1.5 text-xs font-semibold hover:opacity-90 transition-opacity"
         >
           İzlenme sayfasına git <ArrowUpRight size={12} />
@@ -1052,7 +1060,7 @@ interface BrandRowVm {
 
 function BrandCard({
   row,
-  viewMonth,
+  detailHref,
   onDownloadPdf,
   isAdmin,
   actionBusy,
@@ -1061,7 +1069,7 @@ function BrandCard({
   onEnterPanel,
 }: {
   row: BrandRowVm;
-  viewMonth: string;
+  detailHref: string;
   onDownloadPdf: () => void;
   isAdmin?: boolean;
   actionBusy?: boolean;
@@ -1112,7 +1120,7 @@ function BrandCard({
 
   return (
     <Link
-      href={`/izlenme/marka/${brand.id}?month=${viewMonth}`}
+      href={detailHref}
       className="group block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 rounded-2xl"
     >
       <Card
@@ -1410,7 +1418,7 @@ function TopPerformerCard({
   totalNow,
   totalPrev,
   mom,
-  viewMonth,
+  detailHref,
 }: {
   rank: number;
   brandId: string;
@@ -1420,7 +1428,7 @@ function TopPerformerCard({
   totalNow: number;
   totalPrev: number;
   mom: number;
-  viewMonth: string;
+  detailHref: string;
 }) {
   const rankIcon =
     rank === 1 ? (
@@ -1433,7 +1441,7 @@ function TopPerformerCard({
 
   return (
     <Link
-      href={`/izlenme/marka/${brandId}?month=${viewMonth}`}
+      href={detailHref}
       className="group block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 rounded-xl"
     >
       <div

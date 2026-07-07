@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
+import Link from "next/link";
 import {
   Activity,
   BarChart3,
   Eye,
+  Link2,
   Megaphone,
   TrendingUp,
   Wallet,
@@ -50,6 +52,7 @@ import {
   buildActionQueueItems,
 } from "@/components/marka-igaming/brand-action-queue";
 import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandPackageGuaranteeCard } from "@/components/marka/brand-package-guarantee-card";
 import { useBrandIgaming } from "@/hooks/use-brand-igaming";
 import { deriveLiveDemoUsage } from "@/lib/brand-monthly-stats";
@@ -443,6 +446,10 @@ export default function MarkaAnasayfaPage() {
             showEmptyHint={!statsRow && !igaming.dashboard && !igaming.loading}
           />
 
+          {!gettingStartedDone && (
+            <BrandGettingStarted brandName={brand.name} steps={gettingStartedSteps} />
+          )}
+
           <MarkaContentOverviewCard
             brandId={brandId}
             brandName={brand.name}
@@ -457,7 +464,7 @@ export default function MarkaAnasayfaPage() {
             compact
           />
 
-          {linksForBrand.length > 0 && (
+          {linksForBrand.length > 0 ? (
             <BrandLinkViewershipSummary
               links={linksForBrand}
               snapshots={linkSnapshots}
@@ -466,6 +473,30 @@ export default function MarkaAnasayfaPage() {
               title="Link izlenme metrikleri"
               compact
             />
+          ) : (
+            <Card className="border-dashed">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Link2 size={15} className="text-muted-foreground" />
+                  Link izlenme metrikleri
+                </CardTitle>
+                <CardDescription>
+                  Henüz takip edilen marka linki yok.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Linkler yönetici veya yayıncı tarafından eklenir. Eklendikten sonra toplam,
+                  aylık ve yeni link cohort izlenmeleri burada görünür.
+                </p>
+                <Link
+                  href={izlenmeHref}
+                  className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
+                >
+                  İzlenmeler sayfasına git →
+                </Link>
+              </CardContent>
+            </Card>
           )}
 
           <BrandExecutiveKpis
@@ -694,10 +725,6 @@ export default function MarkaAnasayfaPage() {
               />
             </div>
           </div>
-
-          {!gettingStartedDone && (
-            <BrandGettingStarted brandName={brand.name} steps={gettingStartedSteps} />
-          )}
 
           <BrandModuleGrid orgRole={orgRole} month={month} />
         </div>

@@ -15,7 +15,7 @@ import {
 import { useStore, type Brand, type BrandLink } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
 import { shiftCalendarMonthYm } from "@/lib/data";
-import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
 import {
   linkViewsForMonth,
   totalLinkViewsForMonth,
@@ -354,6 +354,9 @@ export default function IzlenmePage() {
     setApiDateMode,
     filterLinks,
   } = useIzlenmeViewMonth();
+
+  const izHref = (path: string) =>
+    izlenmeHref(path, viewMonth, { linkScope, apiDateMode });
 
   const {
     employees,
@@ -755,7 +758,7 @@ export default function IzlenmePage() {
               onGranularityChange={setTrendGranularity}
             />
             <Link
-              href="/izlenme/grafikler"
+              href={izHref("/izlenme/grafikler")}
               className="hidden sm:inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
             >
               Tüm grafikler <ArrowRight size={11} />
@@ -849,7 +852,7 @@ export default function IzlenmePage() {
               </CardDescription>
             </div>
             <Link
-              href="/izlenme/markalar"
+              href={izHref("/izlenme/markalar")}
               className="hidden sm:inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
             >
               Tüm markalar <ArrowRight size={11} />
@@ -865,7 +868,7 @@ export default function IzlenmePage() {
                   maxViews={maxTopBrandViews}
                   rank={i + 1}
                   index={i}
-                  href={`/izlenme/marka/${row.brand.id}?month=${viewMonth}`}
+                  href={izHref(`/izlenme/marka/${row.brand.id}`)}
                 />
               ))
             ) : (
@@ -888,7 +891,7 @@ export default function IzlenmePage() {
               </CardDescription>
             </div>
             <Link
-              href="/izlenme/operatorler"
+              href={izHref("/izlenme/operatorler")}
               className="hidden sm:inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
             >
               Operatörler <ArrowRight size={11} />
@@ -927,28 +930,28 @@ export default function IzlenmePage() {
         </div>
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <QuickNavCard
-            href="/izlenme/markalar"
+            href={izHref("/izlenme/markalar")}
             title="Markalar"
             description="Marka kart listesi · ay bazlı performans"
             icon={Briefcase}
             accent="indigo"
           />
           <QuickNavCard
-            href="/izlenme/operatorler"
+            href={izHref("/izlenme/operatorler")}
             title="Operatörler"
             description="Yayıncı bazlı toplam izlenme ve linkler"
             icon={Users}
             accent="emerald"
           />
           <QuickNavCard
-            href="/izlenme/grafikler"
+            href={izHref("/izlenme/grafikler")}
             title="Grafikler"
             description="Çok aylı trendler ve marka karşılaştırmaları"
             icon={BarChart3}
             accent="blue"
           />
           <QuickNavCard
-            href="/izlenme/api"
+            href={izHref("/izlenme/api")}
             title="API & Otomasyon"
             description="Rapid API durumu · cron · yenileme geçmişi"
             icon={RefreshCw}
@@ -972,13 +975,13 @@ export default function IzlenmePage() {
           </p>
           <div className="mt-4 inline-flex flex-wrap items-center justify-center gap-2">
             <Link
-              href="/izlenme/markalar"
+              href={izHref("/izlenme/markalar")}
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card hover:bg-accent/40 px-3 h-9 text-xs font-medium transition-colors"
             >
               <Briefcase size={13} /> Markalara git
             </Link>
             <Link
-              href="/izlenme/api"
+              href={izHref("/izlenme/api")}
               className="inline-flex items-center gap-1.5 rounded-md bg-foreground text-background hover:opacity-90 px-3 h-9 text-xs font-medium transition-opacity"
             >
               <RefreshCw size={13} /> API'yi kontrol et

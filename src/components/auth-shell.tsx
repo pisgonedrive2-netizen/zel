@@ -128,7 +128,11 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
           <main
-            className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-2 pb-3 pt-12 sm:px-4 md:px-6 lg:px-8 max-md:pr-14 ${
+            className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-2 pb-3 sm:px-4 md:px-6 lg:px-8 ${
+              pathname.startsWith("/yayinci")
+                ? "pt-3 max-md:pr-2"
+                : "pt-12 max-md:pr-14"
+            } ${
               floatingControlsInset
                 ? "md:pt-2 md:pr-[4.5rem] lg:pr-[5.5rem]"
                 : "md:pt-1 md:pr-3 lg:pr-4"
@@ -145,8 +149,10 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 }
 
 function MobileSidebarTrigger() {
+  const pathname = usePathname();
   const open = useSidebar((s) => s.open);
   const toggleOpen = useSidebar((s) => s.toggleOpen);
+  if (pathname.startsWith("/yayinci")) return null;
   return (
     <button
       type="button"

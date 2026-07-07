@@ -341,7 +341,7 @@ export default function MarkaIzlenmelerPage() {
                 <h1 className="text-xl font-semibold text-foreground">{brand.name} · İzlenmeler</h1>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Marka linkleri, yayıncı aylık izlenmeleri ve haftalık içerik linkleri — salt okunur.
+                Marka linkleri ve yayıncı izlenmeleri salt okunur; aylık izlenme hedefi bu sayfadan düzenlenebilir.
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Kayıt / yatırım metrikleri için{" "}
@@ -651,7 +651,16 @@ export default function MarkaIzlenmelerPage() {
               </CardHeader>
               <CardContent className="space-y-2 max-h-[360px] overflow-y-auto">
                 {linksForBrand.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Henüz link yok.</p>
+                  <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
+                    <p>Henüz link yok.</p>
+                    <p className="mt-1 text-xs">
+                      Linkler yönetici veya yayıncı tarafından eklenir. Aylık hedefinizi{" "}
+                      <Link href={markaHref("/marka/profil", month)} className="text-primary underline">
+                        profil sayfasından
+                      </Link>{" "}
+                      ayarlayabilirsiniz.
+                    </p>
+                  </div>
                 ) : previewLinks.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     Bu ay için izlenme kaydı olan link yok. Tümünü göster ile listeyi inceleyebilirsiniz.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, Save, Sparkles, X } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { usePanelView } from "@/store/panel-view";
 import { useStore } from "@/store/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,9 +92,12 @@ function profileToDraft(p: StreamerPoolProfile): DraftState {
 
 export default function YayinciProfilPage() {
   const { user } = useAuth();
+  const panelViewAs = usePanelView((s) => s.panelViewAs);
+  const isAdminView = user?.role === "admin" && !!panelViewAs;
   const employees = useStore((s) => s.employees);
 
-  const employee = employees.find((e) => e.id === user?.employeeId);
+  const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
+  const employee = employees.find((e) => e.id === targetEmployeeId);
   const fallbackName = employee?.name ?? user?.name ?? "Yayıncı";
 
   const [profile, setProfile] = useState<StreamerPoolProfile | null>(null);
@@ -185,7 +189,7 @@ export default function YayinciProfilPage() {
     setDraft((d) => ({ ...d, categories: d.categories.filter((x) => x !== c) }));
   }
 
-  if (!user || user.role !== "streamer") {
+  if (!user || (!isAdminView && user.role !== "streamer")) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 p-8 text-center">
         <p className="text-sm text-muted-foreground">
@@ -197,7 +201,7 @@ export default function YayinciProfilPage() {
 
   const previewProfile: StreamerPoolProfile = {
     id: profile?.id ?? "preview",
-    employeeId: user.employeeId ?? "",
+    employeeId: targetEmployeeId ?? "",
     displayName: draft.displayName,
     headline: draft.headline,
     bio: draft.bio,

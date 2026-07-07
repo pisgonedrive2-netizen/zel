@@ -16,7 +16,7 @@ import {
   Banknote, Building2, Zap, Plug, Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { clientHasOrgCapability, type OrgCapability } from "@/lib/org-capability";
+import { clientHasOrgCapability, clientIsReadOnly, type OrgCapability } from "@/lib/org-capability";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
@@ -51,6 +51,10 @@ type NavItem = {
   sensitive?: boolean;
 };
 
+function isNavActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 const ADMIN_NAV: NavItem[] = [
   { href: "/panel",                label: "Kontrol Paneli",     icon: LayoutDashboard, group: "Kontrol" },
   { href: "/onaylar",              label: "Onay Merkezi",       icon: CheckCircle2,    group: "Kontrol" },
@@ -78,20 +82,18 @@ const ADMIN_NAV: NavItem[] = [
 const STREAMER_NAV: NavItem[] = [
   { href: "/yayinci/anasayfa",       label: "Anasayfa",           icon: Home,            group: "Yayıncı" },
   { href: "/yayinci/maas",           label: "Maaş",               icon: Wallet,          group: "Yayıncı" },
-  { href: "/yayinci/harcamalar",     label: "Harcamalarım",       icon: Clapperboard,    group: "Yayıncı" },
-  { href: "/yayinci/takvim",         label: "Haftalık Planım",    icon: CalendarDays,    group: "Yayıncı" },
+  { href: "/yayinci/harcamalar",     label: "Harcamalar",         icon: Clapperboard,    group: "Yayıncı" },
+  { href: "/yayinci/takvim",         label: "Takvim",             icon: CalendarDays,    group: "Yayıncı" },
   { href: "/yayinci/izlenmeler",     label: "İzlenmeler",         icon: Eye,             group: "Yayıncı" },
-  { href: "/yayinci/hesaplar",       label: "Hesaplarım",         icon: Link2,           group: "Yayıncı" },
-  { href: "/yayinci/marka-linkleri", label: "Marka Linkleri",     icon: Activity,        group: "Yayıncı" },
-  { href: "/yayinci/kesif",          label: "Premium Keşif",    icon: Search,          group: "Yayıncı" },
-  { href: "/yayinci/gecmis",         label: "Geçmiş Aylar",       icon: CalendarRange,   group: "Yayıncı" },
-  { href: "/yayinci/istatistikler",  label: "İstatistiklerim",    icon: BarChart3,       group: "Yayıncı" },
-  // İş birliği (yeni B2B özellikleri)
-  { href: "/yayinci/teklifler",      label: "Tekliflerim",        icon: Send,            group: "İş Birliği" },
-  { href: "/yayinci/postlar",        label: "Postlarım",          icon: Video,           group: "İş Birliği" },
-  // Hesap
-  { href: "/yayinci/profil",         label: "Havuz Profilim",     icon: UserCog,         group: "Hesap" },
-  { href: "/yayinci/bildirimler",    label: "Bildirimlerim",      icon: Bell,            group: "Hesap" },
+  { href: "/yayinci/hesaplar",       label: "Hesaplar",           icon: Link2,           group: "Yayıncı" },
+  { href: "/yayinci/marka-linkleri", label: "Marka linkleri",     icon: Activity,        group: "Yayıncı" },
+  { href: "/yayinci/kesif",          label: "Premium keşif",      icon: Search,          group: "Yayıncı" },
+  { href: "/yayinci/gecmis",         label: "Geçmiş aylar",       icon: CalendarRange,   group: "Yayıncı" },
+  { href: "/yayinci/istatistikler",  label: "İstatistikler",      icon: BarChart3,       group: "Yayıncı" },
+  { href: "/yayinci/teklifler",      label: "Teklifler",          icon: Send,            group: "İş Birliği" },
+  { href: "/yayinci/postlar",        label: "Postlar",            icon: Video,           group: "İş Birliği" },
+  { href: "/yayinci/profil",         label: "Havuz profili",      icon: UserCog,         group: "Hesap" },
+  { href: "/yayinci/bildirimler",    label: "Bildirimler",      icon: Bell,            group: "Hesap" },
 ];
 
 const AUDITOR_NAV: NavItem[] = [
@@ -185,6 +187,9 @@ export default function Sidebar() {
 
   // Bildirimler
   const notifications = useStore((s) => s.notifications);
+  const contentExpenses = useStore((s) => s.contentExpenses);
+  const brandOffers = useStore((s) => s.brandOffers);
+  const employees = useStore((s) => s.employees);
   const userBrandIds  = user?.role === "brand"
     ? (user.brandIds && user.brandIds.length ? user.brandIds : user.brandId ? [user.brandId] : [])
     : undefined;
@@ -209,9 +214,41 @@ export default function Sidebar() {
   const filtered = nav.filter(n =>
     (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
     navItemAllowed(n) &&
+    (!n.mainAdminOnly || isOrkun) &&
     (!n.sensitive || !effectiveScreenShareMode) &&
     (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
   );
+
+  const streamerNavBadge = (href: string): number => {
+    if (!user || (user.role !== "streamer" && !adminViewingStreamer)) return 0;
+    const targetEmployeeId = panelViewAs?.employeeId ?? user.employeeId;
+    const me = employees.find((e) => e.id === targetEmployeeId);
+    if (!me) return 0;
+    const myExpenses = contentExpenses.filter((e) => e.employeeId === me.id);
+    const pendingCount = myExpenses.filter((e) => e.reviewStatus === "pending").length;
+    const needsInfoCount = myExpenses.filter((e) => e.reviewStatus === "needs_info").length;
+    const streamerNotifs = visibleNotificationsForRole(notifications, "streamer", user.id);
+    const unreadExpenseNotifs = streamerNotifs.filter(
+      (n) =>
+        !n.read &&
+        (n.href?.includes("/yayinci/harcamalar") ||
+          n.type === "expense_approved" ||
+          n.type === "expense_rejected" ||
+          n.type === "expense_paid" ||
+          (n.type === "general" && n.title.toLowerCase().includes("harcama")))
+    ).length;
+    const harcamalarBadge = Math.max(needsInfoCount, unreadExpenseNotifs, pendingCount);
+    const unreadMessages = streamerNotifs.filter((n) => !n.read).length;
+    const unreadOffers = brandOffers.filter(
+      (o) =>
+        o.employeeId === me.id &&
+        (o.status === "pending" || o.status === "negotiating")
+    ).length;
+    if (href === "/yayinci/harcamalar") return harcamalarBadge;
+    if (href === "/yayinci/bildirimler") return unreadMessages;
+    if (href === "/yayinci/teklifler") return unreadOffers;
+    return 0;
+  };
 
   const handleLogout = () => {
     logout();
@@ -348,7 +385,8 @@ export default function Sidebar() {
                 )}
                 <ul className="space-y-1">
                   {items.map(({ href, label, icon: Icon }) => {
-                    const active = pathname === href;
+                    const active = isNavActive(pathname, href);
+                    const badge = streamerNavBadge(href);
                     return (
                       <li key={href}>
                         <Link
@@ -363,7 +401,7 @@ export default function Sidebar() {
                               : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                           )}
                         >
-                          <div className="flex items-center justify-center min-w-[20px]">
+                          <div className="flex items-center justify-center min-w-[20px] relative">
                             <Icon
                               className={cn(
                                 "h-4 w-4 shrink-0",
@@ -372,11 +410,23 @@ export default function Sidebar() {
                                   : "text-muted-foreground group-hover:text-foreground"
                               )}
                             />
+                            {badge > 0 && collapsed && (
+                              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
+                                {badge > 9 ? "9+" : badge}
+                              </span>
+                            )}
                           </div>
                           {!collapsed && (
-                            <span className={cn("text-sm", active ? "font-medium" : "font-normal")}>
-                              {label}
-                            </span>
+                            <>
+                              <span className={cn("text-sm flex-1", active ? "font-medium" : "font-normal")}>
+                                {label}
+                              </span>
+                              {badge > 0 && (
+                                <span className="text-[10px] font-semibold tabular-nums text-red-600 dark:text-red-400">
+                                  {badge > 9 ? "9+" : badge}
+                                </span>
+                              )}
+                            </>
                           )}
                         </Link>
                       </li>
@@ -526,13 +576,14 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
   const { notifications } = useStore();
 
   if (!user) return null;
+  const readOnly = user.role === "brand" && clientIsReadOnly(user.orgRole);
   const popupBrandIds =
     user.role === "brand"
       ? (user.brandIds && user.brandIds.length ? user.brandIds : user.brandId ? [user.brandId] : [])
       : undefined;
   const my = visibleNotificationsForRole(notifications, user.role, user.id, popupBrandIds).slice(0, 30);
   const clearAllInPopup = async () => {
-    if (my.length === 0) return;
+    if (readOnly || my.length === 0) return;
     if (!window.confirm(`${my.length} bildirimi temizlemek istiyor musun?`)) return;
     const { deleted, failed } = await deleteNotificationsPersisted(my.map((n) => n.id));
     if (failed > 0) {
@@ -578,7 +629,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
               <p className="text-xs font-semibold text-foreground">Son Bildirimler</p>
               <div className="flex items-center gap-2">
-                {my.length > 0 && (
+                {my.length > 0 && !readOnly && (
                   <button
                     onClick={() => void clearAllInPopup()}
                     className="text-[10px] text-destructive hover:underline"
@@ -586,9 +637,16 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                     Temizle
                   </button>
                 )}
-                {unreadCount > 0 && (
+                {unreadCount > 0 && !readOnly && (
                   <button
-                    onClick={() => void markAllNotificationsReadPersisted(user.role, user.id)}
+                    onClick={() =>
+                      void markAllNotificationsReadPersisted(
+                        user.role,
+                        user.id,
+                        popupBrandIds?.[0],
+                        popupBrandIds
+                      )
+                    }
                     className="text-[10px] text-primary hover:underline"
                   >
                     Okundu
@@ -606,7 +664,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                     role="button"
                     tabIndex={0}
                     onClick={() => {
-                      void markNotificationReadPersisted(n.id);
+                      if (!readOnly) void markNotificationReadPersisted(n.id);
                       if (n.href) {
                         setOpen(false);
                         router.push(n.href);
@@ -615,7 +673,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        void markNotificationReadPersisted(n.id);
+                        if (!readOnly) void markNotificationReadPersisted(n.id);
                         if (n.href) {
                           setOpen(false);
                           router.push(n.href);
@@ -636,6 +694,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                           {fmtDateShort(n.createdAt)}
                         </p>
                       </div>
+                      {!readOnly && (
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); void deleteNotificationPersisted(n.id); }}
@@ -644,6 +703,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                       >
                         <X size={11} />
                       </button>
+                      )}
                     </div>
                   </div>
                 ))

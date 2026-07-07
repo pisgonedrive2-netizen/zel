@@ -14,7 +14,7 @@ import {
 
 import { useStore, type BrandLink, type LinkSnapshot } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
-import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { LinkSnapshotForm } from "@/components/link-snapshot-form";
 import { ManualLinkFormModal } from "@/components/manual-link-form";
@@ -64,6 +64,8 @@ export default function IzlenmeManuelPage() {
     apiDateMode,
     setApiDateMode,
   } = useIzlenmeViewMonth();
+  const izHref = (path: string) =>
+    izlenmeHref(path, viewMonth, { linkScope, apiDateMode });
 
   const [snapshotModal, setSnapshotModal] = useState<{
     link: BrandLink;
@@ -217,7 +219,7 @@ export default function IzlenmeManuelPage() {
           <CardHeader className="pb-1 pt-4 px-4">
             <CardDescription className="text-xs">Otomatik API</CardDescription>
             <CardTitle className="text-sm font-medium pt-1">
-              <Link href="/izlenme/api" className="text-primary underline underline-offset-2">
+              <Link href={izHref("/izlenme/api")} className="text-primary underline underline-offset-2">
                 API sekmesi →
               </Link>
             </CardTitle>
@@ -308,7 +310,7 @@ export default function IzlenmeManuelPage() {
                     className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
                   >
                     {brand && (
-                      <Link href={`/izlenme/marka/${brand.id}?month=${viewMonth}`} className="shrink-0">
+                      <Link href={izHref(`/izlenme/marka/${brand.id}`)} className="shrink-0">
                         <BrandLogo brandId={brand.id} title={brand.name} className="h-9 w-9" />
                       </Link>
                     )}
@@ -316,7 +318,7 @@ export default function IzlenmeManuelPage() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         {brand && (
                           <Link
-                            href={`/izlenme/marka/${brand.id}?month=${viewMonth}`}
+                            href={izHref(`/izlenme/marka/${brand.id}`)}
                             className="font-semibold text-sm text-foreground hover:underline"
                           >
                             {brand.name}
