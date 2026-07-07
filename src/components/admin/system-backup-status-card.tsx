@@ -109,7 +109,7 @@ export function SystemBackupStatusCard({ compact }: { compact?: boolean }) {
           Otomatik Sistem Yedekleri
         </CardTitle>
         <CardDescription>
-          Günde 2 kez (02:00 ve 14:00) tam yedek alınır, veritabanında saklanır ve Orkun&apos;a bildirim gider.
+          Her gün 02:00&apos;de tam yedek alınır, veritabanında saklanır ve Orkun&apos;a bildirim gider.
           İş verileri senkronizasyonda toplu silinmez.
         </CardDescription>
       </CardHeader>

@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Cron: günde iki kez (vercel.json) tam sistem yedeği.
+ * Cron: günde bir kez 02:00 (vercel.json) tam sistem yedeği.
  * Yedekler system_backup_snapshots tablosuna yazılır; Orkun'a bildirim gider.
  */
 export async function GET(req: NextRequest) {
