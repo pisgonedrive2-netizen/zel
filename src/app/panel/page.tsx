@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Users,
   Wallet,
+  CalendarDays,
 } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
 import { isMainAdmin } from "@/lib/user-guards";
@@ -24,7 +25,9 @@ import { fmtDateShort } from "@/lib/fmt-date";
 import { PageShell, PageHeader } from "@/components/page-shell";
 import { AdminActionInbox } from "@/components/admin/admin-action-inbox";
 import { SystemBackupStatusCard } from "@/components/admin/system-backup-status-card";
+import { AdminWeekPlanOverview } from "@/components/admin/admin-week-plan-overview";
 import { useAdminDashboardMetrics } from "@/lib/admin-dashboard-metrics";
+import { useStore, weekStartOf } from "@/store/store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -35,6 +38,8 @@ export default function PanelPage() {
   const router = useRouter();
   const allowed = user?.role === "admin";
   const metrics = useAdminDashboardMetrics();
+  const { employees, weeklyPlans } = useStore();
+  const [planWeek, setPlanWeek] = useState(() => weekStartOf());
   const currentMonth = toYearMonthLocal(new Date());
   const showOzetLink = user ? isMainAdmin(user) : false;
 
@@ -60,7 +65,7 @@ export default function PanelPage() {
         title="Kontrol Paneli"
         description={`${greetingName}, ${monthLabelTr(currentMonth)} · günlük operasyon özeti`}
         icon={
-          <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#FF6B00]/20 to-sky-500/20 text-[#FF6B00] flex items-center justify-center shrink-0">
             <LayoutDashboard size={18} />
           </div>
         }
@@ -77,6 +82,15 @@ export default function PanelPage() {
       <div className="mb-5">
         <AdminActionInbox />
       </div>
+
+      <AdminWeekPlanOverview
+        weekStart={planWeek}
+        onWeekChange={setPlanWeek}
+        plans={weeklyPlans}
+        employees={employees}
+        compact
+        href="/takvim"
+      />
 
       {showOzetLink && (
         <div className="mb-5">
@@ -121,7 +135,8 @@ export default function PanelPage() {
         />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-2 mb-6">
+        <QuickBtn href="/takvim" label="Haftalık Takvim" icon={CalendarDays} accent />
         <QuickBtn href="/onaylar" label="Onay Merkezi" icon={AlertCircle} accent={metrics.pendingContentExpenseCount + metrics.unpaidPayrollCount > 0} />
         <QuickBtn href="/icerik-harcamalari" label="İçerik Harcamaları" icon={Clapperboard} />
         <QuickBtn href="/maaslar" label="Maaş Bordrosu" icon={Users} />
@@ -129,6 +144,7 @@ export default function PanelPage() {
         <QuickBtn href="/gorevler" label="Görevler" icon={LayoutDashboard} />
         <QuickBtn href="/bildirimler" label="Bildirimler" icon={Bell} />
         <QuickBtn href="/rapor" label="Ödeme Raporu" icon={FileSpreadsheet} />
+        <QuickBtn href="/izlenme" label="İzlenme Panosu" icon={Eye} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">

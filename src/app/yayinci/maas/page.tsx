@@ -1,5 +1,7 @@
-import { StreamerDashboard } from "../streamer-dashboard";
+"use client";
 
-export default function YayinciMaasPage() {
-  return <StreamerDashboard section="maas" />;
+import { LazyStreamerDashboard } from "../lazy-streamer-dashboard";
+
+export default function Page() {
+  return <LazyStreamerDashboard section="maas" />;
 }

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ComponentType } from "react";
 import { useStore } from "@/store/store";
+import { countActiveLinkOwners } from "@/lib/active-streamers";
 import { useIsReadOnly } from "@/store/auth";
 import {
   Card,
@@ -409,7 +410,7 @@ function ScatterTooltip({ active, payload }: { active?: boolean; payload?: Array
 
 export default function GrafiklerPage() {
   const readOnly = useIsReadOnly();
-  const { brands, brandLinks, linkSnapshots, contentExpenses } = useStore();
+  const { brands, brandLinks, linkSnapshots, contentExpenses, employees } = useStore();
 
   const {
     viewMonth,
@@ -646,7 +647,7 @@ export default function GrafiklerPage() {
   }, [thisMonthByBrand, lastMonthByBrand, activeBrands, contentExpenses, viewMonth, barData, brands]);
 
   const totalLinks = scopedLinks.length;
-  const totalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const totalOwners = countActiveLinkOwners(scopedLinks, employees);
 
   // ── render ────────────────────────────────────────────────────────────────
 

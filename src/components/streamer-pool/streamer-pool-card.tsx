@@ -27,20 +27,20 @@ export function StreamerPoolCard({
   const remainingCountries = Math.max(0, profile.countries.length - countries.length);
 
   return (
-    <div className="group relative flex h-full flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-[#FF6B00]/40 hover:shadow-[0_0_22px_-8px_rgba(255,107,0,0.55)]">
+    <div className="group relative flex h-full flex-col gap-3 overflow-hidden rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:border-[#FF6B00]/45 hover:shadow-[0_0_28px_-10px_rgba(255,107,0,0.55)]">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-[#FF6B00]/12 via-[#EC4899]/8 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#FF6B00]/18 via-[#EC4899]/8 to-transparent"
       />
 
       <div className="relative flex items-start gap-3">
-        <Avatar src={profile.avatarUrl} initial={initial} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-foreground">
+        <Avatar src={profile.avatarUrl} initial={initial} large />
+        <div className="min-w-0 flex-1 pt-0.5">
+          <p className="truncate text-base font-semibold tracking-tight text-foreground">
             {profile.displayName}
           </p>
           {profile.headline && (
-            <p className="line-clamp-2 text-xs text-muted-foreground">
+            <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {profile.headline}
             </p>
           )}
@@ -48,12 +48,12 @@ export function StreamerPoolCard({
       </div>
 
       {profile.categories.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="relative flex flex-wrap gap-1.5">
           {profile.categories.slice(0, 4).map((c) => (
             <Badge
               key={c}
               variant="outline"
-              className="text-[10px] font-normal text-muted-foreground"
+              className="rounded-full border-[#FF6B00]/25 bg-[#FF6B00]/5 text-[10px] font-medium text-foreground"
             >
               {c}
             </Badge>
@@ -66,7 +66,7 @@ export function StreamerPoolCard({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 text-xs">
+      <div className="relative grid grid-cols-3 gap-2 text-xs">
         <Stat
           icon={Users2}
           label="Takipçi"
@@ -85,7 +85,7 @@ export function StreamerPoolCard({
       </div>
 
       {countries.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+        <div className="relative flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
           <Globe2 size={11} className="text-muted-foreground" />
           {countries.map((c) => (
             <span
@@ -106,7 +106,7 @@ export function StreamerPoolCard({
       {onOfferClick && (
         <Button
           size="sm"
-          className="mt-auto gap-1.5 bg-[#FF6B00] text-white hover:bg-[#FF6B00]/90"
+          className="relative mt-auto gap-1.5 bg-[#FF6B00] text-white hover:bg-[#FF6B00]/90"
           onClick={() => onOfferClick(profile)}
         >
           {ctaLabel}
@@ -116,19 +116,33 @@ export function StreamerPoolCard({
   );
 }
 
-function Avatar({ src, initial }: { src?: string; initial: string }) {
+function Avatar({
+  src,
+  initial,
+  large,
+}: {
+  src?: string;
+  initial: string;
+  large?: boolean;
+}) {
+  const size = large ? "h-14 w-14 text-lg" : "h-12 w-12 text-base";
   if (src) {
     return (
       <img
         src={src}
         alt=""
-        className="h-12 w-12 shrink-0 rounded-xl object-cover ring-1 ring-border"
+        className={cn(size, "shrink-0 rounded-2xl object-cover ring-1 ring-border")}
         draggable={false}
       />
     );
   }
   return (
-    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#FF6B00] to-[#EC4899] text-base font-bold uppercase text-white shadow-sm ring-1 ring-[#FF6B00]/40">
+    <div
+      className={cn(
+        size,
+        "flex shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#FF6B00] to-[#EC4899] font-bold uppercase text-white shadow-sm ring-1 ring-[#FF6B00]/40"
+      )}
+    >
       {initial}
     </div>
   );

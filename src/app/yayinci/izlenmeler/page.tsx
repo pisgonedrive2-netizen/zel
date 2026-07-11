@@ -1,5 +1,7 @@
-import { StreamerDashboard } from "../streamer-dashboard";
+"use client";
 
-export default function YayinciIzlenmelerPage() {
-  return <StreamerDashboard section="izlenmeler" />;
+import { LazyStreamerDashboard } from "../lazy-streamer-dashboard";
+
+export default function Page() {
+  return <LazyStreamerDashboard section="izlenmeler" />;
 }

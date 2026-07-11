@@ -10,6 +10,7 @@ import { PlatformApiCapabilitiesGrid } from "@/components/platform-api-capabilit
 import { SocialDiscoveryPanel } from "@/components/social-discovery-panel";
 import { SOCIAL_PLANS } from "@/lib/social-api/config";
 import { useStore } from "@/store/store";
+import { countActiveLinkOwners } from "@/lib/active-streamers";
 import { useIsReadOnly, useAuth } from "@/store/auth";
 import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +77,7 @@ export default function IzlenmeApiPage() {
     updateBrandLink,
     upsertLinkSnapshot,
     addLinkSnapshot,
+    employees,
   } = useStore();
   const {
     viewMonth,
@@ -118,7 +120,7 @@ export default function IzlenmeApiPage() {
   }, []);
 
   const totalBrands = brands.filter((b) => b.status === "active").length;
-  const totalStreamers = new Set(brandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const totalStreamers = countActiveLinkOwners(brandLinks, employees);
   const totalLinks = scopedLinks.length;
   const totalViews = useMemo(
     () => totalLinkViewsForMonth(scopedLinks, viewMonth, linkSnapshots, todayYm),

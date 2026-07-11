@@ -29,6 +29,8 @@ import {
   weekRangeLabel,
   PLAN_ACTIVITIES,
 } from "@/components/weekly-plan-ui";
+import { PlanContentChip } from "@/components/streamer/week-content-summary";
+import { resolvePlanContentType } from "@/lib/plan-content-types";
 import {
   weekDayIsosFromStart,
   todayDateLocal,
@@ -80,6 +82,8 @@ export type PlanWeekBoardProps = {
   salaryExtras: SalaryExtra[];
   accountLabel?: (id?: string) => string;
   onAdd: () => void;
+  /** Boş güne tıklayınca o gün için plan ekle. */
+  onAddDay?: (iso: string) => void;
   onEdit: (p: WeeklyPlan) => void;
   onWeekChange?: (weekStart: string) => void;
 };
@@ -93,11 +97,15 @@ export function PlanWeekBoard({
   salaryExtras,
   accountLabel,
   onAdd,
+  onAddDay,
   onEdit,
 }: PlanWeekBoardProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const days = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
-  const totalEvents = plans.length;
+  const totalEvents = plans.filter((p) => p.status !== "cancelled").length;
+  const shootCount = plans.filter(
+    (p) => p.status !== "cancelled" && resolvePlanContentType(p.activity).countsAsShoot
+  ).length;
 
   const dayCell = (iso: string, i: number, compact?: boolean) => {
     const dayPlans = plans
@@ -111,7 +119,7 @@ export function PlanWeekBoard({
       <div
         key={iso}
         className={cn(
-          "border rounded-lg p-2 min-h-[128px] flex flex-col",
+          "border rounded-lg p-2 min-h-[140px] flex flex-col",
           compact
             ? "min-w-[9.5rem] max-w-[11rem] w-[9.5rem] flex-none snap-start shrink-0"
             : "min-w-0 w-full",
@@ -125,11 +133,23 @@ export function PlanWeekBoard({
             {WEEKDAYS_LONG[i].slice(0, 3)}{" "}
             <span className="text-foreground/60">{iso.slice(8, 10)}</span>
           </p>
-          {dayPlans.length > 0 && (
-            <Badge variant="secondary" className="h-4 px-1 text-[9px] tabular-nums">
-              {dayPlans.length}
-            </Badge>
-          )}
+          <div className="flex items-center gap-0.5">
+            {dayPlans.length > 0 && (
+              <Badge variant="secondary" className="h-4 px-1 text-[9px] tabular-nums">
+                {dayPlans.length}
+              </Badge>
+            )}
+            {onAddDay && (
+              <button
+                type="button"
+                onClick={() => onAddDay(iso)}
+                className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Bu güne plan ekle"
+              >
+                <Plus size={10} />
+              </button>
+            )}
+          </div>
         </div>
         {hints.length > 0 && (
           <div className="space-y-0.5 mb-1.5">
@@ -149,7 +169,18 @@ export function PlanWeekBoard({
         )}
         <div className="flex-1 space-y-1 min-h-[48px]">
           {dayPlans.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground/40 italic">—</p>
+            onAddDay ? (
+              <button
+                type="button"
+                onClick={() => onAddDay(iso)}
+                className="flex w-full flex-col items-center justify-center gap-0.5 rounded-md border border-dashed border-border/70 py-4 text-[10px] text-muted-foreground/70 transition-colors hover:border-[#FF6B00]/40 hover:bg-[#FF6B00]/5 hover:text-foreground"
+              >
+                <Plus size={12} />
+                Çekim ekle
+              </button>
+            ) : (
+              <p className="text-[10px] text-muted-foreground/40 italic">—</p>
+            )
           ) : (
             <>
               {dayPlans.slice(0, 3).map((p) => (
@@ -158,17 +189,18 @@ export function PlanWeekBoard({
                   type="button"
                   onClick={() => onEdit(p)}
                   className={cn(
-                    "block w-full text-left px-1.5 py-1 rounded border text-[10px]",
+                    "block w-full text-left px-1.5 py-1.5 rounded border text-[10px]",
                     STATUS_COLORS[p.status]
                   )}
                 >
                   {formatTimeRange(p) && (
-                    <p className="font-mono text-[9px]">{formatTimeRange(p)}</p>
+                    <p className="font-mono text-[9px] mb-0.5">{formatTimeRange(p)}</p>
                   )}
-                  <p className="font-medium leading-tight">{p.activity}</p>
-                  {p.brandName && (
-                    <p className="text-[9px] opacity-70 truncate">{p.brandName}</p>
-                  )}
+                  <PlanContentChip
+                    activity={p.activity}
+                    brandName={p.brandName}
+                    compact
+                  />
                 </button>
               ))}
               {hiddenCount > 0 && (
@@ -192,7 +224,7 @@ export function PlanWeekBoard({
               {label}
               {totalEvents > 0 && (
                 <Badge variant="outline" className="text-[10px] font-normal">
-                  {totalEvents} etkinlik
+                  {shootCount} çekim · {totalEvents} plan
                 </Badge>
               )}
             </CardTitle>
@@ -236,6 +268,7 @@ export function PlanWeekBoard({
         salaryExtras={salaryExtras}
         accountLabel={accountLabel}
         onAdd={onAdd}
+        onAddDay={onAddDay}
         onEdit={(p) => {
           setFullscreen(false);
           onEdit(p);
@@ -341,7 +374,11 @@ function PlanWeekFullscreen({
                           )}
                         >
                           <p className="font-mono text-[8px]">{formatTimeRange(p)}</p>
-                          <p className="font-medium truncate">{p.activity}</p>
+                          <PlanContentChip
+                            activity={p.activity}
+                            brandName={p.brandName}
+                            compact
+                          />
                           {accountLabel && p.streamerAccountId && (
                             <p className="opacity-60 truncate text-[8px]">
                               {accountLabel(p.streamerAccountId)}
@@ -577,18 +614,18 @@ export function PlanHistoryPanel({
                         {p.status}
                       </Badge>
                     </div>
-                    <p className="mt-0.5">
-                      {p.activity}
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <PlanContentChip
+                        activity={p.activity}
+                        brandName={p.brandName}
+                        compact
+                      />
                       {p.streamerAccountId && accountLabel && (
-                        <span className="text-muted-foreground">
-                          {" "}
-                          · {accountLabel(p.streamerAccountId)}
+                        <span className="text-[10px] text-muted-foreground">
+                          {accountLabel(p.streamerAccountId)}
                         </span>
                       )}
-                      {p.brandName && (
-                        <span className="text-muted-foreground"> · {p.brandName}</span>
-                      )}
-                    </p>
+                    </div>
                   </button>
                 ))}
               </div>

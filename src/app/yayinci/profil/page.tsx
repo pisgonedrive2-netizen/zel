@@ -18,8 +18,10 @@ import {
 import { cn } from "@/lib/utils";
 import {
   fetchMyPoolProfile,
+  fetchPoolProfileByEmployee,
   isPoolNotReadyError,
   upsertMyPoolProfile,
+  upsertPoolProfileByEmployee,
 } from "@/lib/streamer-pool-api";
 import { PoolServerBanner } from "@/components/streamer-pool/pool-server-banner";
 import {
@@ -110,7 +112,7 @@ export default function YayinciProfilPage() {
   const [newCategory, setNewCategory] = useState("");
 
   const load = useCallback(async () => {
-    if (!user?.employeeId) {
+    if (!targetEmployeeId) {
       setLoading(false);
       return;
     }
@@ -118,7 +120,9 @@ export default function YayinciProfilPage() {
     setError(null);
     setNotReady(false);
     try {
-      const p = await fetchMyPoolProfile();
+      const p = isAdminView
+        ? await fetchPoolProfileByEmployee(targetEmployeeId)
+        : await fetchMyPoolProfile();
       setProfile(p);
       setDraft(p ? profileToDraft(p) : emptyDraft(fallbackName));
     } catch (err) {
@@ -131,7 +135,7 @@ export default function YayinciProfilPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?.employeeId, fallbackName]);
+  }, [targetEmployeeId, isAdminView, fallbackName]);
 
   useEffect(() => {
     void load();
@@ -142,10 +146,14 @@ export default function YayinciProfilPage() {
       setError("Görünen ad zorunlu.");
       return;
     }
+    if (!targetEmployeeId) {
+      setError("Çalışan kimliği bulunamadı.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      const next = await upsertMyPoolProfile({
+      const body = {
         displayName: draft.displayName.trim(),
         headline: draft.headline.trim(),
         bio: draft.bio.trim(),
@@ -156,7 +164,10 @@ export default function YayinciProfilPage() {
         rateMaxUsd: draft.rateMaxUsd ?? null,
         status,
         visibility: draft.visibility,
-      });
+      };
+      const next = isAdminView
+        ? await upsertPoolProfileByEmployee(targetEmployeeId, body)
+        : await upsertMyPoolProfile(body);
       setProfile(next);
       setDraft(profileToDraft(next));
     } catch (err) {

@@ -26,6 +26,8 @@ import {
 } from "@/lib/streamer-activity-dates";
 import { DailyContentCheckin } from "@/components/streamer/daily-content-checkin";
 import { StreamerOperationsHub } from "@/components/takvim/streamer-operations-hub";
+import { AdminWeekPlanOverview } from "@/components/admin/admin-week-plan-overview";
+import { WeekContentSummary } from "@/components/streamer/week-content-summary";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -59,7 +61,7 @@ function platformIcon(platform: string) {
   return Globe;
 }
 
-const PLATFORMS = ["Kick", "YouTube", "Twitch", "Instagram", "Telegram", "X / Twitter", "TikTok", "Discord", "Other"];
+const PLATFORMS = ["Kick", "YouTube", "Twitch", "Instagram", "Telegram", "X / Twitter", "TikTok", "Facebook", "Discord", "Other"];
 
 // ── Copy-to-clipboard wallet/handle ───────────────────────────────────────
 function CopyableText({ value, className = "" }: { value: string; className?: string }) {
@@ -454,22 +456,50 @@ function TakvimPage() {
 
   return (
     <div className="mx-auto w-full px-2 pb-4 sm:px-3 md:px-5 max-w-[1400px]">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h1 className="text-lg sm:text-xl font-bold text-foreground">Haftalık Takvim & Yayıncı Hesapları</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">
-            Yayıncıların güncel hesaplarını ve haftalık yayın planını tek ekrandan yönetin. Boş slotlara hesap atayarak haftalık dağılımı görselleştirin.
-          </p>
+      <header className="relative mb-5 overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-[#FF6B00]/8 via-background to-sky-500/8 p-4 sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#FF6B00]">
+              Operasyon · takvim
+            </p>
+            <h1 className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              Haftalık çekim & yayıncı planı
+            </h1>
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground sm:text-sm">
+              Aktif yayıncının bu hafta hangi markaya, hangi gün içerik çekeceğini
+              tek bakışta görün. Slot, hesap ve plan detayları aşağıda.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge variant="outline" className="gap-1 text-[11px]">
+                <Users size={11} /> {yayincilar.length} aktif yayıncı
+              </Badge>
+              {yayincilar[0] && (
+                <Badge
+                  variant="secondary"
+                  className="gap-1 bg-[#FF6B00]/15 text-[#FF6B00] text-[11px]"
+                >
+                  {yayincilar[0].name}
+                </Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setAccountModal({ mode: "new" })} className="gap-1.5">
+              <Plus size={14} /> Hesap Ekle
+            </Button>
+            <Button size="sm" onClick={() => setSlotModal({ mode: "new" })} className="gap-1.5">
+              <Plus size={14} /> Yayın Slotu
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setAccountModal({ mode: "new" })} className="gap-1.5">
-            <Plus size={14} /> Hesap Ekle
-          </Button>
-          <Button size="sm" onClick={() => setSlotModal({ mode: "new" })} className="gap-1.5">
-            <Plus size={14} /> Yayın Slotu
-          </Button>
-        </div>
-      </div>
+      </header>
+
+      <AdminWeekPlanOverview
+        weekStart={planWeek}
+        onWeekChange={setPlanWeek}
+        plans={weeklyPlans}
+        employees={employees}
+      />
 
       <nav
         aria-label="Sayfa içi hızlı gezinme"
@@ -961,6 +991,16 @@ function TakvimPage() {
             Bu hafta
           </Button>
         </div>
+        {planEmployeeId && (
+          <div className="mt-4">
+            <WeekContentSummary
+              weekStart={planWeek}
+              plans={weeklyPlans.filter(
+                (p) => p.employeeId === planEmployeeId && planDateInWeek(p.date, planWeek)
+              )}
+            />
+          </div>
+        )}
         {yayincilar.length > 0 && planEmployeeId && (
           <div className="mt-4 space-y-3">
             <CollapsibleSection

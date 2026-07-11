@@ -53,6 +53,7 @@ import { ViewDotCard } from "@/components/view-dot-card";
 import { Select } from "@/components/ui/field";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
 import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
+import { BrandViewershipStory } from "@/components/marka/brand-viewership-story";
 import {
   buildBrandAggregatedActivity,
   buildBrandStreamerActivity,
@@ -363,6 +364,15 @@ export default function MarkaIzlenmelerPage() {
 
           <MarkaMonthNav month={month} onPrev={() => navMonth(-1)} onNext={() => navMonth(1)} />
 
+          <BrandViewershipStory
+            monthTitle={monthLabelTr(month)}
+            monthYm={month}
+            todayYm={todayYm}
+            links={linksForBrand}
+            snapshots={linkSnapshots}
+            href="#izlenme-metrikleri"
+          />
+
           {staleLinkCount > 0 && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-300/70 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
@@ -385,27 +395,30 @@ export default function MarkaIzlenmelerPage() {
             </div>
           )}
 
-          <BrandLinkViewershipSummary
-            links={linksForBrand}
-            snapshots={linkSnapshots}
-            viewMonth={month}
-            todayYm={todayYm}
-            title="Tüm linkler · izlenme özeti"
-          />
+          <div id="izlenme-metrikleri">
+            <BrandLinkViewershipSummary
+              links={linksForBrand}
+              snapshots={linkSnapshots}
+              viewMonth={month}
+              todayYm={todayYm}
+              title="İzlenme metrikleri"
+              defaultTablesOpen
+            />
+          </div>
 
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-4xl">
             <ViewDotCard
               target={totalLinkViewsMonth + totalStreamerViewsMonth}
               metricCaption="Views"
               label={`${monthTitle} · Toplam`}
-              sub="Link + yayıncı kayıtları"
+              sub="Link + yayıncı · ay sonu bakiyesi"
               accent="violet"
             />
             <ViewDotCard
               target={totalLinkViewsMonth}
               metricCaption="Views"
               label="Marka linkleri"
-              sub={`${linksForBrand.length} link`}
+              sub={`${linksForBrand.length} link · ay sonu bakiyesi`}
               accent="blue"
             />
             <ViewDotCard

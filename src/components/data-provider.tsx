@@ -521,17 +521,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabaseMode, user?.id, ready, bootstrapOk, runSyncNow]);
 
   const showSessionOverlay = supabaseMode && !sessionReady && !isLoginRoute;
-  const showBootstrapOverlay = supabaseMode && Boolean(user) && !ready;
+  // Bootstrap sırasında tam ekran kilidi yerine ince üst şerit — shell hemen çizilsin.
+  const showBootstrapBar = supabaseMode && Boolean(user) && !ready && sessionReady;
 
   return (
     <>
-      {(showSessionOverlay || showBootstrapOverlay) && (
+      {showSessionOverlay && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-background"
           aria-busy="true"
-          aria-label="Yükleniyor"
+          aria-label="Oturum kontrol ediliyor"
         >
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {showBootstrapBar && (
+        <div
+          className="fixed inset-x-0 top-0 z-[90] h-0.5 overflow-hidden bg-muted"
+          aria-busy="true"
+          aria-label="Veriler yükleniyor"
+        >
+          <div className="h-full w-1/3 animate-[bootstrap-slide_1.1s_ease-in-out_infinite] bg-[#FF6B00]" />
         </div>
       )}
       {syncError && (

@@ -1,5 +1,6 @@
 import type { BrandLink, BrandViewership, Employee, LinkSnapshot } from "@/store/store";
 import { linkViewsForMonth, shouldSkipManualViewership } from "@/lib/brand-month-metrics";
+import { isActiveRosterEmployee } from "@/lib/active-streamers";
 
 export interface StreamerMonthAggregate {
   employeeId: string;
@@ -20,11 +21,25 @@ export function aggregateStreamersForMonth(opts: {
   monthYm: string;
   linkSnapshots: LinkSnapshot[];
   todayYm: string;
+  /** Varsayılan true — pasif yayıncıları (eski owner) panodan çıkarır */
+  activeOnly?: boolean;
 }): StreamerMonthAggregate[] {
-  const { employees, brandLinks, brandViewership, monthYm, linkSnapshots, todayYm } = opts;
+  const {
+    employees,
+    brandLinks,
+    brandViewership,
+    monthYm,
+    linkSnapshots,
+    todayYm,
+    activeOnly = true,
+  } = opts;
   const map = new Map<string, StreamerMonthAggregate>();
 
-  const ensure = (employeeId: string): StreamerMonthAggregate => {
+  const ensure = (employeeId: string): StreamerMonthAggregate | null => {
+    if (activeOnly) {
+      const emp = employees.find((e) => e.id === employeeId);
+      if (!isActiveRosterEmployee(emp)) return null;
+    }
     const existing = map.get(employeeId);
     if (existing) return existing;
     const emp = employees.find((e) => e.id === employeeId);
@@ -45,6 +60,7 @@ export function aggregateStreamersForMonth(opts: {
   for (const link of brandLinks) {
     if (!link.ownerId) continue;
     const row = ensure(link.ownerId);
+    if (!row) continue;
     row.linkCount += 1;
     if (link.status === "active") row.activeLinkCount += 1;
     const v = linkViewsForMonth(link, monthYm, linkSnapshots, todayYm).lastViews;
@@ -56,6 +72,7 @@ export function aggregateStreamersForMonth(opts: {
     if (v.month !== monthYm || !v.employeeId) continue;
     if (shouldSkipManualViewership(v, brandLinks, monthYm, linkSnapshots, todayYm)) continue;
     const row = ensure(v.employeeId);
+    if (!row) continue;
     row.manualViews += v.views;
     if (v.brandId) row.brandIds.add(v.brandId);
   }

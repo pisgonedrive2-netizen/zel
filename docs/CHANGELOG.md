@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-07-11 — Marka classy UI · performans · landing animasyon
+
+Detay: [`docs/CHANGELOG-2026-07-11.md`](CHANGELOG-2026-07-11.md)
+
+- Marka takvim haftalık çekim özeti; anasayfa teslimat komuta + collapse detay
+- İzlenme hikâyesi; havuz kart polish
+- Bootstrap tam ekran spinner → üst progress bar; yayıncı dashboard lazy import
+- Landing hero metin animasyonları
+
+---
+
 ## 2026-05-30 — TRON↔Genel Kasa dahil etme · Landing sadeleştirme · Marka/Yayıncı navigasyon revizyonu
 
 ### Kasa — TRON harcamalarının Genel Kasa'ya dahil edilmesi

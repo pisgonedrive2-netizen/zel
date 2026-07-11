@@ -14,6 +14,7 @@ import {
   Legend,
 } from "recharts";
 import { useStore, type BrandLink, type LinkSnapshot } from "@/store/store";
+import { countActiveLinkOwners } from "@/lib/active-streamers";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import {
@@ -332,7 +333,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   }
 
   const navbarBrands = brands.filter((b) => b.status === "active").length;
-  const navbarStreamers = new Set(allBrandLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const navbarStreamers = countActiveLinkOwners(allBrandLinks, employees);
   const navbarLinks = allBrandLinks.length;
 
   const refreshLink = async (linkId: string) => {

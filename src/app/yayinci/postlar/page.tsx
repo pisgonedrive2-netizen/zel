@@ -290,8 +290,11 @@ export default function YayinciPostlarPage() {
           <Video size={28} className="mx-auto mb-2 text-muted-foreground/70" />
           <p className="text-sm font-medium text-foreground">Henüz post eklemediniz</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            "Post ekle" ile içerik URL'inizi paste edin.
+            İçerik URL&apos;nizi yapıştırarak marka anlaşmasına sayılacak post ekleyin.
           </p>
+          <Button size="sm" className="mt-4 gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus size={12} /> İlk postu ekle
+          </Button>
         </div>
       ) : (
         <Card>

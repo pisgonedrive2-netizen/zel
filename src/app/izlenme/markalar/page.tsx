@@ -37,6 +37,7 @@ import {
   Tooltip as RTooltip,
 } from "recharts";
 import { useStore } from "@/store/store";
+import { activeOwnerIdsOnLinks, countActiveLinkOwners } from "@/lib/active-streamers";
 import { useAuth, useIsReadOnly } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
@@ -202,9 +203,7 @@ export default function MarkalarPage() {
         viewMonth,
         brands
       );
-      const ownerIds = Array.from(
-        new Set(links.map((l) => l.ownerId).filter((v): v is string => Boolean(v)))
-      );
+      const ownerIds = activeOwnerIdsOnLinks(links, employees);
       const mom = totalPrev > 0 ? ((totalNow - totalPrev) / totalPrev) * 100 : null;
       const target = brand.monthlyTarget ?? null;
       const targetPct =
@@ -250,7 +249,7 @@ export default function MarkalarPage() {
         spark,
       };
     });
-  }, [brands, scopedLinks, linkSnapshots, contentExpenses, viewMonth, prevMonth, todayYm]);
+  }, [brands, scopedLinks, linkSnapshots, contentExpenses, viewMonth, prevMonth, todayYm, employees]);
 
   // Filtre + sıralama
   const rows = useMemo(() => {
@@ -332,7 +331,7 @@ export default function MarkalarPage() {
   }, [allRows]);
 
   const totalLinks = scopedLinks.length;
-  const totalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const totalOwners = countActiveLinkOwners(scopedLinks, employees);
   const grandTotal = allRows.reduce((s, r) => s + r.totalNow, 0);
 
   const operationRows = useMemo(() => {

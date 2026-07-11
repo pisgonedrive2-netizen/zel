@@ -1771,13 +1771,25 @@ const initialPlannedItemPayments: PlannedItemPayment[] = [];
 
 /** Yayıncı hesap örnekleri — kullanıcı tarafından düzenlenebilir. */
 const initialStreamerAccounts: StreamerAccount[] = [
-  { id: "sa-ramiz-1",  employeeId: "emp-ramiz",  platform: "YouTube",  handle: "@ramiz",   url: "https://youtube.com/@ramiz",   notes: "Ana yayın kanalı",   status: "active" },
-  { id: "sa-ramiz-2",  employeeId: "emp-ramiz",  platform: "Kick",     handle: "ramiz",    url: "https://kick.com/ramiz",       notes: "Canlı yayın",        status: "active" },
-  { id: "sa-ramiz-3",  employeeId: "emp-ramiz",  platform: "Telegram", handle: "@ramiz",   url: "https://t.me/ramiz",           notes: "Duyuru kanalı",      status: "active" },
+  // Ramiz — güncel kanallar (paylaşım kontrolü: IG / YT / TT)
+  { id: "sa-ramiz-ig-official", employeeId: "emp-ramiz", platform: "Instagram", handle: "ramiz.nurcinofficial", url: "https://www.instagram.com/ramiz.nurcinofficial/", notes: "Resmi Instagram", status: "active" },
+  { id: "sa-ramiz-ig-lanetkelim", employeeId: "emp-ramiz", platform: "Instagram", handle: "lanetkelim", url: "https://www.instagram.com/lanetkelim/", notes: "", status: "active" },
+  { id: "sa-ramiz-yt-ben", employeeId: "emp-ramiz", platform: "YouTube", handle: "lanetkelben", url: "https://www.youtube.com/@lanetkelben", notes: "", status: "active" },
+  { id: "sa-ramiz-1", employeeId: "emp-ramiz", platform: "YouTube", handle: "lanetkeltur", url: "https://www.youtube.com/@lanetkeltur", notes: "", status: "active" },
+  { id: "sa-ramiz-yt-vlog", employeeId: "emp-ramiz", platform: "YouTube", handle: "lanetkelvlog", url: "https://www.youtube.com/@lanetkelvlog", notes: "", status: "active" },
+  { id: "sa-ramiz-tt-resmi", employeeId: "emp-ramiz", platform: "TikTok", handle: "lanetkelresmi", url: "https://www.tiktok.com/@lanetkelresmi", notes: "", status: "active" },
+  { id: "sa-ramiz-tt-tv", employeeId: "emp-ramiz", platform: "TikTok", handle: "lanetkeltv", url: "https://www.tiktok.com/@lanetkeltv", notes: "", status: "active" },
+  { id: "sa-ramiz-tt-ramiz", employeeId: "emp-ramiz", platform: "TikTok", handle: "ramiznurcin", url: "https://www.tiktok.com/@ramiznurcin", notes: "", status: "active" },
+  { id: "sa-ramiz-fb-1", employeeId: "emp-ramiz", platform: "Facebook", handle: "lanetkel", url: "https://www.facebook.com/share/1CzVKn79dt/", notes: "Facebook profil", status: "active" },
+  { id: "sa-ramiz-ph-1", employeeId: "emp-ramiz", platform: "Diğer", handle: "lanetkel", url: "https://www.pornhub.com/model/lanetkel", notes: "Yetişkin model profili", status: "active" },
+  { id: "0da1e862-2ed8-418b-853f-a937557978ed", employeeId: "emp-ramiz", platform: "Telegram", handle: "lanetkeltv", url: "https://t.me/lanetkeltv", notes: "Yetişkin içeriği kanalı", status: "active" },
+  { id: "sa-ramiz-tg-hub", employeeId: "emp-ramiz", platform: "Telegram", handle: "lanetkelhub", url: "https://t.me/lanetkelhub", notes: "Hub kanalı", status: "active" },
+  { id: "sa-ramiz-2", employeeId: "emp-ramiz", platform: "Kick", handle: "ramiz", url: "https://kick.com/ramiz", notes: "Canlı yayın", status: "active" },
+  // Pasif / diğer
   { id: "sa-lucy-1",   employeeId: "emp-lucy",   platform: "Kick",     handle: "lucy",     url: "https://kick.com/lucy",        notes: "İş çıkışı 18 Haz 2026", status: "inactive" },
   { id: "sa-lucy-2",   employeeId: "emp-lucy",   platform: "Instagram",handle: "@lucy",    url: "https://instagram.com/lucy",   notes: "İş çıkışı 18 Haz 2026", status: "inactive" },
-  { id: "sa-acelya-1", employeeId: "emp-acelya", platform: "Kick",     handle: "acebaby",  url: "https://kick.com/acebaby",     notes: "Ana yayın",          status: "active" },
-  { id: "sa-acelya-2", employeeId: "emp-acelya", platform: "Instagram",handle: "@acebaby", url: "https://instagram.com/acebaby",notes: "",                   status: "active" },
+  { id: "sa-acelya-1", employeeId: "emp-acelya", platform: "Kick",     handle: "acebaby",  url: "https://kick.com/acebaby",     notes: "Ana yayın",          status: "inactive" },
+  { id: "sa-acelya-2", employeeId: "emp-acelya", platform: "Instagram",handle: "@acebaby", url: "https://instagram.com/acebaby",notes: "",                   status: "inactive" },
 ];
 
 /** Boş başlangıç — kullanıcı /izlenme sayfasından girişleri ekleyecek. */

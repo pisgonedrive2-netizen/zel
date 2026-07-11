@@ -128,8 +128,8 @@ export async function syncEmployeePersonalAccounts(
     ACHIEVEMENT_PLATFORMS.has(slugPlatform(a.platform) ?? "")
   );
 
-  const maxAccounts = opts?.maxAccounts ?? 6;
-  const maxPosts = opts?.maxPostsPerAccount ?? 25;
+  const maxAccounts = opts?.maxAccounts ?? 12;
+  const maxPosts = opts?.maxPostsPerAccount ?? 30;
 
   for (const account of active.slice(0, maxAccounts)) {
     const platform = slugPlatform(account.platform);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Eye,
   Handshake,
@@ -8,6 +9,7 @@ import {
   Loader2,
   MessageSquare,
   RefreshCcw,
+  UserCog,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
@@ -51,6 +53,8 @@ export default function YayinciTekliflerPage() {
   const panelViewAs = usePanelView((s) => s.panelViewAs);
   const brands = useStore((s) => s.brands);
   const isAdminView = user?.role === "admin" && !!panelViewAs;
+  const targetEmployeeId = panelViewAs?.employeeId ?? user?.employeeId;
+  const streamerDisplayName = panelViewAs?.employeeName ?? user?.name ?? "Yayıncı";
 
   const [offers, setOffers] = useState<BrandOffer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,7 +68,10 @@ export default function YayinciTekliflerPage() {
     setError(null);
     setNotReady(false);
     try {
-      const data = await fetchOffers({ role: "streamer" });
+      const data = await fetchOffers({
+        role: "streamer",
+        ...(isAdminView && targetEmployeeId ? { employeeId: targetEmployeeId } : {}),
+      });
       setOffers(data);
     } catch (err) {
       if (isPoolNotReadyError(err)) {
@@ -76,7 +83,7 @@ export default function YayinciTekliflerPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdminView, targetEmployeeId]);
 
   useEffect(() => {
     void load();
@@ -199,13 +206,13 @@ export default function YayinciTekliflerPage() {
         offerId={selectedId}
         viewer={{
           role: "streamer",
-          displayName: user.name,
+          displayName: streamerDisplayName,
           isInitiator: selectedOffer?.initiator === "streamer",
         }}
         brandLabel={
           selectedOffer ? brandLabel(selectedOffer.brandId) : undefined
         }
-        streamerLabel={user.name}
+        streamerLabel={streamerDisplayName}
         onMutated={() => void load()}
       />
     </div>
@@ -298,6 +305,12 @@ function EmptyOffers() {
         Markalar size teklif gönderdiğinde burada görünür. Havuz profilinizi
         yayında tutmayı unutmayın.
       </p>
+      <Link
+        href="/yayinci/profil"
+        className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+      >
+        <UserCog size={12} /> Havuz profilini düzenle →
+      </Link>
     </div>
   );
 }

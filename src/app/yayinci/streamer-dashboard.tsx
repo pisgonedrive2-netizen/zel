@@ -55,6 +55,11 @@ import {
 } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import { PlanWeekBoard, PlanHistoryPanel } from "@/components/streamer/weekly-plan-calendar";
+import { WeekContentSummary } from "@/components/streamer/week-content-summary";
+import {
+  PLAN_CONTENT_TYPES,
+  resolvePlanContentType,
+} from "@/lib/plan-content-types";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
 import { payrollDueShort, payrollDueCaption } from "@/lib/payroll-dates";
 import {
@@ -111,7 +116,7 @@ function platformIcon(platform: string) {
 
 const PLATFORMS = [
   "Instagram", "YouTube", "Twitch", "Kick", "TikTok",
-  "Telegram", "Twitter / X", "Web Site", "Diğer",
+  "Telegram", "Twitter / X", "Facebook", "Web Site", "Diğer",
 ] as const;
 
 /** URL'den favicon URL'i üret (Google s2 servisi). */
@@ -209,8 +214,6 @@ function weekRangeLabel(weekStartIso: string) {
   b.setDate(b.getDate() + 6);
   return `${a.toLocaleDateString("tr-TR", { day: "numeric", month: "short" })} – ${b.toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" })}`;
 }
-
-const ACTIVITIES = ["Yayın", "Vlog Çekimi", "Yetişkin İçerik", "Site Videoları", "Edit / Post-Prod", "Reklam Çekimi", "Toplantı", "İzin"] as const;
 
 // ── Expense Submit Form ─────────────────────────────────────────────────
 function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, onDelete, onClose }: {
@@ -371,24 +374,30 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
 }
 
 // ── Weekly Plan Form ────────────────────────────────────────────────────
-function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initial, onSave, onDelete, onClose }: {
+function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initial, defaultDate, onSave, onDelete, onClose }: {
   employeeId: string;
   userId: string;
   weekStart: string;
   streamerAccounts: StreamerAccount[];
   initial?: WeeklyPlan;
+  /** Gün hücresinden açıldıysa o güne kilitlenir. */
+  defaultDate?: string;
   onSave: (d: Omit<WeeklyPlan, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
   const { brands } = useStore();
+  const activeBrands = useMemo(
+    () => brands.filter((b) => b.status === "active"),
+    [brands]
+  );
   const [form, setForm] = useState<Omit<WeeklyPlan, "id">>({
     employeeId,
     weekStart,
-    date:       initial?.date      ?? weekStart,
+    date:       initial?.date      ?? defaultDate ?? weekStart,
     startTime:  initial?.startTime ?? "",
     endTime:    initial?.endTime   ?? "",
-    activity:   initial?.activity  ?? "Yayın",
+    activity:   initial?.activity  ?? "Reels",
     brandName:  initial?.brandName ?? "",
     streamerAccountId: initial?.streamerAccountId ?? streamerAccounts[0]?.id,
     notes:      initial?.notes     ?? "",
@@ -400,6 +409,7 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
 
   // Bu hafta haftanın günleri
   const weekDays = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
+  const selectedType = resolvePlanContentType(form.activity);
 
   return (
     <form
@@ -418,6 +428,29 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
       }}
     >
       <div className="grid gap-4">
+        <Field label="İçerik tipi" required hint="Bugün hangi format çekilecek?">
+          <div className="flex flex-wrap gap-1.5">
+            {PLAN_CONTENT_TYPES.filter((t) => t.countsAsShoot || t.kind === "edit" || t.kind === "meeting" || t.kind === "off").map((t) => {
+              const active = selectedType.kind === t.kind || form.activity === t.activity;
+              return (
+                <button
+                  key={t.kind}
+                  type="button"
+                  onClick={() => set("activity", t.activity)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all",
+                    active
+                      ? cn(t.chipClass, "ring-2 ring-offset-1 ring-offset-background ring-[#FF6B00]/40")
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {t.shortLabel}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
         <FormGrid>
           <Field label="Tarih" required>
             <Select
@@ -434,11 +467,50 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
               options={weekDays.map((d) => ({ value: d, label: formatDateLong(d) }))}
             />
           </Field>
-          <Field label="Aktivite" required>
-            <Select value={form.activity} onChange={e => set("activity", e.target.value)} required
-              options={ACTIVITIES.map(a => ({ value: a, label: a }))} />
+          <Field label="Marka" required={selectedType.countsAsShoot} hint="Bu gün hangi marka için?">
+            <Select
+              value={
+                activeBrands.find(
+                  (b) =>
+                    b.shortName === form.brandName ||
+                    b.name === form.brandName
+                )?.id ?? (form.brandName ? "__custom__" : "")
+              }
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) {
+                  set("brandName", "");
+                  return;
+                }
+                if (v === "__custom__") return;
+                const b = activeBrands.find((x) => x.id === v);
+                set("brandName", b?.shortName ?? b?.name ?? "");
+              }}
+              required={selectedType.countsAsShoot}
+              options={[
+                { value: "", label: "Marka seç…" },
+                ...activeBrands.map((b) => ({
+                  value: b.id,
+                  label: b.name,
+                })),
+              ]}
+            />
           </Field>
         </FormGrid>
+
+        {form.brandName &&
+          !activeBrands.some(
+            (b) => b.shortName === form.brandName || b.name === form.brandName
+          ) && (
+            <Field label="Marka / konu (serbest)">
+              <Input
+                value={form.brandName}
+                onChange={(e) => set("brandName", e.target.value)}
+                placeholder="Örn. Gala"
+              />
+            </Field>
+          )}
+
         <FormGrid>
           <Field label="Başlangıç">
             <Input type="time" value={form.startTime ?? ""} onChange={e => set("startTime", e.target.value)} />
@@ -447,7 +519,7 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
             <Input type="time" value={form.endTime ?? ""} onChange={e => set("endTime", e.target.value)} />
           </Field>
         </FormGrid>
-        <Field label="Hesap" required hint="Bu plan hangi platform hesabın için?">
+        <Field label="Hesap" required={streamerAccounts.length > 0} hint="Bu plan hangi platform hesabın için?">
           <Select
             value={form.streamerAccountId ?? ""}
             onChange={(e) => set("streamerAccountId", e.target.value || undefined)}
@@ -463,13 +535,6 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
           />
         </Field>
         <FormGrid>
-          <Field label="Marka / Konu">
-            <Input value={form.brandName ?? ""} onChange={e => set("brandName", e.target.value)} placeholder="Gala / Padi vs."
-              list="brand-dl" />
-            <datalist id="brand-dl">
-              {brands.map(b => <option key={b.id} value={b.shortName} />)}
-            </datalist>
-          </Field>
           <Field label="Durum">
             <Select value={form.status} onChange={e => set("status", e.target.value as WeeklyPlan["status"])}
               options={[
@@ -481,7 +546,7 @@ function WeeklyPlanForm({ employeeId, userId, weekStart, streamerAccounts, initi
           </Field>
         </FormGrid>
         <Field label="Not">
-          <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Detay..." />
+          <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Örn. 3 Reels + 1 adult · senaryo hazır" />
         </Field>
       </div>
       <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : "Plan Ekle"} />
@@ -1300,7 +1365,11 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   };
 
   const [expenseModal,  setExpenseModal]  = useState<"new" | ContentExpense | null>(null);
-  const [planModal,     setPlanModal]     = useState<{ mode: "new" | WeeklyPlan; weekStart: string } | null>(null);
+  const [planModal, setPlanModal] = useState<{
+    mode: "new" | WeeklyPlan;
+    weekStart: string;
+    defaultDate?: string;
+  } | null>(null);
   const [accountModal,  setAccountModal]  = useState<"new" | StreamerAccount | null>(null);
   const [linkModal,     setLinkModal]     = useState<"new" | BrandLink | null>(null);
   const [snapshotModal, setSnapshotModal] = useState<BrandLink | null>(null);
@@ -2296,7 +2365,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 <p className="font-semibold">Yönetici ek bilgi istedi</p>
                 <p className="text-xs mt-0.5 opacity-90">
                   Aşağıdaki kayıtları güncelleyip tekrar gönderin. Bildirimler{" "}
-                  <strong>Mesajlar</strong> sekmesinde de görünür.
+                  <strong>Bildirimler</strong> sekmesinde de görünür.
                 </p>
               </div>
             </div>
@@ -2523,6 +2592,8 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               onUndo={(ids) => ids.forEach((id) => deleteWeeklyPlan(id))}
             />
 
+            <WeekContentSummary weekStart={weekView} plans={weekViewPlans} />
+
             <PlanWeekBoard
               weekStart={weekView}
               label={weekViewLabel}
@@ -2532,6 +2603,13 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               salaryExtras={salaryExtras}
               accountLabel={planAccountLabel}
               onAdd={() => setPlanModal({ mode: "new", weekStart: weekView })}
+              onAddDay={(iso) =>
+                setPlanModal({
+                  mode: "new",
+                  weekStart: weekStartFromDateIso(iso) || weekView,
+                  defaultDate: iso,
+                })
+              }
               onEdit={(p) =>
                 setPlanModal({
                   mode: p,
@@ -3570,7 +3648,15 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               </CardHeader>
               <CardContent>
                 {myLinks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">Aktif marka linki yok.</p>
+                  <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
+                    <p className="text-sm text-muted-foreground">Aktif marka linki yok.</p>
+                    <Link
+                      href="/yayinci/marka-linkleri"
+                      className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
+                    >
+                      Marka linki ekle →
+                    </Link>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     {Object.entries(platformGroups).sort(([, a], [, b]) => b - a).map(([plat, views]) => {
@@ -3683,11 +3769,21 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               </CardHeader>
               <CardContent className="space-y-2">
                 {myLinks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic py-4 text-center">
-                    {myActiveLinks.length === 0
-                      ? "Henüz aktif link yok."
-                      : "Filtreye uyan link yok."}
-                  </p>
+                  <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {myActiveLinks.length === 0
+                        ? "Henüz aktif link yok."
+                        : "Filtreye uyan link yok."}
+                    </p>
+                    {myActiveLinks.length === 0 && (
+                      <Link
+                        href="/yayinci/marka-linkleri"
+                        className="mt-3 inline-flex text-xs font-medium text-primary hover:underline"
+                      >
+                        Marka linki ekle →
+                      </Link>
+                    )}
+                  </div>
                 ) : (
                   linksSortedByViews.map((l) => {
                     const brand = brands.find((b) => b.id === l.brandId);
@@ -3757,6 +3853,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
             userId={user.id}
             weekStart={planModal.weekStart}
             streamerAccounts={myAccounts}
+            defaultDate={planModal.defaultDate}
             initial={planModal.mode === "new" ? undefined : planModal.mode}
             onSave={handlePlanSave}
             onDelete={planModal.mode !== "new"
@@ -3935,6 +4032,13 @@ function ExpenseRow({
 // ── Streamer notifications section (filtered + actionable) ───────────────
 function StreamerNotificationsSection({ userId }: { userId: string }) {
   const notifications = useStore((s) => s.notifications);
+  useEffect(() => {
+    void refreshMyNotificationsFromServer("streamer", userId);
+    const t = setInterval(() => {
+      void refreshMyNotificationsFromServer("streamer", userId);
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [userId]);
   const myNotifs = useMemo(
     () =>
       visibleNotificationsForRole(notifications, "streamer", userId)
@@ -3967,7 +4071,24 @@ function StreamerNotificationsSection({ userId }: { userId: string }) {
       </CardHeader>
       <CardContent>
         {myNotifs.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic py-6 text-center">Henüz bildirim yok.</p>
+          <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
+            <Bell className="mx-auto mb-2 text-muted-foreground/40" size={24} />
+            <p className="text-sm font-medium text-foreground">Henüz bildirim yok</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Harcama onayları, görevler ve teklifler burada görünür.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Link href="/yayinci/harcamalar" className="text-xs font-medium text-primary hover:underline">
+                Harcamalar →
+              </Link>
+              <Link href="/yayinci/teklifler" className="text-xs font-medium text-primary hover:underline">
+                Teklifler →
+              </Link>
+              <Link href="/yayinci/anasayfa" className="text-xs font-medium text-primary hover:underline">
+                Anasayfa →
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
             {myNotifs.map((n) => (

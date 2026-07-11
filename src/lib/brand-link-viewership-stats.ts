@@ -1,8 +1,11 @@
 import type { BrandLink, LinkSnapshot } from "@/store/store";
 import { linkViewsForMonth, totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
 import { totalLinkEngagementForMonth } from "@/lib/brand-engagement-metrics";
-import { linkViewsGainInMonth } from "@/lib/link-snapshot-delta";
-import { linkDisplayTitle } from "@/lib/link-snapshot-delta";
+import {
+  linkViewsGainInMonth,
+  totalLinkViewsGainInMonth,
+  linkDisplayTitle,
+} from "@/lib/link-snapshot-delta";
 
 /** Linkin sisteme eklendiği ay (YYYY-MM). */
 export function linkAddedMonthYm(link: BrandLink, snapshots: LinkSnapshot[]): string | null {
@@ -29,7 +32,10 @@ export function linkLatestViews(link: BrandLink, snapshots: LinkSnapshot[]): num
 
 export interface MonthViewershipRow {
   monthYm: string;
+  /** Ay sonu kümülatif snapshot toplamı (platformdaki toplam view) */
   totalViews: number;
+  /** Ay içi artış (önceki ay sonu → bu ay sonu) */
+  totalGain: number;
   linkCount: number;
 }
 
@@ -50,16 +56,21 @@ export interface PerLinkViewershipRow {
 
 export interface BrandLinkViewershipStats {
   viewMonth: string;
-  /** Seçili ay — tüm linklerin o ayki snapshot toplamı */
+  /**
+   * Seçili ay — ay sonu kümülatif snapshot toplamı.
+   * Platformdaki toplam view (artış değil). Güncel aydaysa lifetime’a yakın görünür.
+   */
   monthTotalViews: number;
-  /** Seçili ay — tüm linklerin izlenme artışı (delta) */
+  /** Seçili ay — gerçek aylık izlenme = önceki ay sonu → bu ay sonu artışı */
   monthTotalGain: number;
   /** Tüm linkler — güncel/kümülatif izlenme toplamı */
   lifetimeTotalViews: number;
   /** Seçili ay içinde eklenen link sayısı */
   linksAddedInMonth: number;
-  /** Seçili ay içinde eklenen linklerin o ayki izlenme toplamı */
+  /** Bu ay eklenenlerin ay sonu kümülatif snapshot toplamı */
   viewsFromLinksAddedInMonth: number;
+  /** Bu ay eklenenlerin ay içi artışı (genelde snapshot ≈ artış, önceki yok) */
+  gainFromLinksAddedInMonth: number;
   /** Seçili ay eklenen linklerin bugüne kadar kümülatif izlenmesi */
   cohortLifetimeViews: number;
   /** Ay ay izlenme (snapshot olan aylar) */
@@ -94,6 +105,7 @@ export function computeBrandLinkViewershipStats(
   const linkIds = new Set(active.map((l) => l.id));
 
   const monthTotalViews = totalLinkViewsForMonth(active, viewMonth, snapshots, todayYm);
+  const monthTotalGain = totalLinkViewsGainInMonth(active, viewMonth, snapshots, todayYm);
   const lifetimeTotalViews = active.reduce((s, l) => s + linkLatestViews(l, snapshots), 0);
   const engagement = totalLinkEngagementForMonth(active, viewMonth, snapshots, todayYm);
 
@@ -104,16 +116,20 @@ export function computeBrandLinkViewershipStats(
     snapshots,
     todayYm
   );
+  const gainFromLinksAddedInMonth = totalLinkViewsGainInMonth(
+    addedInMonth,
+    viewMonth,
+    snapshots,
+    todayYm
+  );
   const cohortLifetimeViews = addedInMonth.reduce(
     (s, l) => s + linkLatestViews(l, snapshots),
     0
   );
 
-  let monthTotalGain = 0;
   const perLinkRows: PerLinkViewershipRow[] = active.map((link) => {
     const { lastViews } = linkViewsForMonth(link, viewMonth, snapshots, todayYm);
     const gainRow = linkViewsGainInMonth(link, viewMonth, snapshots, todayYm);
-    monthTotalGain += gainRow.gain;
 
     const linkSnaps = snapshots.filter((s) => s.linkId === link.id);
     const monthSet = new Set(linkSnaps.map((s) => s.date.slice(0, 7)));
@@ -151,6 +167,7 @@ export function computeBrandLinkViewershipStats(
     .map((monthYm) => {
       let linkCount = 0;
       let totalViews = 0;
+      let totalGain = 0;
       for (const link of active) {
         const { lastViews, snapsInMonth } = linkViewsForMonth(
           link,
@@ -158,14 +175,16 @@ export function computeBrandLinkViewershipStats(
           snapshots,
           todayYm
         );
+        const gain = linkViewsGainInMonth(link, monthYm, snapshots, todayYm).gain;
         if (snapsInMonth.length > 0 || (monthYm === todayYm && (lastViews > 0 || link.lastCheckedAt))) {
           linkCount += 1;
           totalViews += lastViews;
+          totalGain += gain;
         }
       }
-      return { monthYm, totalViews, linkCount };
+      return { monthYm, totalViews, totalGain, linkCount };
     })
-    .filter((r) => r.totalViews > 0 || r.linkCount > 0);
+    .filter((r) => r.totalViews > 0 || r.linkCount > 0 || r.totalGain > 0);
 
   return {
     viewMonth,
@@ -174,6 +193,7 @@ export function computeBrandLinkViewershipStats(
     lifetimeTotalViews,
     linksAddedInMonth: addedInMonth.length,
     viewsFromLinksAddedInMonth,
+    gainFromLinksAddedInMonth,
     cohortLifetimeViews,
     monthlyBreakdown,
     perLinkRows,

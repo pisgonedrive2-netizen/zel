@@ -14,9 +14,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 
 export const PLAN_ACTIVITIES = [
-  "Yayın",
+  "Reels",
   "Vlog Çekimi",
   "Yetişkin İçerik",
+  "Canlı Yayın",
   "Site Videoları",
   "Edit / Post-Prod",
   "Reklam Çekimi",
@@ -71,7 +72,7 @@ export function WeeklyPlanForm({
     date: initial?.date ?? weekStart,
     startTime: initial?.startTime ?? "",
     endTime: initial?.endTime ?? "",
-    activity: initial?.activity ?? "Yayın",
+    activity: initial?.activity ?? "Reels",
     brandName: initial?.brandName ?? "",
     notes: initial?.notes ?? "",
     status: initial?.status ?? "planned",

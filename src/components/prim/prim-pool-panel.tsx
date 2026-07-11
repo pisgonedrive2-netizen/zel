@@ -67,6 +67,11 @@ import {
   type PrimStoredSettings,
 } from "@/lib/prim-settings-storage";
 import { PrimDistributionPanel } from "@/components/prim/prim-distribution-panel";
+import { PrimDecisionStrip } from "@/components/prim/prim-decision-strip";
+import { PrimWaterfall } from "@/components/prim/prim-waterfall";
+import { PrimViewLadder } from "@/components/prim/prim-view-ladder";
+import { PrimWhyPanel } from "@/components/prim/prim-why-panel";
+import { PrimModeCards } from "@/components/prim/prim-mode-cards";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -178,12 +183,12 @@ export function PrimPoolPanel() {
   } = useStore();
 
   const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
-  const [tab, setTab] = useState("ozet");
+  const [tab, setTab] = useState("akış");
   const simpleView = useUiPrefs((s) => s.primSimpleView);
   const togglePrimSimpleView = useUiPrefs((s) => s.togglePrimSimpleView);
-  // Basit görünümde gelişmiş sekmeler gizli; açık sekme onlardan biriyse Özet'e dön.
+  // Basit görünümde uzman sekmeleri gizlenir; açıksa özet akışına dön.
   useEffect(() => {
-    if (simpleView && (tab === "senaryo" || tab === "kurallar" || tab === "dagitim")) setTab("ozet");
+    if (simpleView && (tab === "senaryo" || tab === "kurallar")) setTab("akış");
   }, [simpleView, tab]);
   const storedRef = useRef<PrimStoredSettings>(defaultPrimStoredSettings());
   const [brandFees, setBrandFees] = useState<Record<string, number>>({});
@@ -576,79 +581,118 @@ export function PrimPoolPanel() {
     }
   };
 
+  const distProps = {
+    monthLabel: monthLabel(month),
+    result,
+    excludedRecipients,
+    payrollCandidates,
+    recipientMeta,
+    newPersonName,
+    newPersonNick,
+    newPersonKind,
+    newPersonPoints,
+    onNewPersonName: setNewPersonName,
+    onNewPersonNick: setNewPersonNick,
+    onNewPersonKind: setNewPersonKind,
+    onNewPersonPoints: setNewPersonPoints,
+    onAddCustom: addCustomRecipient,
+    onIncludePayroll: includePayrollRecipient,
+    onSetPoints: setPoints,
+    onSetQuality: setQuality,
+    onSetField: setRecipientField,
+    onExclude: toggleRecipientExcluded,
+    onRemoveCustom: removeCustomRecipient,
+    onDistributionMode: (mode: PrimDistributionMode) => setConfigField({ distributionMode: mode }),
+  };
+
   return (
     <div className="space-y-4">
-      {/* Başlık + ay */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Trophy size={22} className="text-amber-500" />
-            Prim Havuzu
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Gelir − maaş − içerik kalanının %10&apos;u + link izlenmeleri → kişilere dağıtım
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={simpleView ? "default" : "outline"}
-            size="sm"
-            className="h-9 gap-1.5 text-xs"
-            onClick={togglePrimSimpleView}
-            title={simpleView ? "Gelişmiş ayarları göster" : "Sadece özet & izlenmeleri göster"}
-          >
-            <SlidersHorizontal size={13} /> {simpleView ? "Basit görünüm" : "Detaylı görünüm"}
-          </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={resetAll}>
-            <RotateCcw size={13} /> Sıfırla
-          </Button>
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonth(shiftCalendarMonthYm(month, -1))}>
-              <ChevronLeft size={16} />
-            </Button>
-            <span className="min-w-[120px] text-center text-sm font-semibold tabular-nums">{monthLabel(month)}</span>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMonth(shiftCalendarMonthYm(month, 1))}>
-              <ChevronRight size={16} />
-            </Button>
-          </div>
-        </div>
-      </div>
+      <PrimDecisionStrip
+        monthLabel={monthLabel(month)}
+        formula={primFormula}
+        totalPrimUsd={result.totalPrimUsd}
+        reserveUsd={result.reserveUsd}
+        netAfterPrimUsd={result.netAfterPrimUsd}
+        simpleView={simpleView}
+        onToggleSimple={togglePrimSimpleView}
+        onReset={resetAll}
+        onPrevMonth={() => setMonth(shiftCalendarMonthYm(month, -1))}
+        onNextMonth={() => setMonth(shiftCalendarMonthYm(month, 1))}
+      />
 
-      {/* Üst özet kartlar — her sekmede görünür */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+      <nav
+        aria-label="Prim bölümleri"
+        className="flex flex-wrap gap-1.5 rounded-xl border border-border/70 bg-muted/20 p-1.5"
+      >
+        {[
+          { id: "prim-neden", label: "Neden?" },
+          { id: "prim-para-akisi", label: "Para akışı" },
+          { id: "prim-izlenme", label: "İzlenme" },
+          { id: "prim-dagitim", label: "Kim ne alır" },
+          ...(!simpleView
+            ? [
+                { id: "prim-mod", label: "Sistem" },
+                { id: "prim-uzman", label: "Uzman" },
+              ]
+            : []),
+        ].map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+            onClick={() => document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          >
+            {s.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* 6 mini KPI */}
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
         <StatCard label="Marka geliri" value={fmtPrimUsd(result.totalRevenueUsd)} sub={`${result.brandRows.length} marka`} icon={Wallet} tone="green" />
         <StatCard label="Giderler" value={fmtPrimUsd(result.totalOpsUsd)} sub={result.manualExpenseUsd > 0 ? "Bordro+içerik+genel+reklam" : "Bordro+içerik+genel"} icon={TrendingUp} tone="rose" />
-        <StatCard label="Net kâr" value={fmtPrimUsd(result.netPoolUsd)} sub={`Sonraki aya ${fmtPrimUsd(result.reserveUsd)} ayrıldı`} icon={ShieldCheck} tone={result.netPoolUsd >= 0 ? "default" : "rose"} />
+        <StatCard label="Net kâr" value={fmtPrimUsd(result.netPoolUsd)} sub={`Rezerv ${fmtPrimUsd(result.reserveUsd)}`} icon={ShieldCheck} tone={result.netPoolUsd >= 0 ? "default" : "rose"} />
         <StatCard label="İzlenme" value={fmtCompactViews(result.totalActualViews)} sub={`Hedef ${fmtCompactViews(result.totalGuaranteedViews)}`} icon={Eye} tone={result.viewTriggered ? "green" : "amber"} />
-        <StatCard
-          label="Bu ay prim"
-          value={fmtPrimUsd(result.totalPrimUsd)}
-          sub={primFormula}
-          icon={Trophy}
-          tone="amber"
-        />
-        <StatCard label="Prim sonrası kâr" value={fmtPrimUsd(result.netAfterPrimUsd)} sub={`1 efektif puan = ${fmtPrimUsd(result.perPointUsd)}`} icon={Gauge} tone="blue" />
+        <StatCard label="Bu ay prim" value={fmtPrimUsd(result.totalPrimUsd)} sub={primFormula} icon={Trophy} tone="amber" />
+        <StatCard label="Prim sonrası" value={fmtPrimUsd(result.netAfterPrimUsd)} sub={`1 puan = ${fmtPrimUsd(result.perPointUsd)}`} icon={Gauge} tone="blue" />
       </div>
+
+      <PrimWhyPanel formula={primFormula} rules={primRules} scenarios={primScenarios} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PrimWaterfall result={result} />
+        <PrimViewLadder result={result} progress={progress} />
+      </div>
+
+      <PrimDistributionPanel {...distProps} compact />
+
+      {!simpleView && (
+        <>
+          <PrimModeCards onSelect={applySystemPreset} />
+
+          <div id="prim-uzman" className="scroll-mt-36 space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Uzman & senaryo
+            </p>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="ozet" className="gap-1.5"><Layers size={14} /> Özet</TabsTrigger>
-          <TabsTrigger value="izlenme" className="gap-1.5"><Eye size={14} /> İzlenmeler</TabsTrigger>
-          {!simpleView && <TabsTrigger value="senaryo" className="gap-1.5"><Target size={14} /> Senaryolar</TabsTrigger>}
-          {!simpleView && <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar</TabsTrigger>}
-          <TabsTrigger value="dagitim" className="gap-1.5"><Users size={14} /> Dağıtım</TabsTrigger>
+          <TabsTrigger value="akış" className="gap-1.5"><Layers size={14} /> Gelir & gider</TabsTrigger>
+          <TabsTrigger value="izlenme" className="gap-1.5"><Eye size={14} /> İzlenme grafikleri</TabsTrigger>
+          <TabsTrigger value="senaryo" className="gap-1.5"><Target size={14} /> Senaryolar</TabsTrigger>
+          <TabsTrigger value="kurallar" className="gap-1.5"><SlidersHorizontal size={14} /> Kurallar</TabsTrigger>
+          <TabsTrigger value="dagitim" className="gap-1.5"><Users size={14} /> Dağıtım detay</TabsTrigger>
         </TabsList>
 
-        {/* ── ÖZET ───────────────────────────────────────────────────────── */}
-        <TabsContent value="ozet" className="mt-4 space-y-4">
-          <PrimRulesCard rules={primRules} formula={primFormula} />
-          <PrimScenarioGuideCard scenarios={primScenarios} />
+        {/* ── GELİR & GİDER (eski özet gelir tablosu) ───────────────── */}
+        <TabsContent value="akış" className="mt-4 space-y-4">
+          <PrimFlowSummary result={result} />
           <ViewTriggerBanner result={result} />
           <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2"><Wallet size={16} /> Gelir & gider akışı</CardTitle>
-                <CardDescription>Marka geliri − maaş − içerik = kalan → %10 taban prim + izlenme</CardDescription>
+                <CardTitle className="text-base flex items-center gap-2"><Wallet size={16} /> Marka ücretleri</CardTitle>
+                <CardDescription>Aylık tahsilat — kurallar sekmesinden düzenlenir</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {result.brandRows.map((row) => (
@@ -661,67 +705,32 @@ export function PrimPoolPanel() {
                 ))}
                 <div className="mt-2 pt-2 border-t border-border/60 space-y-1.5 text-xs">
                   <Row label="Marka geliri (brüt)" value={fmtPrimUsd(result.totalRevenueUsd)} strong />
-                  <Row label="− Bordro (maaş)" value={fmtPrimUsd(result.payrollUsd)} negative />
-                  <Row label="− İçerik ödemeleri" value={fmtPrimUsd(result.contentExpenseUsd)} negative />
-                  <Row label="= Kalan (taban prim bazı)" value={fmtPrimUsd(result.payrollContentNetUsd)} strong />
-                  <Row label="− Genel giderler" value={fmtPrimUsd(result.generalExpenseUsd)} negative />
-                  {result.manualExpenseUsd > 0 && (
-                    <Row label="− Reklam & elle eklenen giderler" value={fmtPrimUsd(result.manualExpenseUsd)} negative />
-                  )}
+                  <Row label="− Bordro" value={fmtPrimUsd(result.payrollUsd)} negative />
+                  <Row label="− İçerik" value={fmtPrimUsd(result.contentExpenseUsd)} negative />
+                  <Row label="= Kalan (taban bazı)" value={fmtPrimUsd(result.payrollContentNetUsd)} strong />
                   <Row label="= Net kâr" value={fmtPrimUsd(result.netPoolUsd)} strong tone={result.netPoolUsd < 0 ? "rose" : undefined} />
-                  <Row label="− Sonraki aya ayrılan" value={fmtPrimUsd(result.reserveUsd)} negative />
-                  {result.viewPoolBonusUsd > 0 && (
-                    <Row label="+ İzlenme havuz bonusu (her 1M = $100)" value={fmtPrimUsd(result.poolBonusUsd)} tone="green" />
-                  )}
-                  <Row label="= Dağıtılabilir kâr" value={fmtPrimUsd(result.distributablePoolUsd)} strong />
-                  <Row label={`Taban prim (%${Math.round((config.basePrimRate ?? 0.1) * 100)} kalan)`} value={fmtPrimUsd(result.basePrimUsd)} />
-                  {result.poolBonusUsd > 0 && (
-                    <Row label="Havuz payı (izlenme)" value={fmtPrimUsd(result.poolBonusUsd)} tone="green" />
-                  )}
-                  {result.viewBonusUsd > 0 && (
-                    <Row label="İzlenme bonusu" value={fmtPrimUsd(result.viewBonusUsd)} tone="green" />
-                  )}
-                  <Row label="= Bu ay toplam prim" value={fmtPrimUsd(result.totalPrimUsd)} strong />
-                  {result.cappedAmountUsd > 1 && (
-                    <Row label="  ↳ tavanla kırpılan" value={`− ${fmtPrimUsd(result.cappedAmountUsd)}`} />
-                  )}
-                  <Row label="= Prim sonrası kâr" value={fmtPrimUsd(result.netAfterPrimUsd)} strong tone={result.netAfterPrimUsd < 0 ? "rose" : "green"} />
+                  <Row label={`Taban + havuz = prim`} value={fmtPrimUsd(result.totalPrimUsd)} strong />
                 </div>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2"><Users size={16} /> Dağıtım ({result.recipients.length})</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><Users size={16} /> Hızlı dağıtım</CardTitle>
                 <CardDescription>{PRIM_DISTRIBUTION_LABELS[result.config.distributionMode]}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
                 {result.recipients.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic">Bu ay bordrolu yayıncı/moderatör yok.</p>
+                  <p className="text-sm text-muted-foreground italic">Bu ay alıcı yok.</p>
                 ) : (
                   result.recipients.map((r) => (
                     <div key={r.employeeId} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{r.name}</p>
-                        <p className="text-[10px] text-muted-foreground capitalize">
-                          {r.kind}
-                          {r.points !== Math.round(r.points) && <> · {r.points} puan (çıkış ayı oransal)</>}
-                          {r.points === Math.round(r.points) && <> · {r.points} puan</>}
-                          {r.qualityMultiplier !== 1 && <> × {r.qualityMultiplier} kalite</>}
-                          {" "}· {r.effectivePoints} efektif · pay {pct(r.sharePct)}
-                        </p>
+                        <p className="text-[10px] text-muted-foreground capitalize">{r.kind} · {r.points} puan</p>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold tabular-nums">{fmtPrimUsd(r.totalUsd)}</p>
-                        {r.poolShareUsd > 0 || r.viewBonusUsd > 0 ? (
-                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                            taban {fmtPrimUsd(r.baseShareUsd)}
-                            {r.poolShareUsd > 0 && <> + havuz {fmtPrimUsd(r.poolShareUsd)}</>}
-                            {r.viewBonusUsd > 0 && <> + izlenme {fmtPrimUsd(r.viewBonusUsd)}</>}
-                          </p>
-                        ) : (
-                          <p className="text-[10px] text-muted-foreground">taban prim</p>
-                        )}
+                        <p className="text-[10px] text-muted-foreground">{Math.round(r.sharePct * 100)}%</p>
                       </div>
                     </div>
                   ))
@@ -1063,7 +1072,7 @@ export function PrimPoolPanel() {
                 <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[11px] text-muted-foreground leading-relaxed">
                   <strong className="text-foreground">3 adımda prim:</strong>
                   {" "}<strong className="text-foreground">1)</strong> Marka geliri − maaş − içerik = kalan.
-                  {" "}<strong className="text-foreground">2)</strong> Kalanın %{Math.round((config.basePrimRate ?? 0.1) * 100)}&apos;u havuza + link izlenmeleri (her 1M = $100).
+                  {" "}<strong className="text-foreground">2)</strong> Kalanın %{Math.round((config.basePrimRate ?? 0.1) * 100)}&apos;u taban + izlenme havuzu ({describeViewPoolBonusRules(result.config)}).
                   {" "}<strong className="text-foreground">3)</strong> Dağıtım sekmesinden kişi ekle/çıkar, puan × kalite ile böl.
                 </div>
 
@@ -1462,35 +1471,16 @@ export function PrimPoolPanel() {
 
         {/* ── DAĞITIM ────────────────────────────────────────────────────── */}
         <TabsContent value="dagitim" className="mt-4">
-          <PrimDistributionPanel
-            monthLabel={monthLabel(month)}
-            result={result}
-            excludedRecipients={excludedRecipients}
-            payrollCandidates={payrollCandidates}
-            recipientMeta={recipientMeta}
-            newPersonName={newPersonName}
-            newPersonNick={newPersonNick}
-            newPersonKind={newPersonKind}
-            newPersonPoints={newPersonPoints}
-            onNewPersonName={setNewPersonName}
-            onNewPersonNick={setNewPersonNick}
-            onNewPersonKind={setNewPersonKind}
-            onNewPersonPoints={setNewPersonPoints}
-            onAddCustom={addCustomRecipient}
-            onIncludePayroll={includePayrollRecipient}
-            onSetPoints={setPoints}
-            onSetQuality={setQuality}
-            onSetField={setRecipientField}
-            onExclude={toggleRecipientExcluded}
-            onRemoveCustom={removeCustomRecipient}
-            onDistributionMode={(mode) => setConfigField({ distributionMode: mode })}
-          />
+          <PrimDistributionPanel {...distProps} />
         </TabsContent>
       </Tabs>
+          </div>
+        </>
+      )}
 
-      <p className="text-[10px] text-muted-foreground text-center">
-        Yalnızca ana yönetici (Orkun) tarafından görülebilir — marka ve yayıncı hesapları erişemez.
-        Prim ayarları <strong> yalnızca bu tarayıcıya</strong> kaydedilir (ay bazlı).
+      <p className="text-center text-[10px] text-muted-foreground">
+        Yalnızca ana yönetici (Orkun) — marka/yayıncı erişemez.
+        Ayarlar <strong>yalnızca bu tarayıcıya</strong> kaydedilir (cihazlar arası senkron yok).
       </p>
     </div>
   );

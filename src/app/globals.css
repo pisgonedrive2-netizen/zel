@@ -217,3 +217,12 @@
     animation-duration: 80s;
   }
 }
+
+@keyframes bootstrap-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}

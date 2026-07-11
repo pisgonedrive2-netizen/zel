@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useStore, visibleNotificationsForRole } from "@/store/store";
+import { StreamerOnboardingGate } from "@/components/yayinci/streamer-onboarding-gate";
 
 type NavItem = {
   href: string;
@@ -99,6 +100,8 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
     [pathname]
   );
 
+  const isOnboarding = pathname.startsWith("/yayinci/onboarding");
+
   const badgeFor = (match: string): number => {
     if (match === "harcamalar") return harcamalarBadge;
     if (match === "bildirimler") return unreadMessages;
@@ -107,10 +110,17 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
   };
 
   return (
-    <div className="w-full min-w-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
+    <div
+      className={cn(
+        "w-full min-w-0",
+        !isOnboarding && "pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0"
+      )}
+    >
+      <StreamerOnboardingGate />
       {children}
 
       {/* Mobil alt menü */}
+      {!isOnboarding && (
       <nav
         aria-label="Yayıncı hızlı menü"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 md:hidden"
@@ -160,8 +170,9 @@ export default function YayinciLayout({ children }: { children: React.ReactNode 
           </button>
         </div>
       </nav>
+      )}
 
-      {moreOpen && (
+      {!isOnboarding && moreOpen && (
         <>
           <button
             type="button"

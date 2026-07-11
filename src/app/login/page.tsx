@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import { ChevronDown, Radio, Building2, HelpCircle, Eye, EyeOff, type LucideIcon } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
 import { useStore, initialBrands } from "@/store/store";
@@ -1014,19 +1015,47 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 mx-auto max-w-3xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-300">
+          <motion.span
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-300"
+          >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: ORANGE }} />
             Yayıncı – Marka platformu
-          </span>
-          <h1 className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl">
+          </motion.span>
+          <motion.h1
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.65, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+            className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl"
+          >
             Foxstream ile<br />
-            <span className="text-orange-400">iş birliğini</span> büyüt.
-          </h1>
-          <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/60 sm:text-base">
+            <motion.span
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="inline-block text-orange-400"
+            >
+              iş birliğini
+            </motion.span>{" "}
+            büyüt.
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/60 sm:text-base"
+          >
             Yayıncı havuzu, teklif &amp; anlaşma akışı, affiliate takibi ve içerik post
             ölçümü — markalar ve yayıncılar için tek panelde.
-          </p>
-          <div className="mx-auto mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          </motion.p>
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.36, ease: [0.22, 1, 0.36, 1] }}
+            className="mx-auto mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+          >
             <button
               type="button"
               onClick={openLogin}
@@ -1044,7 +1073,7 @@ export default function LoginPage() {
                 Kayıt ol
               </button>
             )}
-          </div>
+          </motion.div>
         </div>
 
         {/* Scroll ipucu */}

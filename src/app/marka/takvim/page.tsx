@@ -54,6 +54,7 @@ import { Button } from "@/components/ui/button";
 import Modal from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
+import { BrandWeekContentSummary } from "@/components/marka/brand-week-content-summary";
 import {
   buildBrandAggregatedActivity,
   scopeBrandActivityData,
@@ -285,6 +286,12 @@ export default function MarkaTakvimPage() {
               </Button>
             </div>
           </div>
+
+          <BrandWeekContentSummary
+            weekStart={weekView}
+            plans={weekPlans}
+            streamerName={(id) => empById.get(id)?.name ?? "Yayıncı"}
+          />
 
           {/* Haftalık yayıncı planları */}
           <Card>

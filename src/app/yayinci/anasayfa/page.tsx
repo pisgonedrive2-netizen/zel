@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   CalendarDays,
   CheckCircle2,
   Clapperboard,
@@ -11,6 +12,7 @@ import {
   Link2,
   Lock,
   Send,
+  Video,
   Wallet,
 } from "lucide-react";
 import { useAuth } from "@/store/auth";
@@ -276,6 +278,26 @@ export default function YayinciAnasayfaPage() {
 
       <StreamerTodayTasksCard userId={user.id} />
 
+      {needsInfoCount > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50/80 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/45 dark:bg-amber-950/35 dark:text-amber-100">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {needsInfoCount} harcama için ek bilgi istendi
+            </p>
+            <p className="mt-0.5 text-xs opacity-90">
+              Kanıt veya açıklamayı güncelleyip tekrar gönderin; aksi halde onay bekler.
+            </p>
+            <Link
+              href="/yayinci/harcamalar"
+              className="mt-2 inline-flex text-xs font-medium underline-offset-2 hover:underline"
+            >
+              Harcamalara git →
+            </Link>
+          </div>
+        </div>
+      )}
+
       <StreamerQuickActions
         actions={[
           {
@@ -294,10 +316,10 @@ export default function YayinciAnasayfaPage() {
             color: "green",
           },
           {
-            href: "/yayinci/marka-linkleri",
-            label: "Link ekle",
-            description: "Marka izlenme linki",
-            icon: Link2,
+            href: "/yayinci/postlar",
+            label: "Post ekle",
+            description: "Marka içerik URL'si",
+            icon: Video,
             color: "blue",
           },
           {

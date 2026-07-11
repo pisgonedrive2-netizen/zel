@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/store/auth";
 import { useStore } from "@/store/store";
 import { fetchMyPoolProfile, upsertMyPoolProfile, isPoolNotReadyError } from "@/lib/streamer-pool-api";
+import { markStreamerOnboardingSkipped } from "@/components/yayinci/streamer-onboarding-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Textarea, NumberInput, FormGrid } from "@/components/ui/field";
@@ -89,6 +90,7 @@ export default function YayinciOnboardingPage() {
         status: "published",
         visibility: "public",
       });
+      if (user?.id) markStreamerOnboardingSkipped(user.id);
       router.replace("/yayinci/anasayfa");
     } catch (e) {
       if (isPoolNotReadyError(e)) {
@@ -150,7 +152,14 @@ export default function YayinciOnboardingPage() {
                 <li className="flex items-center gap-2"><DollarSign size={15} className="text-primary" /> Ücret aralığın</li>
               </ul>
               <div className="mt-6 flex justify-between">
-                <Button type="button" variant="ghost" onClick={() => router.replace("/yayinci/anasayfa")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    if (user?.id) markStreamerOnboardingSkipped(user.id);
+                    router.replace("/yayinci/anasayfa");
+                  }}
+                >
                   Şimdilik geç
                 </Button>
                 <Button type="button" onClick={next}>

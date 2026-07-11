@@ -24,6 +24,7 @@ import {
   CircleDot,
 } from "lucide-react";
 import { useStore, type BrandLink } from "@/store/store";
+import { countActiveLinkOwners } from "@/lib/active-streamers";
 import { useIsReadOnly } from "@/store/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -513,16 +514,20 @@ export default function OperatorlerPage() {
     return sorted;
   }, [allRows, statusFilter, search, sortMode]);
 
-  // KPIs
-  const grandTotal = allRows.reduce((s, r) => s + r.views, 0);
-  const totalOwners = allRows.length;
-  const topRow = allRows.slice().sort((a, b) => b.views - a.views)[0];
+  // KPIs — yalnızca aktif yayıncı roster’ı
+  const kpiRows = useMemo(
+    () => allRows.filter((r) => r.status === "active"),
+    [allRows]
+  );
+  const grandTotal = kpiRows.reduce((s, r) => s + r.views, 0);
+  const totalOwners = kpiRows.length;
+  const topRow = kpiRows.slice().sort((a, b) => b.views - a.views)[0];
   const avgPerOwner = totalOwners > 0 ? grandTotal / totalOwners : 0;
-  const multiBrandCount = allRows.filter((r) => r.brandIds.length > 1).length;
+  const multiBrandCount = kpiRows.filter((r) => r.brandIds.length > 1).length;
 
   // Pie: top 8 + Diğerleri
   const pieData = useMemo(() => {
-    const sorted = allRows.slice().sort((a, b) => b.views - a.views).filter((r) => r.views > 0);
+    const sorted = kpiRows.slice().sort((a, b) => b.views - a.views).filter((r) => r.views > 0);
     if (sorted.length <= 8) {
       return sorted.map((r) => ({ name: r.name, value: r.views }));
     }
@@ -532,21 +537,21 @@ export default function OperatorlerPage() {
       ...top8.map((r) => ({ name: r.name, value: r.views })),
       { name: "Diğerleri", value: rest },
     ];
-  }, [allRows]);
+  }, [kpiRows]);
 
   // Bar: top 10
   const barData = useMemo(() => {
-    return allRows
+    return kpiRows
       .slice()
       .sort((a, b) => b.views - a.views)
       .filter((r) => r.views > 0)
       .slice(0, 10)
       .map((r) => ({ name: r.name, views: r.views }));
-  }, [allRows]);
+  }, [kpiRows]);
 
   // Navbar için aktif link / yayıncı toplamları
   const navTotalLinks = scopedLinks.length;
-  const navTotalOwners = new Set(scopedLinks.map((l) => l.ownerId).filter(Boolean)).size;
+  const navTotalOwners = countActiveLinkOwners(scopedLinks, employees);
 
   const selected = useMemo(
     () => (selectedId ? allRows.find((r) => r.employeeId === selectedId) ?? null : null),

@@ -112,6 +112,21 @@ export async function fetchMyPoolProfile(): Promise<StreamerPoolProfile | null> 
   }
 }
 
+/** Admin impersonation veya doğrudan employeeId ile profil yükle. */
+export async function fetchPoolProfileByEmployee(
+  employeeId: string
+): Promise<StreamerPoolProfile | null> {
+  try {
+    const data = await jsonFetch<{ profile?: StreamerPoolProfile | null }>(
+      `/api/streamer-pool/${encodeURIComponent(employeeId)}`
+    );
+    return data.profile ?? null;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function upsertMyPoolProfile(
   body: StreamerPoolProfileUpsertBody
 ): Promise<StreamerPoolProfile> {
@@ -122,13 +137,33 @@ export async function upsertMyPoolProfile(
   return data.profile;
 }
 
+/** Admin (veya kendi profili) için employeeId üzerinden upsert. */
+export async function upsertPoolProfileByEmployee(
+  employeeId: string,
+  body: StreamerPoolProfileUpsertBody
+): Promise<StreamerPoolProfile> {
+  const data = await jsonFetch<{ profile: StreamerPoolProfile }>(
+    `/api/streamer-pool/${encodeURIComponent(employeeId)}`,
+    { method: "PATCH", body: JSON.stringify(body) }
+  );
+  return data.profile;
+}
+
 // ─── Offers ──────────────────────────────────────────────────────────────────
 
 export async function fetchOffers(opts: {
   role: "brand" | "streamer";
   status?: string;
+  /** Admin yayıncı paneli görünümünde hedef çalışan. */
+  employeeId?: string;
+  brandId?: string;
 }): Promise<BrandOffer[]> {
-  const qs = buildQuery({ role: opts.role, status: opts.status });
+  const qs = buildQuery({
+    role: opts.role,
+    status: opts.status,
+    employeeId: opts.employeeId,
+    brandId: opts.brandId,
+  });
   const data = await jsonFetch<{ offers?: BrandOffer[] }>(`/api/brand-offers${qs}`);
   return Array.isArray(data.offers) ? data.offers : [];
 }

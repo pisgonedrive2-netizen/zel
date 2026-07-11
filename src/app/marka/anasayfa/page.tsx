@@ -44,6 +44,7 @@ import {
   scopeBrandActivityData,
 } from "@/lib/brand-activity-dates";
 import { MarkaContentOverviewCard } from "@/components/marka/marka-content-overview-card";
+import { BrandDeliveryCommand, type DeliveryItem } from "@/components/marka/brand-delivery-command";
 import { BrandExecutiveKpis } from "@/components/marka-igaming/brand-executive-kpis";
 import { BrandAffiliateFunnel } from "@/components/marka-igaming/brand-affiliate-funnel";
 import { BrandKpiTargetsBar } from "@/components/marka-igaming/brand-kpi-targets-bar";
@@ -53,9 +54,11 @@ import {
 } from "@/components/marka-igaming/brand-action-queue";
 import { BrandLinkViewershipSummary } from "@/components/brand-link-viewership-summary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { BrandPackageGuaranteeCard } from "@/components/marka/brand-package-guarantee-card";
 import { useBrandIgaming } from "@/hooks/use-brand-igaming";
 import { deriveLiveDemoUsage } from "@/lib/brand-monthly-stats";
+import { resolvePlanContentType } from "@/lib/plan-content-types";
 import type { ExecutiveKpiSnapshot } from "@/types/brand-igaming";
 
 function monthDayLabel(iso: string): string {
@@ -406,6 +409,98 @@ export default function MarkaAnasayfaPage() {
     .filter((s) => !s.optional)
     .every((s) => s.done);
 
+  const weekShootCount = useMemo(
+    () =>
+      plansThisWeek.filter(
+        (p) =>
+          p.status !== "cancelled" &&
+          resolvePlanContentType(p.activity).countsAsShoot
+      ).length,
+    [plansThisWeek]
+  );
+
+  const pendingOfferCount = useMemo(
+    () =>
+      brandId
+        ? brandOffers.filter(
+            (o) =>
+              o.brandId === brandId &&
+              (o.status === "pending" || o.status === "negotiating")
+          ).length
+        : 0,
+    [brandId, brandOffers]
+  );
+
+  const activeDealCount = useMemo(
+    () =>
+      brandId
+        ? brandDeals.filter((d) => d.brandId === brandId && d.status === "active")
+            .length
+        : 0,
+    [brandId, brandDeals]
+  );
+
+  const pendingPostCount = useMemo(
+    () =>
+      brandId
+        ? brandPosts.filter(
+            (p) => p.brandId === brandId && p.status === "draft"
+          ).length
+        : 0,
+    [brandId, brandPosts]
+  );
+
+  const deliveryItems: DeliveryItem[] = useMemo(() => {
+    const items: DeliveryItem[] = [];
+    if (pendingOfferCount > 0) {
+      items.push({
+        id: "offers",
+        title: `${pendingOfferCount} bekleyen teklif`,
+        meta: "Yanıt bekleyen yayıncı teklifleri",
+        href: "/marka/teklifler",
+        tone: "urgent",
+      });
+    }
+    if (pendingPostCount > 0) {
+      items.push({
+        id: "posts",
+        title: `${pendingPostCount} post incelemede`,
+        meta: "Onay veya metrik bekleyen içerikler",
+        href: "/marka/postlar",
+        tone: "warn",
+      });
+    }
+    if (plansThisWeek.length > 0) {
+      items.push({
+        id: "calendar",
+        title: `Bu hafta ${weekShootCount} çekim planı`,
+        meta: `${plansThisWeek.length} toplam etkinlik`,
+        href: takvimHref,
+        tone: "info",
+      });
+    }
+    if (nextPayment) {
+      items.push({
+        id: "pay",
+        title: `Sıradaki ödeme ${fmtBrandMoney(nextPayment.amount, "USD")}`,
+        meta: nextPayment.dueDate
+          ? `Vade ${monthDayLabel(nextPayment.dueDate)}`
+          : "Ödeme planı",
+        href: odemelerHref,
+        tone: "warn",
+      });
+    }
+    return items;
+  }, [
+    pendingOfferCount,
+    pendingPostCount,
+    plansThisWeek.length,
+    weekShootCount,
+    takvimHref,
+    nextPayment,
+    odemelerHref,
+  ]);
+
   return (
     <MarkaPageGuard
       user={user}
@@ -446,10 +541,31 @@ export default function MarkaAnasayfaPage() {
             showEmptyHint={!statsRow && !igaming.dashboard && !igaming.loading}
           />
 
+          <BrandDeliveryCommand
+            monthTitle={monthTitle}
+            pendingOffers={pendingOfferCount}
+            activeDeals={activeDealCount}
+            pendingPosts={pendingPostCount}
+            weekPlans={plansThisWeek.length}
+            weekShoots={weekShootCount}
+            gaps={0}
+            items={deliveryItems}
+          />
+
+          <BrandActionQueue items={actionQueueItems} monthTitle={monthTitle} />
+
           {!gettingStartedDone && (
             <BrandGettingStarted brandName={brand.name} steps={gettingStartedSteps} />
           )}
 
+          <BrandPackageGuaranteeCard actualViews={totalLinkViews} />
+
+          <CollapsibleSection
+            title="Operasyon & performans detayı"
+            description="KPI, affiliate, link metrikleri ve hızlı aksiyonlar"
+            defaultOpen={false}
+          >
+          <div className="space-y-5">
           <MarkaContentOverviewCard
             brandId={brandId}
             brandName={brand.name}
@@ -472,6 +588,7 @@ export default function MarkaAnasayfaPage() {
               todayYm={todayYm}
               title="Link izlenme metrikleri"
               compact
+              defaultTablesOpen={false}
             />
           ) : (
             <Card className="border-dashed">
@@ -506,8 +623,6 @@ export default function MarkaAnasayfaPage() {
             previous={executivePrevious}
             loading={igaming.loading}
           />
-
-          <BrandPackageGuaranteeCard actualViews={totalLinkViews} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <BrandAffiliateFunnel
@@ -717,7 +832,6 @@ export default function MarkaAnasayfaPage() {
             </div>
 
             <div className="lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:max-h-[760px] space-y-4">
-              <BrandActionQueue items={actionQueueItems} monthTitle={monthTitle} />
               <BrandActivityFeed
                 notifications={brandNotifications}
                 href={bildirimlerHref}
@@ -725,6 +839,8 @@ export default function MarkaAnasayfaPage() {
               />
             </div>
           </div>
+          </div>
+          </CollapsibleSection>
 
           <BrandModuleGrid orgRole={orgRole} month={month} />
         </div>
