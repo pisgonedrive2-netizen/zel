@@ -705,7 +705,7 @@ export default function IzlenmePage() {
         />
       </div>
 
-      {engagementMonth.interactions > 0 && (
+      {(engagementMonth.linksWithData > 0 || engagementMonth.interactions > 0) && (
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-6">
           <StatTile
             label="Toplam etkileşim"

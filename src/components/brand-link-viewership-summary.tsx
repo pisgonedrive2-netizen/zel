@@ -211,7 +211,7 @@ export function BrandLinkViewershipSummary({
         </section>
       </div>
 
-      {stats.engagement.interactions > 0 && (
+      {(stats.engagement.linksWithData > 0 || stats.engagement.interactions > 0) && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
             { label: "Etkileşim", value: stats.engagement.interactions },

@@ -32,10 +32,9 @@ export function totalLinkEngagementForMonth(
 
   for (const link of links) {
     const e = linkEngagementForMonth(link, monthYm, allSnaps, todayYm);
+    // null = veri yok; 0 geçerli sayaç. En az bir alan tanımlıysa linki dahil et.
     const has =
-      (e.likes != null && e.likes > 0) ||
-      (e.comments != null && e.comments > 0) ||
-      (e.shares != null && e.shares > 0);
+      e.likes != null || e.comments != null || e.shares != null;
     if (!has) continue;
     linksWithData += 1;
     likes += e.likes ?? 0;

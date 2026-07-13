@@ -85,4 +85,61 @@ describe("totalLinkEngagementForMonth", () => {
     expect(r.shares).toBe(5);
     expect(r.interactions).toBe(65);
   });
+
+  it("coalesces engagement from earlier snap when latest is views-only", () => {
+    const snaps: LinkSnapshot[] = [
+      {
+        id: "s2",
+        linkId: "bl-1",
+        date: "2026-06-28",
+        views: 2000,
+        notes: "views-only",
+      },
+      {
+        id: "s1",
+        linkId: "bl-1",
+        date: "2026-06-10",
+        views: 1000,
+        notes: "auto",
+        likes: 40,
+        comments: 8,
+        shares: 2,
+      },
+    ];
+    const r = totalLinkEngagementForMonth([link], "2026-06", snaps, "2026-07");
+    expect(r.likes).toBe(40);
+    expect(r.comments).toBe(8);
+    expect(r.shares).toBe(2);
+  });
+
+  it("falls back to live last* for current month when snap lacks engagement", () => {
+    const live: BrandLink = {
+      ...link,
+      lastLikes: 90,
+      lastComments: 12,
+      lastShares: 3,
+    };
+    const snaps: LinkSnapshot[] = [
+      { id: "s1", linkId: "bl-1", date: "2026-07-05", views: 3000, notes: "auto" },
+    ];
+    const r = totalLinkEngagementForMonth([live], "2026-07", snaps, "2026-07");
+    expect(r.likes).toBe(90);
+    expect(r.comments).toBe(12);
+    expect(r.shares).toBe(3);
+  });
+
+  it("does not use live last* for past months", () => {
+    const live: BrandLink = {
+      ...link,
+      lastLikes: 999,
+      lastComments: 999,
+      lastShares: 999,
+    };
+    const snaps: LinkSnapshot[] = [
+      { id: "s1", linkId: "bl-1", date: "2026-05-20", views: 500, notes: "auto" },
+    ];
+    const r = totalLinkEngagementForMonth([live], "2026-05", snaps, "2026-07");
+    expect(r.likes).toBe(0);
+    expect(r.linksWithData).toBe(0);
+  });
 });

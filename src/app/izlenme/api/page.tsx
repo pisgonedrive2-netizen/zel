@@ -20,7 +20,9 @@ import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { LinkSnapshotForm } from "@/components/link-snapshot-form";
 import Modal from "@/components/ui/modal";
 import { totalLinkViewsForMonth, linkViewsForMonth } from "@/lib/brand-month-metrics";
+import { totalLinkEngagementForMonth } from "@/lib/brand-engagement-metrics";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
+import type { LinkMetricsStoreUpdate } from "@/lib/social-api/link-store-sync";
 import { deleteBrandLinkAsAdmin } from "@/lib/brand-link-delete";
 import { isPostOrLinkGoneError } from "@/lib/social-api/link-gone";
 import { isTransientApiError } from "@/lib/social-api/error-classify";
@@ -106,6 +108,10 @@ export default function IzlenmeApiPage() {
   const [pendingFilter, setPendingFilter] = useState<"all" | "stale" | "error" | "gone">("all");
   const [pendingPlatform, setPendingPlatform] = useState<"all" | "youtube" | "instagram" | "tiktok">("all");
   const [pendingBrandQuery, setPendingBrandQuery] = useState("");
+  /** Yenilenenler listeden düşmesin — snapshot satırı olarak kalır (son yenileme tarihi ile). */
+  const [keptRefreshed, setKeptRefreshed] = useState<Record<string, string>>({});
+  const [bulkRefreshing, setBulkRefreshing] = useState(false);
+  const [bulkLabel, setBulkLabel] = useState<string | null>(null);
 
   const loadApiStatus = useCallback(async () => {
     try {
@@ -138,6 +144,11 @@ export default function IzlenmeApiPage() {
       const update = json?.result?.linkUpdate;
       if (json?.result?.ok && update) {
         applyLinkMetricsToStore(linkId, update, { updateBrandLink, upsertLinkSnapshot });
+        const at =
+          update.lastCheckedAt ??
+          update.snapshot?.refreshedAt ??
+          new Date().toISOString();
+        setKeptRefreshed((s) => ({ ...s, [linkId]: at }));
       }
     } finally {
       setRefreshing((s) => ({ ...s, [linkId]: false }));
@@ -190,8 +201,7 @@ export default function IzlenmeApiPage() {
         if (!l.lastCheckedAt) return true;
         return now - new Date(l.lastCheckedAt).getTime() > 24 * 3_600_000;
       }).length;
-      const sum = (field: "lastLikes" | "lastComments" | "lastShares") =>
-        links.reduce((s, l) => s + (l[field] ?? 0), 0);
+      const eng = totalLinkEngagementForMonth(links, viewMonth, linkSnapshots, todayYm);
       return {
         label,
         platKey,
@@ -200,9 +210,9 @@ export default function IzlenmeApiPage() {
         errors: platformErrors,
         stale: platformStale,
         views: links.reduce((s, l) => s + (l.lastViews ?? 0), 0),
-        likes: sum("lastLikes"),
-        comments: sum("lastComments"),
-        shares: sum("lastShares"),
+        likes: eng.likes,
+        comments: eng.comments,
+        shares: eng.shares,
         requestsUsed: quota?.requestsUsed ?? 0,
         monthlyLimit: quota?.monthlyLimit ?? SOCIAL_PLANS[platKey as keyof typeof SOCIAL_PLANS].monthlyLimit,
         trackedLinkCount: quota?.trackedLinkCount ?? links.filter((l) => l.autoTrack !== false).length,
@@ -233,27 +243,179 @@ export default function IzlenmeApiPage() {
       staleAndErrorLinks,
       goneLinks,
     };
-  }, [apiLinks, otherLinks, apiStatus]);
+  }, [apiLinks, otherLinks, apiStatus, viewMonth, linkSnapshots, todayYm]);
 
-  const filteredPendingLinks = useMemo(() => {
-    const q = pendingBrandQuery.trim().toLowerCase();
-    return apiSummary.staleAndErrorLinks.filter((l) => {
+  const matchesPendingFilters = useCallback(
+    (l: BrandLink) => {
       if (pendingPlatform !== "all" && !l.platform.toLowerCase().includes(pendingPlatform)) {
         return false;
       }
       const transient = isTransientApiError(l.lastCheckError);
       const genuineError = !!l.lastCheckError && !transient;
-      if (pendingFilter === "stale" && l.lastCheckError) return false;
+      const isKeptOnly = !!keptRefreshed[l.id] && !apiSummary.staleAndErrorLinks.some((x) => x.id === l.id);
+      if (pendingFilter === "stale") {
+        if (isKeptOnly) return false;
+        if (l.lastCheckError) return false;
+      }
       if (pendingFilter === "error" && !genuineError) return false;
       if (pendingFilter === "gone" && !isPostOrLinkGoneError(l.lastCheckError)) return false;
+      const q = pendingBrandQuery.trim().toLowerCase();
       if (q) {
         const brand = brands.find((b) => b.id === l.brandId);
         const hay = `${brand?.name ?? ""} ${l.handle ?? ""} ${l.platform}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
+    },
+    [
+      apiSummary.staleAndErrorLinks,
+      brands,
+      keptRefreshed,
+      pendingBrandQuery,
+      pendingFilter,
+      pendingPlatform,
+    ]
+  );
+
+  const filteredPendingLinks = useMemo(() => {
+    const pending = apiSummary.staleAndErrorLinks.filter(matchesPendingFilters);
+    const pendingIds = new Set(pending.map((l) => l.id));
+    const keptExtra = Object.keys(keptRefreshed)
+      .map((id) => brandLinks.find((l) => l.id === id))
+      .filter((l): l is BrandLink => !!l && !pendingIds.has(l.id) && matchesPendingFilters(l));
+    return [...pending, ...keptExtra];
+  }, [apiSummary.staleAndErrorLinks, brandLinks, keptRefreshed, matchesPendingFilters]);
+
+  const pendingStillToRefresh = useMemo(
+    () =>
+      filteredPendingLinks.filter(
+        (l) => apiSummary.staleAndErrorLinks.some((x) => x.id === l.id)
+      ),
+    [filteredPendingLinks, apiSummary.staleAndErrorLinks]
+  );
+
+  const refreshPendingBulk = useCallback(async () => {
+    const ids = pendingStillToRefresh.map((l) => l.id);
+    if (ids.length === 0 || readOnly || !isAdmin || bulkRefreshing) return;
+    if (
+      !confirm(
+        `${ids.length} bekleyen link API ile yenilensin mi? Başarılı olanlar snapshot olarak bu listede kalır.`
+      )
+    ) {
+      return;
+    }
+    setBulkRefreshing(true);
+    setBulkLabel("Başlatılıyor…");
+    const jobId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const targetDate = resolveRefreshTargetDate(viewMonth, apiDateMode);
+
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/admin/refresh-progress?jobId=${jobId}`, {
+          credentials: "include",
+        });
+        const json = (await res.json()) as {
+          ok?: boolean;
+          found?: boolean;
+          job?: { status: string; current?: { index: number; total: number; handle?: string } };
+        };
+        if (json.ok && json.found && json.job?.current) {
+          const { index, total, handle } = json.job.current;
+          setBulkLabel(`${index}/${total}${handle ? ` · ${handle}` : ""}`);
+        }
+        if (json.job?.status && json.job.status !== "running") clearInterval(poll);
+      } catch {
+        /* sessiz */
+      }
+    }, 1500);
+
+    try {
+      const res = await fetch("/api/admin/refresh-all-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId,
+          linkIds: ids,
+          targetDate,
+          linkScope,
+          monthYm: viewMonth,
+          trigger: "izlenme-api-pending",
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        summary?: {
+          succeeded: number;
+          failed: number;
+          results: Array<{
+            linkId: string;
+            ok?: boolean;
+            linkUpdate?: LinkMetricsStoreUpdate;
+          }>;
+        };
+      };
+      clearInterval(poll);
+      if (json.ok && json.summary) {
+        const kept: Record<string, string> = {};
+        for (const r of json.summary.results) {
+          if (r.linkUpdate) {
+            applyLinkMetricsToStore(r.linkId, r.linkUpdate, {
+              updateBrandLink,
+              upsertLinkSnapshot,
+            });
+            if (r.ok !== false) {
+              kept[r.linkId] =
+                r.linkUpdate.lastCheckedAt ??
+                r.linkUpdate.snapshot?.refreshedAt ??
+                new Date().toISOString();
+            }
+          }
+        }
+        if (Object.keys(kept).length > 0) {
+          setKeptRefreshed((s) => ({ ...s, ...kept }));
+        }
+        setBulkLabel(
+          `${json.summary.succeeded} güncellendi` +
+            (json.summary.failed > 0 ? ` · ${json.summary.failed} hata` : "")
+        );
+      } else {
+        setBulkLabel(json.error ?? "Yenileme başarısız");
+      }
+      await loadApiStatus();
+    } catch (e) {
+      clearInterval(poll);
+      setBulkLabel(e instanceof Error ? e.message : "Ağ hatası");
+    } finally {
+      setBulkRefreshing(false);
+      setTimeout(() => setBulkLabel(null), 10_000);
+    }
+  }, [
+    apiDateMode,
+    bulkRefreshing,
+    isAdmin,
+    linkScope,
+    loadApiStatus,
+    pendingStillToRefresh,
+    readOnly,
+    updateBrandLink,
+    upsertLinkSnapshot,
+    viewMonth,
+  ]);
+
+  const fmtRefreshAt = (iso: string | null | undefined) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString("tr-TR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
-  }, [apiSummary.staleAndErrorLinks, pendingFilter, pendingPlatform, pendingBrandQuery, brands]);
+  };
 
   const defaultSnapshotDate =
     resolveRefreshTargetDate(viewMonth, apiDateMode) ??
@@ -591,45 +753,80 @@ export default function IzlenmeApiPage() {
               </Badge>
             </CardTitle>
             <CardDescription className="text-xs">
-              Yalnızca YouTube / Instagram / TikTok — 24 saatten eski veya hatalı; manuel snapshot veya API yenileme.
+              Yalnızca YouTube / Instagram / TikTok — 24 saatten eski veya hatalı.
+              Hepsini yenile → snapshot yazılır; yenilenenler listede kalır (Son yenileme kolonu).
             </CardDescription>
           </div>
-          {canDeleteLinks && !readOnly && apiSummary.goneLinks.length > 0 && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1 text-xs border-red-300/60 text-red-700 dark:text-red-300"
-              onClick={() => {
-                void (async () => {
-                  if (
-                    !confirm(
-                      `${apiSummary.goneLinks.length} linkin gönderisi mevcut değil. Hepsi silinsin mi?`
-                    )
-                  ) {
-                    return;
-                  }
-                  for (const l of apiSummary.goneLinks) {
-                    if (!brandLinks.some((x) => x.id === l.id)) continue;
-                    const brand = brands.find((b) => b.id === l.brandId);
-                    setDeleting((s) => ({ ...s, [l.id]: true }));
-                    await deleteBrandLinkAsAdmin(l, {
-                      brandName: brand?.name,
-                      deletedByUserId: user?.id,
-                      skipConfirm: true,
-                    });
-                    setDeleting((s) => ({ ...s, [l.id]: false }));
-                  }
-                })();
-              }}
-            >
-              <Trash2 size={12} />
-              Gönderisi olmayanları sil ({apiSummary.goneLinks.length})
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && !readOnly && pendingStillToRefresh.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1 text-xs"
+                disabled={bulkRefreshing}
+                onClick={() => void refreshPendingBulk()}
+              >
+                {bulkRefreshing ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={12} />
+                )}
+                Hepsini yenile ({pendingStillToRefresh.length})
+              </Button>
+            )}
+            {bulkLabel && (
+              <span className="text-[11px] text-muted-foreground tabular-nums">{bulkLabel}</span>
+            )}
+            {Object.keys(keptRefreshed).length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 text-[11px] text-muted-foreground"
+                onClick={() => setKeptRefreshed({})}
+              >
+                Yenilenenleri temizle ({Object.keys(keptRefreshed).length})
+              </Button>
+            )}
+            {canDeleteLinks && !readOnly && apiSummary.goneLinks.length > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1 text-xs border-red-300/60 text-red-700 dark:text-red-300"
+                onClick={() => {
+                  void (async () => {
+                    if (
+                      !confirm(
+                        `${apiSummary.goneLinks.length} linkin gönderisi mevcut değil. Hepsi silinsin mi?`
+                      )
+                    ) {
+                      return;
+                    }
+                    for (const l of apiSummary.goneLinks) {
+                      if (!brandLinks.some((x) => x.id === l.id)) continue;
+                      const brand = brands.find((b) => b.id === l.brandId);
+                      setDeleting((s) => ({ ...s, [l.id]: true }));
+                      await deleteBrandLinkAsAdmin(l, {
+                        brandName: brand?.name,
+                        deletedByUserId: user?.id,
+                        skipConfirm: true,
+                      });
+                      setDeleting((s) => ({ ...s, [l.id]: false }));
+                    }
+                  })();
+                }}
+              >
+                <Trash2 size={12} />
+                Gönderisi olmayanları sil ({apiSummary.goneLinks.length})
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          {apiSummary.staleAndErrorLinks.length > 0 && (
+          {(apiSummary.staleAndErrorLinks.length > 0 ||
+            Object.keys(keptRefreshed).length > 0) && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -689,7 +886,8 @@ export default function IzlenmeApiPage() {
               </div>
             </div>
           )}
-          {apiSummary.staleAndErrorLinks.length === 0 ? (
+          {apiSummary.staleAndErrorLinks.length === 0 &&
+          Object.keys(keptRefreshed).length === 0 ? (
             <p className="text-xs text-muted-foreground italic py-4 text-center">
               Bekleyen yenileme yok — tüm linkler güncel.
             </p>
@@ -705,6 +903,7 @@ export default function IzlenmeApiPage() {
                     <th className="py-1.5 pr-2 font-medium">Marka</th>
                     <th className="py-1.5 pr-2 font-medium">Platform</th>
                     <th className="py-1.5 pr-2 font-medium">Son kontrol</th>
+                    <th className="py-1.5 pr-2 font-medium">Son yenileme</th>
                     <th className="py-1.5 pr-2 font-medium">İzlenme</th>
                     <th className="py-1.5 pr-2 font-medium">Durum</th>
                     <th className="py-1.5 pr-2" />
@@ -723,6 +922,11 @@ export default function IzlenmeApiPage() {
                       : null;
                     const postGone = isPostOrLinkGoneError(l.lastCheckError);
                     const throttled = isTransientApiError(l.lastCheckError);
+                    const refreshAtIso = keptRefreshed[l.id] ?? l.lastCheckedAt ?? null;
+                    const refreshAtLabel = fmtRefreshAt(refreshAtIso);
+                    const justRefreshed =
+                      !!keptRefreshed[l.id] &&
+                      !apiSummary.staleAndErrorLinks.some((x) => x.id === l.id);
                     return (
                       <tr key={l.id} className="border-b border-border/50 hover:bg-muted/20">
                         <td className="py-1.5 pr-2 font-medium truncate max-w-[140px]">
@@ -750,9 +954,16 @@ export default function IzlenmeApiPage() {
                             ? `${ageDays}g önce`
                             : <span className="text-amber-700 dark:text-amber-300">Hiç</span>}
                         </td>
+                        <td className="py-1.5 pr-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {refreshAtLabel ?? "—"}
+                        </td>
                         <td className="py-1.5 pr-2 tabular-nums">{fmtViews(l.lastViews ?? 0)}</td>
                         <td className="py-1.5 pr-2">
-                          {postGone ? (
+                          {justRefreshed ? (
+                            <Badge variant="outline" className="text-[9px] gap-1 border-emerald-300 text-emerald-700 dark:border-emerald-500/45 dark:text-emerald-300">
+                              <CheckCircle2 size={9} /> Snapshot OK
+                            </Badge>
+                          ) : postGone ? (
                             <Badge variant="outline" className="text-[9px] gap-1 border-red-300 text-red-700 dark:border-red-500/45 dark:text-red-300">
                               <AlertTriangle size={9} /> Gönderi yok
                             </Badge>

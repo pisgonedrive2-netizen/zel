@@ -624,44 +624,46 @@ export default function OperatorlerPage() {
                 Bu ay için yayıncı verisi yok.
               </p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
-                <ResponsiveContainer width="100%" height={210}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={48}
-                      outerRadius={82}
-                      paddingAngle={1}
-                      stroke="none"
-                    >
-                      {pieData.map((d, i) => (
-                        <Cell
-                          key={d.name}
-                          fill={
-                            d.name === "Diğerleri"
-                              ? "#94a3b8"
-                              : PIE_COLORS[i % PIE_COLORS.length]
-                          }
-                        />
-                      ))}
-                    </Pie>
-                    <RTooltip
-                      formatter={(v: number) => fmtViews(v)}
-                      contentStyle={{
-                        background: "var(--popover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: "var(--popover-foreground)",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="space-y-1.5 max-h-[210px] overflow-y-auto pr-1">
+              <div className="flex flex-col gap-3">
+                <div className="mx-auto w-full max-w-[260px]">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={52}
+                        outerRadius={88}
+                        paddingAngle={1}
+                        stroke="none"
+                      >
+                        {pieData.map((d, i) => (
+                          <Cell
+                            key={d.name}
+                            fill={
+                              d.name === "Diğerleri"
+                                ? "#94a3b8"
+                                : PIE_COLORS[i % PIE_COLORS.length]
+                            }
+                          />
+                        ))}
+                      </Pie>
+                      <RTooltip
+                        formatter={(v: number) => fmtViews(v)}
+                        contentStyle={{
+                          background: "var(--popover)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          color: "var(--popover-foreground)",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
                   {pieData.map((d, i) => {
                     const pct = grandTotal > 0 ? (d.value / grandTotal) * 100 : 0;
                     return (

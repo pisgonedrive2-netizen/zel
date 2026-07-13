@@ -86,7 +86,12 @@ export function linkViewsForMonth(
   return { lastViews: 0, refDate: null, stale: true, snapsInMonth: [] };
 }
 
-/** Seçili ay için engagement — snapshot varsa ondan, yalnızca bu ay canlıysa link üzerindeki API alanları. */
+/**
+ * Seçili ay için engagement.
+ * - Ay içi snapshot’lardan alan bazında coalesce (views-only snap engagement’ı silmez)
+ * - Bu ay: eksik alanlar link.lastLikes/Comments/Shares ile tamamlanır
+ * - Geçmiş ay: yalnızca o aya ait snapshot engagement’ı (canlı last* karışmaz)
+ */
 export function linkEngagementForMonth(
   link: BrandLink,
   monthYm: string,
@@ -94,22 +99,25 @@ export function linkEngagementForMonth(
   todayYm: string
 ): { likes?: number; comments?: number; shares?: number } {
   const { snapsInMonth } = linkViewsForMonth(link, monthYm, allSnaps, todayYm);
-  const snap = snapsInMonth[0];
-  if (snap) {
-    return {
-      likes: snap.likes,
-      comments: snap.comments,
-      shares: snap.shares,
-    };
+
+  let likes: number | undefined;
+  let comments: number | undefined;
+  let shares: number | undefined;
+
+  for (const snap of snapsInMonth) {
+    if (likes == null && snap.likes != null) likes = snap.likes;
+    if (comments == null && snap.comments != null) comments = snap.comments;
+    if (shares == null && snap.shares != null) shares = snap.shares;
+    if (likes != null && comments != null && shares != null) break;
   }
+
   if (monthYm === todayYm) {
-    return {
-      likes: link.lastLikes,
-      comments: link.lastComments,
-      shares: link.lastShares,
-    };
+    if (likes == null && link.lastLikes != null) likes = link.lastLikes;
+    if (comments == null && link.lastComments != null) comments = link.lastComments;
+    if (shares == null && link.lastShares != null) shares = link.lastShares;
   }
-  return {};
+
+  return { likes, comments, shares };
 }
 
 /** Liste görünümü: geçmiş aylarda yalnızca o aya ait snapshot'ı olan linkler; bu ayda aktif linkler. */

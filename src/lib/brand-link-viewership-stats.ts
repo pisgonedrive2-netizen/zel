@@ -83,6 +83,7 @@ export interface BrandLinkViewershipStats {
     comments: number;
     shares: number;
     interactions: number;
+    linksWithData: number;
   };
 }
 
@@ -203,6 +204,7 @@ export function computeBrandLinkViewershipStats(
       comments: engagement.comments,
       shares: engagement.shares,
       interactions: engagement.interactions,
+      linksWithData: engagement.linksWithData,
     },
   };
 }

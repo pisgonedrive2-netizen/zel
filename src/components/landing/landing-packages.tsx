@@ -3,12 +3,31 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useInView, useMotionValue, useSpring } from "framer-motion";
 import {
-  Rocket, Star, Crown, Trophy, Boxes, Youtube, Clapperboard, FileText,
+  Youtube, Clapperboard, FileText,
   Megaphone, Check, Play, ShieldCheck, TrendingUp, Plus, Minus, Radio, Share2, Globe, Send, Info, type LucideIcon,
 } from "lucide-react";
-import { fmtCompactViews } from "@/lib/brand-month-metrics";
+import {
+  DEFAULT_LANDING_GALLERY,
+  embedSrc,
+  galleryViewsLabel,
+  type LandingGalleryItem,
+} from "@/lib/landing-gallery";
+import {
+  IconElite,
+  IconMulti,
+  IconPremium,
+  IconStandard,
+  IconStarter,
+  type PackageIcon,
+} from "@/components/landing/package-icons";
 
 const ORANGE = "#FF6B00";
+
+/** Landing alt bölümleri — cam / elit kart kabuğu (metinler korunur). */
+const eliteShell =
+  "relative overflow-hidden rounded-[1.25rem] border border-white/[0.11] bg-black/45 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-xl";
+const eliteShellHover =
+  "transition duration-300 hover:-translate-y-1 hover:border-white/22 hover:bg-black/55 hover:shadow-[0_28px_60px_-28px_rgba(0,0,0,0.75),inset_0_1px_0_0_rgba(255,255,255,0.14)]";
 
 // Lanetkel resmi Telegram — tüm "Teklif al" CTA'ları buraya yönlenir.
 const TELEGRAM_URL = "https://t.me/lanetkelresmi";
@@ -86,7 +105,7 @@ function WithTip({
 type ContentPackage = {
   id: string;
   name: string;
-  icon: LucideIcon;
+  icon: PackageIcon;
   color: string;
   price: string;
   priceUsd: number;
@@ -187,17 +206,132 @@ const SHARE_PLATFORMS: SharePlatform[] = [
   },
 ];
 
-// ── İçerik galerisi (sistemdeki gerçek EN ÇOK İZLENEN YouTube içerikleri) ────
-// 600+ takipli link tarandı; thumbnail erişilebilirliği doğrulandı (hepsi 200).
-/** Padişahbet YouTube — sistemdeki en yüksek 4 içerik (link snapshot, 2026-06-20). */
-const GALLERY = (
-  [
-    { id: "lsk5wAFGGpo", brand: "Padişahbet", viewsNum: 38_956_194, color: "#F59E0B" },
-    { id: "JVvF8iOLVgc", brand: "Padişahbet", viewsNum: 943_908, color: "#F59E0B" },
-    { id: "rcSNWCZHX0k", brand: "Padişahbet", viewsNum: 544_689, color: "#F59E0B" },
-    { id: "0EDxE8_kSPw", brand: "Padişahbet", viewsNum: 484_448, color: "#F59E0B" },
-  ] as const
-).map((g) => ({ ...g, views: fmtCompactViews(g.viewsNum) }));
+// ── İçerik galerisi (admin panelden yönetilir · /landing-galeri) ─────────────
+type GalleryCard = LandingGalleryItem & { viewsLabel: string };
+
+function toGalleryCards(items: LandingGalleryItem[]): GalleryCard[] {
+  return items.map((g) => ({
+    ...g,
+    viewsLabel: galleryViewsLabel(g.views),
+  }));
+}
+
+const FALLBACK_GALLERY = toGalleryCards(DEFAULT_LANDING_GALLERY);
+
+function ContentGallery() {
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [items, setItems] = useState<GalleryCard[]>(FALLBACK_GALLERY);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/landing/gallery");
+        const data = (await res.json()) as { ok?: boolean; items?: GalleryCard[] };
+        if (!cancelled && data.ok && Array.isArray(data.items) && data.items.length > 0) {
+          setItems(
+            data.items.map((g) => ({
+              ...g,
+              viewsLabel: g.viewsLabel || galleryViewsLabel(g.views),
+            }))
+          );
+        }
+      } catch {
+        /* fallback kalır */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div
+      className={`grid gap-3 ${
+        items.length <= 2
+          ? "grid-cols-2 sm:grid-cols-2"
+          : items.length === 3
+            ? "grid-cols-2 sm:grid-cols-3"
+            : "grid-cols-2 sm:grid-cols-4"
+      }`}
+    >
+      {items.map((g, i) => {
+        const isPlaying = playing === g.id;
+        const embed = embedSrc(g);
+        return (
+          <motion.div
+            key={g.id}
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ duration: 0.5, delay: i * 0.08 }}
+            whileHover={isPlaying ? undefined : { y: -4 }}
+            onClick={() => {
+              if (isPlaying) return;
+              if (embed) setPlaying(g.id);
+              else if (typeof window !== "undefined") window.open(g.url, "_blank", "noopener,noreferrer");
+            }}
+            className={`group relative aspect-[9/13] overflow-hidden rounded-xl border border-white/10 bg-black ${
+              isPlaying ? "" : "cursor-pointer"
+            }`}
+          >
+            {isPlaying && embed ? (
+              <iframe
+                src={embed}
+                title={`${g.brand} içeriği`}
+                allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
+                allowFullScreen
+                className="absolute inset-0 h-full w-full"
+              />
+            ) : (
+              <>
+                {g.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={g.thumbnailUrl}
+                    alt={`${g.brand} içeriği`}
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                    className="absolute inset-0 h-full w-full scale-[1.35] object-cover transition duration-500 group-hover:scale-[1.45]"
+                  />
+                ) : (
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      background: `linear-gradient(160deg, ${g.color}55, #111 70%)`,
+                    }}
+                  />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/30" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition group-hover:scale-110 group-hover:bg-white/25">
+                    <Play size={18} className="ml-0.5 fill-white text-white" />
+                  </span>
+                </div>
+                <span
+                  className="absolute left-2 top-2 inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm"
+                  style={{ background: `${g.color}cc`, color: "#000" }}
+                >
+                  {g.brand}
+                </span>
+                <span className="absolute right-2 top-2 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80 backdrop-blur-sm">
+                  {g.platform}
+                </span>
+                <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
+                  <Play size={11} className="fill-white/80 text-white/80" />
+                  <span className="text-xs font-bold tabular-nums text-white drop-shadow">{g.viewsLabel}</span>
+                  <span className="text-[10px] text-white/60">izlenme</span>
+                </div>
+              </>
+            )}
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Add-on'lar (à la carte, seçilebilir) ────────────────────────────────────
 const ADDONS: { key: string; label: string; price: number; color: string; icon: LucideIcon }[] = [
@@ -218,7 +352,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
   {
     id: "starter",
     name: "Starter",
-    icon: Rocket,
+    icon: IconStarter,
     color: "#38BDF8",
     price: "$5.500",
     priceUsd: 5500,
@@ -233,7 +367,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
   {
     id: "standard",
     name: "Standard",
-    icon: Star,
+    icon: IconStandard,
     color: ORANGE,
     price: "$10.000",
     priceUsd: 10000,
@@ -251,7 +385,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
   {
     id: "premium",
     name: "Premium",
-    icon: Crown,
+    icon: IconPremium,
     color: "#A855F7",
     price: "$16.500",
     priceUsd: 16500,
@@ -269,7 +403,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
   {
     id: "elite",
     name: "Elite",
-    icon: Trophy,
+    icon: IconElite,
     color: "#FACC15",
     price: "$25.000",
     priceUsd: 25000,
@@ -290,7 +424,7 @@ const CONTENT_PACKAGES: ContentPackage[] = [
 const MULTI_PACKAGE: ContentPackage = {
   id: "multi",
   name: "Multi-marka",
-  icon: Boxes,
+  icon: IconMulti,
   color: "#22C55E",
   price: "",
   priceUsd: 0,
@@ -340,10 +474,19 @@ function ReachPanel() {
   const inView = useInView(ref, { once: true, margin: "-60px" });
   const maxBar = Math.max(...REACH_BARS);
   return (
-    <div ref={ref} className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6">
+    <div ref={ref} className={`flex flex-col p-5 sm:p-6 ${eliteShell}`}>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-8 top-0 h-px opacity-70"
+        style={{ background: "linear-gradient(90deg, transparent, #FF6B00, transparent)" }}
+      />
       <div className="mb-1 flex items-center gap-2">
-        <TrendingUp size={16} className="text-orange-400" />
-        <h3 className="text-sm font-semibold text-white">Aylık toplam erişim</h3>
+        <TrendingUp size={16} className="text-orange-300" />
+        <h3
+          className="text-lg font-semibold tracking-tight text-white"
+        >
+          Aylık toplam erişim
+        </h3>
         <span className="ml-auto text-[11px] text-white/40">Canlı veri · Haz 2026</span>
       </div>
 
@@ -376,79 +519,6 @@ function ReachPanel() {
   );
 }
 
-// ── İçerik galerisi (sadece ilk 4 · tıklayınca yerinde video oynar) ─────────
-function ContentGallery() {
-  const [playing, setPlaying] = useState<string | null>(null);
-  const items = GALLERY;
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {items.map((g, i) => {
-        const isPlaying = playing === g.id;
-        return (
-          <motion.div
-            key={g.id}
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-40px" }}
-            transition={{ duration: 0.5, delay: i * 0.08 }}
-            whileHover={isPlaying ? undefined : { y: -4 }}
-            onClick={() => !isPlaying && setPlaying(g.id)}
-            className={`group relative aspect-[9/13] overflow-hidden rounded-xl border border-white/10 bg-black ${
-              isPlaying ? "" : "cursor-pointer"
-            }`}
-          >
-            {isPlaying ? (
-              <iframe
-                src={`https://www.youtube.com/embed/${g.id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`}
-                title={`${g.brand} içeriği`}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-                className="absolute inset-0 h-full w-full"
-              />
-            ) : (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`https://i.ytimg.com/vi/${g.id}/hqdefault.jpg`}
-                  alt={`${g.brand} içeriği`}
-                  loading="lazy"
-                  onError={(e) => {
-                    const img = e.currentTarget;
-                    if (!img.dataset.fallback) {
-                      img.dataset.fallback = "1";
-                      img.src = `https://i.ytimg.com/vi/${g.id}/mqdefault.jpg`;
-                    } else {
-                      img.style.display = "none";
-                    }
-                  }}
-                  className="absolute inset-0 h-full w-full scale-[1.35] object-cover transition duration-500 group-hover:scale-[1.45]"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/30" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/15 backdrop-blur-sm transition group-hover:scale-110 group-hover:bg-white/25">
-                    <Play size={18} className="ml-0.5 fill-white text-white" />
-                  </span>
-                </div>
-                <span
-                  className="absolute left-2 top-2 inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm"
-                  style={{ background: `${g.color}cc`, color: "#000" }}
-                >
-                  {g.brand}
-                </span>
-                <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
-                  <Play size={11} className="fill-white/80 text-white/80" />
-                  <span className="text-xs font-bold tabular-nums text-white drop-shadow">{g.views}</span>
-                  <span className="text-[10px] text-white/60">izlenme</span>
-                </div>
-              </>
-            )}
-          </motion.div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Paket kartı ──────────────────────────────────────────────────────────────
 function PackageCard({
   pkg,
@@ -470,14 +540,19 @@ function PackageCard({
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.5, delay: index * 0.1 }}
       whileHover={{ y: featured ? -16 : -8 }}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border p-5 transition-colors ${
+      className={`group relative flex flex-col overflow-hidden p-5 ${eliteShell} ${eliteShellHover} ${
         selected
-          ? "border-orange-400 bg-orange-500/[0.08] ring-2 ring-orange-400/60"
+          ? "border-orange-400/70 bg-orange-500/[0.10] ring-2 ring-orange-400/50"
           : featured
-            ? "border-orange-400/50 bg-gradient-to-b from-orange-500/[0.10] to-white/[0.02] shadow-xl shadow-orange-900/20 ring-1 ring-orange-400/30 lg:-translate-y-3 lg:scale-[1.03]"
-            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]"
+            ? "border-orange-400/45 bg-gradient-to-b from-orange-500/[0.12] to-black/40 shadow-xl shadow-orange-900/25 ring-1 ring-orange-400/25 lg:-translate-y-3 lg:scale-[1.03]"
+            : ""
       }`}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-6 top-0 h-px opacity-80"
+        style={{ background: `linear-gradient(90deg, transparent, ${pkg.color}, transparent)` }}
+      />
       {selected && (
         <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
           <Check size={11} strokeWidth={3} /> Seçildi
@@ -499,11 +574,30 @@ function PackageCard({
       )}
 
       <div className="relative z-[1] flex items-center gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: `${pkg.color}1f`, color: pkg.color }}>
-          <Icon size={22} strokeWidth={2.1} />
+        <span
+          className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border transition duration-300 group-hover:scale-[1.04]"
+          style={{
+            borderColor: `${pkg.color}55`,
+            background: `linear-gradient(145deg, ${pkg.color}28, ${pkg.color}0a 55%, transparent)`,
+            color: pkg.color,
+            boxShadow: `inset 0 1px 0 ${pkg.color}33, 0 8px 24px -12px ${pkg.color}66`,
+          }}
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              background: `radial-gradient(circle at 30% 25%, ${pkg.color}55, transparent 55%)`,
+            }}
+          />
+          <Icon size={22} className="relative z-[1]" />
         </span>
         <div>
-          <h3 className="text-lg font-bold text-white">{pkg.name}</h3>
+          <h3
+            className="text-xl font-semibold tracking-tight text-white"
+          >
+            {pkg.name}
+          </h3>
           <span className="text-[11px] text-white/45">{totalPieces(pkg.items)} prodüksiyon / ay</span>
         </div>
       </div>
@@ -807,7 +901,7 @@ export function LandingPackages() {
   };
 
   return (
-    <section id="paketler" className="relative w-full overflow-hidden border-t border-white/5 bg-[#09090b] px-4 py-16 sm:px-6 sm:py-20">
+    <section id="paketler" className="relative z-10 w-full overflow-hidden border-t border-white/5 px-4 py-16 sm:px-6 sm:py-20">
       {/* Yumuşak ışıma */}
       <div
         aria-hidden
@@ -822,11 +916,13 @@ export function LandingPackages() {
           transition={{ duration: 0.5 }}
           className="mb-8 text-center"
         >
-          <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">İçerik paketleri</span>
-          <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">
-            Markana uygun <span className="text-orange-400">içerik paketini</span> seç.
+          <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-orange-300/90">İçerik paketleri</span>
+          <h2
+            className="mt-3 text-[2.15rem] font-semibold leading-[1.12] tracking-tight sm:text-[2.75rem]"
+          >
+            Markana uygun <span className="text-orange-300">içerik paketini</span> seç.
           </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-white/62 sm:text-[15px]">
             Garantili izlenmeli aylık paketler — YouTube, Reel, adult içerik ve canlı yayın.
             Türkiye pazarına özel fiyatlandırma.
           </p>
@@ -860,8 +956,10 @@ export function LandingPackages() {
               { v: 400, suffix: "+", label: "İçerik linki", dec: 0 },
               { v: 38, suffix: "M+", label: "En viral tek içerik", dec: 0 },
             ].map((s) => (
-              <div key={s.label} className="flex flex-col justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-center">
-                <p className="text-2xl font-extrabold tabular-nums text-white sm:text-3xl">
+              <div key={s.label} className={`flex flex-col justify-center px-4 py-4 text-center ${eliteShell} ${eliteShellHover}`}>
+                <p
+                  className="text-2xl font-semibold tabular-nums tracking-tight text-white sm:text-3xl"
+                >
                   <AnimatedNumber value={s.v} suffix={s.suffix} decimals={s.dec} />
                 </p>
                 <p className="mt-1 text-[10px] leading-tight text-white/50">{s.label}</p>
@@ -875,7 +973,7 @@ export function LandingPackages() {
           <div className="mb-4 flex items-center gap-2">
             <Play size={15} className="fill-orange-400 text-orange-400" />
             <h3 className="text-sm font-semibold text-white">Ürettiğimiz içeriklerden kesitler</h3>
-            <span className="ml-auto text-[11px] text-white/40">Padişahbet · en yüksek YouTube · tıkla & izle</span>
+            <span className="ml-auto text-[11px] text-white/40">Seçili içerikler · tıkla & izle</span>
           </div>
           <ContentGallery />
         </div>
@@ -886,11 +984,20 @@ export function LandingPackages() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-50px" }}
           transition={{ duration: 0.5 }}
-          className="mb-10 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6"
+          className={`mb-10 overflow-hidden p-5 sm:p-6 ${eliteShell}`}
         >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-8 top-0 h-px opacity-70"
+            style={{ background: "linear-gradient(90deg, transparent, #FF6B00, transparent)" }}
+          />
           <div className="mb-1 flex items-center gap-2">
-            <Share2 size={15} className="text-orange-400" />
-            <h3 className="text-sm font-semibold text-white">İçeriklerimiz başka nerelerde paylaşılıyor?</h3>
+            <Share2 size={15} className="text-orange-300" />
+            <h3
+              className="text-lg font-semibold tracking-tight text-white"
+            >
+              İçeriklerimiz başka nerelerde paylaşılıyor?
+            </h3>
           </div>
           <p className="mb-4 max-w-2xl text-[12px] leading-relaxed text-white/55">
             Ürettiğimiz içerikler, takip ettiğimiz hesapların çok ötesinde — kullanıcılar tarafından
@@ -933,17 +1040,41 @@ export function LandingPackages() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-50px" }}
           transition={{ duration: 0.5 }}
-          className="relative mt-4 overflow-hidden rounded-2xl border border-green-400/40 bg-gradient-to-r from-green-500/[0.10] via-white/[0.02] to-white/[0.02] p-6 ring-1 ring-green-400/20"
+          className={`relative mt-4 overflow-hidden p-6 ${eliteShell} border-green-400/40 bg-gradient-to-r from-green-500/[0.10] via-black/40 to-black/40 ring-1 ring-green-400/20`}
         >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-10 top-0 h-px opacity-80"
+            style={{ background: `linear-gradient(90deg, transparent, ${pkg.color}, transparent)` }}
+          />
           <div aria-hidden className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full opacity-25 blur-3xl" style={{ background: pkg.color }} />
           <div className="relative z-[1] flex flex-col items-start gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl" style={{ background: `${pkg.color}1f`, color: pkg.color }}>
-                <MultiIcon size={24} strokeWidth={2.1} />
+              <span
+                className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border"
+                style={{
+                  borderColor: `${pkg.color}55`,
+                  background: `linear-gradient(145deg, ${pkg.color}28, ${pkg.color}0a 55%, transparent)`,
+                  color: pkg.color,
+                  boxShadow: `inset 0 1px 0 ${pkg.color}33, 0 8px 24px -12px ${pkg.color}66`,
+                }}
+              >
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 opacity-40"
+                  style={{
+                    background: `radial-gradient(circle at 30% 25%, ${pkg.color}55, transparent 55%)`,
+                  }}
+                />
+                <MultiIcon size={24} className="relative z-[1]" />
               </span>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-bold text-white">{pkg.name}</h3>
+                  <h3
+                    className="text-2xl font-semibold tracking-tight text-white"
+                  >
+                    {pkg.name}
+                  </h3>
                   {pkg.badge && (
                     <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: pkg.color, color: "#000" }}>
                       {pkg.badge}

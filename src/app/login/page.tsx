@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { Manrope } from "next/font/google";
 import { motion } from "framer-motion";
 import { ChevronDown, Radio, Building2, HelpCircle, Eye, EyeOff, type LucideIcon } from "lucide-react";
 import { useAuth, landingFor } from "@/store/auth";
@@ -15,7 +16,38 @@ import {
 } from "@/components/ui/dialog";
 import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
 
+/** Tek font ailesi — hero / paket / footer uyumu (Cormorant+Georgia karışımı kaldırıldı). */
+const landingFont = Manrope({
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-landing",
+  display: "swap",
+});
+
+const landingHeading =
+  "font-semibold tracking-tight text-white [font-family:var(--font-landing),ui-sans-serif,system-ui,sans-serif]";
+
 // ── Landing yardımcı bileşenler ─────────────────────────────────────────────
+
+const eliteCardShell =
+  "group relative flex h-full flex-col overflow-hidden rounded-[1.25rem] border border-white/[0.11] bg-black/45 p-6 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] backdrop-blur-xl transition duration-300 hover:-translate-y-1 hover:border-white/22 hover:bg-black/55 hover:shadow-[0_28px_60px_-28px_rgba(0,0,0,0.75),inset_0_1px_0_0_rgba(255,255,255,0.14)]";
+
+function EliteCardAccent({ color }: { color: string }) {
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-6 top-0 h-px opacity-80"
+        style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full opacity-[0.18] blur-3xl transition duration-500 group-hover:opacity-30"
+        style={{ background: color }}
+      />
+    </>
+  );
+}
 
 function RoleCard({
   color,
@@ -33,27 +65,28 @@ function RoleCard({
   onCtaClick: () => void;
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]">
-      <div
-        aria-hidden
-        className="absolute -right-8 -top-8 h-24 w-24 rounded-full opacity-20 blur-2xl transition group-hover:opacity-40"
-        style={{ background: color }}
-      />
-      <div className="flex items-center justify-between">
+    <div className={eliteCardShell}>
+      <EliteCardAccent color={color} />
+      <div className="relative z-[1] flex items-center justify-between gap-3">
         <span
-          className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-          style={{ background: `${color}22`, color }}
+          className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]"
+          style={{ borderColor: `${color}55`, background: `${color}18`, color }}
         >
           {tag}
         </span>
-        <span className="h-1.5 w-10 rounded-full" style={{ background: color }} />
+        <span
+          className="h-px w-10 opacity-70"
+          style={{ background: `linear-gradient(90deg, ${color}, transparent)` }}
+        />
       </div>
-      <h3 className="mt-3 text-xl font-bold text-white">{title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-white/60">{description}</p>
+      <h3 className={`relative z-[1] mt-5 text-[1.65rem] leading-tight ${landingHeading}`}>
+        {title}
+      </h3>
+      <p className="relative z-[1] mt-3 flex-1 text-[13px] leading-relaxed text-white/68">{description}</p>
       <button
         type="button"
         onClick={onCtaClick}
-        className="mt-4 inline-flex h-9 items-center justify-center rounded-lg border border-white/15 bg-white/5 px-3.5 text-xs font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+        className="relative z-[1] mt-6 inline-flex h-10 items-center justify-center rounded-full border border-white/18 bg-white/[0.06] px-4 text-xs font-semibold tracking-wide text-white transition hover:border-white/35 hover:bg-white/[0.12] active:scale-[0.98]"
       >
         {ctaLabel} →
       </button>
@@ -73,17 +106,25 @@ function StepCard({
   description: string;
 }) {
   return (
-    <li className="relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-5">
-      <div className="flex items-center gap-3">
+    <li className={eliteCardShell}>
+      <EliteCardAccent color={color} />
+      <div className="relative z-[1] flex items-center gap-3.5">
         <span
-          className="flex h-10 w-10 items-center justify-center rounded-full text-base font-bold text-white"
-          style={{ background: color }}
+          className="flex h-11 w-11 items-center justify-center rounded-full border text-sm font-bold text-white shadow-[0_0_24px_-6px_currentColor]"
+          style={{
+            borderColor: `${color}66`,
+            background: `linear-gradient(160deg, ${color}cc, ${color}66)`,
+            color: "#fff",
+            boxShadow: `0 0 28px -8px ${color}`,
+          }}
         >
           {step}
         </span>
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
+        <h3 className={`text-[1.35rem] leading-tight ${landingHeading}`}>
+          {title}
+        </h3>
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-white/60">{description}</p>
+      <p className="relative z-[1] mt-4 text-[13px] leading-relaxed text-white/68">{description}</p>
     </li>
   );
 }
@@ -98,12 +139,20 @@ function FeatureCard({
   description: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]">
-      <div className="flex items-center gap-2">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
-        <h3 className="text-base font-semibold text-white">{title}</h3>
+    <div className={eliteCardShell}>
+      <EliteCardAccent color={color} />
+      <div className="relative z-[1] flex items-center gap-3">
+        <span
+          className="flex h-9 w-9 items-center justify-center rounded-full border"
+          style={{ borderColor: `${color}44`, background: `${color}14` }}
+        >
+          <span className="h-2 w-2 rounded-full" style={{ background: color, boxShadow: `0 0 12px ${color}` }} />
+        </span>
+        <h3 className={`text-[1.2rem] leading-tight ${landingHeading}`}>
+          {title}
+        </h3>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-white/60">{description}</p>
+      <p className="relative z-[1] mt-3 text-[13px] leading-relaxed text-white/68">{description}</p>
     </div>
   );
 }
@@ -129,6 +178,30 @@ function LandingSoftGlow({
         }}
       />
     </div>
+  );
+}
+
+function SectionEyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-orange-300/90">
+      {children}
+    </span>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className={`mt-3 text-[2.15rem] leading-[1.12] sm:text-[2.75rem] ${landingHeading}`}>
+      {children}
+    </h2>
+  );
+}
+
+function SectionLead({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-white/62 sm:text-[15px]">
+      {children}
+    </p>
   );
 }
 
@@ -952,7 +1025,9 @@ export default function LoginPage() {
     setModal("login");
   };
   return (
-    <div className="relative isolate w-full bg-black text-white">
+    <div
+      className={`${landingFont.variable} ${landingFont.className} relative isolate w-full bg-black text-white antialiased`}
+    >
       {/* Sticky header — scroll boyunca görünür */}
       <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/5 bg-black/70 px-4 py-2.5 backdrop-blur-md sm:px-6">
         <a href="#hero" className="flex items-center gap-2">
@@ -987,13 +1062,12 @@ export default function LoginPage() {
         </div>
       </header>
 
-      {/* HERO — mobilde görsel kırpılmadan (contain), masaüstünde tam ekran cover */}
+      {/* HERO — landback.png (2:1); mobilde cover ile tam sığar, masaüstünde tam ekran */}
       <section
         id="hero"
-        className="relative isolate flex min-h-[calc(100dvh-56px)] w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6"
+        className="relative isolate flex w-full flex-col items-center justify-center overflow-hidden bg-black px-4 text-center sm:px-6 max-md:min-h-[min(100dvh-56px,calc(100vw/2+14rem))] md:min-h-[calc(100dvh-56px)]"
       >
-        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center bg-black">
-          {/* Ambient blur — masaüstünde cover; mobilde contain ile hizalı */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 z-0 bg-black">
           <Image
             src="/landback.png"
             alt=""
@@ -1001,7 +1075,7 @@ export default function LoginPage() {
             priority
             quality={90}
             sizes="100vw"
-            className="object-contain object-center opacity-40 blur-2xl max-md:scale-100 md:scale-110 md:object-cover"
+            className="object-cover object-center opacity-35 blur-2xl scale-110"
           />
           <Image
             src="/landback.png"
@@ -1010,25 +1084,17 @@ export default function LoginPage() {
             priority
             quality={100}
             sizes="100vw"
-            className="object-contain object-center max-md:opacity-95 md:object-cover md:object-center"
+            className="object-cover object-center"
           />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/55" />
         </div>
 
         <div className="relative z-10 mx-auto max-w-3xl">
-          <motion.span
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-orange-300"
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: ORANGE }} />
-            Yayıncı – Marka platformu
-          </motion.span>
           <motion.h1
             initial={{ opacity: 0, y: 22 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.65, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-5 text-4xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl"
+            className={`text-4xl leading-[1.05] sm:text-6xl ${landingHeading}`}
           >
             Foxstream ile<br />
             <motion.span
@@ -1092,33 +1158,15 @@ export default function LoginPage() {
         id="roller"
         className="relative w-full overflow-hidden border-t border-white/5 bg-black px-4 py-16 sm:px-6 sm:py-20"
       >
-        {/* Dikey geçiş: siyah (hero) → zinc-950 (nasil) — alt kenarda orantılı karışım */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-0"
-          style={{
-            background:
-              "linear-gradient(180deg, #000000 0%, #000000 38%, #040404 62%, #070707 82%, #09090b 100%)",
-          }}
-        />
-        {/* Radial turuncu ışıma — alt kenarda sönümlenir, #nasil ile çakışmaz */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-0"
-          style={{
-            background:
-              "radial-gradient(125% 95% at 50% 14%, #000000 40%, rgba(255,107,0,0.26) 70%, transparent 92%)",
-          }}
-        />
         <div className="relative z-10 mx-auto max-w-[1180px]">
-          <div className="mb-10 text-center">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Foxstream platformu</span>
-            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">
-              Yayıncı – Marka iş birliğinin <span className="text-orange-400">tek yeri</span>.
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+          <div className="mb-12 text-center">
+            <SectionEyebrow>Foxstream platformu</SectionEyebrow>
+            <SectionTitle>
+              Yayıncı – Marka iş birliğinin <span className="text-orange-300">tek yeri</span>.
+            </SectionTitle>
+            <SectionLead>
               Yayıncı havuzu, teklif/anlaşma akışı, affiliate ve içerik post takibi — hepsi bir panelde.
-            </p>
+            </SectionLead>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <RoleCard
@@ -1157,16 +1205,16 @@ export default function LoginPage() {
         </div>
       </section>
 
-      {/* NASIL ÇALIŞIR — 4 adım (#roller altıyla aynı zemin: zinc-950) */}
+      {/* NASIL ÇALIŞIR — 4 adım */}
       <section id="nasil" className="relative w-full overflow-hidden bg-[#09090b] px-4 py-16 sm:px-6 sm:py-20">
-        <LandingSoftGlow at="50% 18%" opacity={0.22} spread="72%" />
+        <LandingSoftGlow at="50% 18%" opacity={0.14} spread="72%" />
         <div className="relative z-10 mx-auto max-w-[1180px]">
-          <div className="mb-10 text-center">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Süreç</span>
-            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Nasıl çalışır?</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
+          <div className="mb-12 text-center">
+            <SectionEyebrow>Süreç</SectionEyebrow>
+            <SectionTitle>Nasıl çalışır?</SectionTitle>
+            <SectionLead>
               Kayıttan ilk anlaşmaya kadar 4 adımda Foxstream akışı.
-            </p>
+            </SectionLead>
           </div>
           <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StepCard
@@ -1202,14 +1250,14 @@ export default function LoginPage() {
         id="ozellikler"
         className="relative w-full overflow-hidden border-y border-white/5 bg-gradient-to-b from-zinc-950 via-black to-zinc-950 px-4 py-16 sm:px-6 sm:py-20"
       >
-        <LandingSoftGlow at="50% 50%" opacity={0.2} spread="68%" />
+        <LandingSoftGlow at="50% 50%" opacity={0.12} spread="68%" />
         <div className="relative z-10 mx-auto max-w-[1180px]">
-          <div className="mb-10 text-center">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-orange-400">Modüller</span>
-            <h2 className="mt-2 text-3xl font-bold leading-tight sm:text-4xl">Platform özellikleri</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-white/60 sm:text-base">
-              Operasyondan ödemeye, partnerden affiliate'e — gerekli her şey hazır.
-            </p>
+          <div className="mb-12 text-center">
+            <SectionEyebrow>Modüller</SectionEyebrow>
+            <SectionTitle>Platform özellikleri</SectionTitle>
+            <SectionLead>
+              Operasyondan ödemeye, partnerden affiliate&apos;e — gerekli her şey hazır.
+            </SectionLead>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <FeatureCard color="#FF6B00" title="Yayıncı Havuzu" description="Kategorize edilmiş yayıncı profilleri. Fiyat aralığı, dil, ülke, kitle filtreleri." />
@@ -1229,12 +1277,12 @@ export default function LoginPage() {
       <section className="relative w-full overflow-hidden bg-black px-4 py-16 sm:px-6 sm:py-20">
         <LandingSoftGlow at="50% 100%" opacity={0.3} spread="78%" />
         <div className="relative z-10 mx-auto max-w-[1180px] text-center">
-          <h2 className="text-3xl font-bold leading-tight sm:text-4xl">
-            Hemen başla — <span className="text-orange-400">2 dakikada</span> aktif ol.
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-white/60 sm:text-base">
+          <SectionTitle>
+            Hemen başla — <span className="text-orange-300">2 dakikada</span> aktif ol.
+          </SectionTitle>
+          <SectionLead>
             Mevcut hesabınla giriş yap veya yeni bir marka/yayıncı kaydı oluştur.
-          </p>
+          </SectionLead>
           <div className="mx-auto mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button
               type="button"
