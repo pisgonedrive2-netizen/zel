@@ -71,6 +71,14 @@ export function persistRowImmediate(entity: PersistEntity, row: Record<string, u
   void apiPersist(entity, row);
 }
 
+/** Await edilebilir kalıcı kayıt — UI kaydı kaybetmeden hata gösterebilir. */
+export function persistRowImmediateAsync(
+  entity: PersistEntity,
+  row: Record<string, unknown>
+): Promise<{ ok: boolean; error?: string }> {
+  return apiPersist(entity, row);
+}
+
 export function removeRowImmediate(entity: PersistEntity, id: string) {
   void apiRemove(entity, id);
 }

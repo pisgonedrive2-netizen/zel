@@ -64,6 +64,15 @@ function persistEntity(entity: PersistEntity, row: { id: string }) {
   persistRowImmediate(entity, asRow(row));
 }
 
+export async function persistEntityAsync(
+  entity: PersistEntity,
+  row: { id: string }
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseClientMode()) return { ok: true };
+  const { persistRowImmediateAsync } = await import("@/lib/row-persist");
+  return persistRowImmediateAsync(entity, asRow(row));
+}
+
 function removeEntity(entity: PersistEntity, id: string) {
   if (!isSupabaseClientMode()) return;
   removeRowImmediate(entity, id);
@@ -1148,7 +1157,7 @@ interface AppStore {
   deleteKasaTransaction: (id: string) => void;
 
   // Content expense
-  addContentExpense: (e: Omit<ContentExpense, "id">) => string;
+  addContentExpense: (e: Omit<ContentExpense, "id">, opts?: { skipPersist?: boolean }) => string;
   updateContentExpense: (id: string, e: Partial<ContentExpense>) => void;
   deleteContentExpense: (id: string) => void;
   /** Onaylı harcamayı bordroya masraf kalemi olarak ekler (maaş netine dahil). */
@@ -2393,8 +2402,8 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       brandOfferMessages:  initialBrandOfferMessages,
       brandDeals:          initialBrandDeals,
       brandPosts:          initialBrandPosts,
-      kasas:               initialKasas,
-      kasaTransactions:    initialKasaTransactions,
+      kasas:               isSupabaseClientMode() ? [] : initialKasas,
+      kasaTransactions:    isSupabaseClientMode() ? [] : initialKasaTransactions,
       kasaMetrics:         null,
       contentExpenses:     initialContentExpenses,
       weeklyPlans:         initialWeeklyPlans,
@@ -3627,11 +3636,11 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       },
 
       // Content expense
-      addContentExpense: (e) => {
+      addContentExpense: (e, opts) => {
         const id = uid();
         const row = { ...e, id };
         set((s) => ({ contentExpenses: [...s.contentExpenses, row] }));
-        persistEntity("content_expense", row);
+        if (!opts?.skipPersist) persistEntity("content_expense", row);
         return id;
       },
       updateContentExpense: (id, e) => set((s) => {

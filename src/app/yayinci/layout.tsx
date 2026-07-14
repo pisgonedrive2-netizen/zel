@@ -39,6 +39,7 @@ const PRIMARY_NAV: NavItem[] = [
   { href: "/yayinci/maas", label: "Maaş", match: "maas", icon: Wallet },
   { href: "/yayinci/harcamalar", label: "Harcamalar", match: "harcamalar", icon: Clapperboard },
   { href: "/yayinci/takvim", label: "Takvim", match: "takvim", icon: CalendarDays },
+  { href: "/yayinci/postlar", label: "Paylaşımlar", match: "postlar", icon: Video },
 ];
 
 const MORE_NAV: NavItem[] = [
@@ -49,7 +50,6 @@ const MORE_NAV: NavItem[] = [
   { href: "/yayinci/kesif", label: "Premium keşif", match: "kesif", icon: Search },
   { href: "/yayinci/profil", label: "Havuz profili", match: "profil", icon: UserCog },
   { href: "/yayinci/teklifler", label: "Teklifler", match: "teklifler", icon: Send },
-  { href: "/yayinci/postlar", label: "Postlar", match: "postlar", icon: Video },
   { href: "/yayinci/gecmis", label: "Geçmiş aylar", match: "gecmis", icon: CalendarRange },
   { href: "/yayinci/bildirimler", label: "Bildirimler", match: "bildirimler", icon: Bell },
 ];

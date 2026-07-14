@@ -38,7 +38,7 @@ export function WeekContentSummary({
       : `${summary.brandCount} marka`;
 
   return (
-    <Card className="relative overflow-hidden border-border/80">
+    <Card className="relative border-border/80">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#FF6B00]/8 via-transparent to-violet-500/10"
@@ -79,15 +79,15 @@ export function WeekContentSummary({
           )}
         </div>
 
-        {/* Gün şeridi */}
-        <div className="grid grid-cols-7 gap-1.5">
+        {/* Gün şeridi — mobilde kaydırılabilir */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 sm:grid sm:grid-cols-7 sm:overflow-visible">
           {summary.byDay.map((day, i) => {
             const isActive = day.shootCount > 0;
             return (
               <div
                 key={day.date}
                 className={cn(
-                  "rounded-xl border px-1.5 py-2 text-center transition-colors",
+                  "min-w-[3.25rem] flex-1 rounded-xl border px-1.5 py-2 text-center transition-colors sm:min-w-0",
                   isActive
                     ? "border-[#FF6B00]/35 bg-[#FF6B00]/8 shadow-[0_0_20px_-12px_rgba(255,107,0,0.7)]"
                     : "border-border/60 bg-muted/20"

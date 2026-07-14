@@ -157,6 +157,41 @@ async function upsertRows(table: string, rows: Record<string, unknown>[]) {
   if (error) throw new Error(`${table} upsert: ${error.message}`);
 }
 
+/** Bildirim FK'lerini temizle — aksi halde tüm sync "triggered_by" hatasıyla düşer. */
+async function sanitizeNotificationRows(
+  rows: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  if (rows.length === 0) return rows;
+  const userIds = new Set<string>();
+  for (const r of rows) {
+    if (r.triggered_by) userIds.add(String(r.triggered_by));
+    if (r.for_user_id) userIds.add(String(r.for_user_id));
+  }
+  let validUsers = new Set<string>();
+  if (userIds.size > 0) {
+    const { data } = await getSupabaseAdmin().from("app_users").select("id");
+    validUsers = new Set((data ?? []).map((u) => String((u as { id: string }).id)));
+  }
+  let validBrands = new Set<string>();
+  const brandIds = new Set<string>();
+  for (const r of rows) {
+    if (r.for_brand_id) brandIds.add(String(r.for_brand_id));
+  }
+  if (brandIds.size > 0) {
+    const { data } = await getSupabaseAdmin().from("brands").select("id");
+    validBrands = new Set((data ?? []).map((b) => String((b as { id: string }).id)));
+  }
+  return rows.map((r) => ({
+    ...r,
+    triggered_by:
+      r.triggered_by && validUsers.has(String(r.triggered_by)) ? r.triggered_by : null,
+    for_user_id:
+      r.for_user_id && validUsers.has(String(r.for_user_id)) ? r.for_user_id : null,
+    for_brand_id:
+      r.for_brand_id && validBrands.has(String(r.for_brand_id)) ? r.for_brand_id : null,
+  }));
+}
+
 /** Boş URL/handle/owner ile mevcut link verisinin üzerine yazmayı engeller. */
 export async function upsertBrandLinksMerged(
   links: BrandLink[],
@@ -737,7 +772,10 @@ async function syncAuditorScoped(payload: AppHydratePayload) {
     n.forRole === "streamer" || n.forRole === "admin" || n.forRole === "auditor"
   );
   if (notifications.length > 0) {
-    await upsertRows("app_notifications", notifications.map(notificationToRow));
+    await upsertRows(
+      "app_notifications",
+      await sanitizeNotificationRows(notifications.map(notificationToRow))
+    );
   }
 }
 
@@ -790,7 +828,7 @@ async function syncAdminFull(payload: AppHydratePayload) {
     // kendi yerel listesinde olmayan (başka admin/marka/yayıncı) bildirimleri
     // DB'den silebiliyor ve silinmiş bildirimler başka istemcide diriliyordu.
     // Silme yalnızca özel DELETE API'si ile yapılır (deleteNotificationPersisted).
-    { table: "app_notifications", rows: (payload.notifications ?? []).map(notificationToRow), skipDelete: true },
+    { table: "app_notifications", rows: await sanitizeNotificationRows((payload.notifications ?? []).map(notificationToRow)), skipDelete: true },
   ];
 
   for (const { table, rows, skipDelete } of tables) {

@@ -180,12 +180,14 @@ export function FormActions({
   onDelete,
   deleteLabel = "Sil",
   hideSubmit = false,
+  submitDisabled = false,
 }: {
   onCancel: () => void;
   submitLabel?: string;
   onDelete?: () => void;
   deleteLabel?: string;
   hideSubmit?: boolean;
+  submitDisabled?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between pt-4 mt-5 border-t border-border">
@@ -211,7 +213,8 @@ export function FormActions({
         {!hideSubmit && (
           <button
             type="submit"
-            className="text-[13px] font-medium px-4 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            disabled={submitDisabled}
+            className="text-[13px] font-medium px-4 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
           >
             {submitLabel}
           </button>

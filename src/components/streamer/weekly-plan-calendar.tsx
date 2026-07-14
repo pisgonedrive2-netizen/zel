@@ -217,7 +217,7 @@ export function PlanWeekBoard({
 
   return (
     <>
-      <Card className="w-full min-w-0 overflow-hidden">
+      <Card className="w-full min-w-0">
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <div className="min-w-0">
             <CardTitle className="text-base flex items-center gap-2 flex-wrap">
@@ -248,10 +248,13 @@ export function PlanWeekBoard({
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="flex lg:hidden gap-2 overflow-x-auto pb-2 snap-x snap-mandatory touch-pan-x -mx-1 px-1">
+          <p className="mb-2 text-[10px] text-muted-foreground sm:hidden">
+            Günleri yatay kaydırarak görebilirsin →
+          </p>
+          <div className="flex md:hidden gap-2 overflow-x-auto pb-2 snap-x snap-mandatory touch-pan-x -mx-1 px-1">
             {days.map((iso, i) => dayCell(iso, i, true))}
           </div>
-          <div className="hidden lg:grid lg:grid-cols-7 gap-2 w-full min-w-0">
+          <div className="hidden md:grid md:grid-cols-7 gap-2 w-full min-w-0">
             {days.map((iso, i) => dayCell(iso, i, false))}
           </div>
         </CardContent>

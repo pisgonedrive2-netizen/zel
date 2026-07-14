@@ -340,7 +340,7 @@ export function DailyContentCheckin({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Gün ızgarası */}
-        <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-10">
+        <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-7 md:grid-cols-10">
           {dayList.map((iso) => {
             const count = byDay.get(iso)?.length ?? 0;
             const done = count > 0;
@@ -353,7 +353,7 @@ export function DailyContentCheckin({
                 onClick={() => setSelectedDay(iso)}
                 title={`${iso}${done ? ` · ${count} içerik` : " · içerik yok"}`}
                 className={[
-                  "relative flex aspect-square flex-col items-center justify-center rounded-lg border text-[10px] font-medium transition",
+                  "relative flex min-h-11 flex-col items-center justify-center rounded-lg border px-0.5 py-1 text-[10px] font-medium transition",
                   done
                     ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
                     : "border-border/60 bg-muted/30 text-muted-foreground/70 hover:bg-muted",

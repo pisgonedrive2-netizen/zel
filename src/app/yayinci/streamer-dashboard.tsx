@@ -222,7 +222,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   initial?: ContentExpense;
   /** Yeni kayıt için varsayılan tarih (seçili ay/hafta bağlamından). */
   defaultDate?: string;
-  onSave: (d: Omit<ContentExpense, "id">) => void;
+  onSave: (d: Omit<ContentExpense, "id">) => void | Promise<void>;
   onDelete?: () => void;
   onClose: () => void;
 }) {
@@ -252,6 +252,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
     reviewStatus: initial?.reviewStatus ?? "pending",
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
+  const [saving, setSaving] = useState(false);
 
   const applyBrands = (ids: string[]) => {
     setSelectedBrandIds(ids);
@@ -263,7 +264,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   const thread = initial?.reviewThread ?? [];
 
   return (
-    <form onSubmit={e => {
+    <form onSubmit={async (e) => {
       e.preventDefault();
       if (readOnly && initial?.reviewStatus !== "needs_info") { onClose(); return; }
       if (form.amountUsd <= 0 && initial?.reviewStatus !== "needs_info") return;
@@ -274,14 +275,19 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
               { authorId: userId, authorRole: "streamer" as const, message: replyText.trim(), at: new Date().toISOString() },
             ]
           : thread;
-      onSave({
-        ...form,
-        ...buildExpenseBrandFields(selectedBrandIds, brands),
-        reviewThread: nextThread,
-        reviewStatus: initial?.reviewStatus === "needs_info" ? "pending" : "pending",
-        submittedAt: new Date().toISOString(),
-      });
-      onClose();
+      setSaving(true);
+      try {
+        await onSave({
+          ...form,
+          ...buildExpenseBrandFields(selectedBrandIds, brands),
+          reviewThread: nextThread,
+          reviewStatus: initial?.reviewStatus === "needs_info" ? "pending" : "pending",
+          submittedAt: new Date().toISOString(),
+        });
+        onClose();
+      } finally {
+        setSaving(false);
+      }
     }}>
       {thread.length > 0 && (
         <div className="mb-4 rounded-lg border border-border bg-muted/30 p-3 space-y-2 max-h-40 overflow-y-auto">
@@ -367,7 +373,14 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
         onDelete={onDelete}
         deleteLabel="Gönderimi geri çek"
         hideSubmit={readOnly}
-        submitLabel={initial ? "Güncelle & Tekrar Gönder" : "Gönder & Onaya Yolla"}
+        submitDisabled={saving}
+        submitLabel={
+          saving
+            ? "Kaydediliyor…"
+            : initial
+              ? "Güncelle & Tekrar Gönder"
+              : "Gönder & Onaya Yolla"
+        }
       />
     </form>
   );
@@ -1853,7 +1866,21 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const handleExpenseSave = async (data: Omit<ContentExpense, "id">) => {
     if (data.amountUsd <= 0) return;
     if (expenseModal === "new") {
-      const newId = addContentExpense(data);
+      const newId = addContentExpense(data, { skipPersist: true });
+      const row = useStore.getState().contentExpenses.find((x) => x.id === newId);
+      if (row) {
+        const { persistEntityAsync } = await import("@/store/store");
+        const persisted = await persistEntityAsync("content_expense", row);
+        if (!persisted.ok) {
+          useStore.setState((s) => ({
+            contentExpenses: s.contentExpenses.filter((x) => x.id !== newId),
+          }));
+          window.alert(
+            `Harcama kaydedilemedi: ${persisted.error ?? "Supabase hatası"}. Lütfen tekrar deneyin.`
+          );
+          throw new Error(persisted.error ?? "persist failed");
+        }
+      }
       pushNotification({
         type: "expense_submitted",
         title: `${me.name} yeni harcama gönderdi`,

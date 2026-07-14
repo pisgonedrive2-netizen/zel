@@ -341,6 +341,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const patch: Record<string, unknown> = {};
         const preserveKasa =
           user.role === "admin" || user.role === "auditor";
+        /** Seed ka-01…ka-12 = 163 USDT; gerçek defteri asla seed ile kilitleme. */
+        const looksLikeSeedKasaTx = (txs: { id: string }[]) =>
+          txs.length > 0 &&
+          txs.length <= 12 &&
+          txs.every((t) => /^ka-\d{2}$/.test(t.id));
         for (const k of APP_SNAPSHOT_KEYS) {
           if (data[k] === undefined) continue;
           if (
@@ -350,7 +355,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             (data[k] as unknown[]).length === 0
           ) {
             const prev = useStore.getState()[k as "kasas" | "kasaTransactions"];
-            if (prev.length > 0) continue;
+            // Gerçek (seed olmayan) yerel veriyi boş bootstrap'e karşı koru.
+            if (
+              prev.length > 0 &&
+              !(k === "kasaTransactions" && looksLikeSeedKasaTx(prev))
+            ) {
+              continue;
+            }
           }
           patch[k] = data[k];
         }
