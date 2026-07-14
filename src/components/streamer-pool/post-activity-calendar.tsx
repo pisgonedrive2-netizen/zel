@@ -11,6 +11,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ActivityLinkPreview } from "@/components/streamer-pool/activity-link-preview";
 import { isoToLocalDateOnly, todayDateLocal } from "@/lib/data";
 import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
 
@@ -349,33 +350,36 @@ export function PostActivityCalendar({
                 ekleyin.
               </p>
             ) : (
-              <ul className="space-y-1.5">
+              <ul className="space-y-2.5">
                 {selectedItems.map((item) => (
                   <li
                     key={item.id}
-                    className="flex flex-col gap-0.5 rounded-lg border border-border/60 bg-card px-2.5 py-1.5 sm:flex-row sm:items-center sm:gap-2"
+                    className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card p-2.5 sm:flex-row sm:items-start sm:gap-3"
                   >
-                    <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                      {item.platform}
-                      {item.label ? ` · ${item.label}` : ""}
-                    </span>
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 min-w-0 truncate font-mono text-[11px] text-blue-600 hover:underline dark:text-blue-400"
-                    >
-                      {item.url}
-                    </a>
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 text-muted-foreground hover:text-foreground self-end sm:self-center"
-                      title="Aç"
-                    >
-                      <ExternalLink size={12} />
-                    </a>
+                    <ActivityLinkPreview item={item} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="text-[10px] uppercase text-muted-foreground">
+                        {item.platform}
+                        {item.label ? ` · ${item.label}` : ""}
+                      </span>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-all font-mono text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        {item.url}
+                      </a>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-fit items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                        title="Aç"
+                      >
+                        Linki aç <ExternalLink size={11} />
+                      </a>
+                    </div>
                   </li>
                 ))}
               </ul>

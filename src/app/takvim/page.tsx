@@ -991,23 +991,13 @@ function TakvimPage() {
             Bu hafta
           </Button>
         </div>
-        {planEmployeeId && (
-          <div className="mt-4">
-            <WeekContentSummary
-              weekStart={planWeek}
-              plans={weeklyPlans.filter(
-                (p) => p.employeeId === planEmployeeId && planDateInWeek(p.date, planWeek)
-              )}
-            />
-          </div>
-        )}
         {yayincilar.length > 0 && planEmployeeId && (
           <div className="mt-4 space-y-3">
             <CollapsibleSection
               id="plan-achievement"
               className="scroll-mt-28 border-[#FF6B00]/30 shadow-sm"
               title={`${planStreamerName} · paylaşım achievement'ı`}
-              description="Aylık takvim, seri ve kişisel hesap paylaşımları — operasyon özetinin üstünde"
+              description="Aylık takvim, seri ve kişisel hesap paylaşımları — plan tahtasının üstünde"
               defaultOpen
               trailing={
                 <Badge variant="secondary" className="text-[10px] tabular-nums">
@@ -1028,7 +1018,20 @@ function TakvimPage() {
                 fetchDayDetail={planEmployeeId ? fetchDayDetail : undefined}
               />
             </CollapsibleSection>
-
+          </div>
+        )}
+        {planEmployeeId && (
+          <div className="mt-4">
+            <WeekContentSummary
+              weekStart={planWeek}
+              plans={weeklyPlans.filter(
+                (p) => p.employeeId === planEmployeeId && planDateInWeek(p.date, planWeek)
+              )}
+            />
+          </div>
+        )}
+        {yayincilar.length > 0 && planEmployeeId && (
+          <div className="mt-4 space-y-3">
             <CollapsibleSection
               id="plan-checkin"
               className="scroll-mt-28"

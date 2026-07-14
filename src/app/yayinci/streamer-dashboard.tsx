@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Wallet, TrendingDown, CalendarDays, Clapperboard, Eye, ExternalLink,
@@ -34,9 +34,16 @@ import { BrandLogo } from "@/components/brand-logo";
 import { LinkDetailsModal } from "@/components/link-details-modal";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
 import {
+  fetchStreamerAchievementDay,
   mergeAchievementReelsIntoStore,
   syncAchievementAfterAccountSave,
 } from "@/lib/achievement-api";
+import {
+  activityDatesList,
+  buildStreamerActivity,
+} from "@/lib/streamer-activity-dates";
+import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { FilterChipBar } from "@/components/filter-chip-bar";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
@@ -1328,7 +1335,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     contentExpenses, addContentExpense, updateContentExpense, deleteContentExpense,
     weeklyPlans, addWeeklyPlan, updateWeeklyPlan, deleteWeeklyPlan,
     weekBrandReels, addWeekBrandReel, deleteWeekBrandReel, applyWeekReelMetrics,
-    scheduleSlots, streamerAccounts, brandLinks, brands, linkSnapshots, brandViewership,
+    scheduleSlots, streamerAccounts, brandLinks, brandPosts, brandDeals, brands, linkSnapshots, brandViewership,
     addStreamerAccount, updateStreamerAccount, deleteStreamerAccount,
     addBrandLink, updateBrandLink, deleteBrandLink, addLinkSnapshot,
     addBrandViewership, updateBrandViewership,
@@ -1753,6 +1760,34 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
     }
     return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [myReels]);
+
+  const achievementActivityOpts = useMemo(
+    () => ({ brandDeals, brandLinks }),
+    [brandDeals, brandLinks]
+  );
+  const achievementActivity = useMemo(
+    () =>
+      buildStreamerActivity(me.id, weekBrandReels, brandPosts, achievementActivityOpts),
+    [me.id, weekBrandReels, brandPosts, achievementActivityOpts]
+  );
+  const achievementDates = useMemo(
+    () => activityDatesList(achievementActivity.byDate),
+    [achievementActivity.byDate]
+  );
+  const fetchAchievementDayDetail = useCallback(
+    (date: string) =>
+      fetchStreamerAchievementDay(me.id, date).then((r) => r.items),
+    [me.id]
+  );
+  const weekAchievementMonthYm = weekView.slice(0, 7);
+  const achievementDayCount = useMemo(() => {
+    const set = new Set(
+      achievementDates
+        .map((d) => d.slice(0, 10))
+        .filter((d) => d.startsWith(weekAchievementMonthYm))
+    );
+    return set.size;
+  }, [achievementDates, weekAchievementMonthYm]);
 
   // Haftalık reel izlenme (RapidAPI) yenileme
   const [refreshingReelId, setRefreshingReelId] = useState<string | null>(null);
@@ -2608,6 +2643,28 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 </Button>
               </div>
             </div>
+
+            <CollapsibleSection
+              id="takvim-achievement"
+              className="scroll-mt-24 border-[#FF6B00]/30 shadow-sm"
+              title="Haftalık paylaşım achievement"
+              description="Seri, ay takvimi — güne tıklayınca linkler ve önizlemeler"
+              defaultOpen
+              trailing={
+                <Badge variant="secondary" className="text-[10px] tabular-nums">
+                  {achievementDayCount} gün
+                </Badge>
+              }
+            >
+              <AchievementLinkSyncBar employeeId={me.id} employeeName={me.name} />
+              <PostActivityCalendar
+                embedded
+                activityDates={achievementDates}
+                byDate={achievementActivity.byDate}
+                initialMonthYm={weekAchievementMonthYm}
+                fetchDayDetail={fetchAchievementDayDetail}
+              />
+            </CollapsibleSection>
 
             <ShiftTemplateCard
               weekStart={weekView}
