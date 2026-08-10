@@ -487,7 +487,7 @@ function ReachPanel() {
         >
           Aylık toplam erişim
         </h3>
-        <span className="ml-auto text-[11px] text-white/40">Canlı veri · Haz 2026</span>
+        <span className="ml-auto text-[11px] text-white/40">Canlı veri · Ağu 2026</span>
       </div>
 
       <div className="flex items-baseline gap-2">
@@ -953,8 +953,8 @@ export function LandingPackages() {
             {[
               { v: 90, suffix: "M+", label: "Aylık içerik izlenmesi", dec: 0 },
               { v: 5, suffix: "", label: "Aktif marka", dec: 0 },
-              { v: 400, suffix: "+", label: "İçerik linki", dec: 0 },
-              { v: 38, suffix: "M+", label: "En viral tek içerik", dec: 0 },
+              { v: 900, suffix: "+", label: "İçerik linki", dec: 0 },
+              { v: 40, suffix: "M+", label: "En viral tek içerik", dec: 0 },
             ].map((s) => (
               <div key={s.label} className={`flex flex-col justify-center px-4 py-4 text-center ${eliteShell} ${eliteShellHover}`}>
                 <p
