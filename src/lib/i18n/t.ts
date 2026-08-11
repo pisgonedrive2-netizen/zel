@@ -106,7 +106,6 @@ const EXTRA_RU: Record<string, string> = {
   "Genel kasa durumu": "Состояние общей кассы",
   "Maaş/gider için kullanılan ana kasa": "Основная касса для зарплат и расходов",
   "Bu Ay": "Этот месяц",
-  "Bu ay": "Этот месяц",
   "Bu Ay Bekleyen Ödeme": "Ожидает выплаты в этом месяце",
   "Bu Ay Bekleyen Ödemeler": "Ожидающие выплаты в этом месяце",
   "Geri ödenmemiş avans bakiyesi": "Непогашенный остаток аванса",
@@ -170,7 +169,6 @@ const EXTRA_RU: Record<string, string> = {
   "işlem": "операций",
   "link": "ссылок",
   "göre hesaplanır": "считается по",
-  "maaş satırı her ay bordrodaki kişilere göre hesaplanır": "строка зарплаты считается по людям в ведомости каждого месяца",
 };
 
 const TR_CHAR = /[ğıüşöçİĞÜŞÖÇ]/;
