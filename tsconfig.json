@@ -12,6 +12,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
+    "jsxImportSource": "@/lib/i18n",
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {

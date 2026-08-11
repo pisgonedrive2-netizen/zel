@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { monthLabelTr } from "@/lib/month-label";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 interface Props {
   month: string;
@@ -36,6 +38,7 @@ export function MonthlyExportMenu({
   variant = "outline",
   className,
 }: Props) {
+  const locale = useUiPrefs((s) => s.locale);
   const months = availableMonths.length > 0 ? availableMonths : [month];
   const [selected, setSelected] = useState(month);
   const [open, setOpen] = useState(false);
@@ -55,7 +58,7 @@ export function MonthlyExportMenu({
     } catch (err) {
       console.error("Export failed:", err);
       window.alert(
-        `Dışa aktarma başarısız: ${err instanceof Error ? err.message : "bilinmeyen hata"}`,
+        `${t("Dışa aktarma başarısız", locale)}: ${err instanceof Error ? err.message : t("bilinmeyen hata", locale)}`,
       );
     } finally {
       setBusy(null);
@@ -70,17 +73,17 @@ export function MonthlyExportMenu({
         className={cn(buttonVariants({ variant, size }), "gap-1.5", className)}
       >
         <Download size={14} />
-        {busy ? "Hazırlanıyor…" : label}
+        {busy ? t("Hazırlanıyor…", locale) : t(label, locale)}
         <ChevronDown size={12} className="opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 p-2">
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium px-1">
-            Ay seç
+            {t("Ay seç", locale)}
           </DropdownMenuLabel>
           <div className="px-1 pb-2" onPointerDown={(e) => e.stopPropagation()}>
             <select
-              aria-label="Rapor ayı seç"
+              aria-label={t("Rapor ayı seç", locale)}
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
               className="w-full h-8 rounded-md border border-border bg-background text-sm px-2"
@@ -96,7 +99,7 @@ export function MonthlyExportMenu({
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium px-1">
-            Dışa aktar
+            {t("Dışa aktar", locale)}
           </DropdownMenuLabel>
           <DropdownMenuItem
             disabled={!!busy}
@@ -105,8 +108,8 @@ export function MonthlyExportMenu({
           >
             <FileText size={14} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
             <div className="flex flex-col min-w-0">
-              <span className="text-sm font-medium">PDF olarak indir</span>
-              <span className="text-[10px] text-muted-foreground">Yazdırılabilir profesyonel rapor</span>
+              <span className="text-sm font-medium">{t("PDF olarak indir", locale)}</span>
+              <span className="text-[10px] text-muted-foreground">{t("Yazdırılabilir profesyonel rapor", locale)}</span>
             </div>
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -116,8 +119,8 @@ export function MonthlyExportMenu({
           >
             <FileSpreadsheet size={14} className="text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
             <div className="flex flex-col min-w-0">
-              <span className="text-sm font-medium">Excel (CSV) olarak indir</span>
-              <span className="text-[10px] text-muted-foreground">Excel uyumlu, UTF-8 BOM ile</span>
+              <span className="text-sm font-medium">{t("Excel (CSV) olarak indir", locale)}</span>
+              <span className="text-[10px] text-muted-foreground">{t("Excel uyumlu, UTF-8 BOM ile", locale)}</span>
             </div>
           </DropdownMenuItem>
         </DropdownMenuGroup>

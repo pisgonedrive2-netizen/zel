@@ -51,6 +51,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatisticsCard2 } from "@/components/ui/statistics-card-2";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 // ── Custom tooltip ─────────────────────────────────────────────────────────
 function CustomTooltip({ active, payload, label }: any) {
@@ -60,7 +62,7 @@ function CustomTooltip({ active, payload, label }: any) {
       <p className="text-xs text-muted-foreground mb-1.5">{label}</p>
       {payload.map((p: any) => (
         <p key={p.name} className="text-xs font-medium" style={{ color: p.color }}>
-          {p.name}: {fmt(p.value)}
+          {t(String(p.name))}: {fmt(p.value)}
         </p>
       ))}
     </div>
@@ -71,6 +73,7 @@ function CustomTooltip({ active, payload, label }: any) {
 export default function OzetPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const locale = useUiPrefs((s) => s.locale);
   const allowed = hasCapability(user, "page.ozet");
 
   useEffect(() => {
@@ -298,7 +301,7 @@ export default function OzetPage() {
       title: "Açık Avans",
       value: fmt(acikAvansToplam),
       trend: acikAvansToplam > 0 ? "down" : "up",
-      trendLabel: acikAvansToplam > 0 ? "Açık" : "Temiz",
+      trendLabel: acikAvansToplam > 0 ? "Açık avans" : "Temiz",
       description: "Geri ödenmemiş avans bakiyesi",
       icon: TrendingDown,
       href: "/maaslar",
@@ -519,18 +522,17 @@ export default function OzetPage() {
         <CardContent className="py-4 px-4">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
             <div>
-              <p className="text-sm font-medium text-foreground">Kasa bakiyesi nasıl okunur?</p>
+              <p className="text-sm font-medium text-foreground">{t("Kasa bakiyesi nasıl okunur?", locale)}</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
                 {canRamizWallet ? (
                   <>
-                    Toplam bakiye {fmt(kasaOzeti.tumKasalar)}. Bu rakam {kasaOzeti.genelKasaAdi} +{" "}
-                    {kasaOzeti.tronKasaAdi} toplamıdır. <strong>Ramiz cüzdanı</strong> otomatik TRON hareketleridir;{" "}
-                    <strong>{kasaOzeti.genelKasaAdi}</strong> harcama kasasıdır.
+                    {t("Toplam bakiye", locale)} {fmt(kasaOzeti.tumKasalar)}. {t("Bu rakam", locale)} {t(kasaOzeti.genelKasaAdi, locale)} +{" "}
+                    {t(kasaOzeti.tronKasaAdi, locale)} {t("toplamıdır", locale)}. <strong>{t("Ramiz cüzdanı", locale)}</strong> {t("otomatik TRON hareketleridir", locale)};{" "}
+                    <strong>{t(kasaOzeti.genelKasaAdi, locale)}</strong> {t("harcama kasasıdır", locale)}.
                   </>
                 ) : (
                   <>
-                    <strong>{kasaOzeti.genelKasaAdi}</strong> bakiyesi {fmt(kasaOzeti.genelBakiye)} — maaş ve
-                    gider ödemeleri için kullanılan ana kasa.
+                    <strong>{t(kasaOzeti.genelKasaAdi, locale)}</strong> {t("bakiyesi", locale)} {fmt(kasaOzeti.genelBakiye)} — {t("maaş ve gider ödemeleri için kullanılan ana kasa", locale)}.
                   </>
                 )}
               </p>
@@ -544,7 +546,7 @@ export default function OzetPage() {
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
             <div className="rounded-lg border border-border bg-card px-3 py-2.5">
-              <p className="text-muted-foreground">{kasaOzeti.genelKasaAdi}</p>
+              <p className="text-muted-foreground">{t(kasaOzeti.genelKasaAdi, locale)}</p>
               <p className="text-lg font-bold tabular-nums text-blue-800 dark:text-blue-200">
                 {fmt(kasaOzeti.genelBakiye)}
               </p>
@@ -566,7 +568,7 @@ export default function OzetPage() {
             </>
             )}
             <div className="rounded-lg border border-amber-300/50 bg-amber-500/5 px-3 py-2.5">
-              <p className="text-muted-foreground">{kasaOzeti.genelKasaAdi} harcama</p>
+              <p className="text-muted-foreground">{t(`${kasaOzeti.genelKasaAdi} harcama`, locale)}</p>
               <p className="text-lg font-bold tabular-nums text-amber-800 dark:text-amber-200">
                 {fmt(kasaOzeti.tronLokal)}
               </p>
@@ -672,9 +674,9 @@ export default function OzetPage() {
                   <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                   <RechartsTooltip content={<CustomTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11, color: "#6b7280" }} />
-                  <Area type="monotone" dataKey="gelir" name="Gelir" stroke="#3b82f6" strokeWidth={2} fill="url(#colorGelir)" />
-                  <Area type="monotone" dataKey="gider" name="Gider" stroke="#ef4444" strokeWidth={2} fill="url(#colorGider)" />
-                  <Area type="monotone" dataKey="net"   name="Net"   stroke="#22c55e" strokeWidth={2} fill="url(#colorNet)" />
+                  <Area type="monotone" dataKey="gelir" name={t("Gelir", locale)} stroke="#3b82f6" strokeWidth={2} fill="url(#colorGelir)" />
+                  <Area type="monotone" dataKey="gider" name={t("Gider", locale)} stroke="#ef4444" strokeWidth={2} fill="url(#colorGider)" />
+                  <Area type="monotone" dataKey="net"   name={t("Net", locale)}   stroke="#22c55e" strokeWidth={2} fill="url(#colorNet)" />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -706,7 +708,7 @@ export default function OzetPage() {
                   <div key={d.name} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                      <span className="text-xs font-medium" style={{ color: d.color }}>{d.name}</span>
+                      <span className="text-xs font-medium" style={{ color: d.color }}>{t(d.name, locale)}</span>
                     </div>
                     <span className="text-xs font-semibold tabular-nums text-foreground">{fmt(d.value)}</span>
                   </div>
@@ -735,8 +737,8 @@ export default function OzetPage() {
                   <XAxis dataKey="ay" stroke="#6b7280" tick={{ fontSize: 11 }} />
                   <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                   <RechartsTooltip content={<CustomTooltip />} />
-                  <Bar dataKey="gelir" name="Gelir" fill="#3b82f6" radius={[4,4,0,0]} />
-                  <Bar dataKey="gider" name="Gider" fill="#ef4444" radius={[4,4,0,0]} opacity={0.7} />
+                  <Bar dataKey="gelir" name={t("Gelir", locale)} fill="#3b82f6" radius={[4,4,0,0]} />
+                  <Bar dataKey="gider" name={t("Gider", locale)} fill="#ef4444" radius={[4,4,0,0]} opacity={0.7} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -757,8 +759,8 @@ export default function OzetPage() {
                   <div className="flex items-start gap-3">
                     <a.icon size={14} className={`shrink-0 mt-0.5 ${a.color}`} />
                     <div className="min-w-0">
-                      <p className="text-[12px] font-medium text-foreground truncate">{a.title}</p>
-                      <p className={`text-[11px] truncate ${a.color}`}>{a.sub}</p>
+                      <p className="text-[12px] font-medium text-foreground truncate">{t(a.title, locale)}</p>
+                      <p className={`text-[11px] truncate ${a.color}`}>{t(a.sub, locale)}</p>
                     </div>
                   </div>
                 );

@@ -1,4 +1,8 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 const MAX_WIDTH = {
   md: "max-w-[1200px]",
@@ -44,17 +48,18 @@ export function PageHeader({
   actions?: React.ReactNode;
   icon?: React.ReactNode;
 }) {
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <div className="mb-3 flex items-start justify-between gap-2 flex-wrap">
       <div className="flex items-center gap-2 min-w-0">
         {icon}
         <div className="min-w-0">
           <h1 className="text-lg sm:text-xl font-bold text-foreground tracking-tight">
-            {title}
+            {t(title, locale)}
           </h1>
           {description && (
             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-              {description}
+              {t(description, locale)}
             </p>
           )}
         </div>

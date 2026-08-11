@@ -2,6 +2,8 @@
 
 import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react";
 import { numberInputDisplay, parseNumberInput, parseOptionalNumberInput } from "@/lib/number-input";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 interface FieldProps {
   label: string;
@@ -16,6 +18,7 @@ interface FieldProps {
  * niteliklerini doldurur (a11y).
  */
 export function Field({ label, required, children, hint }: FieldProps) {
+  const locale = useUiPrefs((s) => s.locale);
   const id = useId();
   const hintId = `${id}-hint`;
   let injected = false;
@@ -43,7 +46,7 @@ export function Field({ label, required, children, hint }: FieldProps) {
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="text-[12px] font-medium text-foreground">
-        {label}
+        {t(label, locale)}
         {required && (
           <span className="ml-0.5 text-destructive" aria-hidden="true">
             *
@@ -53,7 +56,7 @@ export function Field({ label, required, children, hint }: FieldProps) {
       {enhanced}
       {hint && (
         <p id={hintId} className="text-[11px] text-muted-foreground">
-          {hint}
+          {t(hint, locale)}
         </p>
       )}
     </div>

@@ -1,4 +1,8 @@
+"use client";
+
 import { Badge } from "@/components/ui/badge";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 type Tone = "green" | "blue" | "amber" | "red" | "slate";
 
@@ -13,14 +17,15 @@ const toneCls: Record<Tone, string> = {
 export default function PageHeader({ title, subtitle, badge, badgeTone = "blue" }: {
   title: string; subtitle?: string; badge?: string; badgeTone?: Tone;
 }) {
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <div className="flex items-start justify-between mb-8">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
-        {subtitle && <p className="text-muted-foreground text-sm mt-1">{subtitle}</p>}
+        <h1 className="text-2xl font-bold text-foreground">{t(title, locale)}</h1>
+        {subtitle && <p className="text-muted-foreground text-sm mt-1">{t(subtitle, locale)}</p>}
       </div>
       {badge && (
-        <Badge variant="outline" className={`text-xs ${toneCls[badgeTone]}`}>{badge}</Badge>
+        <Badge variant="outline" className={`text-xs ${toneCls[badgeTone]}`}>{t(badge, locale)}</Badge>
       )}
     </div>
   );

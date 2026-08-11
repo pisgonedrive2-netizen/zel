@@ -12,6 +12,8 @@ import {
   galleryViewsLabel,
   type LandingGalleryItem,
 } from "@/lib/landing-gallery";
+import { landingCopy, packageTagline, type LandingCopy } from "@/lib/i18n/landing";
+import { useUiPrefs } from "@/store/ui-prefs";
 import {
   IconElite,
   IconMulti,
@@ -33,6 +35,11 @@ const eliteShellHover =
 const TELEGRAM_URL = "https://t.me/lanetkelresmi";
 function goTelegram() {
   if (typeof window !== "undefined") window.open(TELEGRAM_URL, "_blank", "noopener,noreferrer");
+}
+
+function useLandingCopy(): LandingCopy {
+  const locale = useUiPrefs((s) => s.locale);
+  return landingCopy(locale);
 }
 
 // ── İçerik türü etiketleri ──────────────────────────────────────────────────
@@ -70,6 +77,31 @@ const CONTENT_TAGS = {
 } as const;
 
 type ContentTagKey = keyof typeof CONTENT_TAGS;
+
+function contentTags(copy: LandingCopy) {
+  return {
+    youtube: { ...CONTENT_TAGS.youtube, label: copy.tagYoutube, desc: copy.tagYoutubeDesc },
+    reel: { ...CONTENT_TAGS.reel, label: copy.tagReel, desc: copy.tagReelDesc },
+    normal: { ...CONTENT_TAGS.normal, label: copy.tagAdult, desc: copy.tagAdultDesc },
+    live: { ...CONTENT_TAGS.live, label: copy.tagLive, desc: copy.tagLiveDesc },
+    campaign: { ...CONTENT_TAGS.campaign, label: copy.tagCampaign, desc: copy.tagCampaignDesc },
+  };
+}
+
+function addonLabel(copy: LandingCopy, key: string, fallback: string): string {
+  if (key === "youtube") return copy.addonYoutube;
+  if (key === "normal") return copy.addonAdult;
+  if (key === "live") return copy.addonLive;
+  if (key === "reel") return copy.addonReel;
+  if (key === "story") return copy.addonStory;
+  return fallback;
+}
+
+function packageBadge(copy: LandingCopy, id: string, fallback?: string): string | undefined {
+  if (id === "standard") return copy.mostChosen;
+  if (id === "multi") return copy.discount20;
+  return fallback;
+}
 type PackageItem = { tag: ContentTagKey; count: number };
 
 /**
@@ -79,10 +111,12 @@ type PackageItem = { tag: ContentTagKey; count: number };
 function WithTip({
   text,
   color,
+  tipHeading,
   children,
 }: {
   text: string;
   color: string;
+  tipHeading: string;
   children: React.ReactNode;
 }) {
   return (
@@ -94,7 +128,7 @@ function WithTip({
         style={{ borderColor: `${color}66` }}
       >
         <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide" style={{ color }}>
-          Ne yapılır?
+          {tipHeading}
         </span>
         {text}
       </span>
@@ -219,6 +253,7 @@ function toGalleryCards(items: LandingGalleryItem[]): GalleryCard[] {
 const FALLBACK_GALLERY = toGalleryCards(DEFAULT_LANDING_GALLERY);
 
 function ContentGallery() {
+  const copy = useLandingCopy();
   const [playing, setPlaying] = useState<string | null>(null);
   const [items, setItems] = useState<GalleryCard[]>(FALLBACK_GALLERY);
 
@@ -322,7 +357,7 @@ function ContentGallery() {
                 <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5">
                   <Play size={11} className="fill-white/80 text-white/80" />
                   <span className="text-xs font-bold tabular-nums text-white drop-shadow">{g.viewsLabel}</span>
-                  <span className="text-[10px] text-white/60">izlenme</span>
+                  <span className="text-[10px] text-white/60">{copy.views}</span>
                 </div>
               </>
             )}
@@ -470,6 +505,7 @@ function AnimatedNumber({ value, suffix = "", decimals = 0 }: { value: number; s
 
 // ── Erişim momentumu (genel/anonim görsel) ───────────────────────────────────
 function ReachPanel() {
+  const copy = useLandingCopy();
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: "-60px" });
   const maxBar = Math.max(...REACH_BARS);
@@ -485,16 +521,16 @@ function ReachPanel() {
         <h3
           className="text-lg font-semibold tracking-tight text-white"
         >
-          Aylık toplam erişim
+          {copy.reachTitle}
         </h3>
-        <span className="ml-auto text-[11px] text-white/40">Canlı veri · Ağu 2026</span>
+        <span className="ml-auto text-[11px] text-white/40">{copy.liveData}</span>
       </div>
 
       <div className="flex items-baseline gap-2">
         <span className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
           <AnimatedNumber value={90} suffix="M+" />
         </span>
-        <span className="text-sm font-medium text-white/50">izlenme / ay</span>
+        <span className="text-sm font-medium text-white/50">{copy.reachUnit}</span>
       </div>
 
       {/* Soyut momentum barları — marka adı/sayı yok */}
@@ -512,8 +548,7 @@ function ReachPanel() {
       </div>
 
       <p className="mt-4 text-[11px] leading-relaxed text-white/45">
-        Yüzlerce içerik linki ve onlarca platform üzerinden ölçülen{" "}
-        <span className="font-semibold text-white/70">organik erişim</span>. Rakamlar aylık toplamı yansıtır.
+        {copy.reachNote}
       </p>
     </div>
   );
@@ -531,8 +566,12 @@ function PackageCard({
   selected: boolean;
   onPick: () => void;
 }) {
+  const copy = useLandingCopy();
+  const tags = contentTags(copy);
   const Icon = pkg.icon;
   const featured = pkg.featured;
+  const badge = packageBadge(copy, pkg.id, pkg.badge);
+  const tagline = packageTagline(copy, pkg.id, pkg.tagline);
   return (
     <motion.div
       initial={{ opacity: 0, y: 32 }}
@@ -555,7 +594,7 @@ function PackageCard({
       />
       {selected && (
         <span className="absolute left-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-          <Check size={11} strokeWidth={3} /> Seçildi
+          <Check size={11} strokeWidth={3} /> {copy.picked}
         </span>
       )}
       <div
@@ -564,12 +603,12 @@ function PackageCard({
         style={{ background: pkg.color }}
       />
 
-      {pkg.badge && (
+      {badge && (
         <span
           className="absolute right-3 top-3 z-10 inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
           style={{ background: featured ? pkg.color : `${pkg.color}22`, color: featured ? "#000" : pkg.color }}
         >
-          {pkg.badge}
+          {badge}
         </span>
       )}
 
@@ -598,14 +637,14 @@ function PackageCard({
           >
             {pkg.name}
           </h3>
-          <span className="text-[11px] text-white/45">{totalPieces(pkg.items)} prodüksiyon / ay</span>
+          <span className="text-[11px] text-white/45">{totalPieces(pkg.items)} {copy.prodPerMonth}</span>
         </div>
       </div>
 
       <div className="relative z-[1] mt-4">
         <div className="flex items-baseline gap-1.5">
           <span className="text-3xl font-extrabold tracking-tight text-white">{pkg.price}</span>
-          <span className="text-xs font-medium text-white/50">{pkg.priceUnit}</span>
+          <span className="text-xs font-medium text-white/50">{copy.perBrandMonth}</span>
         </div>
         {pkg.priceNote && <p className="mt-1 text-[11px] font-medium" style={{ color: pkg.color }}>{pkg.priceNote}</p>}
       </div>
@@ -613,22 +652,22 @@ function PackageCard({
       {/* Garantili izlenme + CPM */}
       <div className="relative z-[1] mt-3 flex items-center gap-2">
         <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/12 px-2 py-1 text-[11px] font-semibold text-emerald-300">
-          <ShieldCheck size={12} /> {pkg.guaranteedViews} garanti izlenme
+          <ShieldCheck size={12} /> {pkg.guaranteedViews} {copy.guaranteedViews}
         </span>
         <span className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-1 text-[11px] font-medium text-white/55">
-          Garanti CPM {pkg.cpm}
+          {copy.guaranteeCpm} {pkg.cpm}
         </span>
       </div>
 
-      <p className="relative z-[1] mt-3 text-sm leading-relaxed text-white/60">{pkg.tagline}</p>
+      <p className="relative z-[1] mt-3 text-sm leading-relaxed text-white/60">{tagline}</p>
 
       <ul className="relative z-[1] mt-4 flex flex-col gap-2 border-t border-white/10 pt-4">
         {pkg.items.map((it) => {
-          const tag = CONTENT_TAGS[it.tag];
+          const tag = tags[it.tag];
           const TagIcon = tag.icon;
           return (
             <li key={it.tag}>
-              <WithTip text={tag.desc} color={tag.color}>
+              <WithTip text={tag.desc} color={tag.color} tipHeading={copy.tipWhat}>
                 <span className="flex items-center gap-2.5 rounded-md py-0.5 transition group-hover/tip:opacity-100">
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md" style={{ background: `${tag.color}1f`, color: tag.color }}>
                     <TagIcon size={13} strokeWidth={2.2} />
@@ -646,7 +685,7 @@ function PackageCard({
 
       <div className="relative z-[1] mt-4 flex flex-wrap gap-1.5">
         {pkg.items.map((it) => {
-          const tag = CONTENT_TAGS[it.tag];
+          const tag = tags[it.tag];
           return (
             <span key={`tag-${it.tag}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${tag.color}1c`, color: tag.color }}>
               {tag.label}
@@ -668,14 +707,14 @@ function PackageCard({
                 : "border border-white/15 bg-white/5 text-white hover:bg-white/10"
           }`}
         >
-          <Check size={15} strokeWidth={2.4} /> {selected ? "Seçildi" : "Seç"}
+          <Check size={15} strokeWidth={2.4} /> {selected ? copy.picked : copy.pick}
         </button>
         <button
           type="button"
           onClick={goTelegram}
           className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-transparent px-4 text-xs font-semibold text-white/70 transition hover:bg-white/5 hover:text-white"
         >
-          <Send size={13} /> Teklif al
+          <Send size={13} /> {copy.getOffer}
         </button>
       </div>
     </motion.div>
@@ -692,6 +731,7 @@ function AddonSelector({
   onCommit: (qty: Record<string, number>) => void;
   onNeedPackage: () => void;
 }) {
+  const copy = useLandingCopy();
   const [qty, setQty] = useState<Record<string, number>>({});
   const set = (key: string, delta: number) =>
     setQty((q) => {
@@ -713,9 +753,9 @@ function AddonSelector({
     <div className="mt-8 rounded-2xl border border-white/10 bg-white/[0.02] p-5 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Plus size={15} className="text-orange-400" />
-        <h3 className="text-sm font-semibold text-white">Ek prodüksiyon</h3>
+        <h3 className="text-sm font-semibold text-white">{copy.extraProd}</h3>
         <span className="ml-auto text-[11px] text-white/40">
-          {selectedPkg ? `Seçili paket: ${selectedPkg.name}` : "Paket seçtikten sonra ekleyebilirsin"}
+          {selectedPkg ? `${copy.selectedPkg}: ${selectedPkg.name}` : copy.pickPackageFirst}
         </span>
       </div>
 
@@ -735,8 +775,8 @@ function AddonSelector({
                 <AddIcon size={15} strokeWidth={2.2} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-white/85">{a.label}</p>
-                <p className="text-[11px] font-bold" style={{ color: a.color }}>{fmtUsd(a.price)}<span className="font-normal text-white/40"> / adet</span></p>
+                <p className="truncate text-sm font-medium text-white/85">{addonLabel(copy, a.key, a.label)}</p>
+                <p className="text-[11px] font-bold" style={{ color: a.color }}>{fmtUsd(a.price)}<span className="font-normal text-white/40"> {copy.perPiece}</span></p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <button
@@ -766,9 +806,9 @@ function AddonSelector({
       {/* Toplam + CTA */}
       <div className="mt-4 flex flex-col items-stretch gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline gap-2">
-          <span className="text-xs text-white/50">Seçilen ek ({count} kalem):</span>
+          <span className="text-xs text-white/50">{copy.addonSelected} ({count}):</span>
           <span className="text-2xl font-extrabold tracking-tight text-white">{fmtUsd(total)}</span>
-          <span className="text-xs text-white/40">/ ay</span>
+          <span className="text-xs text-white/40">{copy.perMonth}</span>
         </div>
         <button
           type="button"
@@ -782,7 +822,7 @@ function AddonSelector({
           }`}
         >
           <Check size={15} strokeWidth={2.4} />
-          {count === 0 ? "Ek seç" : selectedPkg ? "Seçimi teklife ekle" : "Önce paket seç"}
+          {count === 0 ? copy.addonPick : selectedPkg ? copy.addonAddToOffer : copy.addonPickFirst}
         </button>
       </div>
     </div>
@@ -799,6 +839,7 @@ function OfferSummary({
   addons: Record<string, number>;
   onClear: () => void;
 }) {
+  const copy = useLandingCopy();
   const addonLines = ADDONS.filter((a) => (addons[a.key] ?? 0) > 0);
   const addonTotal = addonLines.reduce((s, a) => s + (addons[a.key] ?? 0) * a.price, 0);
   const grand = selectedPkg.priceUsd + addonTotal;
@@ -812,13 +853,13 @@ function OfferSummary({
     >
       <div className="mb-4 flex items-center gap-2">
         <Check size={16} className="text-orange-400" />
-        <h3 className="text-sm font-semibold text-white">Teklif özetin</h3>
+        <h3 className="text-sm font-semibold text-white">{copy.offerSummary}</h3>
         <button
           type="button"
           onClick={onClear}
           className="ml-auto text-[11px] font-medium text-white/45 transition hover:text-white/80"
         >
-          Temizle
+          {copy.clear}
         </button>
       </div>
 
@@ -827,8 +868,8 @@ function OfferSummary({
         <span className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ background: `${selectedPkg.color}1f`, color: selectedPkg.color }}>
           <PkgIcon size={16} strokeWidth={2.1} />
         </span>
-        <span className="flex-1 text-sm font-semibold text-white">{selectedPkg.name} paketi</span>
-        <span className="text-sm font-bold tabular-nums text-white">{selectedPkg.priceOnRequest ? "Teklif al" : fmtUsd(selectedPkg.priceUsd)}</span>
+        <span className="flex-1 text-sm font-semibold text-white">{selectedPkg.name} {copy.packageOf}</span>
+        <span className="text-sm font-bold tabular-nums text-white">{selectedPkg.priceOnRequest ? copy.getOffer : fmtUsd(selectedPkg.priceUsd)}</span>
       </div>
 
       {/* Add-on satırları */}
@@ -843,7 +884,7 @@ function OfferSummary({
                   <AddIcon size={14} strokeWidth={2.2} />
                 </span>
                 <span className="flex-1 text-sm text-white/80">
-                  <span className="font-semibold text-white">{n}×</span> {a.label}
+                  <span className="font-semibold text-white">{n}×</span> {addonLabel(copy, a.key, a.label)}
                 </span>
                 <span className="text-sm font-medium tabular-nums text-white/70">{fmtUsd(n * a.price)}</span>
               </div>
@@ -855,13 +896,13 @@ function OfferSummary({
       {/* Toplam + Teklif al */}
       <div className="mt-4 flex flex-col items-stretch gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline gap-2">
-          <span className="text-xs text-white/50">Toplam:</span>
+          <span className="text-xs text-white/50">{copy.total}:</span>
           {selectedPkg.priceOnRequest ? (
-            <span className="text-2xl font-extrabold tracking-tight text-white">Teklif al</span>
+            <span className="text-2xl font-extrabold tracking-tight text-white">{copy.getOffer}</span>
           ) : (
             <>
               <span className="text-3xl font-extrabold tracking-tight text-white">{fmtUsd(grand)}</span>
-              <span className="text-xs text-white/40">{selectedPkg.priceUnit}</span>
+              <span className="text-xs text-white/40">{copy.perBrandMonth}</span>
             </>
           )}
         </div>
@@ -871,7 +912,7 @@ function OfferSummary({
           style={{ backgroundColor: ORANGE }}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold text-white shadow-lg shadow-orange-900/30 ring-1 ring-orange-600/40 transition hover:brightness-110 active:scale-[0.98]"
         >
-          <Send size={15} /> Teklif al · Telegram
+          <Send size={15} /> {copy.telegramOffer}
         </button>
       </div>
     </motion.div>
@@ -880,6 +921,7 @@ function OfferSummary({
 
 // ── Bölüm ─────────────────────────────────────────────────────────────────────
 export function LandingPackages() {
+  const copy = useLandingCopy();
   const pkg = MULTI_PACKAGE;
   const MultiIcon = pkg.icon;
 
@@ -916,15 +958,14 @@ export function LandingPackages() {
           transition={{ duration: 0.5 }}
           className="mb-8 text-center"
         >
-          <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-orange-300/90">İçerik paketleri</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-orange-300/90">{copy.pkgEyebrow}</span>
           <h2
             className="mt-3 text-[2.15rem] font-semibold leading-[1.12] tracking-tight sm:text-[2.75rem]"
           >
-            Markana uygun <span className="text-orange-300">içerik paketini</span> seç.
+            {copy.pkgTitleBefore}<span className="text-orange-300">{copy.pkgTitleAccent}</span>{copy.pkgTitleAfter}
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-white/62 sm:text-[15px]">
-            Garantili izlenmeli aylık paketler — YouTube, Reel, adult içerik ve canlı yayın.
-            Türkiye pazarına özel fiyatlandırma.
+            {copy.pkgLead}
           </p>
         </motion.div>
 
@@ -951,10 +992,10 @@ export function LandingPackages() {
           <ReachPanel />
           <div className="grid grid-cols-2 gap-3">
             {[
-              { v: 90, suffix: "M+", label: "Aylık içerik izlenmesi", dec: 0 },
-              { v: 5, suffix: "", label: "Aktif marka", dec: 0 },
-              { v: 900, suffix: "+", label: "İçerik linki", dec: 0 },
-              { v: 40, suffix: "M+", label: "En viral tek içerik", dec: 0 },
+              { v: 90, suffix: "M+", label: copy.statMonthly, dec: 0 },
+              { v: 5, suffix: "", label: copy.statBrands, dec: 0 },
+              { v: 900, suffix: "+", label: copy.statLinks, dec: 0 },
+              { v: 40, suffix: "M+", label: copy.statViral, dec: 0 },
             ].map((s) => (
               <div key={s.label} className={`flex flex-col justify-center px-4 py-4 text-center ${eliteShell} ${eliteShellHover}`}>
                 <p
@@ -972,8 +1013,8 @@ export function LandingPackages() {
         <div className="mb-10">
           <div className="mb-4 flex items-center gap-2">
             <Play size={15} className="fill-orange-400 text-orange-400" />
-            <h3 className="text-sm font-semibold text-white">Ürettiğimiz içeriklerden kesitler</h3>
-            <span className="ml-auto text-[11px] text-white/40">Seçili içerikler · tıkla & izle</span>
+            <h3 className="text-sm font-semibold text-white">{copy.galleryTitle}</h3>
+            <span className="ml-auto text-[11px] text-white/40">{copy.galleryHint}</span>
           </div>
           <ContentGallery />
         </div>
@@ -996,13 +1037,11 @@ export function LandingPackages() {
             <h3
               className="text-lg font-semibold tracking-tight text-white"
             >
-              İçeriklerimiz başka nerelerde paylaşılıyor?
+              {copy.shareTitle}
             </h3>
           </div>
           <p className="mb-4 max-w-2xl text-[12px] leading-relaxed text-white/55">
-            Ürettiğimiz içerikler, takip ettiğimiz hesapların çok ötesinde — kullanıcılar tarafından
-            onlarca global platformda organik olarak yeniden paylaşılıyor. Bu, ölçtüğümüz rakamların
-            <span className="font-semibold text-white/75"> görünenden çok daha geniş</span> bir kitleye ulaştığını gösterir.
+            {copy.shareLead}
           </p>
           <div className="flex flex-wrap items-center gap-2.5">
             {SHARE_PLATFORMS.map((p, i) => (
@@ -1022,7 +1061,7 @@ export function LandingPackages() {
             ))}
             <span className="inline-flex items-center gap-1 rounded-lg border border-dashed border-white/15 bg-transparent px-3 py-2 text-xs font-medium text-white/45">
               <Globe size={13} className="text-white/35" />
-              +40 platform daha
+              {copy.shareMore}
             </span>
           </div>
         </motion.div>
@@ -1075,15 +1114,15 @@ export function LandingPackages() {
                   >
                     {pkg.name}
                   </h3>
-                  {pkg.badge && (
+                  {packageBadge(copy, pkg.id, pkg.badge) && (
                     <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider" style={{ background: pkg.color, color: "#000" }}>
-                      {pkg.badge}
+                      {packageBadge(copy, pkg.id, pkg.badge)}
                     </span>
                   )}
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/12 px-2 py-1 text-[11px] font-semibold text-emerald-300">
-                    <ShieldCheck size={12} /> {pkg.guaranteedViews} garanti izlenme
+                    <ShieldCheck size={12} /> {pkg.guaranteedViews} {copy.guaranteedViews}
                   </span>
                 </div>
               </div>
@@ -1095,7 +1134,7 @@ export function LandingPackages() {
                 style={{ backgroundColor: pkg.color, color: "#000" }}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg px-6 text-sm font-semibold shadow-lg transition hover:brightness-110 active:scale-[0.98] lg:w-auto"
               >
-                <Send size={15} /> Teklif al
+                <Send size={15} /> {copy.getOffer}
               </button>
             </div>
           </div>
@@ -1122,15 +1161,12 @@ export function LandingPackages() {
         <div className="mt-4 flex flex-col items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.05] p-5 sm:flex-row sm:items-center">
           <ShieldCheck size={20} className="shrink-0 text-emerald-400" />
           <p className="text-sm leading-relaxed text-white/70">
-            <span className="font-semibold text-white">Performans güvencesi:</span> Paketin garantili izlenmesine
-            ulaşılamazsa, eksik kalan kısım bir sonraki ay <span className="font-semibold text-emerald-300">ücretsiz ek prodüksiyonla</span> telafi edilir.
-            Hedef aşımında üretilen ekstra erişim markaya bonus olarak raporlanır.
+            <span className="font-semibold text-white">{copy.performanceTitle}</span> {copy.performanceBody}
           </p>
         </div>
 
         <p className="mx-auto mt-6 max-w-2xl text-center text-[11px] leading-relaxed text-white/40">
-          Fiyatlar marka başına aylık tutardır (USD). Tüm paketlere içerik raporu, post takibi ve affiliate ölçümü dahildir.
-          Türkiye pazarına özel; bahis/eğlence nişi için optimize edilmiştir.
+          {copy.priceFoot}
         </p>
       </div>
     </section>

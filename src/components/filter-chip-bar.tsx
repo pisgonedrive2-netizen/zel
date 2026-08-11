@@ -2,6 +2,8 @@
 
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 export type FilterChipItem = {
   id: string;
@@ -28,13 +30,14 @@ export function FilterChipBar({
   layout?: "grid" | "wrap";
   columnsClass?: string;
 }) {
+  const locale = useUiPrefs((s) => s.locale);
   const layoutCls =
     layout === "wrap"
       ? "flex flex-wrap gap-2"
       : cn("grid gap-2 sm:gap-3", columnsClass);
 
   return (
-    <div role="tablist" aria-label={ariaLabel} className={cn(layoutCls, className)}>
+    <div role="tablist" aria-label={t(ariaLabel, locale)} className={cn(layoutCls, className)}>
       {chips.map((chip) => {
         const active = value === chip.id;
         const Icon = chip.icon;
@@ -56,7 +59,7 @@ export function FilterChipBar({
             <span className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-medium">
                 {Icon ? <Icon size={12} /> : null}
-                <span className="truncate">{chip.label}</span>
+                <span className="truncate">{t(chip.label, locale)}</span>
               </span>
               {active ? <Check size={12} className="opacity-80 shrink-0" /> : null}
             </span>

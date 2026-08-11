@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
 
 type Placement = "login" | "sidebar";
 
@@ -39,7 +40,7 @@ export function DeveloperAttribution({
           </p>
         ) : (
           <>
-            <p className="text-sidebar-foreground/80">{CREDIT_LINE}</p>
+            <p className="text-sidebar-foreground/80">{t(CREDIT_LINE)}</p>
             <p className="mt-1 text-[9px] opacity-80">{BRAND_LINE}</p>
           </>
         )}
@@ -55,7 +56,7 @@ export function DeveloperAttribution({
         className
       )}
     >
-      <p>{CREDIT_LINE}</p>
+      <p>{t(CREDIT_LINE)}</p>
       <p className="mt-1 opacity-80">{BRAND_LINE}</p>
     </footer>
   );

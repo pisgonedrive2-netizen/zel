@@ -21,6 +21,9 @@ import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
 import { useUiPrefs } from "@/store/ui-prefs";
+import { LocaleToggle } from "@/components/locale-toggle";
+import { adminGroupLabel, adminNavLabel } from "@/lib/i18n/admin-nav";
+import { t } from "@/lib/i18n/t";
 import { DeveloperAttribution } from "@/components/developer-attribution";
 import { useStore, unreadNotificationCount, visibleNotificationsForRole } from "@/store/store";
 import {
@@ -204,6 +207,7 @@ export default function Sidebar() {
   const isOrkun = user ? isMainAdmin(user) : false;
   const screenShareMode = useUiPrefs((s) => s.screenShareMode);
   const toggleScreenShareMode = useUiPrefs((s) => s.toggleScreenShareMode);
+  const locale = useUiPrefs((s) => s.locale);
   /** Gizli mod yalnızca ana yönetici (Orkun) kullanabilir. */
   const effectiveScreenShareMode = isOrkun && screenShareMode;
   // Sayfa yetkisi: rotanın gerektirdiği yetki (varsa) kullanıcıda olmalı.
@@ -212,13 +216,21 @@ export default function Sidebar() {
     const cap = routeCapability(n.href);
     return cap === undefined || hasCapability(user, cap);
   };
-  const filtered = nav.filter(n =>
-    (!search || n.label.toLowerCase().includes(search.toLowerCase())) &&
-    navItemAllowed(n) &&
-    (!n.mainAdminOnly || isOrkun) &&
-    (!n.sensitive || !effectiveScreenShareMode) &&
-    (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
-  );
+  const filtered = nav.filter(n => {
+    const translated = adminNavLabel(locale, n.href, n.label);
+    const q = search.toLowerCase();
+    const matchesSearch =
+      !search ||
+      n.label.toLowerCase().includes(q) ||
+      translated.toLowerCase().includes(q);
+    return (
+      matchesSearch &&
+      navItemAllowed(n) &&
+      (!n.mainAdminOnly || isOrkun) &&
+      (!n.sensitive || !effectiveScreenShareMode) &&
+      (!n.cap || clientHasOrgCapability(orgRole, n.cap, { isMainAdmin: isOrkun }))
+    );
+  });
 
   const streamerNavBadge = (href: string): number => {
     if (!user || (user.role !== "streamer" && !adminViewingStreamer)) return 0;
@@ -323,8 +335,8 @@ export default function Sidebar() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Ara..."
-                aria-label="Menüde ara"
+                placeholder={adminNavLabel(locale, "search", "Ara...")}
+                aria-label={adminNavLabel(locale, "search", "Ara...")}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-md text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all duration-200"
@@ -350,7 +362,9 @@ export default function Sidebar() {
             >
               <span className="flex items-center gap-2">
                 {effectiveScreenShareMode ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                Gizli mod {effectiveScreenShareMode ? "(açık)" : ""}
+                {effectiveScreenShareMode
+                  ? adminNavLabel(locale, "hiddenModeOn", "Gizli mod (açık)")
+                  : adminNavLabel(locale, "hiddenMode", "Gizli mod")}
               </span>
               <span
                 className={cn(
@@ -381,11 +395,12 @@ export default function Sidebar() {
               <div key={group}>
                 {!collapsed && (
                   <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                    {group}
+                    {adminGroupLabel(locale, group)}
                   </p>
                 )}
                 <ul className="space-y-1">
                   {items.map(({ href, label, icon: Icon }) => {
+                    const navLabel = adminNavLabel(locale, href, label);
                     const active = isNavActive(pathname, href);
                     const badge = streamerNavBadge(href);
                     return (
@@ -393,7 +408,7 @@ export default function Sidebar() {
                         <Link
                           href={href}
                           onClick={() => { if (window.innerWidth < 768) setOpen(false); }}
-                          title={collapsed ? label : undefined}
+                          title={collapsed ? navLabel : undefined}
                           className={cn(
                             "w-full flex items-center px-3 py-3 rounded-md transition-all duration-200 group",
                             collapsed ? "justify-center px-2" : "space-x-2.5",
@@ -420,7 +435,7 @@ export default function Sidebar() {
                           {!collapsed && (
                             <>
                               <span className={cn("text-sm flex-1", active ? "font-medium" : "font-normal")}>
-                                {label}
+                                {navLabel}
                               </span>
                               {badge > 0 && (
                                 <span className="text-[10px] font-semibold tabular-nums text-red-600 dark:text-red-400">
@@ -482,7 +497,7 @@ export default function Sidebar() {
                     {user.role === "admin"   && <ShieldCheck size={9} className="text-blue-600 dark:text-blue-400" />}
                     {user.role === "auditor" && <Headphones size={9} className="text-purple-600 dark:text-purple-400" />}
                     {user.role === "brand"   && <Eye size={9} className="text-violet-600 dark:text-violet-400" />}
-                    {user.role === "admin"   ? "Yönetici" : user.role === "auditor" ? "Denetçi" : user.role === "brand" ? "Marka" : "Yayıncı"}
+                    {adminNavLabel(locale, `role_${user.role}`, user.role)}
                   </p>
                 </div>
                 <div className="w-2 h-2 bg-green-500 rounded-full ml-2" title="Online" />
@@ -509,10 +524,13 @@ export default function Sidebar() {
           )}
 
           <div className="p-3 space-y-1">
+            <div className={cn("mb-1", collapsed ? "flex justify-center" : "px-1")}>
+              <LocaleToggle variant="sidebar" collapsed={collapsed} />
+            </div>
             <button
               onClick={handleLogout}
-              aria-label="Çıkış Yap"
-              title={collapsed ? "Çıkış Yap" : undefined}
+              aria-label={adminNavLabel(locale, "logout", "Çıkış Yap")}
+              title={collapsed ? adminNavLabel(locale, "logout", "Çıkış Yap") : undefined}
               className={cn(
                 "w-full flex items-center rounded-md text-left transition-all duration-200 group",
                 "text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
@@ -522,7 +540,7 @@ export default function Sidebar() {
               <div className="flex items-center justify-center min-w-[20px]">
                 <LogOut className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-destructive" />
               </div>
-              {!collapsed && <span className="text-sm">Çıkış Yap</span>}
+              {!collapsed && <span className="text-sm">{adminNavLabel(locale, "logout", "Çıkış Yap")}</span>}
             </button>
           </div>
           <DeveloperAttribution placement="sidebar" sidebarCollapsed={collapsed} />
@@ -538,6 +556,7 @@ function BrandSwitcher() {
   const brands = useStore((s) => s.brands);
   const activeBrandId = usePanelView((s) => s.activeBrandId);
   const setActiveBrand = usePanelView((s) => s.setActiveBrand);
+  const locale = useUiPrefs((s) => s.locale);
 
   // Marka oturumunda store.brands zaten erişilebilir markalarla scope'lanmıştır.
   if (!user || user.role !== "brand" || brands.length <= 1) return null;
@@ -551,7 +570,7 @@ function BrandSwitcher() {
   return (
     <div className="px-4 pb-2">
       <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-        Aktif marka
+        {adminNavLabel(locale, "activeBrand", "Aktif marka")}
       </label>
       <select
         value={current}
@@ -575,6 +594,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
   const router = useRouter();
   const { user } = useAuth();
   const { notifications } = useStore();
+  const locale = useUiPrefs((s) => s.locale);
 
   if (!user) return null;
   const readOnly = user.role === "brand" && clientIsReadOnly(user.orgRole);
@@ -614,7 +634,7 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
               </span>
             )}
           </div>
-          <span className="text-sm text-foreground">Bildirimler</span>
+          <span className="text-sm text-foreground">{adminNavLabel(locale, "/bildirimler", "Bildirimler")}</span>
         </div>
         <span className="text-[10px] text-muted-foreground">{my.length}</span>
       </button>
@@ -628,14 +648,14 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
             className="absolute left-0 right-0 bottom-full mb-2 z-50 w-[20rem] max-w-[calc(100vw-2rem)] bg-popover text-popover-foreground border border-border rounded-lg shadow-xl"
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-              <p className="text-xs font-semibold text-foreground">Son Bildirimler</p>
+              <p className="text-xs font-semibold text-foreground">{t("Son Bildirimler", locale)}</p>
               <div className="flex items-center gap-2">
                 {my.length > 0 && !readOnly && (
                   <button
                     onClick={() => void clearAllInPopup()}
                     className="text-[10px] text-destructive hover:underline"
                   >
-                    Temizle
+                    {t("Temizle", locale)}
                   </button>
                 )}
                 {unreadCount > 0 && !readOnly && (
@@ -650,14 +670,14 @@ function NotificationButton({ unreadCount }: { unreadCount: number }) {
                     }
                     className="text-[10px] text-primary hover:underline"
                   >
-                    Okundu
+                    {t("Okundu", locale)}
                   </button>
                 )}
               </div>
             </div>
             <div className="max-h-96 overflow-y-auto">
               {my.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic px-3 py-4 text-center">Bildirim yok.</p>
+                <p className="text-xs text-muted-foreground italic px-3 py-4 text-center">{t("Bildirim yok.", locale)}</p>
               ) : (
                 my.map((n) => (
                   <div

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ShieldAlert, LogOut, Loader2 } from "lucide-react";
 import { useAuth } from "@/store/auth";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 const ROLE_TR: Record<string, string> = {
   admin: "Yönetici",
@@ -18,6 +20,7 @@ const ROLE_TR: Record<string, string> = {
 export function ImpersonationBar() {
   const user = useAuth((s) => s.user);
   const stopImpersonation = useAuth((s) => s.stopImpersonation);
+  const locale = useUiPrefs((s) => s.locale);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -41,10 +44,10 @@ export function ImpersonationBar() {
     >
       <ShieldAlert size={15} className="shrink-0" />
       <span className="min-w-0 truncate">
-        <strong>Denetim modu</strong> ·{" "}
+        <strong>{t("Denetim modu", locale)}</strong> ·{" "}
         <span className="font-semibold">{user.name}</span>{" "}
-        ({ROLE_TR[user.role] ?? user.role}) hesabındasınız
-        {user.impersonatorName ? ` — ${user.impersonatorName} olarak` : ""}
+        ({t(ROLE_TR[user.role] ?? user.role, locale)}) {t("hesabındasınız", locale)}
+        {user.impersonatorName ? ` — ${user.impersonatorName} ${t("olarak", locale)}` : ""}
         {err ? ` · ${err}` : ""}
       </span>
       <button
@@ -54,7 +57,7 @@ export function ImpersonationBar() {
         className="ml-1 inline-flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 font-medium hover:bg-white/25 disabled:opacity-60"
       >
         {busy ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
-        Kendi hesabıma dön
+        {t("Kendi hesabıma dön", locale)}
       </button>
     </div>
   );

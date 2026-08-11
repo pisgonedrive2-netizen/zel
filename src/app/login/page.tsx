@@ -15,10 +15,13 @@ import {
   DialogContent,
 } from "@/components/ui/dialog";
 import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
+import { landingCopy } from "@/lib/i18n/landing";
+import { useUiPrefs } from "@/store/ui-prefs";
+import { LocaleToggle } from "@/components/locale-toggle";
 
 /** Tek font ailesi — hero / paket / footer uyumu (Cormorant+Georgia karışımı kaldırıldı). */
 const landingFont = Manrope({
-  subsets: ["latin", "latin-ext"],
+  subsets: ["latin", "latin-ext", "cyrillic"],
   weight: ["400", "500", "600", "700", "800"],
   variable: "--font-landing",
   display: "swap",
@@ -1024,6 +1027,7 @@ export default function LoginPage() {
     setErr(null);
     setModal("login");
   };
+  const copy = landingCopy(useUiPrefs((s) => s.locale));
   return (
     <div
       className={`${landingFont.variable} ${landingFont.className} relative isolate w-full bg-black text-white antialiased`}
@@ -1035,20 +1039,21 @@ export default function LoginPage() {
           <span className="text-sm font-bold tracking-wide">Foxstream</span>
         </a>
         <nav className="hidden gap-5 text-xs font-medium text-white/70 md:flex">
-          <a href="#roller" className="hover:text-white">Roller</a>
-          <a href="#nasil" className="hover:text-white">Nasıl çalışır</a>
-          <a href="#ozellikler" className="hover:text-white">Özellikler</a>
-          <a href="#paketler" className="hover:text-white">Paketler</a>
-          <a href="#partnerler" className="hover:text-white">Partnerler</a>
+          <a href="#roller" className="hover:text-white">{copy.navRoles}</a>
+          <a href="#nasil" className="hover:text-white">{copy.navHow}</a>
+          <a href="#ozellikler" className="hover:text-white">{copy.navFeatures}</a>
+          <a href="#paketler" className="hover:text-white">{copy.navPackages}</a>
+          <a href="#partnerler" className="hover:text-white">{copy.navPartners}</a>
         </nav>
         <div className="flex items-center gap-2">
+          <LocaleToggle variant="landing" />
           {REGISTRATION_ENABLED && (
             <button
               type="button"
               onClick={openRegister}
               className={`${headerBtn} border border-white/25 bg-black/50 text-white backdrop-blur-sm hover:bg-black/70`}
             >
-              Kayıt Ol
+              {copy.register}
             </button>
           )}
           <button
@@ -1057,7 +1062,7 @@ export default function LoginPage() {
             style={{ backgroundColor: ORANGE }}
             className={`${headerBtn} text-white shadow-orange-900/40 ring-1 ring-orange-600/40 hover:brightness-110`}
           >
-            Giriş Yap
+            {copy.login}
           </button>
         </div>
       </header>
@@ -1096,16 +1101,16 @@ export default function LoginPage() {
             transition={{ duration: 0.65, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
             className={`text-4xl leading-[1.05] sm:text-6xl ${landingHeading}`}
           >
-            Foxstream ile<br />
+            {copy.heroTitle1}<br />
             <motion.span
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
               className="inline-block text-orange-400"
             >
-              iş birliğini
+              {copy.heroAccent}
             </motion.span>{" "}
-            büyüt.
+            {copy.heroTitle2}
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
@@ -1113,8 +1118,7 @@ export default function LoginPage() {
             transition={{ duration: 0.55, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
             className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/60 sm:text-base"
           >
-            Yayıncı havuzu, teklif &amp; anlaşma akışı, affiliate takibi ve içerik post
-            ölçümü — markalar ve yayıncılar için tek panelde.
+            {copy.heroLead}
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 14 }}
@@ -1128,7 +1132,7 @@ export default function LoginPage() {
               style={{ backgroundColor: ORANGE }}
               className="h-11 w-full rounded-lg px-6 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 ring-1 ring-orange-600/40 transition hover:brightness-110 active:scale-[0.98] sm:w-auto"
             >
-              Giriş yap
+              {copy.login}
             </button>
             {REGISTRATION_ENABLED && (
               <button
@@ -1136,7 +1140,7 @@ export default function LoginPage() {
                 onClick={openRegister}
                 className="h-11 w-full rounded-lg border border-white/20 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 active:scale-[0.98] sm:w-auto"
               >
-                Kayıt ol
+                {copy.register}
               </button>
             )}
           </motion.div>
@@ -1148,7 +1152,7 @@ export default function LoginPage() {
           aria-label="Aşağı kaydır"
           className="absolute bottom-[calc(env(safe-area-inset-bottom)+28px)] left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 text-white/60 transition hover:text-white"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-[0.25em]">Keşfet</span>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.25em]">{copy.explore}</span>
           <ChevronDown size={18} className="animate-bounce" />
         </a>
       </section>
@@ -1160,45 +1164,45 @@ export default function LoginPage() {
       >
         <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-12 text-center">
-            <SectionEyebrow>Foxstream platformu</SectionEyebrow>
+            <SectionEyebrow>{copy.rolesEyebrow}</SectionEyebrow>
             <SectionTitle>
-              Yayıncı – Marka iş birliğinin <span className="text-orange-300">tek yeri</span>.
+              {copy.rolesTitleBefore}<span className="text-orange-300">{copy.rolesTitleAccent}</span>.
             </SectionTitle>
             <SectionLead>
-              Yayıncı havuzu, teklif/anlaşma akışı, affiliate ve içerik post takibi — hepsi bir panelde.
+              {copy.rolesLead}
             </SectionLead>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <RoleCard
               color="#FF6B00"
-              title="Yayıncılar"
+              title={copy.roleStreamerTitle}
               tag="Streamer"
-              description="Yayınlarını yönet ve kitleni büyüt. Profilini havuza koy, markalardan teklif al."
-              ctaLabel={REGISTRATION_ENABLED ? "Yayıncı kaydı" : "Giriş yap"}
+              description={copy.roleStreamerDesc}
+              ctaLabel={REGISTRATION_ENABLED ? copy.roleStreamerCta : copy.login}
               onCtaClick={REGISTRATION_ENABLED ? openRegister : openLogin}
             />
             <RoleCard
               color="#22C55E"
-              title="Markalar"
+              title={copy.roleBrandTitle}
               tag="Brand"
-              description="Doğru yayıncılarla iş birliği yap. Teklif gönder, anlaşmayı yönet, postları takip et."
-              ctaLabel={REGISTRATION_ENABLED ? "Marka kaydı" : "Giriş yap"}
+              description={copy.roleBrandDesc}
+              ctaLabel={REGISTRATION_ENABLED ? copy.roleBrandCta : copy.login}
               onCtaClick={REGISTRATION_ENABLED ? openRegister : openLogin}
             />
             <RoleCard
               color="#3B82F6"
-              title="Denetim Ekibi"
+              title={copy.roleAuditTitle}
               tag="Auditor"
-              description="Raporları incele, şeffaflığı sağla. Kasa & içerik harcamalarını denetle."
-              ctaLabel="Giriş yap"
+              description={copy.roleAuditDesc}
+              ctaLabel={copy.login}
               onCtaClick={openLogin}
             />
             <RoleCard
               color="#EC4899"
-              title="Destek Ekibi"
+              title={copy.roleSupportTitle}
               tag="Support"
-              description="Sorulara hızlı çözümler sun. Marka ve yayıncı taleplerini koordine et."
-              ctaLabel="Giriş yap"
+              description={copy.roleSupportDesc}
+              ctaLabel={copy.login}
               onCtaClick={openLogin}
             />
           </div>
@@ -1210,36 +1214,36 @@ export default function LoginPage() {
         <LandingSoftGlow at="50% 18%" opacity={0.14} spread="72%" />
         <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-12 text-center">
-            <SectionEyebrow>Süreç</SectionEyebrow>
-            <SectionTitle>Nasıl çalışır?</SectionTitle>
+            <SectionEyebrow>{copy.howEyebrow}</SectionEyebrow>
+            <SectionTitle>{copy.howTitle}</SectionTitle>
             <SectionLead>
-              Kayıttan ilk anlaşmaya kadar 4 adımda Foxstream akışı.
+              {copy.howLead}
             </SectionLead>
           </div>
           <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StepCard
               step="1"
               color="#FF6B00"
-              title="Kayıt"
-              description="Marka veya yayıncı olarak başvuru gönder. Yönetici onayı ile hesabın açılır."
+              title={copy.step1Title}
+              description={copy.step1Desc}
             />
             <StepCard
               step="2"
               color="#22C55E"
-              title="Havuz / Profil"
-              description="Yayıncılar havuz profilini doldurur. Markalar filtreli grid'de yayıncıları görür."
+              title={copy.step2Title}
+              description={copy.step2Desc}
             />
             <StepCard
               step="3"
               color="#3B82F6"
-              title="Teklif"
-              description="Marka teklif gönderir, mesajlaşma + karşı teklif akışı çalışır. Kabul → anlaşma."
+              title={copy.step3Title}
+              description={copy.step3Desc}
             />
             <StepCard
               step="4"
               color="#EC4899"
-              title="Anlaşma + Post"
-              description="Yayıncı post URL ekler; marka panelinde anında görünür. Affiliate ile ölçümle."
+              title={copy.step4Title}
+              description={copy.step4Desc}
             />
           </ol>
         </div>
@@ -1253,19 +1257,19 @@ export default function LoginPage() {
         <LandingSoftGlow at="50% 50%" opacity={0.12} spread="68%" />
         <div className="relative z-10 mx-auto max-w-[1180px]">
           <div className="mb-12 text-center">
-            <SectionEyebrow>Modüller</SectionEyebrow>
-            <SectionTitle>Platform özellikleri</SectionTitle>
+            <SectionEyebrow>{copy.featuresEyebrow}</SectionEyebrow>
+            <SectionTitle>{copy.featuresTitle}</SectionTitle>
             <SectionLead>
-              Operasyondan ödemeye, partnerden affiliate&apos;e — gerekli her şey hazır.
+              {copy.featuresLead}
             </SectionLead>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard color="#FF6B00" title="Yayıncı Havuzu" description="Kategorize edilmiş yayıncı profilleri. Fiyat aralığı, dil, ülke, kitle filtreleri." />
-            <FeatureCard color="#22C55E" title="Marka Teklifleri" description="Teklif gönder / karşı teklif / kabul akışı. Sohbet ile şartları netleştir." />
-            <FeatureCard color="#3B82F6" title="Anlaşma Yönetimi" description="Bütçe / ödeme / deliverable takibi. Anlaşma ömrü boyunca tek panel." />
-            <FeatureCard color="#EC4899" title="Post Takibi" description="Instagram, TikTok, YouTube, Kick post URL'leri. Görüntülenme + beğeni metriği." />
-            <FeatureCard color="#FF6B00" title="Affiliate Tracking" description="Partner / günlük metrik / komisyon. CSV import ile manuel veya API ile otomatik." />
-            <FeatureCard color="#22C55E" title="Aylık KPI + Rapor" description="Kayıt, FTD, deposit, çekim. PDF ve CSV ile dışa aktarım." />
+            <FeatureCard color="#FF6B00" title={copy.featPool} description={copy.featPoolDesc} />
+            <FeatureCard color="#22C55E" title={copy.featOffers} description={copy.featOffersDesc} />
+            <FeatureCard color="#3B82F6" title={copy.featDeals} description={copy.featDealsDesc} />
+            <FeatureCard color="#EC4899" title={copy.featPosts} description={copy.featPostsDesc} />
+            <FeatureCard color="#FF6B00" title={copy.featAff} description={copy.featAffDesc} />
+            <FeatureCard color="#22C55E" title={copy.featKpi} description={copy.featKpiDesc} />
           </div>
         </div>
       </section>
@@ -1278,10 +1282,10 @@ export default function LoginPage() {
         <LandingSoftGlow at="50% 100%" opacity={0.3} spread="78%" />
         <div className="relative z-10 mx-auto max-w-[1180px] text-center">
           <SectionTitle>
-            Hemen başla — <span className="text-orange-300">2 dakikada</span> aktif ol.
+            {copy.ctaTitleBefore}<span className="text-orange-300">{copy.ctaTitleAccent}</span>{copy.ctaTitleAfter}
           </SectionTitle>
           <SectionLead>
-            Mevcut hesabınla giriş yap veya yeni bir marka/yayıncı kaydı oluştur.
+            {copy.ctaLead}
           </SectionLead>
           <div className="mx-auto mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button
@@ -1290,7 +1294,7 @@ export default function LoginPage() {
               style={{ backgroundColor: ORANGE }}
               className="h-11 rounded-lg px-6 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 ring-1 ring-orange-600/40 transition hover:brightness-110 active:scale-[0.98]"
             >
-              Giriş yap
+              {copy.login}
             </button>
             {REGISTRATION_ENABLED && (
               <button
@@ -1298,7 +1302,7 @@ export default function LoginPage() {
                 onClick={openRegister}
                 className="h-11 rounded-lg border border-white/20 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
               >
-                Marka / Yayıncı kaydı
+                {copy.ctaRegister}
               </button>
             )}
           </div>
@@ -1312,11 +1316,11 @@ export default function LoginPage() {
       >
         <LandingSoftGlow at="50% 100%" opacity={0.18} spread="55%" />
         <div className="relative z-10">
-          <BrandMarquee brands={marqueeBrands} label="Foxstream partner markaları" dualRow={false} />
+          <BrandMarquee brands={marqueeBrands} label={copy.partnersLabel} dualRow={false} />
         </div>
         <div className="relative z-10 mx-auto mt-8 flex max-w-[1180px] flex-col items-center justify-between gap-2 px-4 text-[11px] text-white/40 sm:flex-row sm:px-6">
-          <span>© {new Date().getFullYear()} Foxstream · Yayıncı – marka iş birliği platformu</span>
-          <span>İletişim için yöneticinizle bağlantıya geçin.</span>
+          <span>© {new Date().getFullYear()} {copy.footer}</span>
+          <span>{copy.footerContact}</span>
         </div>
       </section>
 

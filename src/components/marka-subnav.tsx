@@ -11,6 +11,9 @@ import { clientHasOrgCapability } from "@/lib/org-capability";
 import { MARKA_NAV_GROUP_ORDER, MARKA_NAV_ITEMS, type MarkaNavGroup } from "@/lib/marka-nav";
 import { markaNavIcon } from "@/lib/marka-nav-icons";
 import { isMainAdmin } from "@/lib/user-guards";
+import { adminGroupLabel, adminNavLabel } from "@/lib/i18n/admin-nav";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 type NavGroup = MarkaNavGroup;
 
@@ -47,6 +50,7 @@ function activeItemForPath(pathname: string, items: readonly NavItem[]): NavItem
 
 export function MarkaSubnav() {
   const pathname = usePathname();
+  const locale = useUiPrefs((s) => s.locale);
   const { user, month, isAdminView, brandId } = useMarkaPortal();
   const orgRole = isAdminView ? "admin" : user?.orgRole;
   const mainAdmin = user ? isMainAdmin(user) : false;
@@ -67,7 +71,7 @@ export function MarkaSubnav() {
 
   return (
     <nav
-      aria-label="Marka paneli"
+      aria-label={t("Marka paneli", locale)}
       className={cn(
         "z-30 mb-3 border-b border-border/70 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80",
         /* PanelViewBanner (üst şerit) ile çakışmasın */
@@ -78,10 +82,10 @@ export function MarkaSubnav() {
       <div className="mx-auto hidden max-w-[1280px] items-center justify-between gap-3 px-1 py-2 md:flex">
         <div className="min-w-0">
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {pathGroup}
+            {adminGroupLabel(locale, pathGroup)}
           </p>
           <p className="text-sm font-semibold text-foreground truncate">
-            {activeItem?.label ?? "Marka paneli"}
+            {activeItem ? adminNavLabel(locale, activeItem.href, activeItem.label) : t("Marka paneli", locale)}
           </p>
         </div>
         {isAdminView && brandId && (
@@ -89,7 +93,7 @@ export function MarkaSubnav() {
             href={markaHref(`/izlenme/marka/${brandId}`, month)}
             className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
           >
-            Detaylı izlenme
+            {t("Detaylı izlenme", locale)}
             <ArrowUpRight size={12} />
           </Link>
         )}
@@ -102,14 +106,14 @@ export function MarkaSubnav() {
             href={markaHref(`/izlenme/marka/${brandId}`, month)}
             className="mb-2 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-border bg-muted/30 px-2 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent"
           >
-            Detaylı izlenme paneli
+            {t("Detaylı izlenme paneli", locale)}
             <ArrowUpRight size={12} />
           </Link>
         )}
         <div
           className="flex gap-1 overflow-x-auto pb-1.5 scrollbar-none"
           role="tablist"
-          aria-label="Marka modül grupları"
+          aria-label={t("Marka modül grupları", locale)}
         >
           {visibleGroups.map((group) => {
             const selected = mobileGroup === group;
@@ -127,7 +131,7 @@ export function MarkaSubnav() {
                     : "bg-muted/50 text-muted-foreground hover:bg-muted"
                 )}
               >
-                {group}
+                {adminGroupLabel(locale, group)}
               </button>
             );
           })}
@@ -150,7 +154,7 @@ export function MarkaSubnav() {
                 )}
               >
                 <Icon size={14} className="shrink-0" />
-                {item.label}
+                {adminNavLabel(locale, item.href, item.label)}
               </Link>
             );
           })}

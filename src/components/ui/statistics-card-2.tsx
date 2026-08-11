@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { motion } from "framer-motion";
 import * as React from "react";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 // ── Mini sparkline (inline CSS bars, zero deps) ────────────────────────────
 function Sparkline({ values, trend }: { values: number[]; trend: "up" | "down" | "neutral" }) {
@@ -85,6 +87,7 @@ export function StatisticsCard2({
   valueClassName,
   href,
 }: StatisticsCard2Props) {
+  const locale = useUiPrefs((s) => s.locale);
   const inner = (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
@@ -107,7 +110,7 @@ export function StatisticsCard2({
 
       {/* Header row */}
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-medium text-muted-foreground leading-snug">{title}</p>
+        <p className="text-[11px] font-medium text-muted-foreground leading-snug">{t(title, locale)}</p>
         {Icon && (
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/8 border border-primary/12">
             <Icon size={12} className="text-primary/80" />
@@ -125,14 +128,14 @@ export function StatisticsCard2({
         >
           {value}
         </p>
-        <TrendBadge trend={trend} label={trendLabel} />
+        <TrendBadge trend={trend} label={trendLabel ? t(trendLabel, locale) : trendLabel} />
       </div>
 
       {/* Sparkline OR description */}
       {sparkline && sparkline.length > 1 ? (
         <Sparkline values={sparkline} trend={trend} />
       ) : description ? (
-        <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{description}</p>
+        <p className="text-[10px] text-muted-foreground leading-snug line-clamp-2">{t(description, locale)}</p>
       ) : null}
     </motion.div>
   );

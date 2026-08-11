@@ -1,4 +1,8 @@
+"use client";
+
 import { ReactNode } from "react";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 interface Column<T> {
   header: string;
@@ -19,6 +23,7 @@ const alignClass = {
 };
 
 export default function DataTable<T>({ columns, rows, keyFn }: DataTableProps<T>) {
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
       <table className="w-full text-sm">
@@ -32,7 +37,7 @@ export default function DataTable<T>({ columns, rows, keyFn }: DataTableProps<T>
                   alignClass[col.align ?? "left"],
                 ].join(" ")}
               >
-                {col.header}
+                {t(col.header, locale)}
               </th>
             ))}
           </tr>

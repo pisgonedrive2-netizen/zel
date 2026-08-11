@@ -46,21 +46,36 @@ import { RELOAD_VIEWERSHIP_EVENT } from "@/lib/viewership-reload";
 
 const SYNC_MS = 900;
 const BOOTSTRAP_RETRIES = 3;
-const FETCH_TIMEOUT_MS = 8000;
-const BOOTSTRAP_STALL_TIMEOUT_MS = 15000;
+const FETCH_TIMEOUT_MS = 25_000;
+const BOOTSTRAP_FETCH_TIMEOUT_MS = 45_000;
+/** UI kilidini aç — hata banner'ı gösterme; istek arka planda sürer. */
+const BOOTSTRAP_STALL_TIMEOUT_MS = 8_000;
+
+function isSessionError(msg: string, status?: number): boolean {
+  return status === 401 || /oturum/i.test(msg);
+}
+
+function isTransientSyncError(msg: string): boolean {
+  return /zaman aşımı|timeout|abort|failed to fetch|network|ağ hatası|load failed|geçici/i.test(
+    msg,
+  );
+}
 
 async function fetchJsonWithRetry(
   url: string,
-  opts?: RequestInit
+  opts?: RequestInit & { timeoutMs?: number }
 ): Promise<Response> {
+  const timeoutMs = opts?.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const init: RequestInit = { ...(opts ?? {}) };
+  delete (init as { timeoutMs?: number }).timeoutMs;
   let last: Response | null = null;
   for (let i = 0; i < BOOTSTRAP_RETRIES; i++) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, {
         cache: "no-store",
-        ...opts,
+        ...init,
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -207,12 +222,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         const msg = data.error ?? `Senkronizasyon başarısız (${res.status})`;
-        setSyncError(
-          res.status === 401
-            ? `${msg} — çıkış yapıp tekrar giriş yapın.`
-            : msg
-        );
         console.error("Sync failed:", msg);
+        if (isSessionError(msg, res.status)) {
+          setSyncError(`${msg} — çıkış yapıp tekrar giriş yapın.`);
+        }
         return;
       }
       setSyncError(null);
@@ -231,8 +244,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Ağ hatası";
-      setSyncError(`Veriler sunucuya kaydedilemedi: ${msg}`);
       console.error("Sync failed:", e);
+      if (isSessionError(msg)) {
+        setSyncError(`Veriler sunucuya kaydedilemedi: ${msg}`);
+      }
     } finally {
       syncInFlight.current = false;
     }
@@ -314,12 +329,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         stallTimer = setTimeout(() => {
           if (cancelled) return;
           setReady(true);
-          setBootstrapOk(false);
-          setSyncError("İlk yükleme zaman aşımına uğradı. Ağ bağlantısını kontrol edip tekrar deneyin.");
         }, BOOTSTRAP_STALL_TIMEOUT_MS);
 
         const res = await fetchJsonWithRetry("/api/bootstrap", {
           credentials: "include",
+          timeoutMs: BOOTSTRAP_FETCH_TIMEOUT_MS,
         });
         let bootstrapRes = res;
         if (bootstrapRes.status === 401) {
@@ -327,6 +341,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           await new Promise((r) => setTimeout(r, 400));
           bootstrapRes = await fetchJsonWithRetry("/api/bootstrap", {
             credentials: "include",
+            timeoutMs: BOOTSTRAP_FETCH_TIMEOUT_MS,
           });
         }
         if (bootstrapRes.status === 401) {
@@ -393,6 +408,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         try {
           const vr = await fetchJsonWithRetry("/api/bootstrap/viewership", {
             credentials: "include",
+            timeoutMs: BOOTSTRAP_FETCH_TIMEOUT_MS,
           });
           if (vr.ok) {
             const vd = (await vr.json()) as Pick<
@@ -433,11 +449,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           setReady(true);
           setBootstrapOk(false);
           const msg = e instanceof Error ? e.message : "Bootstrap hatası";
-          setSyncError(
-            msg.includes("Oturum")
-              ? msg
-              : `İlk yükleme başarısız: ${msg}. Sayfayı yenileyin veya tekrar giriş yapın.`
-          );
+          if (isSessionError(msg)) {
+            setSyncError(msg);
+          }
         }
       } finally {
         if (stallTimer) {
@@ -461,10 +475,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetchJsonWithRetry("/api/bootstrap/viewership", {
           credentials: "include",
+          timeoutMs: BOOTSTRAP_FETCH_TIMEOUT_MS,
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setSyncError(data.error ?? `İzlenme yüklenemedi (${res.status})`);
+          const msg = data.error ?? `İzlenme yüklenemedi (${res.status})`;
+          console.error("Viewership reload failed:", msg);
+          if (isSessionError(msg, res.status)) setSyncError(msg);
           return;
         }
         const vd = (await res.json()) as Pick<
@@ -474,8 +491,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         commitViewershipHydrate(vd);
         setSyncError(null);
       } catch (e) {
+        console.error("Viewership reload failed:", e);
         const msg = e instanceof Error ? e.message : "Ağ hatası";
-        setSyncError(`İzlenme verileri yüklenemedi: ${msg}`);
+        if (isSessionError(msg)) setSyncError(`İzlenme verileri yüklenemedi: ${msg}`);
       } finally {
         setTimeout(() => {
           skipSync.current = false;
@@ -500,7 +518,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const onKasaError = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
-      if (detail) setSyncError(detail);
+      if (!detail) return;
+      if (isSessionError(detail)) setSyncError(detail);
+      else if (!isTransientSyncError(detail)) console.warn("Sync:", detail);
     };
     window.addEventListener(SYNC_ERROR_EVENT, onKasaError);
     return () => window.removeEventListener(SYNC_ERROR_EVENT, onKasaError);
@@ -560,7 +580,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           role="alert"
           className="fixed bottom-4 left-1/2 z-[70] w-[min(100%-2rem,32rem)] -translate-x-1/2 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-lg dark:border-red-500/50 dark:bg-red-950/90 dark:text-red-100"
         >
-          <p className="font-medium">Supabase kaydı başarısız</p>
+          <p className="font-medium">
+            {isSessionError(syncError) ? "Oturum gerekli" : "Senkronizasyon"}
+          </p>
           <p className="text-xs mt-1 opacity-90">{syncError}</p>
           <div className="mt-2 flex flex-wrap gap-3">
             <button

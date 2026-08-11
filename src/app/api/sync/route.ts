@@ -5,6 +5,8 @@ import { isBrandReadOnly } from "@/lib/org-access";
 import { syncAppData, pickSnapshot } from "@/lib/db/repository";
 import type { AppHydratePayload } from "@/store/store";
 
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ error: "Supabase yapılandırılmamış" }, { status: 503 });

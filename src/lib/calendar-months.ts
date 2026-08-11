@@ -1,5 +1,10 @@
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { monthLabelTr } from "@/lib/month-label";
+import { getRuntimeLocale } from "@/lib/i18n/locale-state";
+
+function dateLocale(): string {
+  return getRuntimeLocale() === "ru" ? "ru-RU" : "tr-TR";
+}
 
 /** Bitiş ayından geriye 12 takvim ayı (YYYY-MM). */
 export function last12MonthsYm(endYm: string): string[] {
@@ -9,13 +14,13 @@ export function last12MonthsYm(endYm: string): string[] {
 export function shortMonthLabel(ym: string): string {
   const [y, mo] = ym.split("-").map(Number);
   if (!y || !mo) return ym;
-  return new Date(y, mo - 1, 1).toLocaleDateString("tr-TR", { month: "short" });
+  return new Date(y, mo - 1, 1).toLocaleDateString(dateLocale(), { month: "short" });
 }
 
 export function shortMonthWithYear(ym: string): string {
   const [y, mo] = ym.split("-").map(Number);
   if (!y || !mo) return ym;
-  return new Date(y, mo - 1, 1).toLocaleDateString("tr-TR", {
+  return new Date(y, mo - 1, 1).toLocaleDateString(dateLocale(), {
     month: "short",
     year: "2-digit",
   });

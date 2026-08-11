@@ -1,5 +1,7 @@
 /** Ay etiketleri — dışa aktarım menüsü gibi hafif modüller için (jsPDF bağımlılığı yok). */
 
+import { t } from "@/lib/i18n/t";
+
 const MONTH_NAMES_TR = [
   "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
@@ -9,7 +11,7 @@ export function monthLabelTr(ym: string): string {
   const [y, m] = ym.split("-");
   const idx = parseInt(m, 10) - 1;
   if (Number.isNaN(idx) || idx < 0 || idx > 11) return ym;
-  return `${MONTH_NAMES_TR[idx]} ${y}`;
+  return `${t(MONTH_NAMES_TR[idx])} ${y}`;
 }
 
 /** Tarih listesinden benzersiz YYYY-MM ay anahtarları (yeniden eskiye). */

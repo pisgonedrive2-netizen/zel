@@ -5,6 +5,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 export type BildirimTab = "akis" | "gonder" | "ayarlar" | "tercihler";
 
@@ -32,7 +34,8 @@ export function BildirimNavbar({
   canCompose,
   trailing,
 }: BildirimNavbarProps) {
-  const visibleTabs = TABS.filter((t) => !t.elevatedOnly || canCompose);
+  const locale = useUiPrefs((s) => s.locale);
+  const visibleTabs = TABS.filter((tab) => !tab.elevatedOnly || canCompose);
 
   return (
     <div className="sticky top-0 z-20 -mx-1 px-1 py-2 mb-3 bg-background/95 backdrop-blur-md border border-border/60 rounded-xl space-y-2">
@@ -42,9 +45,9 @@ export function BildirimNavbar({
             <Bell size={18} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold leading-tight">Bildirim Merkezi</p>
+            <p className="text-sm font-semibold leading-tight">{t("Bildirim Merkezi", locale)}</p>
             <p className="text-[10px] text-muted-foreground truncate">
-              {total} kayıt · {unread} okunmamış
+              {total} {t("kayıt", locale)} · {unread} {t("okunmamış", locale)}
             </p>
           </div>
           {unread > 0 && (
@@ -52,7 +55,7 @@ export function BildirimNavbar({
               variant="outline"
               className="text-[10px] border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-500/40 dark:text-amber-300 dark:bg-amber-950/30"
             >
-              {unread} yeni
+              {unread} {t("yeni", locale)}
             </Badge>
           )}
         </div>
@@ -61,7 +64,7 @@ export function BildirimNavbar({
 
       <nav
         className="flex items-center gap-0.5 overflow-x-auto pb-0.5 -mb-0.5 scrollbar-none"
-        aria-label="Bildirim bölümleri"
+        aria-label={t("Bildirim bölümleri", locale)}
       >
         {visibleTabs.map(({ id, label, icon: Icon }) => {
           const active = activeTab === id;
@@ -85,7 +88,7 @@ export function BildirimNavbar({
               )}
             >
               <Icon size={13} />
-              {label}
+              {t(label, locale)}
             </button>
           );
         })}

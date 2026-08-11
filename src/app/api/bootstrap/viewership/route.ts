@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { fetchViewershipBootstrap } from "@/lib/db/repository";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /** Marka linkleri + snapshot + manuel izlenme — tam bootstrap olmadan yeniden yükleme. */
 export async function GET() {

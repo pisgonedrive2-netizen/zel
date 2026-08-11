@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 export interface CollapsibleSectionProps {
   title: ReactNode;
@@ -38,6 +40,7 @@ export function CollapsibleSection({
   id,
   contentMaxHeight,
 }: CollapsibleSectionProps) {
+  const locale = useUiPrefs((s) => s.locale);
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const isOpen = controlledOpen ?? internalOpen;
   const setOpen = (v: boolean) => {
@@ -70,9 +73,13 @@ export function CollapsibleSection({
             )}
           />
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-sm text-foreground">{title}</div>
+            <div className="font-semibold text-sm text-foreground">
+              {typeof title === "string" ? t(title, locale) : title}
+            </div>
             {description && (
-              <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {typeof description === "string" ? t(description, locale) : description}
+              </div>
             )}
           </div>
         </button>

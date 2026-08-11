@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { fetchBootstrap } from "@/lib/db/repository";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function GET() {
   if (!isSupabaseEnabled()) {

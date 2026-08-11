@@ -2,6 +2,7 @@ import type {
   AffiliatePartner,
   AffiliatePayout,
 } from "@/store/store";
+import { t } from "@/lib/i18n/t";
 
 export const PARTNER_TYPE_OPTIONS: {
   value: AffiliatePartner["partnerType"];
@@ -51,20 +52,20 @@ export const PAYOUT_STATUS_OPTIONS: {
   { value: "cancelled", label: "İptal" },
 ];
 
-export function partnerTypeLabel(t: string): string {
-  return PARTNER_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
+export function partnerTypeLabel(type: string): string {
+  return t(PARTNER_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type);
 }
 
 export function commissionLabel(model: string): string {
-  return COMMISSION_MODEL_OPTIONS.find((o) => o.value === model)?.label ?? model;
+  return t(COMMISSION_MODEL_OPTIONS.find((o) => o.value === model)?.label ?? model);
 }
 
 export function partnerStatusLabel(s: string): string {
-  return PARTNER_STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s;
+  return t(PARTNER_STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s);
 }
 
 export function payoutStatusLabel(s: string): string {
-  return PAYOUT_STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s;
+  return t(PAYOUT_STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s);
 }
 
 export function payoutStatusBadgeClass(s: AffiliatePayout["status"]): string {

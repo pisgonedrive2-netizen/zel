@@ -10,6 +10,9 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import Sidebar from "@/components/sidebar";
 import { FloatingTopControls } from "@/components/floating-top-controls";
 import { ImpersonationChip } from "@/components/impersonation-chip";
+import { LocaleHtml } from "@/components/locale-html";
+import { useUiPrefs } from "@/store/ui-prefs";
+import { setRuntimeLocale } from "@/lib/i18n/locale-state";
 import { ImpersonationBar } from "@/components/impersonation-bar";
 import { Loader2, Menu, X } from "lucide-react";
 
@@ -30,6 +33,8 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   const sessionReady = useAuth((s) => s.sessionReady);
   const [hydrated, setHydrated] = useState(!isSupabaseClientMode() || isLogin);
+  const locale = useUiPrefs((s) => s.locale);
+  setRuntimeLocale(locale);
 
   useEffect(() => {
     if (!isSupabaseClientMode() || isLogin) {
@@ -96,6 +101,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      <LocaleHtml />
       {!isLogin && <ImpersonationBar />}
       {!isLogin && <FloatingTopControls />}
       {!isLogin && <ImpersonationChip />}
@@ -107,7 +113,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       )}
 
       {hydrated && isLogin && (
-        <main className="relative flex h-[100dvh] min-h-[100dvh] min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth bg-black">
+        <main key={locale} className="relative flex h-[100dvh] min-h-[100dvh] min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth bg-black">
           {children}
         </main>
       )}
@@ -125,7 +131,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       )}
 
       {canView && (
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
+        <div key={locale} className="flex min-h-0 min-w-0 flex-1 overflow-hidden md:gap-5 lg:gap-6 xl:gap-8">
           <Sidebar />
           <main
             className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-background px-2 pb-3 sm:px-4 md:px-6 lg:px-8 ${

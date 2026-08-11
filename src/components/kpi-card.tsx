@@ -1,3 +1,8 @@
+"use client";
+
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
+
 type Tone = "default" | "success" | "warning" | "danger" | "info";
 
 const toneColors: Record<Tone, { val: string; dot: string; bg: string; border: string }> = {
@@ -22,6 +27,7 @@ export default function KpiCard({
   trend?: { delta: string; positive: boolean };
 }) {
   const c = toneColors[tone];
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <div
       className="rounded-xl px-5 py-4 flex flex-col gap-3"
@@ -29,7 +35,7 @@ export default function KpiCard({
     >
       <div className="flex items-center justify-between">
         <p className="text-[11px] font-medium uppercase tracking-[0.07em]" style={{ color: "#52525b" }}>
-          {label}
+          {t(label, locale)}
         </p>
         <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.dot }} />
       </div>
@@ -43,7 +49,7 @@ export default function KpiCard({
 
       <div className="flex items-center justify-between">
         {sub && (
-          <p className="text-[11px]" style={{ color: "#52525b" }}>{sub}</p>
+          <p className="text-[11px]" style={{ color: "#52525b" }}>{t(sub, locale)}</p>
         )}
         {trend && (
           <span

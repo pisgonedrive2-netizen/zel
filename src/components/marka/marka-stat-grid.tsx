@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 export type MarkaStatTone = "green" | "zinc" | "amber" | "primary" | "blue" | "rose" | "violet";
 
@@ -34,6 +36,7 @@ export function MarkaStatGrid({
   columns?: 2 | 3 | 4 | 5 | 6;
   className?: string;
 }) {
+  const locale = useUiPrefs((s) => s.locale);
   const colCls =
     columns === 2
       ? "sm:grid-cols-2"
@@ -62,10 +65,10 @@ export function MarkaStatGrid({
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">{item.label}</p>
+                <p className="text-xs text-muted-foreground">{t(item.label, locale)}</p>
                 <p className="text-xl font-bold tabular-nums truncate">{item.value}</p>
                 {item.sub && (
-                  <p className="truncate text-[11px] text-muted-foreground">{item.sub}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{t(item.sub, locale)}</p>
                 )}
               </div>
             </CardContent>
