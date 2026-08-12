@@ -22,6 +22,7 @@ import {
   kasaSelectOptionLabel,
 } from "@/lib/kasa-tron-metrics";
 import Modal from "@/components/ui/modal";
+import { t } from "@/lib/i18n/t";
 import { Field, Input, NumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Button } from "@/components/ui/button";
@@ -632,7 +633,7 @@ export default function GiderlerPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm("Bu gider kaydı silinsin mi? Bağlı plan bağlantısı temizlenir.")) {
+                              if (window.confirm(t("Bu gider kaydı silinsin mi? Bağlı plan bağlantısı temizlenir."))) {
                                 deleteExpense(e.id);
                               }
                             }}

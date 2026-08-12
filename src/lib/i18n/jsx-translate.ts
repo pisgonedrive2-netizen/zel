@@ -16,14 +16,30 @@ const ATTRS = new Set([
   "emptyText",
   "ctaLabel",
   "buttonLabel",
+  "sub",
+  "message",
+  "detail",
+  "submitLabel",
+  "deleteLabel",
+  "tag",
+  "text",
+  "caption",
+  "tooltip",
+  "empty",
+  "helperText",
 ]);
 
 const SKIP_TYPE = new Set(["script", "style", "code", "pre", "noscript", "svg", "path"]);
+
+function skipI18n(rec: Record<string, unknown>): boolean {
+  return rec.translate === "no" || rec["data-i18n"] === "off";
+}
 
 export function translateJsxProps(type: unknown, props: unknown): unknown {
   if (!props || typeof props !== "object" || getRuntimeLocale() !== "ru") return props;
   if (typeof type === "string" && SKIP_TYPE.has(type)) return props;
   const rec = props as Record<string, unknown>;
+  if (skipI18n(rec)) return props;
 
   let next: Record<string, unknown> | null = null;
   const take = () => {

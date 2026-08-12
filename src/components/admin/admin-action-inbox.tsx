@@ -15,6 +15,8 @@ import {
   useAdminOverdueTasks,
   LOW_KASA_WARNING_THRESHOLD,
 } from "@/lib/admin-dashboard-metrics";
+import { t } from "@/lib/i18n/t";
+import { useUiPrefs } from "@/store/ui-prefs";
 
 type InboxChip = {
   href: string;
@@ -26,6 +28,7 @@ type InboxChip = {
 };
 
 export function AdminActionInbox({ className }: { className?: string }) {
+  const locale = useUiPrefs((s) => s.locale);
   const metrics = useAdminDashboardMetrics();
   const { overdueTaskCount } = useAdminOverdueTasks();
 
@@ -104,7 +107,7 @@ export function AdminActionInbox({ className }: { className?: string }) {
                 : "text-muted-foreground",
             )}
           />
-          <span className="font-medium">{chip.label}</span>
+          <span className="font-medium">{t(chip.label, locale)}</span>
           {chip.count > 0 && (
             <span
               className={cn(
@@ -119,7 +122,7 @@ export function AdminActionInbox({ className }: { className?: string }) {
           )}
           {chip.detail && (
             <span className="hidden text-[11px] text-muted-foreground sm:inline">
-              · {chip.detail}
+              · {t(chip.detail, locale)}
             </span>
           )}
         </Link>

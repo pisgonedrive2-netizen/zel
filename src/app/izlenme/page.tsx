@@ -15,6 +15,7 @@ import {
 import { useStore, type Brand, type BrandLink } from "@/store/store";
 import { useIsReadOnly } from "@/store/auth";
 import { shiftCalendarMonthYm } from "@/lib/data";
+import { getRuntimeLocale } from "@/lib/i18n/locale-state";
 import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
 import {
   linkViewsForMonth,
@@ -53,7 +54,7 @@ const fmtViews = (n: number) => {
 };
 
 const monthTitleYm = (ym: string) =>
-  new Date(ym + "-01").toLocaleDateString("tr-TR", {
+  new Date(ym + "-01").toLocaleDateString(getRuntimeLocale() === "ru" ? "ru-RU" : "tr-TR", {
     month: "long",
     year: "numeric",
   });

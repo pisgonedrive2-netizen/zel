@@ -23,3 +23,7 @@ export function getRuntimeLocale(): AppLocale {
   }
   return runtimeLocale;
 }
+
+export function dateLocaleTag(): "tr-TR" | "ru-RU" {
+  return getRuntimeLocale() === "ru" ? "ru-RU" : "tr-TR";
+}

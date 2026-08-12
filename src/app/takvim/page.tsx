@@ -9,10 +9,12 @@ import {
   ListTree, Users, Trophy, Sparkles, Zap, TrendingUp,
 } from "lucide-react";
 import { isoToLocalDateOnly } from "@/lib/data";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { WeeklyPlanForm, WeeklyPlanGrid, weekRangeLabel } from "@/components/weekly-plan-ui";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
+import { MonthlyContentPlanPanel } from "@/components/monthly-content-plan-panel";
 import { PostActivityCalendar } from "@/components/streamer-pool/post-activity-calendar";
 import {
   fetchStreamerAchievementDay,
@@ -40,6 +42,11 @@ import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/compone
 import { createNotificationPersisted } from "@/lib/notification-actions";
 import { weekDayIsosFromStart, shiftWeekStartIso, planDateInWeek, weekStartFromDateIso } from "@/lib/data";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
+import {
+  createFoxstreamMonthlyTemplate,
+  expandTemplateWeekToPlans,
+} from "@/lib/monthly-content-template";
+import { resolvePlanContentType } from "@/lib/plan-content-types";
 import { logAudit } from "@/store/audit-log";
 import {
   BASE_TIMEZONE,
@@ -282,8 +289,9 @@ function TakvimPage() {
     });
   };
 
+  /** Çekim / plan — yalnız yayıncı (moderatör ayrı rol). */
   const yayincilar = useMemo(
-    () => employees.filter(e => (e.kind === "streamer" || e.kind === "moderator") && e.status === "active"),
+    () => employees.filter((e) => e.kind === "streamer" && e.status === "active"),
     [employees]
   );
 
@@ -359,6 +367,33 @@ function TakvimPage() {
       ),
     [weeklyPlans, planEmployeeId, planWeek]
   );
+
+  /** Çekim komuta: kayıtlı plan yoksa aylık şablon önizlemesi. */
+  const overviewPlansBundle = useMemo(() => {
+    const weekDays = weekDayIsosFromStart(planWeek);
+    const streamerIds = new Set(yayincilar.map((e) => e.id));
+    const hasSavedShoots = weeklyPlans.some(
+      (p) =>
+        streamerIds.has(p.employeeId) &&
+        p.status !== "cancelled" &&
+        weekDays.includes(p.date.slice(0, 10)) &&
+        resolvePlanContentType(p.activity).countsAsShoot
+    );
+    if (hasSavedShoots || !planEmployeeId) {
+      return { plans: weeklyPlans, templatePreview: false };
+    }
+    const draft = expandTemplateWeekToPlans(
+      createFoxstreamMonthlyTemplate().slots,
+      1,
+      planWeek,
+      planEmployeeId,
+    );
+    const preview: WeeklyPlan[] = draft.map((p, i) => ({
+      ...p,
+      id: `tpl-preview-${planWeek}-${i}`,
+    }));
+    return { plans: [...weeklyPlans, ...preview], templatePreview: preview.length > 0 };
+  }, [weeklyPlans, yayincilar, planWeek, planEmployeeId]);
 
   const activityOpts = useMemo(
     () => ({ brandDeals, brandLinks }),
@@ -497,17 +532,15 @@ function TakvimPage() {
       <AdminWeekPlanOverview
         weekStart={planWeek}
         onWeekChange={setPlanWeek}
-        plans={weeklyPlans}
+        plans={overviewPlansBundle.plans}
         employees={employees}
+        templatePreview={overviewPlansBundle.templatePreview}
       />
 
       <nav
         aria-label="Sayfa içi hızlı gezinme"
         className="sticky top-0 z-20 -mx-2 mb-4 border-b border-border/80 bg-background/95 px-2 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-background/85 sm:-mx-3 sm:px-3 md:-mx-5 md:px-5"
       >
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Hızlı yön bulma — kaydırma gerekmez
-        </p>
         <div className="flex flex-wrap items-center gap-2">
           {TAKVIM_SECTIONS.map(({ id, label, icon: Icon }) => (
             <button
@@ -661,7 +694,10 @@ function TakvimPage() {
                   onChange={(e) => setOverlayPlans(e.target.checked)}
                   className="rounded"
                 />
-                <CalendarDays size={11} /> Yayıncı planlarını göster ({weekRangeLabel(planWeek)})
+                <CalendarDays size={11} /> Yayıncı planlarını göster
+                <span className="tabular-nums text-muted-foreground/80">
+                  ({weekRangeLabel(planWeek)})
+                </span>
               </label>
               <Button
                 type="button"
@@ -683,7 +719,7 @@ function TakvimPage() {
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold px-2 py-2">Yayıncı</div>
               {WEEKDAYS_LONG.map((d, i) => (
                 <div key={d} className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold text-center px-2 py-2 bg-muted/60 rounded-md">
-                  <p>{d}</p>
+                  <p>{weekdayShort(i)}</p>
                   {overlayPlans && currentWeekDays[i] && (
                     <p className="font-normal text-[9px] text-muted-foreground/70 mt-0.5 tabular-nums">
                       {currentWeekDays[i].slice(5)}
@@ -957,9 +993,6 @@ function TakvimPage() {
       {/* ── YAYINCI HAFTALIK PLANLARI (tarihli) ─────────────────────── */}
       <div id="yayinci-plan-detay" className="mt-10 mb-4 scroll-mt-28">
         <h2 className="text-lg font-semibold text-foreground">Yayıncı Haftalık Planları</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          Seçilen yayıncının haftalık planı — markaları ve görevleri gün gün düzenleyin. Tüm değişiklikler Supabase&apos;e kaydedilir; tarihler yerel takvime göre tutulur.
-        </p>
         {planEmployeeId && contentCountForStreamer === 0 && (
           <p className="mt-2 text-xs text-amber-800 dark:text-amber-200 rounded-lg border border-amber-300/60 bg-amber-50/80 dark:bg-amber-950/40 px-3 py-2">
             Bu yayıncı için henüz paylaşım kaydı yok (check-in veya havuz postu). Alttaki{" "}
@@ -1018,6 +1051,20 @@ function TakvimPage() {
                 fetchDayDetail={planEmployeeId ? fetchDayDetail : undefined}
               />
             </CollapsibleSection>
+          </div>
+        )}
+        {planEmployeeId && (
+          <div className="mt-4">
+            <MonthlyContentPlanPanel
+              employeeId={planEmployeeId}
+              employeeName={planStreamerName}
+              userId={user?.id}
+              monthAnchorMonday={planWeek}
+              onChangeMonthAnchor={setPlanWeek}
+              existingPlans={weeklyPlans.filter((p) => p.employeeId === planEmployeeId)}
+              onApplyPlans={(plans) => plans.map((p) => addWeeklyPlan(p))}
+              readOnly={user?.role === "auditor"}
+            />
           </div>
         )}
         {planEmployeeId && (
@@ -1418,7 +1465,7 @@ function AdminWeekFullscreen({
             <div className="border-b border-border bg-muted/30 p-1" />
             {WEEKDAYS_LONG.map((d, i) => (
               <div key={d} className="border-b border-l border-border bg-muted/30 p-2 text-center">
-                <p className="text-[10px] font-semibold uppercase text-muted-foreground">{d.slice(0, 3)}</p>
+                <p className="text-[10px] font-semibold uppercase text-muted-foreground">{weekdayShort(i)}</p>
                 {weekDays[i] && <p className="text-xs font-medium tabular-nums">{weekDays[i].slice(8, 10)}</p>}
               </div>
             ))}

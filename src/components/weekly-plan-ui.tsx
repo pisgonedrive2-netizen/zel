@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { useStore, type WeeklyPlan, type Employee, WEEKDAYS_LONG } from "@/store/store";
+import { useStore, type WeeklyPlan, type Employee } from "@/store/store";
+import { weekdayShort } from "@/lib/i18n/weekday";
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
 import {
   weekDayIsosFromStart,
   weekStartFromDateIso,
@@ -38,7 +40,8 @@ export function weekRangeLabel(weekStartIso: string) {
   const a = new Date(weekStartIso + "T00:00:00");
   const b = new Date(weekStartIso + "T00:00:00");
   b.setDate(b.getDate() + 6);
-  return `${a.toLocaleDateString("tr-TR", { day: "numeric", month: "short" })} – ${b.toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" })}`;
+  const loc = dateLocaleTag();
+  return `${a.toLocaleDateString(loc, { day: "numeric", month: "short" })} – ${b.toLocaleDateString(loc, { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
 /** Pazartesi ISO (YYYY-MM-DD), yerel takvim */
@@ -212,7 +215,7 @@ export function WeeklyPlanGrid({
         } ${isToday ? "border-blue-300 bg-blue-50/30 dark:border-blue-500/50 dark:bg-blue-950/35" : "border-border"}`}
       >
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          {WEEKDAYS_LONG[i].slice(0, 3)} <span className="text-foreground/60">{iso.slice(8, 10)}</span>
+          {weekdayShort(i)} <span className="text-foreground/60">{iso.slice(8, 10)}</span>
         </p>
         {dayPlans.length === 0 ? (
           <p className="text-[10px] text-muted-foreground/40 italic">—</p>

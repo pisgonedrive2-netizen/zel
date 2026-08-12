@@ -3,6 +3,8 @@
 // (CRUD verisi `src/store/store.ts` içindedir; bu dosya türev/UI sabitleri tutar.)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
+
 export const MONTHS = [
   "Oca", "Şub", "Mar", "Nis", "May", "Haz",
   "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
@@ -163,7 +165,7 @@ export function formatDateLongTr(iso: string): string {
   if (!base) return iso;
   const [y, mo, day] = base.split("-").map(Number);
   const d = new Date(y, mo - 1, day, 12, 0, 0);
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString(dateLocaleTag(), {
     weekday: "long",
     day: "numeric",
     month: "long",

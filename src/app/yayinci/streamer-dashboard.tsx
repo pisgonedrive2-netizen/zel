@@ -31,6 +31,8 @@ import { isSupabaseClientMode } from "@/lib/supabase-client";
 import { useAuth, type AppUser } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { BrandLogo } from "@/components/brand-logo";
+import { NoI18n } from "@/components/no-i18n";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import { LinkDetailsModal } from "@/components/link-details-modal";
 import { AchievementLinkSyncBar } from "@/components/streamer/achievement-link-sync-bar";
 import {
@@ -68,6 +70,7 @@ import {
   resolvePlanContentType,
 } from "@/lib/plan-content-types";
 import { ShiftTemplateCard } from "@/components/streamer/shift-template-card";
+import { MonthlyContentPlanPanel } from "@/components/monthly-content-plan-panel";
 import { payrollDueShort, payrollDueCaption } from "@/lib/payroll-dates";
 import {
   buildPayrollPaymentLines,
@@ -2666,6 +2669,16 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
               />
             </CollapsibleSection>
 
+            <MonthlyContentPlanPanel
+              employeeId={me.id}
+              employeeName={me.name}
+              userId={user.id}
+              monthAnchorMonday={weekView}
+              onChangeMonthAnchor={setWeekView}
+              existingPlans={weeklyPlans.filter((p) => p.employeeId === me.id)}
+              onApplyPlans={(plans) => plans.map((p) => addWeeklyPlan(p))}
+            />
+
             <ShiftTemplateCard
               weekStart={weekView}
               weekDays={weekDayIsosFromStart(weekView)}
@@ -2740,7 +2753,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                           .sort((a, b) => a.startTime.localeCompare(b.startTime));
                         return (
                           <div key={day} className="min-w-[9rem] max-w-[10rem] flex-none snap-start border border-border rounded-lg p-2 min-h-[88px]">
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5">{day.slice(0, 3)}</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5">{weekdayShort(idx)}</p>
                             {slots.length === 0 ? <p className="text-[10px] text-muted-foreground/40">—</p> :
                               slots.map(s => (
                                 <div key={s.id} className="text-[10px] mb-1 px-1.5 py-0.5 rounded bg-muted/50 border border-border">
@@ -2761,7 +2774,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                           .sort((a, b) => a.startTime.localeCompare(b.startTime));
                         return (
                           <div key={day} className="border border-border rounded-lg p-2 min-h-[80px] min-w-0">
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5">{day.slice(0, 3)}</p>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5">{weekdayShort(idx)}</p>
                             {slots.length === 0 ? <p className="text-[10px] text-muted-foreground/40">—</p> :
                               slots.map(s => (
                                 <div key={s.id} className="text-[10px] mb-1 px-1.5 py-0.5 rounded bg-muted/50 border border-border">
@@ -4087,7 +4100,7 @@ function ExpenseRow({
           <span className="text-[11px] text-muted-foreground">{e.category} · {e.date}</span>
           {statusBadge}
         </div>
-        <p className="text-sm text-foreground line-clamp-2">{e.description}</p>
+        <NoI18n as="p" className="text-sm text-foreground line-clamp-2">{e.description}</NoI18n>
         {e.reviewerNote && (
           <p className="text-[11px] text-muted-foreground italic mt-0.5">Yönetici notu: {e.reviewerNote}</p>
         )}

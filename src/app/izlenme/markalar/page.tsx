@@ -71,6 +71,8 @@ import {
   hasBrandMonthlyStatsData,
 } from "@/lib/brand-monthly-stats";
 import { shiftCalendarMonthYm } from "@/lib/data";
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
+import { t } from "@/lib/i18n/t";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
 import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
@@ -106,16 +108,16 @@ const fmtViews = (n: number) => {
 };
 
 const monthTitleYm = (ym: string) =>
-  new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  new Date(ym + "-01").toLocaleDateString(dateLocaleTag(), { month: "long", year: "numeric" });
 
 const monthShort = (ym: string) =>
-  new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "short" });
+  new Date(ym + "-01").toLocaleDateString(dateLocaleTag(), { month: "short" });
 
 /** "Son içerik: 12 Nis · 2 ay önce" gibi etiket. */
 function lastContentDateLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const datePart = d.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+  const datePart = d.toLocaleDateString(dateLocaleTag(), { day: "2-digit", month: "short" });
   const diffDays = Math.floor((Date.now() - d.getTime()) / 86_400_000);
   if (diffDays <= 0) return datePart;
   if (diffDays < 30) return `${datePart} · ${diffDays} gün önce`;
@@ -524,8 +526,8 @@ export default function MarkalarPage() {
         <KpiTile
           icon={<Briefcase size={14} />}
           label="Aktif marka"
-          value={kpi.activeBrandCount.toLocaleString("tr-TR")}
-          hint={`${brands.length} toplam`}
+          value={kpi.activeBrandCount.toLocaleString(dateLocaleTag())}
+          hint={t("{n} toplam").replace("{n}", String(brands.length))}
           tone="indigo"
         />
         <KpiTile
@@ -539,7 +541,11 @@ export default function MarkalarPage() {
           icon={<Sparkles size={14} />}
           label="Lider platform"
           value={kpi.topPlatform?.name ?? "—"}
-          hint={kpi.topPlatform ? `${fmtViews(kpi.topPlatform.views)} izlenme` : "Veri yok"}
+          hint={
+            kpi.topPlatform
+              ? t("{n} izlenme").replace("{n}", fmtViews(kpi.topPlatform.views))
+              : "Veri yok"
+          }
           tone="amber"
         />
         <KpiTile
@@ -568,7 +574,7 @@ export default function MarkalarPage() {
               Yükselişte
             </div>
             <span className="text-[11px] text-muted-foreground">
-              Bir önceki aya göre en güçlü artış · {monthTitleYm(viewMonth)}
+              {t("Bir önceki aya göre en güçlü artış")} · {monthTitleYm(viewMonth)}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -600,8 +606,10 @@ export default function MarkalarPage() {
                 Markalar
               </CardTitle>
               <CardDescription className="text-xs">
-                Tıklanan her kart marka detay sayfasını açar — {monthTitleYm(viewMonth)} özeti
-                ile.
+                {t("Tıklanan her kart marka detay sayfasını açar — {month} özeti ile.").replace(
+                  "{month}",
+                  monthTitleYm(viewMonth),
+                )}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1457,7 +1465,7 @@ function TopPerformerCard({
             <div className="flex items-center gap-1.5">
               <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-300">
                 {rankIcon}
-                #{rank} Yükselişte
+                {`#${rank} ${t("Yükselişte")}`}
               </span>
             </div>
             <p className="text-sm font-bold truncate group-hover:text-primary transition-colors mt-0.5">

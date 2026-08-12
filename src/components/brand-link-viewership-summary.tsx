@@ -17,12 +17,14 @@ import {
   type BrandLinkViewershipStats,
 } from "@/lib/brand-link-viewership-stats";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
+import { t } from "@/lib/i18n/t";
+import { getRuntimeLocale } from "@/lib/i18n/locale-state";
 
 function monthLabel(ym: string) {
-  return new Date(ym + "-01").toLocaleDateString("tr-TR", {
-    month: "long",
-    year: "numeric",
-  });
+  return new Date(ym + "-01").toLocaleDateString(
+    getRuntimeLocale() === "ru" ? "ru-RU" : "tr-TR",
+    { month: "long", year: "numeric" },
+  );
 }
 
 function BigMetric({
@@ -97,15 +99,13 @@ export function BrandLinkViewershipSummary({
   if (stats.activeLinkCount === 0) return null;
 
   const monthName = monthLabel(viewMonth);
-  const isCurrentMonth = viewMonth === todayYm;
 
   const content = (
     <div className="space-y-5">
       <p className="rounded-xl border border-border/70 bg-muted/30 px-3.5 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Snapshot’lar platformdaki <strong className="text-foreground">kümülatif</strong> view’dır.
-        Bu yüzden {isCurrentMonth ? "bu ayın" : monthName + " ayının"} son bakiyesi toplam’a yakın
-        görünebilir. Asıl <strong className="text-foreground">aylık izlenme</strong> = ay içi
-        artış (önceki ay sonu → bu ay).
+        {t(
+          "Snapshot’lar platformdaki kümülatif view’dır. Bu yüzden bu ayın son bakiyesi toplam’a yakın görünebilir. Asıl aylık izlenme = ay içi artış (önceki ay sonu → bu ay)."
+        )}
       </p>
 
       <div className="grid gap-3 lg:grid-cols-2">

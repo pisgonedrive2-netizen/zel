@@ -4,6 +4,8 @@ import * as React from "react";
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { weekdayShort } from "@/lib/i18n/weekday";
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
 
 // ── Tarih yardımcıları (yerel saat dilimine bağlı) ─────────────────────────
 const TR_MONTHS = [
@@ -11,7 +13,6 @@ const TR_MONTHS = [
   "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
 ];
 // Pazartesi başlangıçlı hafta düzeni — Türkiye için doğal.
-const TR_WEEKDAYS_SHORT = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
 function pad2(n: number) {
   return n.toString().padStart(2, "0");
@@ -269,8 +270,8 @@ export function DateTimePicker({
 
             {/* Hafta gün başlıkları */}
             <div className="mb-1 grid grid-cols-7 gap-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {TR_WEEKDAYS_SHORT.map((d) => (
-                <div key={d}>{d}</div>
+              {Array.from({ length: 7 }, (_, i) => (
+                <div key={i}>{weekdayShort(i)}</div>
               ))}
             </div>
 
@@ -296,7 +297,7 @@ export function DateTimePicker({
                       !isSelected && isOther && "text-muted-foreground/40",
                       isDis && "opacity-30 cursor-not-allowed",
                     )}
-                    aria-label={d.toLocaleDateString("tr-TR")}
+                    aria-label={d.toLocaleDateString(dateLocaleTag())}
                     aria-current={isToday ? "date" : undefined}
                   >
                     {d.getDate()}

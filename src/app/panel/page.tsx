@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,7 +19,7 @@ import {
 import { useAuth, landingFor } from "@/store/auth";
 import { isMainAdmin } from "@/lib/user-guards";
 import { monthLabelTr } from "@/lib/month-label";
-import { fmt, toYearMonthLocal } from "@/lib/data";
+import { fmt, toYearMonthLocal, weekDayIsosFromStart } from "@/lib/data";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { PageShell, PageHeader } from "@/components/page-shell";
@@ -27,11 +27,17 @@ import { AdminActionInbox } from "@/components/admin/admin-action-inbox";
 import { SystemBackupStatusCard } from "@/components/admin/system-backup-status-card";
 import { AdminWeekPlanOverview } from "@/components/admin/admin-week-plan-overview";
 import { useAdminDashboardMetrics } from "@/lib/admin-dashboard-metrics";
-import { useStore, weekStartOf } from "@/store/store";
+import { useStore, weekStartOf, type WeeklyPlan } from "@/store/store";
+import {
+  createFoxstreamMonthlyTemplate,
+  expandTemplateWeekToPlans,
+} from "@/lib/monthly-content-template";
+import { resolvePlanContentType } from "@/lib/plan-content-types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { t } from "@/lib/i18n/t";
 
 export default function PanelPage() {
   const { user } = useAuth();
@@ -42,6 +48,34 @@ export default function PanelPage() {
   const [planWeek, setPlanWeek] = useState(() => weekStartOf());
   const currentMonth = toYearMonthLocal(new Date());
   const showOzetLink = user ? isMainAdmin(user) : false;
+
+  const overviewPlansBundle = useMemo(() => {
+    const streamers = employees.filter((e) => e.kind === "streamer" && e.status === "active");
+    const weekDays = weekDayIsosFromStart(planWeek);
+    const streamerIds = new Set(streamers.map((e) => e.id));
+    const hasSavedShoots = weeklyPlans.some(
+      (p) =>
+        streamerIds.has(p.employeeId) &&
+        p.status !== "cancelled" &&
+        weekDays.includes(p.date.slice(0, 10)) &&
+        resolvePlanContentType(p.activity).countsAsShoot,
+    );
+    const primaryId = streamers[0]?.id;
+    if (hasSavedShoots || !primaryId) {
+      return { plans: weeklyPlans, templatePreview: false };
+    }
+    const draft = expandTemplateWeekToPlans(
+      createFoxstreamMonthlyTemplate().slots,
+      1,
+      planWeek,
+      primaryId,
+    );
+    const preview: WeeklyPlan[] = draft.map((p, i) => ({
+      ...p,
+      id: `tpl-preview-panel-${planWeek}-${i}`,
+    }));
+    return { plans: [...weeklyPlans, ...preview], templatePreview: preview.length > 0 };
+  }, [employees, weeklyPlans, planWeek]);
 
   useEffect(() => {
     if (user && !allowed) {
@@ -86,8 +120,9 @@ export default function PanelPage() {
       <AdminWeekPlanOverview
         weekStart={planWeek}
         onWeekChange={setPlanWeek}
-        plans={weeklyPlans}
+        plans={overviewPlansBundle.plans}
         employees={employees}
+        templatePreview={overviewPlansBundle.templatePreview}
         compact
         href="/takvim"
       />
@@ -249,14 +284,14 @@ function KpiCard({
       <CardHeader className="pb-0">
         <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
           <Icon size={11} />
-          {title}
+          {t(title)}
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-0">
         <p className={`text-2xl font-bold tabular-nums ${accent ? "text-amber-700 dark:text-amber-300" : ""}`}>
           {value}
         </p>
-        <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{sub}</p>
+        <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{t(sub)}</p>
       </CardContent>
     </Card>
   );
@@ -283,7 +318,7 @@ function QuickBtn({
       )}
     >
       <Icon size={14} className="shrink-0" />
-      <span className="truncate">{label}</span>
+      <span className="truncate">{t(label)}</span>
     </Link>
   );
 }

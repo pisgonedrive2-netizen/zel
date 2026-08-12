@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { REGISTRATION_ENABLED } from "@/lib/feature-flags";
 import { landingCopy } from "@/lib/i18n/landing";
+import { t } from "@/lib/i18n/t";
 import { useUiPrefs } from "@/store/ui-prefs";
 import { LocaleToggle } from "@/components/locale-toggle";
 
@@ -465,11 +466,11 @@ function ForgotPasswordForm({
       )}
 
       <button type="submit" disabled={busy || !username.trim()} style={{ backgroundColor: ORANGE }} className={btnPrimary}>
-        {busy ? "Gönderiliyor..." : "Sıfırlama talebi gönder"}
+        {busy ? t("Gönderiliyor...") : t("Sıfırlama talebi gönder")}
       </button>
 
       <button type="button" onClick={onBack} className={btnGhost}>
-        ← Giriş ekranına dön
+        {t("← Giriş ekranına dön")}
       </button>
     </form>
   );
@@ -533,16 +534,16 @@ function AccountTypePicker({
 }) {
   return (
     <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Hesap türü">
-      {ACCOUNT_TYPES.map((t) => {
-        const active = value === t.value;
-        const Icon = t.icon;
+      {ACCOUNT_TYPES.map((opt) => {
+        const active = value === opt.value;
+        const Icon = opt.icon;
         return (
           <button
-            key={t.value}
+            key={opt.value}
             type="button"
             role="radio"
             aria-checked={active}
-            onClick={() => onChange(t.value)}
+            onClick={() => onChange(opt.value)}
             disabled={disabled}
             className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition disabled:cursor-not-allowed sm:px-3 ${
               active
@@ -558,9 +559,9 @@ function AccountTypePicker({
               <Icon size={17} strokeWidth={2.2} />
             </span>
             <span className={`text-xs font-bold sm:text-sm ${active ? "text-white" : "text-white/80"}`}>
-              {t.label}
+              {opt.label}
             </span>
-            <span className="text-[9px] leading-tight text-white/45 sm:text-[10px]">{t.desc}</span>
+            <span className="text-[9px] leading-tight text-white/45 sm:text-[10px]">{opt.desc}</span>
           </button>
         );
       })}
@@ -946,11 +947,17 @@ function RegisterForm({
           style={{ backgroundColor: ORANGE }}
           className={btnPrimary}
         >
-          {busy ? "Gönderiliyor..." : isBrand ? "Marka başvurusu gönder" : isStreamer ? "Yayıncı başvurusu gönder" : "Kayıt talebi gönder"}
+          {busy
+            ? t("Gönderiliyor...")
+            : isBrand
+              ? t("Marka başvurusu gönder")
+              : isStreamer
+                ? t("Yayıncı başvurusu gönder")
+                : t("Kayıt talebi gönder")}
         </button>
 
         <button type="button" onClick={onBack} className={btnGhost}>
-          ← Giriş ekranına dön
+          {t("← Giriş ekranına dön")}
         </button>
       </div>
     </form>
@@ -1378,7 +1385,7 @@ export default function LoginPage() {
                 style={{ backgroundColor: ORANGE }}
                 className={btnPrimary}
               >
-                Giriş ekranına dön
+                {t("Giriş ekranına dön")}
               </button>
             </div>
           ) : (
@@ -1409,7 +1416,7 @@ export default function LoginPage() {
                 style={{ backgroundColor: ORANGE }}
                 className={btnPrimary}
               >
-                Giriş ekranına dön
+                {t("Giriş ekranına dön")}
               </button>
             </div>
           ) : (

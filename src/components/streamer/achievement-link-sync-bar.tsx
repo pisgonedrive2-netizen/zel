@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { syncStreamerAchievementFromAccounts } from "@/lib/achievement-api";
-import { mergeAchievementReelsIntoStore } from "@/lib/achievement-api";
+import {
+  mergeAchievementReelsIntoStore,
+  syncStreamerAchievementFromAccounts,
+} from "@/lib/achievement-api";
+import { t } from "@/lib/i18n/t";
 
 /**
  * Yayıncının kişisel YouTube / Instagram / TikTok hesapları → achievement takvimi.
@@ -64,8 +67,9 @@ export function AchievementLinkSyncBar({
       {!compact && (
         <p className="text-xs text-muted-foreground max-w-xl">
           <Sparkles size={12} className="inline mr-1 text-emerald-600" />
-          {employeeName ?? "Yayıncı"} için <strong>Hesaplarım</strong> bölümündeki kişisel YouTube,
-          Instagram ve TikTok profilleri API ile taranır; günlük paylaşımlar takvime yazılır.
+          {t(
+            "{name} için Hesaplarım bölümündeki kişisel YouTube, Instagram ve TikTok profilleri API ile taranır; günlük paylaşımlar takvime yazılır."
+          ).replace("{name}", employeeName ?? "Yayıncı")}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2 shrink-0">

@@ -33,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input as UInput } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import Modal from "@/components/ui/modal";
+import { t } from "@/lib/i18n/t";
 import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { BrandMultiSelect } from "@/components/brand-multi-select";
@@ -43,6 +44,7 @@ import {
   resolveExpenseBrandIds,
 } from "@/lib/content-expense-brands";
 import { ProofUploader } from "@/components/proof-uploader";
+import { NoI18n } from "@/components/no-i18n";
 import { MonthlyExportMenu } from "@/components/monthly-export-menu";
 import type { AppNotification } from "@/store/store";
 import {
@@ -272,7 +274,9 @@ function ExpenseSlaPanel({
                       <span className="truncate">
                         <span className="font-medium text-red-900 dark:text-red-100">{ageDays}g</span>
                         {" · "}
-                        {emp?.name ?? "?"} · {e.brandName} · {e.description.slice(0, 60)}
+                        <NoI18n>
+                          {emp?.name ?? "?"} · {e.brandName} · {e.description.slice(0, 60)}
+                        </NoI18n>
                       </span>
                       <span className="tabular-nums font-semibold shrink-0 text-red-900 dark:text-red-100">
                         {fmt(e.amountUsd)}
@@ -601,7 +605,7 @@ function ContentExpensesPageInner() {
                         </Badge>
                         <span className="text-[11px] text-muted-foreground">{emp?.name} · {e.date}</span>
                       </div>
-                      <p className="text-sm text-foreground line-clamp-1 mt-0.5">{e.description}</p>
+                      <NoI18n as="p" className="text-sm text-foreground line-clamp-1 mt-0.5">{e.description}</NoI18n>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-bold tabular-nums">{fmt(e.amountUsd)}</p>
@@ -708,16 +712,16 @@ function ContentExpensesPageInner() {
                         {e.date}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-xs font-medium whitespace-nowrap">{emp?.name ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-xs font-medium whitespace-nowrap"><NoI18n>{emp?.name ?? "—"}</NoI18n></td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       <Badge variant="outline" className="text-[10px]"
                         style={brand ? { background: "#fef3c7", color: "#92400e", borderColor: "#fcd34d" } : {}}>
-                        {e.brandName}
+                        <NoI18n>{e.brandName}</NoI18n>
                       </Badge>
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{e.category}</td>
+                    <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap"><NoI18n>{e.category}</NoI18n></td>
                     <td className="px-3 py-2.5">
-                      <p className="text-sm text-foreground">{e.description}</p>
+                      <NoI18n as="p" className="text-sm text-foreground">{e.description}</NoI18n>
                       {e.amountThb && (
                         <p className="text-[11px] text-muted-foreground">{e.amountThb.toLocaleString("tr-TR")} THB</p>
                       )}
@@ -768,6 +772,14 @@ function ContentExpensesPageInner() {
                             <ImageIcon size={11} />
                           </a>
                         )}
+                        {canMarkPaid && (
+                          <ProofUploader
+                            compact
+                            value={e.screenshotUrl ?? ""}
+                            onChange={(url) => updateContentExpense(e.id, { screenshotUrl: url || undefined })}
+                            folder="expense"
+                          />
+                        )}
                         {!readOnly && (
                           <button onClick={() => setModal(e)} className="text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Düzenle">
                             <Pencil size={12} />
@@ -815,7 +827,7 @@ function ContentExpensesPageInner() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm("Bordro bağlantısı kaldırılsın mı? İlgili maaş kalemi silinir.")) {
+                              if (window.confirm(t("Bordro bağlantısı kaldırılsın mı? İlgili maaş kalemi silinir."))) {
                                 unsettleContentExpenseFromPayroll(e.id);
                               }
                             }}
@@ -873,6 +885,10 @@ function ContentExpensesPageInner() {
             kasas={viewKasas}
             kasaTransactions={viewKasaTransactions}
             defaultKasaId={defaultKasaId}
+            onAttachProof={canMarkPaid ? (url) => {
+              updateContentExpense(reviewModal.id, { screenshotUrl: url || undefined });
+              setReviewModal({ ...reviewModal, screenshotUrl: url || undefined });
+            } : undefined}
             onApprove={(note, settlement, kasaPayload) => {
               const today = new Date().toISOString().slice(0, 10);
               updateContentExpense(reviewModal.id, {
@@ -987,6 +1003,7 @@ function ReviewForm({
   onReject,
   onNeedsInfo,
   onClose,
+  onAttachProof,
 }: {
   expense: ContentExpense;
   reviewerId: string;
@@ -1003,6 +1020,7 @@ function ReviewForm({
   onReject: (note: string) => void;
   onNeedsInfo: (note: string) => void;
   onClose: () => void;
+  onAttachProof?: (url: string) => void;
 }) {
   const [note, setNote] = useState(expense.reviewerNote ?? "");
   const [settlement, setSettlement] = useState<"approve_only" | "kasa" | "payroll">(
@@ -1026,8 +1044,17 @@ function ReviewForm({
 
   return (
     <div className="space-y-4">
-      {/* Görsel önizleme */}
-      {expense.screenshotUrl && (
+      {/* Görsel önizleme + yönetici sonradan ekleyebilir (audit log yok) */}
+      {onAttachProof ? (
+        <Field label="Kanıt görseli" hint="Yayıncı göndermediyse sonradan ekleyebilirsiniz. Bu işlem loglanmaz.">
+          <ProofUploader
+            value={expense.screenshotUrl ?? ""}
+            onChange={onAttachProof}
+            folder="expense"
+            placeholder="Resim yükle veya https://... yapıştır"
+          />
+        </Field>
+      ) : expense.screenshotUrl ? (
         <div className="border border-border rounded-lg p-2 bg-muted/30 flex items-center justify-center max-h-72 overflow-hidden">
           {/^https?:\/\/.+\.(png|jpe?g|gif|webp)$/i.test(expense.screenshotUrl) ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -1040,14 +1067,14 @@ function ReviewForm({
             </a>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Detaylar */}
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div><span className="text-muted-foreground">Yayıncı:</span> <strong>{emp?.name}</strong></div>
+        <div><span className="text-muted-foreground">Yayıncı:</span> <strong><NoI18n>{emp?.name}</NoI18n></strong></div>
         <div><span className="text-muted-foreground">Tarih:</span> <strong>{expense.date}</strong></div>
-        <div><span className="text-muted-foreground">Marka:</span> <Badge variant="outline">{expense.brandName}</Badge></div>
-        <div><span className="text-muted-foreground">Kategori:</span> <strong>{expense.category}</strong></div>
+        <div><span className="text-muted-foreground">Marka:</span> <Badge variant="outline"><NoI18n>{expense.brandName}</NoI18n></Badge></div>
+        <div><span className="text-muted-foreground">Kategori:</span> <strong><NoI18n>{expense.category}</NoI18n></strong></div>
         <div><span className="text-muted-foreground">Tutar:</span> <strong className="text-base">{fmt(expense.amountUsd)}</strong>
           {expense.amountThb ? ` (${expense.amountThb.toLocaleString("tr-TR")} ฿)` : ""}</div>
         <div><span className="text-muted-foreground">Gönderim:</span> <span className="text-xs">{submitted}</span></div>
@@ -1055,11 +1082,11 @@ function ReviewForm({
 
       <div className="px-3 py-2.5 rounded-lg bg-muted/40 border border-border">
         <p className="text-xs text-muted-foreground mb-1">Açıklama</p>
-        <p className="text-sm">{expense.description}</p>
+        <NoI18n as="p" className="text-sm">{expense.description}</NoI18n>
         {expense.notes && (
           <>
             <p className="text-xs text-muted-foreground mt-2 mb-1">Yayıncı notu</p>
-            <p className="text-xs">{expense.notes}</p>
+            <NoI18n as="p" className="text-xs">{expense.notes}</NoI18n>
           </>
         )}
       </div>
@@ -1071,7 +1098,7 @@ function ReviewForm({
             <div key={i} className="text-xs border-b border-border/50 pb-2 last:border-0">
               <span className="font-medium">{m.authorRole === "streamer" ? "Yayıncı" : "Yönetici"}</span>
               <span className="text-muted-foreground"> · {fmtDateTime(m.at)}</span>
-              <p className="mt-0.5 whitespace-pre-wrap">{m.message}</p>
+              <NoI18n as="p" className="mt-0.5 whitespace-pre-wrap">{m.message}</NoI18n>
             </div>
           ))}
         </div>

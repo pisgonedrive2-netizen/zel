@@ -11,6 +11,8 @@ interface Props {
   folder?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** Sadece yükle butonu — tablo / satır içi. */
+  compact?: boolean;
 }
 
 const IMG_RX = /^https?:\/\/.+\.(png|jpe?g|gif|webp)(\?.*)?$/i;
@@ -19,7 +21,7 @@ const URL_RX = /^https?:\/\//i;
 const TRON_TXID_RX = /^[0-9a-f]{64}$/i;
 
 /** URL girdisi + dosya yükleme tek bileşen. Yüklenen dosya Supabase Storage'a gider. */
-export function ProofUploader({ value, onChange, folder = "expense", placeholder, disabled }: Props) {
+export function ProofUploader({ value, onChange, folder = "expense", placeholder, disabled, compact }: Props) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,6 +43,36 @@ export function ProofUploader({ value, onChange, folder = "expense", placeholder
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
+  }
+
+  if (compact) {
+    return (
+      <div className="inline-flex items-center gap-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => inputRef.current?.click()}
+          disabled={disabled || uploading}
+          className="h-7 px-2 text-[11px]"
+          title={value ? "Görseli değiştir" : "Görsel ekle"}
+        >
+          {uploading ? <Loader2 className="animate-spin" size={12} /> : <Upload size={12} />}
+          <span className="ml-1">{value ? "Değiştir" : "Görsel ekle"}</span>
+        </Button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+          }}
+        />
+        {error && <span className="text-[10px] text-red-600 dark:text-red-400 max-w-[8rem] truncate">{error}</span>}
+      </div>
+    );
   }
 
   return (

@@ -53,6 +53,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Modal from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import { MarkaAchievementPanel } from "@/components/marka/marka-achievement-panel";
 import { BrandWeekContentSummary } from "@/components/marka/brand-week-content-summary";
 import {
@@ -382,7 +383,7 @@ export default function MarkaTakvimPage() {
                       >
                         <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1.5 flex items-center justify-between gap-1">
                           <span>
-                            {WEEKDAYS_LONG[i].slice(0, 3)}{" "}
+                            {weekdayShort(i)}{" "}
                             <span className="text-foreground/70">{iso.slice(8, 10)}</span>
                           </span>
                           {weekSharingDays.has(iso) && (
@@ -565,12 +566,12 @@ export default function MarkaTakvimPage() {
                       <th className="w-24 border border-border bg-muted/40 p-2 text-left font-medium text-muted-foreground">
                         Yayıncı
                       </th>
-                      {WEEKDAYS_LONG.map((d) => (
+                      {WEEKDAYS_LONG.map((d, i) => (
                         <th
                           key={d}
                           className="border border-border bg-muted/40 p-2 text-center font-medium text-muted-foreground"
                         >
-                          {d}
+                          {weekdayShort(i)}
                         </th>
                       ))}
                     </tr>
@@ -753,7 +754,7 @@ function BrandWeekFullscreen({
                 className="border-b border-l border-border bg-muted/30 p-2 text-center"
               >
                 <p className="text-[10px] font-semibold uppercase text-muted-foreground">
-                  {WEEKDAYS_LONG[i].slice(0, 3)}
+                  {weekdayShort(i)}
                 </p>
                 <p className="text-xs font-medium">{iso.slice(8, 10)}</p>
               </div>

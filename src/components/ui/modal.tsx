@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { X } from "lucide-react";
+import { t } from "@/lib/i18n/t";
 
 interface ModalProps {
   open: boolean;
@@ -38,7 +39,7 @@ export default function Modal({ open, onClose, title, children, size = "md" }: M
         className={["relative w-full rounded-2xl bg-card border border-border shadow-xl", sizeClass[size]].join(" ")}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t(title)}</h2>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

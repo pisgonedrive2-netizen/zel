@@ -13,13 +13,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ActivityLinkPreview } from "@/components/streamer-pool/activity-link-preview";
 import { isoToLocalDateOnly, todayDateLocal } from "@/lib/data";
+import { weekdayShort } from "@/lib/i18n/weekday";
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
 import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
-
-const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
-const MONTH_NAMES = [
-  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
-];
 
 function dateOnly(iso: string | undefined | null): string {
   return isoToLocalDateOnly(iso);
@@ -206,7 +202,10 @@ export function PostActivityCalendar({
   }, [month, selectedDay]);
 
   const [my, mm] = month.split("-").map(Number);
-  const monthLabel = `${MONTH_NAMES[mm - 1]} ${my}`;
+  const monthLabel = new Date(my, mm - 1, 1).toLocaleDateString(dateLocaleTag(), {
+    month: "long",
+    year: "numeric",
+  });
 
   const monthNav = (
     <div className="flex items-center gap-1 shrink-0">
@@ -268,12 +267,12 @@ export function PostActivityCalendar({
 
         {/* Hafta günü başlıkları */}
         <div className="grid grid-cols-7 gap-1.5">
-          {WEEKDAY_LABELS.map((w) => (
+          {Array.from({ length: 7 }, (_, i) => (
             <div
-              key={w}
+              key={i}
               className="text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
             >
-              {w}
+              {weekdayShort(i)}
             </div>
           ))}
         </div>
@@ -391,11 +390,11 @@ export function PostActivityCalendar({
         <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded border border-emerald-400/50 bg-emerald-500/15" />
-            Paylaşım yapıldı
+            İçerik paylaşıldı
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded border border-border/60 bg-muted/30" />
-            Paylaşım yok
+            İçerik yok
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded border-2 border-[#FF6B00]/70" />

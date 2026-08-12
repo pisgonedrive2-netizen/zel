@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { WEEKDAYS_LONG, type WeeklyPlan } from "@/store/store";
+import { type WeeklyPlan } from "@/store/store";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import { weekDayIsosFromStart } from "@/lib/data";
 import {
   resolvePlanContentType,
@@ -106,7 +107,7 @@ export function BrandWeekContentSummary({
                 }
               >
                 <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {WEEKDAYS_LONG[i].slice(0, 3)}
+                  {weekdayShort(i)}
                 </p>
                 <p
                   className={cn(

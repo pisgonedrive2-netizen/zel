@@ -6,10 +6,12 @@ import {
   Plus, Pencil, Trash2, KeyRound, Copy, Check, Eye, EyeOff,
   ShieldCheck, Crown, Headphones, User as UserIcon, Power, PowerOff, Sparkles,
   Tag,
-  Download,
   Upload,
   ScrollText,
   Bell,
+  FileText,
+  FileSpreadsheet,
+  Database,
   ExternalLink,
   LogIn,
   ShieldQuestion,
@@ -1326,8 +1328,8 @@ function UsersPage() {
           {flash}
         </div>
       )}
-      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground">
             {tab === "brand-registrations"
               ? "Marka Başvuruları"
@@ -1335,39 +1337,51 @@ function UsersPage() {
                 ? "Yayıncı Başvuruları"
                 : "Kullanıcılar"}
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p className="text-muted-foreground text-xs mt-0.5">
             {tab === "brand-registrations"
               ? "B2B marka self-servis kayıt başvurularını inceleyin, onaylayın veya reddedin"
               : tab === "streamer-registrations"
                 ? "Yayıncı self-servis kayıt başvurularını inceleyin, onaylayın veya reddedin"
-                : "Yayıncı, marka, denetçi ve yönetici hesaplarını yönetin · PIN sıfırlayın"}
+                : "Hesaplar ve PIN"}
           </p>
         </div>
         {tab === "users" && (
-          <div className="flex flex-wrap gap-2 sm:justify-end shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end shrink-0">
             <Button size="sm" onClick={() => setModal("new")} className="gap-1.5">
               <Plus size={14} /> Yeni Kullanıcı
             </Button>
-            <Button size="sm" variant="outline" onClick={runExportBackup} className="gap-1.5">
-              <Download size={13} /> Yedek (JSON)
+            <Button size="icon-sm" variant="outline" onClick={runExportBackup} title="Yedek (JSON)" aria-label="Yedek (JSON)">
+              <FileText size={14} />
             </Button>
-            <Button size="sm" variant="outline" onClick={runCsvBackup} className="gap-1.5">
-              <Download size={13} /> Yedek (CSV)
+            <Button size="icon-sm" variant="outline" onClick={runCsvBackup} title="Yedek (CSV)" aria-label="Yedek (CSV)">
+              <FileSpreadsheet size={14} />
             </Button>
             {currentUser && isMainAdmin(currentUser) && (
-              <Button size="sm" variant="outline" onClick={() => void runFullSystemBackup()} disabled={backupBusy} className="gap-1.5">
-                <Download size={13} /> {backupBusy ? "Hazırlanıyor…" : "Tam sistem yedeği"}
+              <Button
+                size="icon-sm"
+                variant="outline"
+                onClick={() => void runFullSystemBackup()}
+                disabled={backupBusy}
+                title={backupBusy ? "Hazırlanıyor…" : "Tam sistem yedeği"}
+                aria-label={backupBusy ? "Hazırlanıyor…" : "Tam sistem yedeği"}
+              >
+                <Database size={14} />
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="gap-1.5">
-              <Upload size={13} /> Yedek yükle
+            <Button size="icon-sm" variant="outline" onClick={() => fileRef.current?.click()} title="Yedek yükle" aria-label="Yedek yükle">
+              <Upload size={14} />
             </Button>
-            <Button size="sm" variant="outline" onClick={() => void requestDesktopNotify()} className="gap-1.5">
-              <Bell size={13} /> Bildirim izni
+            <Button size="icon-sm" variant="outline" onClick={() => void requestDesktopNotify()} title="Bildirim izni" aria-label="Bildirim izni">
+              <Bell size={14} />
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowPins(s => !s)} className="gap-1.5">
-              {showPins ? <EyeOff size={13} /> : <Eye size={13} />}
-              {showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={() => setShowPins(s => !s)}
+              title={showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
+              aria-label={showPins ? "PIN'leri Gizle" : "PIN'leri Göster"}
+            >
+              {showPins ? <EyeOff size={14} /> : <Eye size={14} />}
             </Button>
           </div>
         )}

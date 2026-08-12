@@ -5,7 +5,8 @@ import { CalendarClock, Coffee, Sparkles, Check, AlertTriangle, Undo2, User } fr
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/field";
-import { WEEKDAYS_LONG, type Employee, type WeeklyPlan } from "@/store/store";
+import { type Employee, type WeeklyPlan } from "@/store/store";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import { weekStartFromDateIso } from "@/lib/data";
 import {
   SHIFT_TEMPLATE_7H,
@@ -254,7 +255,7 @@ export function ShiftTemplateCard({
                         : "border-border bg-background text-muted-foreground hover:border-[#FF6B00]/40",
                   ].join(" ")}
                 >
-                  <span className="font-semibold">{WEEKDAYS_LONG[i].slice(0, 3)}</span>
+                  <span className="font-semibold">{weekdayShort(i)}</span>
                   <span className="text-[9px] opacity-70">{d.slice(8, 10)}</span>
                   {isFilled && <span className="mt-0.5 text-[8px]">dolu</span>}
                 </button>

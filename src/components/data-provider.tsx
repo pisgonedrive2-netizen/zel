@@ -378,6 +378,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
           }
+          // İçerik harcamaları: boş sunucu yanıtı dolu istemciyi ezmesin.
+          if (
+            preserveKasa &&
+            k === "contentExpenses" &&
+            Array.isArray(data[k]) &&
+            (data[k] as unknown[]).length === 0
+          ) {
+            const prev = useStore.getState().contentExpenses;
+            if (prev.length > 0) continue;
+          }
           patch[k] = data[k];
         }
         const employees = (patch.employees ?? useStore.getState().employees) as Employee[];

@@ -4,6 +4,8 @@
  * doğrudan toLocaleString/toLocaleDateString kullanmayın.
  */
 
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
+
 const TZ = "Europe/Istanbul";
 
 type DateInput = string | number | Date | null | undefined;
@@ -18,7 +20,7 @@ function toDate(input: DateInput): Date | null {
 export function fmtDateTime(input: DateInput): string {
   const d = toDate(input);
   if (!d) return "—";
-  return d.toLocaleString("tr-TR", {
+  return d.toLocaleString(dateLocaleTag(), {
     timeZone: TZ,
     hour12: false,
     day: "2-digit",
@@ -33,7 +35,7 @@ export function fmtDateTime(input: DateInput): string {
 export function fmtDateShort(input: DateInput): string {
   const d = toDate(input);
   if (!d) return "—";
-  return d.toLocaleString("tr-TR", {
+  return d.toLocaleString(dateLocaleTag(), {
     timeZone: TZ,
     hour12: false,
     day: "2-digit",
@@ -47,7 +49,7 @@ export function fmtDateShort(input: DateInput): string {
 export function fmtDateLong(input: DateInput): string {
   const d = toDate(input);
   if (!d) return "—";
-  return d.toLocaleString("tr-TR", {
+  return d.toLocaleString(dateLocaleTag(), {
     timeZone: TZ,
     hour12: false,
     day: "2-digit",
@@ -63,7 +65,7 @@ export function fmtDateLong(input: DateInput): string {
 export function fmtDateOnly(input: DateInput): string {
   const d = toDate(input);
   if (!d) return "—";
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString(dateLocaleTag(), {
     timeZone: TZ,
     day: "numeric",
     month: "long",
@@ -74,7 +76,7 @@ export function fmtDateOnly(input: DateInput): string {
 /** "May 2026" — ay-yıl özeti */
 export function fmtMonthYear(ym: string): string {
   const d = new Date(ym + "-01T00:00:00");
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString(dateLocaleTag(), {
     timeZone: TZ,
     month: "long",
     year: "numeric",
@@ -84,7 +86,7 @@ export function fmtMonthYear(ym: string): string {
 /** "May '26" — kısa ay-yıl */
 export function fmtMonthShort(ym: string): string {
   const d = new Date(ym + "-01T00:00:00");
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString(dateLocaleTag(), {
     timeZone: TZ,
     month: "short",
     year: "2-digit",

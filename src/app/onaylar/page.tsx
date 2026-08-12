@@ -28,6 +28,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TASK_PRIORITIES } from "@/types/internal-task";
+import { NoI18n } from "@/components/no-i18n";
 
 export default function OnaylarPage() {
   const { user } = useAuth();
@@ -155,7 +156,7 @@ export default function OnaylarPage() {
                               {emp?.name} · {e.date}
                             </span>
                           </div>
-                          <p className="text-sm line-clamp-1">{e.description}</p>
+                          <NoI18n as="p" className="text-sm line-clamp-1">{e.description}</NoI18n>
                         </div>
                         <p className="font-bold tabular-nums shrink-0">{fmt(e.amountUsd)}</p>
                       </div>

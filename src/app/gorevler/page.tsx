@@ -18,6 +18,7 @@ import {
 } from "@/types/internal-task";
 import { cn } from "@/lib/utils";
 import { DailyPlanPanel } from "@/components/tasks/daily-plan-panel";
+import { t } from "@/lib/i18n/t";
 
 type TaskView = "all" | "today" | "overdue";
 
@@ -31,10 +32,10 @@ const PRIORITY_STYLE: Record<TaskPriority, string> = {
 const STATUS_ORDER: TaskStatus[] = ["todo", "in_progress", "review", "done", "blocked"];
 
 function statusLabel(s: TaskStatus) {
-  return TASK_STATUSES.find((x) => x.value === s)?.label ?? s;
+  return t(TASK_STATUSES.find((x) => x.value === s)?.label ?? s);
 }
 function priorityLabel(p: TaskPriority) {
-  return TASK_PRIORITIES.find((x) => x.value === p)?.label ?? p;
+  return t(TASK_PRIORITIES.find((x) => x.value === p)?.label ?? p);
 }
 
 export default function GorevlerPage() {
@@ -108,7 +109,7 @@ export default function GorevlerPage() {
   };
 
   const deleteTask = async (id: string) => {
-    if (!window.confirm("Bu görevi silmek istiyor musun?")) return;
+    if (!window.confirm(t("Bu görevi silmek istiyor musun?"))) return;
     setTasks((prev) => prev.filter((t) => t.id !== id));
     const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     if (!res.ok) {
@@ -124,7 +125,7 @@ export default function GorevlerPage() {
   }, [visibleTasks]);
 
   const cleanupExited = async () => {
-    if (!window.confirm("İşten ayrılan personelin (ör. Lucy) tamamlanmamış onboarding görevleri silinsin mi?")) return;
+    if (!window.confirm(t("İşten ayrılan personelin (ör. Lucy) tamamlanmamış onboarding görevleri silinsin mi?"))) return;
     setBusy(true);
     try {
       const res = await fetch("/api/tasks", {

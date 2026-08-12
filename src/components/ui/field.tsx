@@ -157,11 +157,12 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   options: { value: string; label: string }[];
 }
 export function Select({ options, className = "", ...props }: SelectProps) {
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <select {...props} className={`${inputCls} cursor-pointer ${className}`}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>
-          {o.label}
+          {t(o.label, locale)}
         </option>
       ))}
     </select>
@@ -192,6 +193,7 @@ export function FormActions({
   hideSubmit?: boolean;
   submitDisabled?: boolean;
 }) {
+  const locale = useUiPrefs((s) => s.locale);
   return (
     <div className="flex items-center justify-between pt-4 mt-5 border-t border-border">
       <div>
@@ -201,7 +203,7 @@ export function FormActions({
             onClick={onDelete}
             className="text-[13px] px-3 py-1.5 rounded-lg text-red-600 hover:bg-destructive/10 dark:text-red-400 transition-colors"
           >
-            {deleteLabel}
+            {t(deleteLabel, locale)}
           </button>
         )}
       </div>
@@ -211,7 +213,7 @@ export function FormActions({
           onClick={onCancel}
           className="text-[13px] px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
         >
-          {hideSubmit ? "Kapat" : "İptal"}
+          {t(hideSubmit ? "Kapat" : "İptal", locale)}
         </button>
         {!hideSubmit && (
           <button
@@ -219,7 +221,7 @@ export function FormActions({
             disabled={submitDisabled}
             className="text-[13px] font-medium px-4 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60"
           >
-            {submitLabel}
+            {t(submitLabel, locale)}
           </button>
         )}
       </div>

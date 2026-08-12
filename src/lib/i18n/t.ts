@@ -1,9 +1,25 @@
 import { getRuntimeLocale } from "./locale-state";
 import { UI_PHRASES, UI_RU } from "./ui-ru";
 import type { AppLocale } from "./locale";
+import ADMIN_SCAN from "./admin-scan-ru.json";
+import BRAND_SCAN from "./brand-scan-ru.json";
+import LOGIN_SCAN from "./login-scan-ru.json";
+import PAGES_SCAN from "./pages-scan-ru.json";
 
-/** Elle düzeltilen / tarama kaçıran ifadeler. */
-const EXTRA_RU: Record<string, string> = {
+/** Elle düzeltilen / tarama kaçıran ifadeler (SCAN üzerine yazar). */
+const HAND_RU: Record<string, string> = {
+  // Login / register footer — exact overrides (short glossary stems otherwise poison these)
+  "Kayıt ol": "Регистрация",
+  "Yayıncı başvurusu gönder": "Отправить заявку стримера",
+  "Marka başvurusu gönder": "Отправить заявку бренда",
+  "Kayıt talebi gönder": "Отправить заявку на регистрацию",
+  "← Giriş ekranına dön": "← Назад к входу",
+  "Giriş ekranına dön": "Назад к входу",
+  "Havuza katıl": "Вступить в пул",
+  "Aktif olduğun platformlar": "Ваши активные платформы",
+  "Sahne / yayıncı adı *": "Сценическое / имя стримера *",
+  "İletişim e-postası *": "Контактный e-mail *",
+  "Gerçek ad soyad": "Настоящее ФИО",
   "Detaylı izlenme": "Подробные просмотры",
   "Detaylı izlenme paneli": "Панель подробных просмотров",
   "Marka paneli": "Панель бренда",
@@ -169,6 +185,177 @@ const EXTRA_RU: Record<string, string> = {
   "işlem": "операций",
   "link": "ссылок",
   "göre hesaplanır": "считается по",
+  "Görüntülenen ay:": "Показан месяц:",
+  "Ay tarihi": "Дата месяца",
+  "Bu ayın linkleri": "Ссылки этого месяца",
+  "Yatırım & büyüme hedefleri": "Инвестиции и цели роста",
+  "Haftalık çekim özeti": "Сводка съёмок за неделю",
+  "Plan bölümü — hızlı atlama": "Раздел плана — быстрый переход",
+  "Yayıncıların aktif kullandığı tüm hesap, kanal ve linkler": "Все активные аккаунты, каналы и ссылки стримеров",
+  "Kanban": "Канбан",
+  "Zaman çizelgesi": "Таймлайн",
+  "Hesaplar ve PIN": "Аккаунты и PIN",
+  "Sabit büyüme senaryosu net kar:": "Чистая прибыль при фиксированном росте:",
+  "Kayıtlı planlanan toplam bütçe:": "Зарегистрированный плановый бюджет:",
+
+  // İzlenme · Markalar
+  "Hedefi olan markalar": "Бренды с целью",
+  "Hedef tanımsız": "Цель не задана",
+  "Ort. hedef tutturma": "Ср. выполнение цели",
+  "Bu ay izlenme": "Просмотры за месяц",
+  "Lider platform": "Лидер платформы",
+  "Aktif marka": "Активный бренд",
+  "Yükselişte": "В росте",
+  "Bir önceki aya göre en güçlü artış": "Самый сильный рост к прошлому месяцу",
+  "Tıklanan her kart marka detay sayfasını açar — {month} özeti ile.":
+    "Каждая карточка открывает страницу бренда — сводка за {month}.",
+  "Marka kart listesi · ay bazlı performans": "Список брендов · показатели по месяцу",
+  "PDF özet": "PDF сводка",
+  "Veri yok": "Нет данных",
+  "{n} izlenme": "{n} просмотров",
+  "{n} toplam": "{n} всего",
+
+  // Takvim — tam cümleler (tarama yarı-çevirilerini ezer)
+  "Plan ekle": "Добавить план",
+  "Yayıncı planlarını göster": "Показать планы стримера",
+  "Yayıncı Haftalık Planları": "Недельные планы стримера",
+  "Hızlı başlangıç:": "Быстрый старт:",
+  "İçerik URL": "URL контента",
+  "İçerik paylaşıldı": "Контент опубликован",
+  "İçerik yok": "Нет контента",
+  "Paylaşım yapıldı": "Контент опубликован",
+  "Paylaşım yok": "Нет публикации",
+  "Paylaşım": "Публикация",
+  "Paylaşım takvimi (detay)": "Календарь публикаций (детали)",
+  "30 günlük URL işaretleme — achievement ile aynı veri":
+    "Отметка URL за 30 дней — те же данные, что в achievement",
+  "Linkler, harcamalar, izlenme — uzun liste; varsayılan kapalı":
+    "Ссылки, расходы, просмотры — длинный список; по умолчанию свёрнут",
+  "Günlük içerik check-in": "Ежедневный check-in контента",
+  "operasyon & performans": "операции и эффективность",
+  "Aylık takvim, seri ve kişisel hesap paylaşımları — plan tahtasının üstünde":
+    "Месячный календарь, серии и публикации личных аккаунтов — над доской плана",
+  "paylaşım achievement'ı": "achievement публикаций",
+  "7 saniye şablon · haftalık plan": "7-секундный шаблон · недельный план",
+  "Tek tıkla haftalık plan satırları": "Строки недельного плана в один клик",
+  "Yayıncı planı": "План стримера",
+  "Geniş ekran": "Широкий экран",
+  "Saat saat geniş takvim görünümü": "Почасовой широкий календарь",
+  "Takvim saat dilimi": "Часовой пояс календаря",
+  "Bu yayıncı için henüz paylaşım kaydı yok (check-in veya havuz postu). Alttaki":
+    "У этого стримера ещё нет записей публикаций (check-in или пост пула). Ниже",
+  "ile ekleyin veya": "добавьте или через",
+  "üzerinden URL girin; achievement takvimi otomatik dolacak.":
+    "введите URL; календарь achievement заполнится автоматически.",
+  "Yeni Hesap Ekle": "Добавить аккаунт",
+  "Hesabı Düzenle": "Изменить аккаунт",
+  "Yayın Slotu Ekle": "Добавить слот эфира",
+  "Slotu Düzenle": "Изменить слот",
+  "Haftalık Plan Ekle": "Добавить недельный план",
+  "Planı Düzenle": "Изменить план",
+  "Haftalık takvim · geniş ekran": "Недельный календарь · широкий экран",
+  "şablon önizleme": "превью шаблона",
+  "Haftalık Yayın Planı": "Недельный план эфиров",
+  "Rutin yayın slotları + yayıncıların eklediği haftalık planlar. Slot eklemek için boş hücreye tıklayın.":
+    "Регулярные слоты эфира + недельные планы стримеров. Чтобы добавить слот, нажмите пустую ячейку.",
+  "Saat dilimi:": "Часовой пояс:",
+
+  // Aylık İçerik Planı
+  "Aylık İçerik Planı": "Месячный контент-план",
+  "4 haftalık şablon · düzenlenebilir · seçili yayıncıya hafta olarak yazılır":
+    "Шаблон на 4 недели · редактируемый · записывается выбранному стримеру по неделям",
+  "Sıfırla": "Сбросить",
+  "Hafta": "Неделя",
+  "hf": "нед.",
+  "Boş": "Пусто",
+  "Toplam reels": "Всего Reels",
+  "Yetişkin": "Adult",
+  "Edit / montaj": "Монтаж",
+  "Kick yayını": "Эфир Kick",
+  "Reels dağılımı (çekim)": "Распределение Reels (съёмка)",
+  "Gala stok": "Сток Gala",
+  "Gala: {shoot} çekim → {publish} paylaşım + {stock} stok (çekim günlerinde markayı aradan çıkarmak için).":
+    "Gala: {shoot} съёмка → {publish} публикаций + {stock} сток (чтобы закрыть бренд в съёмочные дни).",
+  "Hizmet bedelleri": "Стоимость услуг",
+  "yalnız yönetici": "только админ",
+  "Ana paket": "Основной пакет",
+  "12 reels paketi": "Пакет 12 Reels",
+  "Marka başı · ayda 2 reels": "За бренд · 2 Reels в месяц",
+  "Yayıncı (Ramiz) yan marka ve paket bedellerini görmez. Özel içerik serbest kota — ay içinde kararlaştırılır.":
+    "Стример (Рамиз) не видит оплату побочных брендов и пакетов. Спецконтент — свободная квота, решается в течение месяца.",
+  "CSV": "CSV",
+  "Yazdır": "Печать",
+  "CSV indirildi.": "CSV скачан.",
+  "4 haftayı yaz": "Записать 4 недели",
+  "4 hafta → {count} plan yazıldı ({name}).": "4 недели → записано планов: {count} ({name}).",
+  "Haftayı plana yaz": "Записать неделю в план",
+  "Boş günlere bas": "Заполнить пустые дни",
+  "Sonraki haftaya kopyala": "Копировать на следующую неделю",
+  "Hafta {n} için şablon boş günlere yazılsın mı?":
+    "Записать шаблон недели {n} в пустые дни?",
+  "Şablon varsayılana sıfırlandı.": "Шаблон сброшен к значениям по умолчанию.",
+  "4. haftadan sonra şablon haftası yok — takvim haftasını kaydırın.":
+    "После 4-й недели шаблона нет — сдвиньте неделю календаря.",
+  "Hafta {n}": "Неделя {n}",
+  "Hafta {n}: yazılacak boş gün yok (veya zaten dolu).":
+    "Неделя {n}: нет пустых дней для записи (или уже заполнено).",
+  "Hafta {n} → {count} plan yazıldı ({range}).":
+    "Неделя {n} → записано планов: {count} ({range}).",
+  "Şablon hafta {from} → {to} kopyalandı": "Шаблон недели {from} → {to} скопирован",
+  "· {count} plan yazıldı.": "· записано планов: {count}.",
+  "· hedef hafta doluydu, yalnızca şablon güncellendi.":
+    "· целевая неделя была занята, обновлён только шаблон.",
+  "Tür": "Тип",
+  "Adet": "Кол-во",
+  "Başlık": "Заголовок",
+  "Galagrup günü (Boffice + Pipo + Hit + Gala + Padi · 1’er)":
+    "День Galagrup (Boffice + Pipo + Hit + Gala + Padi · по 1)",
+  "Marka": "Бренд",
+  "— Marka —": "— Бренд —",
+  "Stok (çekimden ayrılacak)": "Сток (из съёмки)",
+  "Not": "Заметка",
+  "Opsiyonel": "Необязательно",
+  "Günü temizle": "Очистить день",
+  "Düzenle · {week}. hafta · gün {day}": "Редактировать · неделя {week} · день {day}",
+  "Serbest": "Свободно",
+  "İzin": "Выходной",
+  "Vlog": "Vlog",
+  "Reels": "Reels",
+
+  // Slot titles / notes (brand names stay)
+  "Edit · Montaj · Kostüm · Mekan": "Монтаж · костюм · локация",
+  "Ortak prep / post-prod günü": "Общий prep / post-prod день",
+  "Padişah Yetişkin İçeriği": "Padişah — adult-контент",
+  "Padişah Vlog": "Padişah Vlog",
+  "5 Padişah Reels": "5 Reels Padişah",
+  "5 Galagrup Reels": "5 Reels Galagrup",
+  "Her birine 1 adet": "По 1 шт. каждому",
+  "Galabet Vlog": "Galabet Vlog",
+  "Galabet Kick Yayını": "Эфир Kick · Galabet",
+  "Padişah Kick Yayını": "Эфир Kick · Padişah",
+  "Galabet Yetişkin İçeriği": "Galabet — adult-контент",
+  "Özel içerik / esnek kota — ay içinde kararlaştırılır":
+    "Спецконтент / гибкая квота — решается в течение месяца",
+  "Galabet 5 Reels": "5 Reels Galabet",
+  "Tek marka · 5 çekim (Galagrup değil)": "Один бренд · 5 съёмок (не Galagrup)",
+
+  // Rule templates
+  "Yetişkin içerik {n} (hedef 6: Padişah Salı×4 + Gala Cmt W1–W2).":
+    "Adult-контент {n} (цель 6: Padişah вт×4 + Gala сб W1–W2).",
+  "{brand} reels {n} (hedef 2 — yalnızca Galagrup Pazartesileri).":
+    "{brand} Reels {n} (цель 2 — только понедельники Galagrup).",
+  "Padişah reels {n} (hedef 12).": "Padişah Reels {n} (цель 12).",
+  "Gala reels çekim {n} (hedef 7 → 5 paylaşım + 2 stok).":
+    "Gala Reels съёмка {n} (цель 7 → 5 публикаций + 2 сток).",
+  "Toplam reels çekim {n} (hedef 25).": "Всего Reels съёмка {n} (цель 25).",
+};
+
+const EXTRA_RU: Record<string, string> = {
+  ...ADMIN_SCAN,
+  ...BRAND_SCAN,
+  ...LOGIN_SCAN,
+  ...PAGES_SCAN,
+  ...HAND_RU,
 };
 
 const TR_CHAR = /[ğıüşöçİĞÜŞÖÇ]/;
@@ -186,7 +373,13 @@ function isLetter(ch: string | undefined): boolean {
   return !!ch && LETTER.test(ch);
 }
 
+/** Cümle içi eşleşme — kısa kökler ("ile","marka") cümleyi bozar; exact match etkilenmez. */
+const GLOSSARY_MIN_LEN = 10;
+
 let extraPhrases: [string, string][] | null = null;
+let glossaryExtraPhrases: [string, string][] | null = null;
+let glossaryUiPhrases: [string, string][] | null = null;
+
 function extraPairs(): [string, string][] {
   if (!extraPhrases) {
     extraPhrases = Object.entries(EXTRA_RU).sort((a, b) => b[0].length - a[0].length);
@@ -194,10 +387,20 @@ function extraPairs(): [string, string][] {
   return extraPhrases;
 }
 
+function glossaryDicts(): [string, string][][] {
+  if (!glossaryExtraPhrases) {
+    glossaryExtraPhrases = extraPairs().filter(([k]) => k.length >= GLOSSARY_MIN_LEN);
+  }
+  if (!glossaryUiPhrases) {
+    glossaryUiPhrases = UI_PHRASES.filter(([k]) => k.length >= GLOSSARY_MIN_LEN);
+  }
+  return [glossaryExtraPhrases, glossaryUiPhrases];
+}
+
 function glossaryTranslate(input: string): string {
   let i = 0;
   let out = "";
-  const dicts = [extraPairs(), UI_PHRASES];
+  const dicts = glossaryDicts();
   while (i < input.length) {
     let hit: [string, string] | null = null;
     if (!isLetter(input[i - 1])) {

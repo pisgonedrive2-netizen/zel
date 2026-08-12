@@ -23,6 +23,7 @@ import { usePanelView } from "@/store/panel-view";
 import { fmt, shiftCalendarMonthYm, toYearMonthLocal, toDateLocal, defaultSnapshotDateInMonth } from "@/lib/data";
 import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from "@/lib/content-expense";
 import { ContentExpensesBulkModal } from "@/components/content-expenses-bulk-modal";
+import { NoI18n } from "@/components/no-i18n";
 import { PayrollLinesPayModal } from "@/components/payroll-lines-pay-modal";
 import { payrollDueShort, payrollMonthLongTitle } from "@/lib/payroll-dates";
 import {
@@ -1045,9 +1046,9 @@ function EmployeeDetailRow({
                 <ul className="space-y-1 text-xs border border-border/50 rounded-md divide-y divide-border/40">
                   {monthContentExpenses.slice(0, 4).map((e) => (
                     <li key={e.id} className="flex justify-between gap-2 px-2.5 py-1.5">
-                      <span className="min-w-0 truncate text-muted-foreground">
+                      <NoI18n className="min-w-0 truncate text-muted-foreground">
                         {e.date} · {e.brandName} · {e.description || e.category}
-                      </span>
+                      </NoI18n>
                       <span className="shrink-0 tabular-nums font-medium">{fmt(e.amountUsd)}</span>
                     </li>
                   ))}
@@ -1089,7 +1090,7 @@ function EmployeeDetailRow({
                     {monthContentExpenses.map((e) => (
                       <tr key={e.id} className="border-b border-border/30 last:border-0">
                         <td className="py-1.5 pr-2 text-muted-foreground whitespace-nowrap">{e.date}</td>
-                        <td className="py-1.5 pr-2 truncate max-w-[180px]" title={e.description}>
+                        <td className="py-1.5 pr-2 truncate max-w-[180px]" translate="no" title={e.description}>
                           {e.brandName} · {e.description || e.category}
                         </td>
                         <td className="py-1.5 pr-2 text-right tabular-nums font-medium">{fmt(e.amountUsd)}</td>
@@ -1139,7 +1140,7 @@ function EmployeeDetailRow({
               {paidContentItems.map((e) => (
                 <div key={e.id} className="flex justify-between gap-2">
                   <span className="text-muted-foreground truncate">
-                    İçerik (ödendi) · {e.description || e.category}
+                    İçerik (ödendi) · <NoI18n>{e.description || e.category}</NoI18n>
                   </span>
                   <span className="text-violet-700 dark:text-violet-400 tabular-nums font-medium shrink-0">
                     {fmt(e.amountUsd)}

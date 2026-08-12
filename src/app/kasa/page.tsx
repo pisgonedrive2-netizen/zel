@@ -910,15 +910,18 @@ export default function KasaPage() {
     const viewingGenel = Boolean(genelKasaId && selectedKasaId === genelKasaId);
     const genelMatches = (t: KasaTransaction) => {
       if (genelFilter === "all") return true;
+      // Genel Kasa defter hareketleri her zaman işletme kasasının parçasıdır.
+      // `countInGenel` yalnızca TRON → Genel yansıması içindir; defter satırlarını
+      // bu bayrakla gizlemeyiz (aksi halde "Dahil" filtresi listeyi boşaltır).
+      if (genelKasaId && t.kasaId === genelKasaId) {
+        return genelFilter === "included";
+      }
       if (
         viewingGenel &&
         tronPanel &&
         isTronReflectedInGenelView(t, genelKasaId, tronPanel.tronKasa.id)
       ) {
         return genelFilter === "included";
-      }
-      if (viewingGenel && genelKasaId && t.kasaId === genelKasaId) {
-        return genelFilter === "included" ? Boolean(t.countInGenel) : true;
       }
       if (tronPanel && isTronGenelToggleable(t, tronPanel.tronKasa.id)) {
         return genelFilter === "included" ? Boolean(t.countInGenel) : !t.countInGenel;

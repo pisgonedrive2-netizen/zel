@@ -40,7 +40,8 @@ import {
 } from "@/lib/data";
 import { buildWeeklyPlansRepeat } from "@/lib/weekly-plan-repeat";
 import { planDayPayrollHints } from "@/lib/plan-day-hints";
-import { useStore, WEEKDAYS_LONG, type WeeklyPlan, type Employee } from "@/store/store";
+import { useStore, type WeeklyPlan, type Employee } from "@/store/store";
+import { weekdayShort } from "@/lib/i18n/weekday";
 import type { SalaryExtra } from "@/store/store";
 import { cn } from "@/lib/utils";
 
@@ -130,7 +131,7 @@ export function PlanWeekBoard({
       >
         <div className="flex items-center justify-between gap-1 mb-1.5">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            {WEEKDAYS_LONG[i].slice(0, 3)}{" "}
+            {weekdayShort(i)}
             <span className="text-foreground/60">{iso.slice(8, 10)}</span>
           </p>
           <div className="flex items-center gap-0.5">
@@ -332,7 +333,7 @@ function PlanWeekFullscreen({
                 className="border-b border-l border-border bg-muted/30 p-2 text-center"
               >
                 <p className="text-[10px] font-semibold uppercase text-muted-foreground">
-                  {WEEKDAYS_LONG[i].slice(0, 3)}
+                  {weekdayShort(i)}
                 </p>
                 <p className="text-xs font-medium">{iso.slice(8, 10)}</p>
               </div>

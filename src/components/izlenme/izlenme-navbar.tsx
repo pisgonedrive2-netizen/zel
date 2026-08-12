@@ -70,8 +70,11 @@ function fmtViews(n: number) {
   return n.toLocaleString("tr-TR");
 }
 
+import { getRuntimeLocale } from "@/lib/i18n/locale-state";
+
 function monthTitleYm(ym: string) {
-  return new Date(ym + "-01").toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  const loc = getRuntimeLocale() === "ru" ? "ru-RU" : "tr-TR";
+  return new Date(ym + "-01").toLocaleDateString(loc, { month: "long", year: "numeric" });
 }
 
 export function IzlenmeNavbar({

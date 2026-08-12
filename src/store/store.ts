@@ -1991,10 +1991,12 @@ export const initialContentExpenses: ContentExpense[] = [
   { ...RAMIZ_APR_BASE, id: "ce-r-15",                       brandName: "Reklam",  category: "Reklam",          description: "3 vlog için reklam çıkıldı",                            amountUsd:  300, amountThb:     0, notes: "" },
 ];
 
-/** Ramiz Nisan 2026 raporu (ce-r-01 … ce-r-15) — persist/bootstrap ile silinmez. */
+/** Ramiz Nisan 2026 raporu (ce-r-01 … ce-r-15) — local persist ile silinmez.
+ *  Supabase modunda seed enjekte edilmez; kaynak DB bootstrap'tır. */
 export function mergeCanonicalContentExpenses(
   stored: ContentExpense[],
 ): ContentExpense[] {
+  if (isSupabaseClientMode()) return stored;
   const byId = new Map<string, ContentExpense>();
   for (const row of stored) byId.set(row.id, row);
   for (const seed of initialContentExpenses) {
@@ -2405,7 +2407,9 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       kasas:               isSupabaseClientMode() ? [] : initialKasas,
       kasaTransactions:    isSupabaseClientMode() ? [] : initialKasaTransactions,
       kasaMetrics:         null,
-      contentExpenses:     initialContentExpenses,
+      // Supabase modunda seed gösterme — bootstrap gelene kadar boş; aksi halde
+      // yalnızca Nisan seed'leri görünür ve gerçek Ramiz harcamaları "silinmiş" sanılır.
+      contentExpenses:     isSupabaseClientMode() ? [] : initialContentExpenses,
       weeklyPlans:         initialWeeklyPlans,
       weekBrandReels:      initialWeekBrandReels,
       notifications:       initialNotifications,
@@ -4012,6 +4016,7 @@ const storePersistConfig = {
           ...p,
           employees,
           salaryExtras,
+          contentExpenses,
           paymentStatuses,
           brandLinks: brandLinksMerged,
           linkSnapshots: linkSnapshotsMerged,

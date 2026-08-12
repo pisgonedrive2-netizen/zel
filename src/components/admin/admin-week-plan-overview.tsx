@@ -15,10 +15,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  WEEKDAYS_LONG,
   type Employee,
   type WeeklyPlan,
 } from "@/store/store";
+import { weekdayShort } from "@/lib/i18n/weekday";
+import { dateLocaleTag } from "@/lib/i18n/locale-state";
 import { weekDayIsosFromStart, shiftWeekStartIso } from "@/lib/data";
 import { weekRangeLabel } from "@/components/weekly-plan-ui";
 import {
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 function formatDayShort(iso: string) {
   const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  return d.toLocaleDateString(dateLocaleTag(), { day: "numeric", month: "short" });
 }
 
 /**
@@ -42,6 +43,7 @@ export function AdminWeekPlanOverview({
   employees,
   compact = false,
   href = "/takvim",
+  templatePreview = false,
 }: {
   weekStart: string;
   onWeekChange?: (nextWeekStart: string) => void;
@@ -49,15 +51,13 @@ export function AdminWeekPlanOverview({
   employees: Employee[];
   compact?: boolean;
   href?: string;
+  /** Kaydedilmiş çekim yoksa şablon önizlemesi gösteriliyor. */
+  templatePreview?: boolean;
 }) {
   const weekDays = useMemo(() => weekDayIsosFromStart(weekStart), [weekStart]);
+  /** Yalnız yayıncı — moderatör (ör. Ponpon) çekim komutaya dahil değil. */
   const activeEmps = useMemo(
-    () =>
-      employees.filter(
-        (e) =>
-          e.status === "active" &&
-          (e.kind === "streamer" || e.kind === "moderator")
-      ),
+    () => employees.filter((e) => e.status === "active" && e.kind === "streamer"),
     [employees]
   );
   const activeIds = useMemo(
@@ -128,7 +128,10 @@ export function AdminWeekPlanOverview({
             <p className="mt-1 text-xs text-muted-foreground">
               {activeEmps.length === 1
                 ? `${activeEmps[0].name} · ${rangeLabel}`
-                : `${activeEmps.length} aktif yayıncı · ${rangeLabel}`}
+                : activeEmps.length === 0
+                  ? `Aktif yayıncı yok · ${rangeLabel}`
+                  : `${activeEmps.length} aktif yayıncı · ${rangeLabel}`}
+              {templatePreview && summary.shootCount > 0 ? " · şablon önizleme" : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -190,7 +193,7 @@ export function AdminWeekPlanOverview({
                 )}
               >
                 <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {WEEKDAYS_LONG[i].slice(0, 3)}
+                  {weekdayShort(i)}
                 </p>
                 <p className="text-[10px] tabular-nums text-muted-foreground/80">
                   {formatDayShort(day.date)}
@@ -266,7 +269,7 @@ export function AdminWeekPlanOverview({
                             className="flex items-center justify-between gap-2 text-[11px]"
                           >
                             <span className="truncate text-muted-foreground">
-                              {dayIdx >= 0 ? WEEKDAYS_LONG[dayIdx].slice(0, 3) : p.date}
+                              {dayIdx >= 0 ? weekdayShort(dayIdx) : p.date}
                               {p.startTime ? ` · ${p.startTime}` : ""}
                               {" · "}
                               <span className="font-medium text-foreground">

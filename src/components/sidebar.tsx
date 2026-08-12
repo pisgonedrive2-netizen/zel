@@ -42,6 +42,8 @@ import { hasCapability, routeCapability } from "@/lib/permissions";
 type NavItem = {
   href:  string;
   label: string;
+  /** Aynı href farklı etiket (denetçi) için sözlük anahtarı. */
+  i18nKey?: string;
   icon:  React.ComponentType<{ className?: string }>;
   group:
     | "Kontrol" | "Bordro" | "Yayın" | "Muhasebe" | "Sistem"
@@ -103,9 +105,9 @@ const STREAMER_NAV: NavItem[] = [
 const AUDITOR_NAV: NavItem[] = [
   { href: "/denetci",             label: "Denetim Özeti",     icon: Headphones,      group: "Kontrol" },
   { href: "/kasa",                label: "Kasa",              icon: Wallet,          group: "Bordro" },
-  { href: "/izlenme",             label: "Marka link & izlenme", icon: Eye,           group: "Yayın" },
+  { href: "/izlenme",             label: "Marka link & izlenme", i18nKey: "/izlenme/auditor", icon: Eye, group: "Yayın" },
   { href: "/icerik-harcamalari",  label: "İçerik Harcamaları",icon: Clapperboard,    group: "Yayın" },
-  { href: "/maaslar",             label: "Maaşlar (Read)",    icon: Users,           group: "Bordro" },
+  { href: "/maaslar",             label: "Maaşlar (Read)",    i18nKey: "/maaslar/read", icon: Users, group: "Bordro" },
   { href: "/rapor",               label: "Ödeme Raporu",      icon: FileSpreadsheet, group: "Bordro" },
   { href: "/giderler",            label: "Giderler",          icon: Receipt,         group: "Muhasebe" },
   { href: "/bildirimler",         label: "Bildirim Merkezi",  icon: Bell,            group: "Sistem" },
@@ -217,7 +219,7 @@ export default function Sidebar() {
     return cap === undefined || hasCapability(user, cap);
   };
   const filtered = nav.filter(n => {
-    const translated = adminNavLabel(locale, n.href, n.label);
+    const translated = adminNavLabel(locale, n.i18nKey ?? n.href, n.label);
     const q = search.toLowerCase();
     const matchesSearch =
       !search ||
@@ -304,9 +306,9 @@ export default function Sidebar() {
               </div>
               <div className="flex flex-col">
                 <span className="font-semibold text-sidebar-foreground text-base leading-tight">
-                  {sidebarBrand.title}
+                  {t(sidebarBrand.title, locale)}
                 </span>
-                <span className="text-xs text-muted-foreground truncate max-w-[9rem]">{sidebarBrand.subtitle}</span>
+                <span className="text-xs text-muted-foreground truncate max-w-[9rem]">{t(sidebarBrand.subtitle, locale)}</span>
               </div>
             </div>
           )}
@@ -399,8 +401,8 @@ export default function Sidebar() {
                   </p>
                 )}
                 <ul className="space-y-1">
-                  {items.map(({ href, label, icon: Icon }) => {
-                    const navLabel = adminNavLabel(locale, href, label);
+                  {items.map(({ href, label, icon: Icon, i18nKey }) => {
+                    const navLabel = adminNavLabel(locale, i18nKey ?? href, label);
                     const active = isNavActive(pathname, href);
                     const badge = streamerNavBadge(href);
                     return (

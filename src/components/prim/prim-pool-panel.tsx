@@ -67,6 +67,7 @@ import {
   type PrimStoredSettings,
 } from "@/lib/prim-settings-storage";
 import { PrimDistributionPanel } from "@/components/prim/prim-distribution-panel";
+import { t } from "@/lib/i18n/t";
 import { PrimDecisionStrip } from "@/components/prim/prim-decision-strip";
 import { PrimWaterfall } from "@/components/prim/prim-waterfall";
 import { PrimViewLadder } from "@/components/prim/prim-view-ladder";
@@ -121,9 +122,9 @@ function StatCard({
       <CardContent className="px-4 py-0">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t(label)}</p>
             <p className="text-xl font-bold tabular-nums text-foreground mt-0.5">{value}</p>
-            {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+            {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{t(sub)}</p>}
           </div>
           <Icon size={18} className="shrink-0 text-muted-foreground/60 mt-0.5" />
         </div>
@@ -156,7 +157,7 @@ function SliderRow({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between text-[12px]">
-        <span className="text-foreground/80">{label}</span>
+        <span className="text-foreground/80">{t(label)}</span>
         <span className="font-semibold tabular-nums text-foreground">
           {value}{suffix}
           {asMultiplier && <span className="ml-1 text-muted-foreground font-normal">· {(value / 100).toFixed(2)}×</span>}
@@ -1498,7 +1499,7 @@ function Row({
 }) {
   return (
     <div className="flex justify-between items-center">
-      <span className={cn("text-muted-foreground", strong && "font-semibold text-foreground")}>{label}</span>
+      <span className={cn("text-muted-foreground", strong && "font-semibold text-foreground")}>{t(label)}</span>
       <span className={cn(
         "tabular-nums font-medium",
         strong ? "text-foreground font-bold" : "text-foreground",
@@ -1520,7 +1521,7 @@ function LabeledSelect({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-[11px] font-medium text-muted-foreground">{label}</label>
+      <label className="text-[11px] font-medium text-muted-foreground">{t(label)}</label>
       <Select options={options} value={value} onChange={(e) => onChange(e.target.value)} className="h-8 text-xs" />
     </div>
   );

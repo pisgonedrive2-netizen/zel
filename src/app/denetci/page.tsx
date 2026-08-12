@@ -27,6 +27,7 @@ import { fmt, toYearMonthLocal } from "@/lib/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { NoI18n } from "@/components/no-i18n";
 
 export default function DenetciPage() {
   const { user } = useAuth();
@@ -216,7 +217,7 @@ export default function DenetciPage() {
                         <Badge variant="outline" className="text-[10px]">{e.brandName}</Badge>
                         <span className="text-[11px] text-muted-foreground">{emp?.name} · {e.date}</span>
                       </div>
-                      <p className="text-sm line-clamp-1">{e.description}</p>
+                      <NoI18n as="p" className="text-sm line-clamp-1">{e.description}</NoI18n>
                     </div>
                     <p className="font-bold tabular-nums shrink-0">{fmt(e.amountUsd)}</p>
                   </div>
