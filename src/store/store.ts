@@ -3753,6 +3753,11 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           const empName =
             s.employees.find((e) => e.id === expense.employeeId)?.name ?? "Yayıncı";
           const noteWithTag = notes ? `${notes} ${tag}` : tag;
+          // Kanıt: ödeme formundan gelen proof yoksa yayıncının screenshotUrl'i.
+          const resolvedProof =
+            (proof && !/^\[?ICEXP:/i.test(proof.trim()) ? proof : "") ||
+            expense.screenshotUrl?.trim() ||
+            "";
           const newTx: KasaTransaction = {
             id: txId,
             kasaId: targetKasa.id,
@@ -3762,7 +3767,7 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             feeUsd,
             purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
             counterparty: empName,
-            proof,
+            proof: resolvedProof,
             notes: noteWithTag,
           };
 

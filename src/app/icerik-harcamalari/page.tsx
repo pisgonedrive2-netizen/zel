@@ -904,6 +904,7 @@ function ContentExpensesPageInner() {
                   paidDate: today,
                   feeUsd: kasaPayload.feeUsd,
                   notes: note,
+                  proof: reviewModal.screenshotUrl ?? "",
                 });
               } else if (settlement === "payroll") {
                 settleContentExpenseToPayroll(reviewModal.id);

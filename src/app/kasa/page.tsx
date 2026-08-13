@@ -46,6 +46,7 @@ import {
   exportKasaRangePdf,
   listAvailableMonths,
 } from "@/lib/monthly-exports";
+import { resolveKasaProof, stripICexpTags } from "@/lib/kasa-proof";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
@@ -438,7 +439,7 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function KasaPage() {
   const {
-    kasas, kasaTransactions, kasaMetrics,
+    kasas, kasaTransactions, kasaMetrics, contentExpenses,
     addKasa, updateKasa, deleteKasa,
     addKasaTransaction, updateKasaTransaction, deleteKasaTransaction,
     bulkSetKasaCountInGenel,
@@ -1758,7 +1759,12 @@ export default function KasaPage() {
                         </Badge>
                       )}
                     </p>
-                    {t.notes && <p className="text-[11px] text-muted-foreground truncate max-w-[300px]">{t.notes}</p>}
+                    {(() => {
+                      const cleanNotes = stripICexpTags(t.notes ?? "");
+                      return cleanNotes ? (
+                        <p className="text-[11px] text-muted-foreground truncate max-w-[300px]">{cleanNotes}</p>
+                      ) : null;
+                    })()}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap min-w-[120px]">
                     <InlineCounterparty
@@ -1771,18 +1777,40 @@ export default function KasaPage() {
                     />
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
-                    {t.proof ? (
-                      t.proof.startsWith("http") ? (
-                        <a href={t.proof} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs">
-                          Aç <ExternalLink size={10} />
-                        </a>
-                      ) : (
-                        <div className="inline-flex items-center gap-1">
-                          <Hash size={10} className="text-muted-foreground" />
-                          <Copyable text={t.proof} />
-                        </div>
-                      )
-                    ) : <span className="text-muted-foreground text-xs">—</span>}
+                    {(() => {
+                      const proof = resolveKasaProof(t, contentExpenses);
+                      if (proof.url) {
+                        const isImg = /\.(png|jpe?g|gif|webp)(\?|$)/i.test(proof.url);
+                        return (
+                          <a
+                            href={proof.url}
+                            target="_blank"
+                            rel="noopener"
+                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-xs"
+                            title={proof.source === "expense" ? "İçerik harcaması ekran görüntüsü" : "Kanıt"}
+                          >
+                            {isImg ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={proof.url}
+                                alt=""
+                                className="h-8 w-8 rounded border border-border object-cover"
+                              />
+                            ) : null}
+                            Aç <ExternalLink size={10} />
+                          </a>
+                        );
+                      }
+                      if (proof.raw) {
+                        return (
+                          <div className="inline-flex items-center gap-1">
+                            <Hash size={10} className="text-muted-foreground" />
+                            <Copyable text={proof.raw} />
+                          </div>
+                        );
+                      }
+                      return <span className="text-muted-foreground text-xs">—</span>;
+                    })()}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {tronPanel && isTronGenelToggleable(t, tronPanel.tronKasa.id) ? (
