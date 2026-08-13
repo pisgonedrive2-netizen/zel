@@ -14,6 +14,7 @@ import {
   type PersistEntity,
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
 import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
