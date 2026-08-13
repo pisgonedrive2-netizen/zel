@@ -14,7 +14,7 @@ import {
   type PersistEntity,
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
-import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
+import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import {
@@ -1951,6 +1951,9 @@ function migrateKasaTransactions(txns: KasaTransaction[]): KasaTransaction[] {
           "Açelya $100, Lucy $100, Karo $100, Ramiz $100, Ege $80 (önceden $20 vardı). 5×$4 zincir ücreti harçlık transferlerine dahil; kasa net −500 USDT. Kasa: 2.569 → 2.069 USDT",
       };
     }
+    if (isICexpProofValue(next.proof ?? "")) {
+      next = sanitizeKasaICexpProof(next);
+    }
     return next;
   });
 }
@@ -3752,12 +3755,14 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           const txId = uid();
           const empName =
             s.employees.find((e) => e.id === expense.employeeId)?.name ?? "Yayıncı";
-          const noteWithTag = notes ? `${notes} ${tag}` : tag;
-          // Kanıt: ödeme formundan gelen proof yoksa yayıncının screenshotUrl'i.
-          const resolvedProof =
-            (proof && !/^\[?ICEXP:/i.test(proof.trim()) ? proof : "") ||
-            expense.screenshotUrl?.trim() ||
-            "";
+          // Harcama SS’si content_expense.screenshotUrl’de kalır; proof yalnızca
+          // kasaya eklenen ikinci görsel / TXID. ICEXP etiketi UI’de gösterilmez.
+          const extraProof =
+            proof &&
+            !isICexpProofValue(proof.trim()) &&
+            proof.trim() !== (expense.screenshotUrl ?? "").trim()
+              ? proof.trim()
+              : "";
           const newTx: KasaTransaction = {
             id: txId,
             kasaId: targetKasa.id,
@@ -3767,8 +3772,9 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             feeUsd,
             purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
             counterparty: empName,
-            proof: resolvedProof,
-            notes: noteWithTag,
+            proof: extraProof,
+            // ICEXP yalnızca eşleştirme için notta durur; kasa UI’si etiketi gizler.
+            notes: notes.trim() ? `${notes.trim()} ${tag}` : tag,
           };
 
           return {

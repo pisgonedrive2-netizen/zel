@@ -20,7 +20,7 @@ import {
   type Brand,
   type BrandLink,
 } from "@/store/store";
-import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import {
   mergeBrandViewershipHydrate,
   mergeCanonicalBrandLinks,
@@ -389,6 +389,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             if (prev.length > 0) continue;
           }
           patch[k] = data[k];
+        }
+        if (Array.isArray(patch.kasaTransactions)) {
+          patch.kasaTransactions = (patch.kasaTransactions as { proof?: string; notes?: string }[]).map(
+            sanitizeKasaICexpProof,
+          );
         }
         const employees = (patch.employees ?? useStore.getState().employees) as Employee[];
         const contentExpenses = mergeCanonicalContentExpenses(

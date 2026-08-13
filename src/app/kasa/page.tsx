@@ -46,7 +46,7 @@ import {
   exportKasaRangePdf,
   listAvailableMonths,
 } from "@/lib/monthly-exports";
-import { resolveKasaProof, stripICexpTags } from "@/lib/kasa-proof";
+import { extraProofForForm, listKasaProofs, previewSrcForProof, stripICexpTags } from "@/lib/kasa-proof";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
@@ -337,14 +337,16 @@ function KasaAccountForm({
 }
 
 // ── Kasa hareketi form ────────────────────────────────────────────────────
-function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: {
+function KasaForm({ initial, kasas, defaultKasaId, contentExpenses = [], onSave, onDelete, onClose }: {
   initial?: KasaTransaction;
   kasas: Kasa[];
   defaultKasaId: string;
+  contentExpenses?: import("@/store/store").ContentExpense[];
   onSave: (d: Omit<KasaTransaction, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
 }) {
+  const linkedProofs = initial ? listKasaProofs(initial, contentExpenses) : undefined;
   const [form, setForm] = useState<Omit<KasaTransaction, "id">>({
     kasaId:       initial?.kasaId       ?? defaultKasaId,
     date:         initial?.date         ?? new Date().toISOString().slice(0, 16),
@@ -353,8 +355,8 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
     feeUsd:       initial?.feeUsd       ?? 0,
     purpose:      initial?.purpose      ?? "",
     counterparty: initial?.counterparty ?? "",
-    proof:        initial?.proof        ?? "",
-    notes:        initial?.notes        ?? "",
+    proof:        extraProofForForm(initial, contentExpenses),
+    notes:        stripICexpTags(initial?.notes ?? ""),
     autoImported: initial?.autoImported,
     tronTxId:     initial?.tronTxId,
     plannedItemId: initial?.plannedItemId,
@@ -363,7 +365,19 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <form onSubmit={e => { e.preventDefault(); onSave(form); onClose(); }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const tagMatch = (initial?.notes ?? "").match(/\[ICEXP:[^\]]+\]/);
+        const notes = [form.notes.trim(), tagMatch?.[0]].filter(Boolean).join(" ");
+        onSave({
+          ...form,
+          notes,
+          proof: form.proof.trim(),
+        });
+        onClose();
+      }}
+    >
       <div className="grid gap-4">
         <FormGrid>
           <Field label="Kasa" required>
@@ -400,12 +414,32 @@ function KasaForm({ initial, kasas, defaultKasaId, onSave, onDelete, onClose }: 
         <Field label="Amaç / Açıklama" required>
           <Input value={form.purpose} onChange={e => set("purpose", e.target.value)} required placeholder="Ödeme sebebi" />
         </Field>
-        <Field label="Kanıt (TXID / Dekont / Ekran görüntüsü)" hint="TXID, URL veya doğrudan resim yükle">
+        {linkedProofs?.expenseUrl && (
+          <Field label="Harcama görseli (Ramiz)" hint="İçerik harcamasına eklenen ilk SS — silinmez">
+            <a
+              href={linkedProofs.expenseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block max-w-sm rounded-lg border border-border bg-muted/30 p-2"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewSrcForProof(linkedProofs.expenseUrl)} alt="Harcama SS" className="max-h-36 w-full object-contain" />
+            </a>
+          </Field>
+        )}
+        <Field
+          label={linkedProofs?.expenseUrl ? "Ek görsel / TXID" : "Kanıt (TXID / Dekont / Ekran görüntüsü)"}
+          hint={
+            linkedProofs?.expenseUrl
+              ? "İkinci görsel: ödeme dekontu veya TXID — harcama SS’sinin yanına eklenir"
+              : "TXID, URL veya doğrudan resim yükle"
+          }
+        >
           <ProofUploader
             value={form.proof}
             onChange={(v) => set("proof", v)}
             folder="kasa"
-            placeholder="TXID, https://... veya resim yükle"
+            placeholder={linkedProofs?.expenseUrl ? "Ek görsel veya TXID" : "TXID, https://... veya resim yükle"}
           />
         </Field>
         <Field label="Notlar">
@@ -1778,38 +1812,50 @@ export default function KasaPage() {
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     {(() => {
-                      const proof = resolveKasaProof(t, contentExpenses);
-                      if (proof.url) {
-                        const isImg = /\.(png|jpe?g|gif|webp)(\?|$)/i.test(proof.url);
-                        return (
-                          <a
-                            href={proof.url}
-                            target="_blank"
-                            rel="noopener"
-                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-xs"
-                            title={proof.source === "expense" ? "İçerik harcaması ekran görüntüsü" : "Kanıt"}
-                          >
-                            {isImg ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={proof.url}
-                                alt=""
-                                className="h-8 w-8 rounded border border-border object-cover"
-                              />
-                            ) : null}
-                            Aç <ExternalLink size={10} />
-                          </a>
-                        );
+                      const proofs = listKasaProofs(t, contentExpenses);
+                      if (proofs.items.length === 0) {
+                        return <span className="text-muted-foreground text-xs">—</span>;
                       }
-                      if (proof.raw) {
-                        return (
-                          <div className="inline-flex items-center gap-1">
-                            <Hash size={10} className="text-muted-foreground" />
-                            <Copyable text={proof.raw} />
-                          </div>
-                        );
-                      }
-                      return <span className="text-muted-foreground text-xs">—</span>;
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          {proofs.items.map((item) =>
+                            item.kind === "image" ? (
+                              <a
+                                key={`${item.source}-${item.href}`}
+                                href={item.href}
+                                target="_blank"
+                                rel="noopener"
+                                title={item.label}
+                                className="relative inline-flex items-center gap-1 shrink-0"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={previewSrcForProof(item.href)}
+                                  alt={item.label}
+                                  className="h-10 w-10 rounded border border-border object-cover bg-muted"
+                                />
+                                <span className="text-[10px] text-blue-600">{item.source === "kasa" ? "Ek" : "SS"}</span>
+                              </a>
+                            ) : item.kind === "link" ? (
+                              <a
+                                key={`${item.source}-${item.href}`}
+                                href={item.href}
+                                target="_blank"
+                                rel="noopener"
+                                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs"
+                                title={item.label}
+                              >
+                                Aç <ExternalLink size={10} />
+                              </a>
+                            ) : item.kind === "txid" && !item.href.toUpperCase().includes("ICEXP") ? (
+                              <div key={`${item.source}-${item.href}`} className="inline-flex items-center gap-1">
+                                <Hash size={10} className="text-muted-foreground" />
+                                <Copyable text={item.href} />
+                              </div>
+                            ) : null,
+                          )}
+                        </div>
+                      );
                     })()}
                   </td>
                   <td className="px-3 py-2.5 whitespace-nowrap">
@@ -1922,6 +1968,7 @@ export default function KasaPage() {
           <KasaForm
             initial={modal === "new" ? undefined : modal}
             kasas={visibleKasas}
+            contentExpenses={contentExpenses}
             defaultKasaId={selectedKasaId !== "all" ? selectedKasaId : defaultKasaId}
             onSave={d => { if (modal === "new") addKasaTransaction(d); else updateKasaTransaction(modal.id, d); }}
             onDelete={modal !== "new" ? () => { deleteKasaTransaction(modal.id); setModal(null); } : undefined}
