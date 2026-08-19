@@ -39,77 +39,134 @@ function pickFirstString(obj: unknown, keys: string[]): string | undefined {
   for (const k of keys) {
     const v = o[k];
     if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
   }
   return undefined;
 }
 
-function pickIgUserId(profileRaw: unknown): string | undefined {
+/** Instagram pk çoğu yanıtta number; /feed user_id yalnızca rakam kabul eder. */
+function pickNumericId(obj: unknown, keys: string[]): string | undefined {
+  if (!obj || typeof obj !== "object") return undefined;
+  const o = obj as Record<string, unknown>;
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return String(Math.trunc(v));
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (/^\d{5,}$/.test(s)) return s;
+    }
+  }
+  return undefined;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+}
+
+export function pickIgUserId(profileRaw: unknown): string | undefined {
+  if (!profileRaw || typeof profileRaw !== "object") return undefined;
   const root = profileRaw as Record<string, unknown>;
-  const data =
-    (root.data as Record<string, unknown> | undefined) ??
-    (root.user as Record<string, unknown> | undefined) ??
-    root;
+  const nested = [
+    root,
+    asRecord(root.data),
+    asRecord(root.user),
+    asRecord(asRecord(root.data)?.user),
+    asRecord(asRecord(root.data)?.data),
+  ].filter(Boolean) as Record<string, unknown>[];
+  const keys = ["pk", "pk_id", "user_id", "id"];
+  for (const node of nested) {
+    const id = pickNumericId(node, keys);
+    if (id) return id;
+  }
+  return undefined;
+}
+
+function collectMediaList(raw: unknown): unknown[] {
+  if (!raw || typeof raw !== "object") return [];
+  const root = raw as Record<string, unknown>;
+  const data = asRecord(root.data);
+  const candidates = [root.items, data?.items, root.data, root.reels, data?.reels];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  return [];
+}
+
+function igCaption(o: Record<string, unknown>): string | undefined {
   return (
-    pickFirstString(data, ["pk", "id", "pk_id", "user_id"]) ??
-    pickFirstString(root, ["pk", "id"])
+    pickFirstString(o, ["caption_text", "title"]) ??
+    pickFirstString(asRecord(o.caption), ["text"]) ??
+    (typeof o.caption === "string" ? o.caption : undefined)
   );
 }
 
-function parseInstagramMediaList(raw: unknown, kind: "feed" | "reels"): ProfilePostItem[] {
-  const root = raw as Record<string, unknown>;
-  const list =
-    (Array.isArray(root.items) && root.items) ||
-    (Array.isArray(root.data) && root.data) ||
-    (Array.isArray((root.data as { items?: unknown[] } | undefined)?.items) &&
-      (root.data as { items: unknown[] }).items) ||
-    [];
+export function parseInstagramMediaList(raw: unknown, kind: "feed" | "reels"): ProfilePostItem[] {
+  const list = collectMediaList(raw);
   const out: ProfilePostItem[] = [];
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const code =
-      pickFirstString(o, ["code", "shortcode"]) ??
-      pickFirstString(o.media as Record<string, unknown> | undefined, ["code", "shortcode"]);
+    const media = asRecord(o.media) ?? o;
+    const code = pickFirstString(media, ["code", "shortcode"]) ?? pickFirstString(o, ["code", "shortcode"]);
     if (!code) continue;
+    const mediaType = media.media_type ?? o.media_type;
+    const product = String(media.product_type ?? o.product_type ?? "").toLowerCase();
+    const isReel =
+      kind === "reels" ||
+      product === "clips" ||
+      mediaType === 2 ||
+      mediaType === "2";
     const url =
+      pickFirstString(media, ["url", "link"]) ??
       pickFirstString(o, ["url", "link"]) ??
-      (kind === "reels"
-        ? `https://www.instagram.com/reel/${code}/`
-        : `https://www.instagram.com/p/${code}/`);
-    const publishedAt = pickPublishedAtIso(o) ?? pickPublishedAtIso(o.media);
+      (isReel ? `https://www.instagram.com/reel/${code}/` : `https://www.instagram.com/p/${code}/`);
+    const publishedAt = pickPublishedAtIso(media) ?? pickPublishedAtIso(o);
     out.push({
       url,
       platform: "instagram",
-      contentType: kind === "reels" ? "reels" : detectContentTypeFromUrl(url, "instagram"),
+      contentType: isReel ? "reels" : detectContentTypeFromUrl(url, "instagram"),
       externalRef: code,
       publishedAt,
-      title: pickFirstString(o, ["caption", "title"]),
+      title: igCaption(media) ?? igCaption(o),
     });
   }
   return out;
 }
 
-function parseYouTubeChannelVideos(raw: unknown): ProfilePostItem[] {
-  const root = raw as Record<string, unknown>;
+function youtubeVideoId(o: Record<string, unknown>): string | undefined {
+  const nested = asRecord(o.video) ?? asRecord(o.richItemRenderer) ?? o;
+  const id =
+    pickFirstString(nested, ["videoId", "video_id"]) ??
+    pickFirstString(o, ["videoId", "video_id"]);
+  if (id && /^[\w-]{6,}$/.test(id) && !id.startsWith("UC")) return id;
+  const generic = pickFirstString(nested, ["id"]) ?? pickFirstString(o, ["id"]);
+  if (generic && /^[\w-]{11}$/.test(generic)) return generic;
+  return undefined;
+}
+
+export function parseYouTubeChannelVideos(raw: unknown, preferShorts = false): ProfilePostItem[] {
+  const root = asRecord(raw) ?? {};
+  const data = asRecord(root.data);
   const list =
+    (Array.isArray(root.contents) && root.contents) ||
     (Array.isArray(root.videos) && root.videos) ||
-    (Array.isArray(root.data) && root.data) ||
-    (Array.isArray((root.data as { videos?: unknown[] } | undefined)?.videos) &&
-      (root.data as { videos: unknown[] }).videos) ||
+    (Array.isArray(data?.contents) && data.contents) ||
+    (Array.isArray(data?.videos) && data.videos) ||
     [];
   const out: ProfilePostItem[] = [];
   for (const item of list) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    const videoId =
-      pickFirstString(o, ["videoId", "video_id", "id"]) ??
-      pickFirstString(o, ["video_id"]);
-    if (!videoId || videoId.length < 6) continue;
+    const videoId = youtubeVideoId(o);
+    if (!videoId) continue;
     const url =
       pickFirstString(o, ["url", "link"]) ??
-      `https://www.youtube.com/watch?v=${videoId}`;
-    const publishedAt = pickPublishedAtIso(o);
+      (preferShorts
+        ? `https://www.youtube.com/shorts/${videoId}`
+        : `https://www.youtube.com/watch?v=${videoId}`);
+    const publishedAt = pickPublishedAtIso(o) ?? pickPublishedAtIso(asRecord(o.video));
     const isShort =
+      preferShorts ||
       url.toLowerCase().includes("/shorts/") ||
       Boolean(o.isShort) ||
       Boolean(o.is_short);
@@ -119,7 +176,7 @@ function parseYouTubeChannelVideos(raw: unknown): ProfilePostItem[] {
       contentType: isShort ? "reels" : "video",
       externalRef: videoId,
       publishedAt,
-      title: pickFirstString(o, ["title", "name"]),
+      title: pickFirstString(o, ["title", "name", "videoTitle"]) ?? pickFirstString(asRecord(o.video), ["title"]),
     });
   }
   return out;
@@ -189,6 +246,54 @@ function accountToDetection(
   });
 }
 
+function isYoutubeChannelId(id: string): boolean {
+  return /^UC[\w-]{20,}$/.test(id);
+}
+
+async function resolveYoutubeChannelId(ref: string, sourceUrl?: string): Promise<string> {
+  const trimmed = ref.trim();
+  if (isYoutubeChannelId(trimmed)) return trimmed;
+  const lookup =
+    sourceUrl?.trim() ||
+    (trimmed.startsWith("http")
+      ? trimmed
+      : trimmed.startsWith("@")
+        ? `https://www.youtube.com/${trimmed}`
+        : `https://www.youtube.com/@${trimmed.replace(/^@/, "")}`);
+  const raw = await rapidApiGet("youtube", "/channel/details/", { id: lookup });
+  const root = asRecord(raw) ?? {};
+  const data = asRecord(root.data);
+  const channelId =
+    pickFirstString(root, ["channelId", "channel_id"]) ??
+    pickFirstString(data, ["channelId", "channel_id"]) ??
+    pickFirstString(asRecord(root.meta), ["channelId", "channel_id"]);
+  if (channelId && isYoutubeChannelId(channelId)) return channelId;
+  return trimmed;
+}
+
+function mergePosts(items: ProfilePostItem[]): ProfilePostItem[] {
+  const byRef = new Map<string, ProfilePostItem>();
+  for (const p of items) {
+    const key = (p.externalRef || p.url).toLowerCase();
+    const prev = byRef.get(key);
+    if (!prev) {
+      byRef.set(key, p);
+      continue;
+    }
+    byRef.set(key, {
+      ...prev,
+      ...p,
+      publishedAt: p.publishedAt || prev.publishedAt,
+      title: p.title || prev.title,
+    });
+  }
+  return [...byRef.values()];
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** Yayıncı kişisel hesabından son gönderileri RapidAPI ile çeker. */
 export async function fetchProfilePostsForAccount(opts: {
   platform: string;
@@ -197,7 +302,9 @@ export async function fetchProfilePostsForAccount(opts: {
   maxItems?: number;
 }): Promise<ProfilePostItem[]> {
   const detected = accountToDetection(opts.platform, opts.handle, opts.url);
-  if (!detected || detected.kind !== "user") return [];
+  if (!detected) return [];
+  // YouTube kanalları kind=channel; video/reel linki profil taraması değil.
+  if (detected.kind === "video") return [];
 
   const max = opts.maxItems ?? 30;
   let items: ProfilePostItem[] = [];
@@ -210,27 +317,52 @@ export async function fetchProfilePostsForAccount(opts: {
     });
     items = parseTikTokUserPosts(raw);
   } else if (detected.platform === "youtube") {
-    const raw = await rapidApiGet("youtube", "/channel/videos/", {
-      id: detected.externalRef,
-      filter: "videos_latest",
-    });
-    items = parseYouTubeChannelVideos(raw);
+    const channelId = await resolveYoutubeChannelId(detected.externalRef, detected.sourceUrl);
+    const errors: string[] = [];
+    const chunks: ProfilePostItem[] = [];
+    for (const filter of ["videos_latest", "shorts_latest"] as const) {
+      try {
+        const raw = await rapidApiGet("youtube", "/channel/videos/", {
+          id: channelId,
+          filter,
+        });
+        chunks.push(...parseYouTubeChannelVideos(raw, filter === "shorts_latest"));
+      } catch (err) {
+        errors.push(`${filter}: ${errMessage(err).slice(0, 80)}`);
+      }
+    }
+    items = mergePosts(chunks);
+    if (items.length === 0 && errors.length > 0) {
+      throw new Error(`YouTube kanal videoları alınamadı (${errors[0]})`);
+    }
   } else if (detected.platform === "instagram") {
     const username = detected.externalRef.replace(/^@/, "");
     const profileRaw = await fetchInstagramProfile(username);
     const userId = pickIgUserId(profileRaw);
-    if (!userId) return [];
-    const [feedRaw, reelsRaw] = await Promise.all([
-      rapidApiGet("instagram", "/feed", { user_id: userId }).catch(() => null),
-      rapidApiGet("instagram", "/reels", { user_id: userId }).catch(() => null),
-    ]);
+    if (!userId) {
+      throw new Error(`Instagram kullanıcı id bulunamadı (@${username})`);
+    }
+    const errors: string[] = [];
+    let feedRaw: unknown = null;
+    let reelsRaw: unknown = null;
+    try {
+      feedRaw = await rapidApiGet("instagram", "/feed", { user_id: userId });
+    } catch (err) {
+      errors.push(`feed: ${errMessage(err).slice(0, 80)}`);
+    }
+    try {
+      reelsRaw = await rapidApiGet("instagram", "/reels", { user_id: userId });
+    } catch (err) {
+      errors.push(`reels: ${errMessage(err).slice(0, 80)}`);
+    }
     const merged = [
       ...(feedRaw ? parseInstagramMediaList(feedRaw, "feed") : []),
       ...(reelsRaw ? parseInstagramMediaList(reelsRaw, "reels") : []),
     ];
-    const byUrl = new Map<string, ProfilePostItem>();
-    for (const p of merged) byUrl.set(p.url.toLowerCase(), p);
-    items = [...byUrl.values()];
+    items = mergePosts(merged);
+    if (items.length === 0 && errors.length > 0) {
+      throw new Error(`Instagram gönderileri alınamadı (${errors[0]})`);
+    }
   }
 
   return items.slice(0, max).map((p) => ({

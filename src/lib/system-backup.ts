@@ -224,7 +224,7 @@ async function notifyOrkunBackup(meta: SystemBackupSnapshotMeta): Promise<void> 
     forUserId: MAIN_ADMIN_ID,
     href: "/kullanicilar",
     refId: meta.id,
-    triggeredBy: "system",
+    triggeredBy: undefined,
     createdAt: meta.createdAt,
     read: false,
   };

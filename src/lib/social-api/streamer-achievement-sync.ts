@@ -56,7 +56,9 @@ export async function upsertPersonalAchievementPost(opts: {
   metrics?: { views?: number | null };
 }): Promise<{ created: boolean } | null> {
   const { account, post } = opts;
-  const localDate = isoToLocalDateOnly(post.publishedAt);
+  // Feed/reels "son gönderiler" — API tarih vermezse bugüne yaz; aksi halde takvim boş kalır.
+  const publishedAt = post.publishedAt?.trim() || new Date().toISOString();
+  const localDate = isoToLocalDateOnly(publishedAt);
   if (!localDate || localDate < daysAgoIso(120)) return null;
 
   const weekStart = weekStartFromDateIso(localDate);
@@ -84,7 +86,7 @@ export async function upsertPersonalAchievementPost(opts: {
     content_type: post.contentType,
     brand_link_id: null,
     streamer_account_id: account.id,
-    published_at: post.publishedAt ?? `${localDate}T12:00:00.000Z`,
+    published_at: publishedAt,
     external_ref: post.externalRef,
     notes: "Kişisel hesap · API",
     last_views: opts.metrics?.views ?? null,
@@ -154,7 +156,7 @@ export async function syncEmployeePersonalAccounts(
         url: account.url,
         maxItems: maxPosts,
       });
-      await incrementUsage(platform, platform === "instagram" ? 3 : 1);
+      await incrementUsage(platform, platform === "instagram" || platform === "youtube" ? 3 : 1);
 
       for (const post of posts) {
         const ensured = await upsertPersonalAchievementPost({ account, post });
@@ -168,4 +170,59 @@ export async function syncEmployeePersonalAccounts(
   }
 
   return summary;
+}
+
+/** Cron: aktif kişisel YT/IG/TT hesabı olan tüm yayıncıları tara. */
+export async function syncAllActivePersonalAccounts(opts?: {
+  maxEmployees?: number;
+  maxAccounts?: number;
+  maxPostsPerAccount?: number;
+}): Promise<{
+  employees: number;
+  attempted: number;
+  synced: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}> {
+  const db = getSupabaseAdmin();
+  const { data: accounts, error } = await db
+    .from("streamer_accounts")
+    .select("employee_id, platform")
+    .eq("status", "active");
+  if (error) throw new Error(error.message);
+
+  const employeeIds = [
+    ...new Set(
+      ((accounts ?? []) as { employee_id: string; platform: string }[])
+        .filter((a) => ACHIEVEMENT_PLATFORMS.has(slugPlatform(a.platform) ?? ""))
+        .map((a) => a.employee_id)
+        .filter(Boolean)
+    ),
+  ];
+
+  const maxEmployees = opts?.maxEmployees ?? 20;
+  const totals = {
+    employees: 0,
+    attempted: 0,
+    synced: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [] as string[],
+  };
+
+  for (const employeeId of employeeIds.slice(0, maxEmployees)) {
+    totals.employees += 1;
+    const s = await syncEmployeePersonalAccounts(employeeId, {
+      maxAccounts: opts?.maxAccounts ?? 8,
+      maxPostsPerAccount: opts?.maxPostsPerAccount ?? 24,
+    });
+    totals.attempted += s.attempted;
+    totals.synced += s.synced;
+    totals.skipped += s.skipped;
+    totals.failed += s.failed;
+    for (const e of s.errors.slice(0, 3)) totals.errors.push(e);
+  }
+
+  return totals;
 }

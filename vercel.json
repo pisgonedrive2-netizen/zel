@@ -6,6 +6,10 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/cron/sync-achievements",
+      "schedule": "30 3 * * *"
+    },
+    {
       "path": "/api/cron/tron-sync",
       "schedule": "30 4 * * *"
     },

@@ -320,15 +320,7 @@ function TakvimPage() {
     setAccountSyncEmpId(empId);
     try {
       const res = await syncStreamerAchievementFromAccounts(empId);
-      const reels = res.reels ?? [];
-      if (reels.length > 0) {
-        useStore.setState((s) => {
-          const others = s.weekBrandReels.filter((r) => r.employeeId !== empId);
-          const byId = new Map(others.map((r) => [r.id, r]));
-          for (const r of reels) byId.set(r.id, r);
-          return { weekBrandReels: [...byId.values()] };
-        });
-      }
+      mergeAchievementReelsIntoStore(res.reels ?? [], empId);
       if (res.warning) {
         window.alert(res.warning);
       } else if (res.summary) {

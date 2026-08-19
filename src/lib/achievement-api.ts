@@ -52,10 +52,10 @@ export async function syncAchievementAfterAccountSave(
   return syncStreamerAchievementFromAccounts(account.employeeId);
 }
 
-export function mergeAchievementReelsIntoStore(reels: WeekBrandReel[], employeeId: string) {
+export function mergeAchievementReelsIntoStore(reels: WeekBrandReel[], _employeeId?: string) {
+  if (reels.length === 0) return;
   useStore.setState((s) => {
-    const others = s.weekBrandReels.filter((r) => r.employeeId !== employeeId);
-    const byId = new Map(others.map((r) => [r.id, r]));
+    const byId = new Map(s.weekBrandReels.map((r) => [r.id, r]));
     for (const r of reels) byId.set(r.id, r);
     return { weekBrandReels: [...byId.values()] };
   });

@@ -11,6 +11,7 @@ import type { WeekBrandReel } from "@/store/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * POST /api/streamer/sync-achievement-from-accounts?employeeId=

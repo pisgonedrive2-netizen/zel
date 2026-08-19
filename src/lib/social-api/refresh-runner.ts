@@ -266,8 +266,15 @@ export async function runPlatformRefresh(
   const runId = await startRun(platform, opts.triggeredBy, opts.userId);
   const links = await pickLinksForPlatform(platform, batchSize);
   const errors: string[] = [];
+  // Cron 300s Vercel tavanına çarpmasın diye platform başına süre bütçesi.
+  const deadlineMs =
+    opts.triggeredBy === "cron" ? Date.now() + 85_000 : Number.POSITIVE_INFINITY;
 
   for (const row of links) {
+    if (Date.now() >= deadlineMs) {
+      errors.push("süre bütçesi doldu — kalan linkler sonraki cron turuna kaldı");
+      break;
+    }
     summary.attempted += 1;
     const detected = resolveLinkDetection({
       url: row.url,
