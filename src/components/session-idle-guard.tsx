@@ -24,6 +24,9 @@ export function SessionIdleGuard() {
       return;
     }
 
+    lastActivity.current = Date.now();
+    setShowWarn(false);
+
     const bump = () => {
       lastActivity.current = Date.now();
       setShowWarn(false);
@@ -31,6 +34,8 @@ export function SessionIdleGuard() {
 
     const events: (keyof WindowEventMap)[] = ["mousedown", "keydown", "scroll", "touchstart"];
     events.forEach((e) => window.addEventListener(e, bump, { passive: true }));
+    window.addEventListener("focus", bump);
+    document.addEventListener("visibilitychange", bump);
 
     const id = setInterval(() => {
       const idle = Date.now() - lastActivity.current;
@@ -51,6 +56,8 @@ export function SessionIdleGuard() {
 
     return () => {
       events.forEach((e) => window.removeEventListener(e, bump));
+      window.removeEventListener("focus", bump);
+      document.removeEventListener("visibilitychange", bump);
       clearInterval(id);
     };
   }, [user, logout]);

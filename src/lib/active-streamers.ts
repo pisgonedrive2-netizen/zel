@@ -1,5 +1,17 @@
 import type { BrandLink, Employee } from "@/store/store";
 
+/**
+ * Kişisel IG / YT / TT achievement taraması yapılmaz (iş çıkışı).
+ * Hesap satırları dursa bile cron ve «Kontrol et» bunları atlar.
+ */
+export const PERSONAL_ACCOUNT_SYNC_EXCLUDED_IDS = ["emp-lucy", "emp-acelya"] as const;
+
+const personalAccountSyncExcluded = new Set<string>(PERSONAL_ACCOUNT_SYNC_EXCLUDED_IDS);
+
+export function allowsPersonalAccountSync(employeeId: string): boolean {
+  return Boolean(employeeId) && !personalAccountSyncExcluded.has(employeeId);
+}
+
 /** Aktif yayıncı / moderatör (bordro roster). */
 export function isActiveRosterEmployee(emp: Employee | undefined | null): boolean {
   if (!emp) return false;

@@ -81,6 +81,8 @@ export function MarkaDealAchievementPanel({
           description="Kişisel hesap paylaşımları ve teslimat postları"
           embedded
           fetchDayDetail={deal.employeeId ? fetchDayDetail : undefined}
+          employeeId={deal.employeeId || undefined}
+          lockedBrandId={deal.brandId}
         />
       </div>
     </CollapsibleSection>

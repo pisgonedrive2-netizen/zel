@@ -16,6 +16,12 @@ import { isoToLocalDateOnly, todayDateLocal } from "@/lib/data";
 import { weekdayShort } from "@/lib/i18n/weekday";
 import { dateLocaleTag } from "@/lib/i18n/locale-state";
 import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
+import {
+  AchievementBrandAssignBar,
+  AchievementBrandRowSelect,
+  assignableBrandsForPicker,
+} from "@/components/streamer-pool/achievement-brand-assign";
+import { useStore } from "@/store/store";
 
 function dateOnly(iso: string | undefined | null): string {
   return isoToLocalDateOnly(iso);
@@ -61,6 +67,10 @@ interface ActivityCalendarProps {
   embedded?: boolean;
   /** Güne tıklanınca API'den içerik + URL listesi (marka linkleri yerine kişisel hesap). */
   fetchDayDetail?: (date: string) => Promise<ActivityDayItem[]>;
+  /** Verilirse gün detayında marka seçilip izlenme sayfasına yazılır. */
+  employeeId?: string;
+  /** Marka panelinde yalnızca bu markaya atama. */
+  lockedBrandId?: string;
 }
 
 /**
@@ -77,8 +87,15 @@ export function PostActivityCalendar({
   initialMonthYm,
   embedded = false,
   fetchDayDetail,
+  employeeId,
+  lockedBrandId,
 }: ActivityCalendarProps) {
   const today = todayDateLocal();
+  const brands = useStore((s) => s.brands);
+  const assignableBrands = useMemo(
+    () => assignableBrandsForPicker(brands, lockedBrandId),
+    [brands, lockedBrandId]
+  );
   const defaultMonth =
     initialMonthYm && /^\d{4}-\d{2}$/.test(initialMonthYm)
       ? initialMonthYm
@@ -339,6 +356,16 @@ export function PostActivityCalendar({
                 ? ` · ${selectedItems.length} paylaşım`
                 : " · kayıt (tarih eşleşti)"}
             </p>
+            {employeeId && selectedItems.length > 0 && !dayDetailLoading ? (
+              <AchievementBrandAssignBar
+                employeeId={employeeId}
+                date={selectedDay}
+                items={selectedItems}
+                lockedBrandId={lockedBrandId}
+                assignable={assignableBrands}
+                onItemsPatched={setDayDetailItems}
+              />
+            ) : null}
             {dayDetailLoading ? (
               <p className="text-[11px] text-muted-foreground">İçerikler yükleniyor…</p>
             ) : dayDetailError ? (
@@ -378,6 +405,18 @@ export function PostActivityCalendar({
                       >
                         Linki aç <ExternalLink size={11} />
                       </a>
+                      {employeeId ? (
+                        <AchievementBrandRowSelect
+                          employeeId={employeeId}
+                          date={selectedDay}
+                          item={item}
+                          items={selectedItems}
+                          lockedBrandId={lockedBrandId}
+                          assignable={assignableBrands}
+                          brandName={brands.find((b) => b.id === item.brandId)?.name}
+                          onItemsPatched={setDayDetailItems}
+                        />
+                      ) : null}
                     </div>
                   </li>
                 ))}

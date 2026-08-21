@@ -90,6 +90,7 @@ describe("buildStreamerActivity", () => {
     const { byDate } = buildStreamerActivity("emp-ramiz", reels, posts);
     expect(byDate.size).toBe(2);
     expect(byDate.get("2026-05-28")?.[0]?.url).toContain("aaa");
+    expect(byDate.get("2026-05-28")?.[0]?.brandId).toBe("br-x");
     expect(byDate.get("2026-05-30")?.[0]?.source).toBe("post");
   });
 
@@ -124,5 +125,6 @@ describe("buildStreamerActivity", () => {
     ];
     const { byDate } = buildStreamerActivity("emp-ramiz", reels, [], { brandLinks: links });
     expect(byDate.get("2026-05-27")?.[0]?.source).toBe("link");
+    expect(byDate.get("2026-05-27")?.[0]?.brandLinkId).toBe("bl-1");
   });
 });

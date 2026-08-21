@@ -1,3 +1,4 @@
+import { allowsPersonalAccountSync } from "@/lib/active-streamers";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isoToLocalDateOnly, weekStartFromDateIso } from "@/lib/data";
 import { incrementUsage, getMonthlyUsage } from "./quota";
@@ -27,6 +28,7 @@ function slugPlatform(platform: string): SocialPlatform | null {
 }
 
 export async function countActivePersonalAccounts(employeeId: string): Promise<number> {
+  if (!allowsPersonalAccountSync(employeeId)) return 0;
   const db = getSupabaseAdmin();
   const { data: accounts, error } = await db
     .from("streamer_accounts")
@@ -97,7 +99,27 @@ export async function upsertPersonalAchievementPost(opts: {
 
   const { error } = await db.from("week_brand_reels").upsert(row, { onConflict: "id" });
   if (error) throw new Error(`week_brand_reels: ${error.message}`);
-  return { created: !existing?.id };
+  const created = !existing?.id;
+  if (created) {
+    const { getTelegramContentSettings } = await import("./telegram-content-settings");
+    const { isTelegramAccountWatched, isFreshEnoughForTelegram } = await import(
+      "./telegram-content-accounts"
+    );
+    const tg = await getTelegramContentSettings();
+    if (
+      isTelegramAccountWatched(account.id, tg.accountIds) &&
+      isFreshEnoughForTelegram(publishedAt)
+    ) {
+      const { enqueueTelegramContentPost } = await import("./telegram-content-forward");
+      await enqueueTelegramContentPost({
+        reelId: finalId,
+        contentUrl: post.url.trim(),
+        platform: post.platform,
+        employeeId: account.employee_id,
+      }).catch(() => undefined);
+    }
+  }
+  return { created };
 }
 
 export async function syncEmployeePersonalAccounts(
@@ -118,7 +140,20 @@ export async function syncEmployeePersonalAccounts(
     errors: [] as string[],
   };
 
+  if (!allowsPersonalAccountSync(employeeId)) {
+    return summary;
+  }
+
   const db = getSupabaseAdmin();
+  const { data: empRow } = await db
+    .from("employees")
+    .select("status")
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (empRow && String((empRow as { status?: string }).status ?? "") !== "active") {
+    return summary;
+  }
+
   const { data: accounts, error } = await db
     .from("streamer_accounts")
     .select("id, employee_id, platform, handle, url, status")
@@ -132,8 +167,22 @@ export async function syncEmployeePersonalAccounts(
 
   const maxAccounts = opts?.maxAccounts ?? 12;
   const maxPosts = opts?.maxPostsPerAccount ?? 30;
+  await syncAccountRows(active.slice(0, maxAccounts), maxPosts, summary);
+  return summary;
+}
 
-  for (const account of active.slice(0, maxAccounts)) {
+async function syncAccountRows(
+  accounts: StreamerAccountRow[],
+  maxPosts: number,
+  summary: {
+    attempted: number;
+    synced: number;
+    skipped: number;
+    failed: number;
+    errors: string[];
+  }
+): Promise<void> {
+  for (const account of accounts) {
     const platform = slugPlatform(account.platform);
     if (!platform) continue;
 
@@ -168,7 +217,45 @@ export async function syncEmployeePersonalAccounts(
       summary.errors.push(`${account.platform}/${account.handle}: ${msg.slice(0, 100)}`);
     }
   }
+}
 
+/** Telegram cron: yalnızca seçilen kişisel hesapları tara. */
+export async function syncPersonalAccountsByIds(
+  accountIds: string[],
+  opts?: { maxPostsPerAccount?: number }
+): Promise<{
+  attempted: number;
+  synced: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}> {
+  const summary = {
+    attempted: 0,
+    synced: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [] as string[],
+  };
+  const ids = [...new Set(accountIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return summary;
+
+  const db = getSupabaseAdmin();
+  const { data: accounts, error } = await db
+    .from("streamer_accounts")
+    .select("id, employee_id, platform, handle, url, status")
+    .in("id", ids)
+    .eq("status", "active");
+  if (error) throw new Error(error.message);
+
+  const rows = ((accounts ?? []) as StreamerAccountRow[]).filter(
+    (a) =>
+      allowsPersonalAccountSync(a.employee_id) &&
+      ACHIEVEMENT_PLATFORMS.has(slugPlatform(a.platform) ?? "")
+  );
+  const byId = new Map(rows.map((a) => [a.id, a]));
+  const ordered = ids.map((id) => byId.get(id)).filter((a): a is StreamerAccountRow => Boolean(a));
+  await syncAccountRows(ordered, opts?.maxPostsPerAccount ?? 12, summary);
   return summary;
 }
 
@@ -197,7 +284,7 @@ export async function syncAllActivePersonalAccounts(opts?: {
       ((accounts ?? []) as { employee_id: string; platform: string }[])
         .filter((a) => ACHIEVEMENT_PLATFORMS.has(slugPlatform(a.platform) ?? ""))
         .map((a) => a.employee_id)
-        .filter(Boolean)
+        .filter((id) => allowsPersonalAccountSync(id))
     ),
   ];
 

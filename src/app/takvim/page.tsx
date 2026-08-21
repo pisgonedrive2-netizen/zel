@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronUp, Filter, CalendarDays, Maximize2,
   ListTree, Users, Trophy, Sparkles, Zap, TrendingUp,
 } from "lucide-react";
-import { isoToLocalDateOnly } from "@/lib/data";
+import { isoToLocalDateOnly, weekDayIsosFromStart, shiftWeekStartIso, planDateInWeek, weekStartFromDateIso } from "@/lib/data";
 import { weekdayShort } from "@/lib/i18n/weekday";
 import { useStore, type Employee, type StreamerAccount, type ScheduleSlot, type WeeklyPlan, WEEKDAYS_LONG, weekStartOf, nextWeekStartOf } from "@/store/store";
 import { useAuth } from "@/store/auth";
@@ -40,7 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import Modal from "@/components/ui/modal";
 import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { createNotificationPersisted } from "@/lib/notification-actions";
-import { weekDayIsosFromStart, shiftWeekStartIso, planDateInWeek, weekStartFromDateIso } from "@/lib/data";
+import { allowsPersonalAccountSync } from "@/lib/active-streamers";
 import { normalizeWeeklyPlanInput } from "@/lib/weekly-plan-normalize";
 import {
   createFoxstreamMonthlyTemplate,
@@ -878,7 +878,8 @@ function TakvimPage() {
                   </div>
                 </button>
                 <div className="flex items-center gap-1 shrink-0">
-                  {allAccounts.some(
+                  {allowsPersonalAccountSync(emp.id) &&
+                    allAccounts.some(
                     (a) => a.status === "active" && isPersonalSocialPlatform(a.platform)
                   ) && (
                     <Button
@@ -1041,6 +1042,7 @@ function TakvimPage() {
                 byDate={activity.byDate}
                 initialMonthYm={planMonthYm}
                 fetchDayDetail={planEmployeeId ? fetchDayDetail : undefined}
+                employeeId={planEmployeeId || undefined}
               />
             </CollapsibleSection>
           </div>

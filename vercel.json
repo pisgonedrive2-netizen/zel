@@ -10,6 +10,10 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/forward-content-telegram",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/tron-sync",
       "schedule": "30 4 * * *"
     },
@@ -17,5 +21,16 @@
       "path": "/api/cron/system-backup",
       "schedule": "0 2 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/cron/forward-content-telegram/route.ts": {
+      "maxDuration": 180
+    },
+    "src/app/api/cron/sync-achievements/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/admin/telegram-content/route.ts": {
+      "maxDuration": 180
+    }
+  }
 }

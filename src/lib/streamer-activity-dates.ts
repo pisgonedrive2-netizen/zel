@@ -8,6 +8,10 @@ export type ActivityDayItem = {
   platform: string;
   label?: string;
   source: "reel" | "post" | "link";
+  /** Atanmış marka — izlenme sayfasına yazılır. */
+  brandId?: string | null;
+  brandLinkId?: string | null;
+  views?: number | null;
 };
 
 export type BuildStreamerActivityOptions = {
@@ -90,6 +94,9 @@ export function buildStreamerActivity(
       platform: r.platform,
       label: r.contentType,
       source: r.brandLinkId ? "link" : "reel",
+      brandId: r.brandId || null,
+      brandLinkId: r.brandLinkId || null,
+      views: r.lastViews ?? null,
     });
   }
 
@@ -104,6 +111,8 @@ export function buildStreamerActivity(
       platform: p.platform,
       label: p.postType,
       source: "post",
+      brandId: p.brandId || null,
+      views: p.views ?? null,
     });
   }
 

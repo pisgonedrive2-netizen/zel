@@ -2666,6 +2666,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 byDate={achievementActivity.byDate}
                 initialMonthYm={weekAchievementMonthYm}
                 fetchDayDetail={fetchAchievementDayDetail}
+                employeeId={me.id}
               />
             </CollapsibleSection>
 

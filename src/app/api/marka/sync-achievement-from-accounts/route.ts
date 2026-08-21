@@ -10,6 +10,7 @@ import {
   syncEmployeePersonalAccounts,
 } from "@/lib/social-api/streamer-achievement-sync";
 import { notifyBrandContentPublished } from "@/lib/marka-brand-notify";
+import { allowsPersonalAccountSync } from "@/lib/active-streamers";
 import type { WeekBrandReel } from "@/store/store";
 
 export const runtime = "nodejs";
@@ -86,8 +87,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let employeeIds = [...partnerIds];
+  let employeeIds = [...partnerIds].filter((id) => allowsPersonalAccountSync(id));
   if (filterEmployeeId) {
+    if (!allowsPersonalAccountSync(filterEmployeeId)) {
+      return NextResponse.json({ error: "Bu yayıncı taranmıyor" }, { status: 400 });
+    }
     if (!partnerIds.has(filterEmployeeId)) {
       return NextResponse.json({ error: "Bu yayıncı marka partneri değil" }, { status: 403 });
     }

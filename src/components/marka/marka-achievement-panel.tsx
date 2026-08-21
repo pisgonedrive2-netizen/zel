@@ -138,6 +138,8 @@ export function MarkaAchievementPanel({
         description={desc}
         embedded={embedded}
         fetchDayDetail={fetchDayDetail}
+        employeeId={employeeId && employeeId !== "all" ? employeeId : undefined}
+        lockedBrandId={brandId}
       />
     </div>
   );

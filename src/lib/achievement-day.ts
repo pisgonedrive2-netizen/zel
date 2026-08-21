@@ -70,6 +70,8 @@ export async function loadAchievementDayItems(opts: {
       platform: String(row.platform ?? ""),
       label: row.content_type ? String(row.content_type) : undefined,
       source: row.brand_link_id ? "link" : "reel",
+      brandId: row.brand_id ? String(row.brand_id) : null,
+      brandLinkId: row.brand_link_id ? String(row.brand_link_id) : null,
       views: row.last_views != null ? Number(row.last_views) : null,
       title: row.notes ? String(row.notes) : undefined,
       streamerAccountId: row.streamer_account_id
@@ -89,6 +91,7 @@ export async function loadAchievementDayItems(opts: {
       platform: String(row.platform ?? ""),
       label: row.post_type ? String(row.post_type) : undefined,
       source: "post",
+      brandId: row.brand_id ? String(row.brand_id) : null,
     });
   }
 

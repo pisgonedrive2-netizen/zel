@@ -263,6 +263,7 @@ export default function YayinciPostlarPage() {
         activityDates={activityDates}
         byDate={activity.byDate}
         fetchDayDetail={employeeId ? fetchDayDetail : undefined}
+        employeeId={employeeId || undefined}
       />
 
       <div className="flex items-start gap-3 rounded-xl border border-blue-300/60 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 dark:border-blue-500/45 dark:bg-blue-950/40 dark:text-blue-100">

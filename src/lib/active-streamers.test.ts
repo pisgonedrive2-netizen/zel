@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeOwnerIdsOnLinks,
+  allowsPersonalAccountSync,
   countActiveLinkOwners,
   isActiveRosterEmployee,
 } from "./active-streamers";
@@ -51,6 +52,13 @@ describe("active-streamers", () => {
     expect(activeOwnerIdsOnLinks(links, employees)).toEqual(["ramiz"]);
     expect(isActiveRosterEmployee(employees[0])).toBe(true);
     expect(isActiveRosterEmployee(employees[1])).toBe(false);
+  });
+
+  it("skips Lucy and Acelya personal-account achievement sync", () => {
+    expect(allowsPersonalAccountSync("emp-ramiz")).toBe(true);
+    expect(allowsPersonalAccountSync("emp-lucy")).toBe(false);
+    expect(allowsPersonalAccountSync("emp-acelya")).toBe(false);
+    expect(allowsPersonalAccountSync("")).toBe(false);
   });
 });
 

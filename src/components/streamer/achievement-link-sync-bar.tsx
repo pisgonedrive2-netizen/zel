@@ -8,6 +8,7 @@ import {
   syncStreamerAchievementFromAccounts,
 } from "@/lib/achievement-api";
 import { t } from "@/lib/i18n/t";
+import { allowsPersonalAccountSync } from "@/lib/active-streamers";
 
 /**
  * Yayıncının kişisel YouTube / Instagram / TikTok hesapları → achievement takvimi.
@@ -26,6 +27,8 @@ export function AchievementLinkSyncBar({
 }) {
   const [loading, setLoading] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+
+  if (!allowsPersonalAccountSync(employeeId)) return null;
 
   const run = async () => {
     if (!employeeId || loading) return;

@@ -8,6 +8,7 @@ import {
   syncEmployeePersonalAccounts,
 } from "@/lib/social-api/streamer-achievement-sync";
 import type { WeekBrandReel } from "@/store/store";
+import { allowsPersonalAccountSync } from "@/lib/active-streamers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,17 @@ export async function POST(req: NextRequest) {
 
   if (!employeeId) {
     return NextResponse.json({ error: "employeeId gerekli" }, { status: 400 });
+  }
+
+  if (!allowsPersonalAccountSync(employeeId)) {
+    return NextResponse.json({
+      ok: true,
+      reels: [],
+      rapidApiEnabled: isRapidApiEnabled(),
+      accountsReady: 0,
+      summary: { attempted: 0, synced: 0, skipped: 0, failed: 0, errors: [] },
+      warning: "Bu yayıncının kişisel hesapları taranmıyor.",
+    });
   }
 
   if (!isRapidApiEnabled()) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCronSecret, isRapidApiEnabled, isSupabaseEnabled } from "@/lib/env";
 import { syncAllActivePersonalAccounts } from "@/lib/social-api/streamer-achievement-sync";
+import { processTelegramContentQueue } from "@/lib/social-api/telegram-content-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,11 +33,19 @@ export async function GET(req: NextRequest) {
   const startedAt = new Date().toISOString();
   try {
     const summary = await syncAllActivePersonalAccounts();
+    const telegram = await processTelegramContentQueue().catch((err) => ({
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      errors: [err instanceof Error ? err.message : String(err)],
+    }));
     return NextResponse.json({
       ok: true,
       startedAt,
       finishedAt: new Date().toISOString(),
       summary,
+      telegram,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "?";

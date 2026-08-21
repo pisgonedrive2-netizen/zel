@@ -13,6 +13,7 @@ import { useStore } from "@/store/store";
 import { countActiveLinkOwners } from "@/lib/active-streamers";
 import { useIsReadOnly, useAuth } from "@/store/auth";
 import { AutoRefreshStatusPanel } from "@/components/auto-refresh-status-panel";
+import { TelegramContentForwardPanel } from "@/components/telegram-content-forward-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -437,6 +438,12 @@ export default function IzlenmeApiPage() {
         totalViews={totalViews}
         readOnly={readOnly}
       />
+
+      {isAdmin ? (
+        <div className="mb-5">
+          <TelegramContentForwardPanel />
+        </div>
+      ) : null}
 
       {isAdmin && !readOnly && (
         <div className="mb-3 flex justify-end">

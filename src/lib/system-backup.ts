@@ -39,6 +39,7 @@ export const SYSTEM_BACKUP_TABLES = [
   "content_expenses",
   "weekly_plans",
   "week_brand_reels",
+  "content_telegram_posts",
   "app_notifications",
   "audit_logs",
   "app_settings",

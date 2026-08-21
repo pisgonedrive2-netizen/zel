@@ -263,6 +263,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const r = await fetch("/api/auth/me", { credentials: "include" });
         if (cancelled) return;
         if (!r.ok) {
+          // Giriş API'si az önce kullanıcıyı yazdıysa eski 401 cevabı oturumu silmesin.
+          if (useAuth.getState().user) {
+            useAuth.setState({ sessionReady: true });
+            return;
+          }
           useAuth.setState({ user: null, sessionReady: true });
           return;
         }
