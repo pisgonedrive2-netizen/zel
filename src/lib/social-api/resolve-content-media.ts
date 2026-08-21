@@ -23,42 +23,46 @@ export async function resolveContentMediaUrl(opts: {
   });
   if (!detected || detected.kind !== "video") return null;
 
-  if (detected.platform === "youtube") {
-    const raw = await rapidApiGet("youtube", "/video/streaming-data/", {
-      id: detected.externalRef,
-    });
-    await incrementUsage("youtube", 1);
-    const url = extractDirectVideoUrl(raw);
-    if (!url) return null;
-    return { url, platform: "youtube", downloadPreferred: true };
-  }
+  try {
+    if (detected.platform === "youtube") {
+      const id = detected.externalRef.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
+      if (!/^[\w-]{11}$/.test(id)) return null;
+      const raw = await rapidApiGet("youtube", "/video/streaming-data/", { id });
+      await incrementUsage("youtube", 1);
+      const url = extractDirectVideoUrl(raw);
+      if (!url) return null;
+      return { url, platform: "youtube", downloadPreferred: true };
+    }
 
-  if (detected.platform === "tiktok") {
-    const source =
-      detected.sourceUrl?.trim() ||
-      opts.contentUrl.trim() ||
-      (detected.externalRef.match(/^\d+$/)
-        ? `https://www.tiktok.com/video/${detected.externalRef}`
-        : "");
-    if (!source) return null;
-    const raw = await rapidApiGet("tiktok", "/", { url: source, hd: "1" });
-    await incrementUsage("tiktok", 1);
-    const url = extractDirectVideoUrl(raw);
-    if (!url) return null;
-    return { url, platform: "tiktok", downloadPreferred: false };
-  }
+    if (detected.platform === "tiktok") {
+      const source =
+        detected.sourceUrl?.trim() ||
+        opts.contentUrl.trim() ||
+        (detected.externalRef.match(/^\d+$/)
+          ? `https://www.tiktok.com/video/${detected.externalRef}`
+          : "");
+      if (!source) return null;
+      const raw = await rapidApiGet("tiktok", "/", { url: source, hd: "1" });
+      await incrementUsage("tiktok", 1);
+      const url = extractDirectVideoUrl(raw);
+      if (!url) return null;
+      return { url, platform: "tiktok", downloadPreferred: false };
+    }
 
-  if (detected.platform === "instagram") {
-    const raw = await rapidApiGet("instagram", "/post", {
-      shortcode: detected.externalRef,
-    });
-    await incrementUsage("instagram", 1);
-    const url = extractDirectVideoUrl(raw);
-    if (!url) return null;
-    return { url, platform: "instagram", downloadPreferred: false };
-  }
+    if (detected.platform === "instagram") {
+      const raw = await rapidApiGet("instagram", "/post", {
+        shortcode: detected.externalRef,
+      });
+      await incrementUsage("instagram", 1);
+      const url = extractDirectVideoUrl(raw);
+      if (!url) return null;
+      return { url, platform: "instagram", downloadPreferred: false };
+    }
 
-  return null;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function downloadVideoBytes(url: string): Promise<Uint8Array> {

@@ -78,4 +78,12 @@ describe("parseYouTubeChannelVideos", () => {
     expect(items[0].contentType).toBe("reels");
     expect(items[0].url).toContain("/shorts/");
   });
+
+  it("ignores non-11-character ids that RapidAPI rejects", () => {
+    const items = parseYouTubeChannelVideos({
+      contents: [{ videoId: "playlistXX" }, { videoId: "dQw4w9WgXcQ" }],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].externalRef).toBe("dQw4w9WgXcQ");
+  });
 });

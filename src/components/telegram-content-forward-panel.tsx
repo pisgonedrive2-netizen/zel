@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Send, Loader2, Save, RefreshCw, PlayCircle, Search, X, Plus, Users } from "lucide-react";
+import { Send, Loader2, Save, RefreshCw, PlayCircle, Search, X, Plus, Square } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { useAuth } from "@/store/auth";
 
 type QueueRow = {
@@ -161,7 +160,7 @@ export function TelegramContentForwardPanel() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, enabled, chatId, lookbackHours, ...extra }),
+        body: JSON.stringify({ action, enabled, chatId: chatId.trim(), lookbackHours, ...extra }),
       });
       const json = await readJson<{
         ok: boolean;
@@ -178,6 +177,11 @@ export function TelegramContentForwardPanel() {
       }>(res);
       if (!res.ok || !json.ok) {
         setMsg(json.error ?? `Hata (${res.status})`);
+        if (json.settings) {
+          setEnabled(json.settings.enabled);
+          setChatId(json.settings.chatId);
+          if (json.settings.groups) setChats(json.settings.groups);
+        }
         return;
       }
       if (json.chats) setChats(json.chats);
@@ -189,6 +193,12 @@ export function TelegramContentForwardPanel() {
       }
       if (json.accounts) setAccounts(json.accounts);
       if (action === "backfill") setMsg(`${json.queued ?? 0} video kuyruğa alındı`);
+      else if (action === "start") {
+        setMsg(
+          `Bot çalışıyor. Gönderildi: ${json.summary?.sent ?? 0} · hata: ${json.summary?.failed ?? 0}` +
+            (json.poll ? ` · taranan ${json.poll.attempted ?? 0}` : "")
+        );
+      } else if (action === "stop") setMsg("Bot durdu. Yeni video gitmez.");
       else if (action === "run") {
         setMsg(
           `Gönderildi: ${json.summary?.sent ?? 0} · hata: ${json.summary?.failed ?? 0}` +
@@ -236,6 +246,7 @@ export function TelegramContentForwardPanel() {
     ? `@${data.bot.username ?? "bot"}`
     : data?.bot?.error ?? "Bot yok";
   const personalIdWarning = looksLikePersonalId(chatId);
+  const failedRows = (data?.recent ?? []).filter((r) => r.status === "failed");
 
   return (
     <Card>
@@ -245,11 +256,11 @@ export function TelegramContentForwardPanel() {
           Telegram içerik botu
         </CardTitle>
         <CardDescription>
-          Takip edilen hesaplardan çekilen videolar kayıtlı gruba / topice gider. Gönderim sayıları
-          İstanbul saatine göredir.
+          Grup id girip Start deyin. Takip listesini aşağıdan ekleyin / çıkarın. Videolar linkiyle
+          birlikte gruba gider.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         {loading && !data ? (
           <p className="text-xs text-muted-foreground">Yükleniyor…</p>
         ) : (
@@ -258,14 +269,12 @@ export function TelegramContentForwardPanel() {
               <Badge variant={data?.botConfigured ? "secondary" : "outline"}>
                 {data?.botConfigured ? `Bot ${botLabel}` : "TELEGRAM_BOT_TOKEN eksik"}
               </Badge>
+              <Badge variant={enabled ? "secondary" : "outline"}>
+                {enabled ? "Çalışıyor" : "Durdu"}
+              </Badge>
               {data?.tableReady === false ? (
                 <Badge variant="destructive">DB tablosu yok — migration gerekli</Badge>
               ) : null}
-              {data?.webhook?.url ? (
-                <Badge variant="outline">Grup dinleme açık</Badge>
-              ) : (
-                <Badge variant="outline">Localhost — Grupları bul ile tara</Badge>
-              )}
               <Badge variant="outline">Bekleyen {data?.counts?.pending ?? 0}</Badge>
               <Badge variant="outline">Gönderilen {data?.counts?.sent ?? 0}</Badge>
               {(data?.counts?.failed ?? 0) > 0 ? (
@@ -273,64 +282,76 @@ export function TelegramContentForwardPanel() {
               ) : null}
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { label: "Bugün", value: data?.stats?.today ?? 0 },
-                { label: "Son 7 gün", value: data?.stats?.week ?? 0 },
-                { label: "Bu ay", value: data?.stats?.month ?? 0 },
-                { label: "Toplam giden", value: data?.counts?.sent ?? 0 },
-              ].map((s) => (
-                <div key={s.label} className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</p>
-                  <p className="text-lg font-semibold tabular-nums">{s.value}</p>
-                </div>
-              ))}
-            </div>
-            {data?.stats?.lastSentAt ? (
-              <p className="text-[11px] text-muted-foreground">
-                Son gönderim: {fmtWhen(data.stats.lastSentAt)}
-                {chats[0]?.title ? ` · ${chats[0].title}` : ""}
-              </p>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">Henüz gruba video düşmedi.</p>
-            )}
-            {(data?.stats?.byDay?.length ?? 0) > 0 ? (
-              <ul className="grid gap-1 sm:grid-cols-2">
-                {data!.stats!.byDay.map((d) => (
-                  <li
-                    key={d.date}
-                    className="flex items-center justify-between rounded border border-border/60 px-2 py-1 text-[11px]"
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <p className="text-xs font-medium">Hedef grup</p>
+              <label className="block text-[11px] text-muted-foreground">
+                Grup id <span className="font-mono">-100…</span>
+                <input
+                  className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={chatId}
+                  disabled={!canEdit}
+                  placeholder="-1003892533929"
+                  onChange={(e) => setChatId(e.target.value.trim())}
+                />
+              </label>
+              {personalIdWarning ? (
+                <p className="text-[11px] text-destructive">
+                  Bu bir kişi/bot id. Grup id her zaman eksi başlar.
+                </p>
+              ) : null}
+              {canEdit ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 gap-1 text-xs"
+                    disabled={!!busy || personalIdWarning}
+                    onClick={() => void post("start")}
                   >
-                    <span>{fmtDay(d.date)}</span>
-                    <span className="tabular-nums font-medium">{d.sent} video</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {(data?.stats?.byPlatform?.length ?? 0) > 0 ? (
+                    {busy === "start" ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <PlayCircle size={12} />
+                    )}
+                    Start
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1 text-xs"
+                    disabled={!!busy || !enabled}
+                    onClick={() => void post("stop")}
+                  >
+                    {busy === "stop" ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Square size={11} />
+                    )}
+                    Durdur
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 gap-1 text-xs"
+                    disabled={!!busy}
+                    onClick={() => void post("discover")}
+                  >
+                    {busy === "discover" ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Search size={11} />
+                    )}
+                    Grupları bul
+                  </Button>
+                </div>
+              ) : null}
               <p className="text-[11px] text-muted-foreground">
-                Platform:{" "}
-                {data!.stats!.byPlatform.map((p) => `${p.platform} ${p.sent}`).join(" · ")}
+                Start: grubu kaydeder, botu açar, yeni içerikleri tarayıp linkiyle gönderir. Botu
+                gruba ekleyin; forumda videolar topic’ine bir kez etiketleyin.
               </p>
-            ) : null}
-
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              1) {botLabel} botunu gruba ekleyin (yönetici + topic yönetimi iyi olur). 2) Grupta bir
-              mesaj yazın; gizlilik açıksa botu etiketleyin. 3) «Grupları bul». Forum grubunda her
-              topice bir mesaj yazın — Telegram botlara tüm topic listesini vermez, görülen
-              topicler burada çıkar.
-            </p>
-
-            <label className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                className="rounded border-input"
-                checked={enabled}
-                disabled={!canEdit}
-                onChange={(e) => setEnabled(e.target.checked)}
-              />
-              Otomatik iletim açık
-            </label>
+            </div>
 
             {chats.length > 0 ? (
               <ul className="space-y-2">
@@ -387,12 +408,6 @@ export function TelegramContentForwardPanel() {
                               </option>
                             ))}
                         </select>
-                        {(c.topics?.length ?? 0) <= 1 ? (
-                          <span className="mt-1 block">
-                            Diğer topicler görünmüyorsa o topice girip bir mesaj yazın / botu
-                            etiketleyin, sonra Grupları bul.
-                          </span>
-                        ) : null}
                       </label>
                     ) : null}
                   </li>
@@ -400,37 +415,20 @@ export function TelegramContentForwardPanel() {
               </ul>
             ) : (
               <p className="rounded-md border border-dashed border-border px-2 py-2 text-[11px] text-muted-foreground">
-                Henüz grup yok. Botu ekleyip «Grupları bul» deyin; videolar o gruplara gider.
+                Kayıtlı grup yok. Id girip Start deyin veya Grupları bul.
               </p>
             )}
 
-            <CollapsibleSection
-              className="rounded-md bg-muted/20 shadow-none"
-              headerClassName="px-2 py-2"
-              defaultOpen
-              title={
-                <span className="inline-flex items-center gap-1.5">
-                  <Users size={13} />
-                  Takip edilen hesaplar
-                </span>
-              }
-              description={
-                <span>
-                  {accounts?.implicitAll
-                    ? `${accounts.watched.length} kişisel YT / IG / TT hesabı taranıyor`
-                    : `${accounts?.watched.length ?? 0} hesap seçili`}
-                </span>
-              }
-              trailing={
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium">Takip edilen hesaplar</p>
                 <Badge variant="outline">{accounts?.watched.length ?? 0}</Badge>
-              }
-            >
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                Yeni Reels / Shorts / TikTok videoları bu hesaplardan çekilir ve Telegram topicine
-                gider. Listeden çıkarmak hesabı yayıncı kaydından silmez.
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Yalnızca listedekiler taranır. Çıkarmak yayıncı kaydını silmez.
               </p>
               {(accounts?.watched.length ?? 0) > 0 ? (
-                <ul className="max-h-52 space-y-1 overflow-y-auto">
+                <ul className="max-h-56 space-y-1 overflow-y-auto">
                   {accounts!.watched.map((a) => (
                     <li
                       key={a.id}
@@ -465,11 +463,11 @@ export function TelegramContentForwardPanel() {
               )}
 
               {canEdit ? (
-                <div className="mt-3 space-y-2">
+                <div className="space-y-2 border-t border-border/60 pt-2">
                   {(accounts?.available.length ?? 0) > 0 ? (
                     <div className="flex flex-wrap items-end gap-1.5">
                       <label className="min-w-[12rem] flex-1 text-[10px] text-muted-foreground">
-                        Kayıtlı hesap
+                        Kayıtlı hesap ekle
                         <select
                           className="mt-0.5 flex h-8 w-full rounded-md border border-input bg-background px-2 text-[11px]"
                           value={pickAccountId}
@@ -578,69 +576,77 @@ export function TelegramContentForwardPanel() {
                   </Button>
                 </div>
               ) : null}
-            </CollapsibleSection>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-[11px] text-muted-foreground">
-                Grup id (isteğe bağlı, <span className="font-mono">-100…</span>)
-                <input
-                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={chatId}
-                  disabled={!canEdit}
-                  placeholder="-1001234567890"
-                  onChange={(e) => setChatId(e.target.value)}
-                />
-              </label>
-              <label className="text-[11px] text-muted-foreground">
-                Geriye bakış (saat)
-                <select
-                  className="mt-1 flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={lookbackHours}
-                  disabled={!canEdit}
-                  onChange={(e) => setLookbackHours(Number(e.target.value))}
-                >
-                  {[12, 24, 48, 72, 168].map((h) => (
-                    <option key={h} value={h}>
-                      {h} saat
-                    </option>
-                  ))}
-                </select>
-              </label>
             </div>
 
-            {personalIdWarning ? (
-              <p className="text-[11px] text-destructive">
-                Girdiğiniz sayı sizin (veya botun) kişisel id&apos;si. Grup id her zaman eksi
-                başlar, örn. <span className="font-mono">-1001234567890</span>.
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Bugün", value: data?.stats?.today ?? 0 },
+                { label: "Son 7 gün", value: data?.stats?.week ?? 0 },
+                { label: "Bu ay", value: data?.stats?.month ?? 0 },
+                { label: "Toplam giden", value: data?.counts?.sent ?? 0 },
+              ].map((s) => (
+                <div key={s.label} className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</p>
+                  <p className="text-lg font-semibold tabular-nums">{s.value}</p>
+                </div>
+              ))}
+            </div>
+            {data?.stats?.lastSentAt ? (
+              <p className="text-[11px] text-muted-foreground">
+                Son gönderim: {fmtWhen(data.stats.lastSentAt)}
+                {chats[0]?.title ? ` · ${chats[0].title}` : ""}
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Henüz gruba video düşmedi.</p>
+            )}
+            {(data?.stats?.byDay?.length ?? 0) > 0 ? (
+              <ul className="grid gap-1 sm:grid-cols-2">
+                {data!.stats!.byDay.map((d) => (
+                  <li
+                    key={d.date}
+                    className="flex items-center justify-between rounded border border-border/60 px-2 py-1 text-[11px]"
+                  >
+                    <span>{fmtDay(d.date)}</span>
+                    <span className="tabular-nums font-medium">{d.sent} video</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {(data?.stats?.byPlatform?.length ?? 0) > 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                Platform:{" "}
+                {data!.stats!.byPlatform.map((p) => `${p.platform} ${p.sent}`).join(" · ")}
               </p>
             ) : null}
+
+            <label className="text-[11px] text-muted-foreground">
+              Geriye bakış (saat)
+              <select
+                className="mt-1 flex h-8 w-full max-w-xs rounded-md border border-input bg-background px-2 text-xs"
+                value={lookbackHours}
+                disabled={!canEdit}
+                onChange={(e) => setLookbackHours(Number(e.target.value))}
+              >
+                {[12, 24, 48, 72, 168].map((h) => (
+                  <option key={h} value={h}>
+                    {h} saat
+                  </option>
+                ))}
+              </select>
+            </label>
 
             {canEdit ? (
               <div className="flex flex-wrap gap-1.5">
                 <Button
                   type="button"
                   size="sm"
+                  variant="outline"
                   className="h-7 gap-1 text-xs"
                   disabled={!!busy || personalIdWarning}
                   onClick={() => void post("save")}
                 >
                   {busy === "save" ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
                   Kaydet
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 gap-1 text-xs"
-                  disabled={!!busy}
-                  onClick={() => void post("discover")}
-                >
-                  {busy === "discover" ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    <Search size={11} />
-                  )}
-                  Grupları bul
                 </Button>
                 <Button
                   type="button"
@@ -667,7 +673,7 @@ export function TelegramContentForwardPanel() {
                   size="sm"
                   variant="outline"
                   className="h-7 gap-1 text-xs"
-                  disabled={!!busy}
+                  disabled={!!busy || !enabled}
                   onClick={() => void post("run")}
                 >
                   {busy === "run" ? (
@@ -702,6 +708,23 @@ export function TelegramContentForwardPanel() {
 
             {msg ? <p className="text-[11px] text-muted-foreground">{msg}</p> : null}
 
+            {failedRows.length > 0 ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-2">
+                <p className="mb-1 text-[11px] font-medium text-destructive">
+                  Gönderilemeyen {failedRows.length} kayıt
+                </p>
+                <ul className="max-h-36 space-y-1 overflow-y-auto text-[11px]">
+                  {failedRows.map((r) => (
+                    <li key={r.id} className="break-all">
+                      <span className="uppercase text-muted-foreground">{r.platform}</span>{" "}
+                      {r.content_url}
+                      {r.error ? <span className="block text-destructive">{r.error}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             {(data?.recent?.length ?? 0) > 0 ? (
               <ul className="max-h-56 space-y-1 overflow-y-auto text-[11px]">
                 {data!.recent!.map((r) => (
@@ -720,8 +743,7 @@ export function TelegramContentForwardPanel() {
               </ul>
             ) : (
               <p className="text-[11px] text-muted-foreground">
-                Kuyruk boş. Achievement taraması yeni video çekince satırlar oluşur; veya «Son
-                videoları kuyruğa al».
+                Kuyruk boş. Start yeni videoları tarar; veya «Son videoları kuyruğa al».
               </p>
             )}
           </>

@@ -138,7 +138,7 @@ function youtubeVideoId(o: Record<string, unknown>): string | undefined {
   const id =
     pickFirstString(nested, ["videoId", "video_id"]) ??
     pickFirstString(o, ["videoId", "video_id"]);
-  if (id && /^[\w-]{6,}$/.test(id) && !id.startsWith("UC")) return id;
+  if (id && /^[\w-]{11}$/.test(id) && !id.startsWith("UC")) return id;
   const generic = pickFirstString(nested, ["id"]) ?? pickFirstString(o, ["id"]);
   if (generic && /^[\w-]{11}$/.test(generic)) return generic;
   return undefined;

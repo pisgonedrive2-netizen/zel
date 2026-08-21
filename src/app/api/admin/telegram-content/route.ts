@@ -138,6 +138,53 @@ async function postTelegramContent(req: NextRequest) {
   };
   const action = body.action ?? "save";
 
+  if (action === "start" || action === "stop") {
+    const chatId = (body.chatId ?? "").trim();
+    if (action === "start" && chatId && !isTelegramGroupChatId(chatId)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Bu bir kişi veya bot id'si. Grup id'si eksi sayıdır (ör. -1003892533929).",
+        },
+        { status: 400 }
+      );
+    }
+    const settings = await saveTelegramContentSettings(
+      {
+        enabled: action === "start",
+        chatId: chatId || undefined,
+        lookbackHours: body.lookbackHours,
+      },
+      session.userId
+    );
+    if (action === "stop") {
+      return NextResponse.json({ ok: true, settings });
+    }
+    if (!telegramTargetChatIds(settings).length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Grup id girin (-100…) veya botu gruba ekleyip Grupları bul deyin.",
+          settings,
+        },
+        { status: 400 }
+      );
+    }
+    await ensureTelegramContentWebhook();
+    let poll: { attempted: number; synced: number; failed: number } | undefined;
+    if (isRapidApiEnabled()) {
+      const listed = await listTelegramContentAccounts(settings.accountIds);
+      const ids = pickTelegramPollAccountIds(listed.watched);
+      if (ids.length) {
+        const synced = await syncPersonalAccountsByIds(ids, { maxPostsPerAccount: 8 });
+        poll = { attempted: synced.attempted, synced: synced.synced, failed: synced.failed };
+      }
+    }
+    const summary = await processTelegramContentQueue({ maxItems: body.maxPerRun });
+    return NextResponse.json({ ok: true, settings, poll, summary });
+  }
+
   if (action === "save") {
     if (body.chatId != null && body.chatId.trim() && !isTelegramGroupChatId(body.chatId)) {
       return NextResponse.json(
@@ -290,7 +337,7 @@ async function postTelegramContent(req: NextRequest) {
       }
     }
     const summary = await processTelegramContentQueue({ maxItems: body.maxPerRun });
-    return NextResponse.json({ ok: true, summary, poll });
+    return NextResponse.json({ ok: true, settings, summary, poll });
   }
 
   if (action === "add-account") {
@@ -298,7 +345,7 @@ async function postTelegramContent(req: NextRequest) {
     if (existingId) {
       const current = await getTelegramContentSettings();
       const settings = await saveTelegramContentSettings(
-        { accountIds: idsAfterAddAccount(current.accountIds, existingId) },
+        { accountIds: await idsAfterAddAccount(current.accountIds, existingId) },
         session.userId
       );
       const accounts = await listTelegramContentAccounts(settings.accountIds);
@@ -313,7 +360,7 @@ async function postTelegramContent(req: NextRequest) {
       });
       const current = await getTelegramContentSettings();
       const settings = await saveTelegramContentSettings(
-        { accountIds: idsAfterAddAccount(current.accountIds, created.id) },
+        { accountIds: await idsAfterAddAccount(current.accountIds, created.id) },
         session.userId
       );
       const accounts = await listTelegramContentAccounts(settings.accountIds);

@@ -36,12 +36,12 @@ describe("isTelegramAccountWatched", () => {
 });
 
 describe("idsAfterAddAccount", () => {
-  it("stays implicit-all when adding", () => {
-    expect(idsAfterAddAccount(null, "sa-1")).toBeNull();
+  it("appends to an explicit list", async () => {
+    expect(await idsAfterAddAccount(["sa-1"], "sa-2")).toEqual(["sa-1", "sa-2"]);
   });
 
-  it("appends to an explicit list", () => {
-    expect(idsAfterAddAccount(["sa-1"], "sa-2")).toEqual(["sa-1", "sa-2"]);
+  it("does not duplicate", async () => {
+    expect(await idsAfterAddAccount(["sa-1"], "sa-1")).toEqual(["sa-1"]);
   });
 });
 

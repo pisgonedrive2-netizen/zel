@@ -296,9 +296,17 @@ export async function idsAfterRemoveAccount(
   return current.filter((x) => x !== id);
 }
 
-export function idsAfterAddAccount(current: string[] | null | undefined, accountId: string): string[] | null {
+export async function idsAfterAddAccount(
+  current: string[] | null | undefined,
+  accountId: string
+): Promise<string[]> {
   const id = accountId.trim();
-  if (current == null) return null;
+  if (current == null) {
+    const { accounts } = await loadEligibleAccounts();
+    const ids = accounts.map((a) => a.id);
+    if (!ids.includes(id)) ids.push(id);
+    return ids;
+  }
   if (current.includes(id)) return current;
   return [...current, id];
 }

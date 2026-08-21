@@ -107,6 +107,7 @@ export async function upsertPersonalAchievementPost(opts: {
     );
     const tg = await getTelegramContentSettings();
     if (
+      tg.enabled &&
       isTelegramAccountWatched(account.id, tg.accountIds) &&
       isFreshEnoughForTelegram(publishedAt)
     ) {
