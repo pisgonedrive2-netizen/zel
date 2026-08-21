@@ -21,12 +21,14 @@ async function run(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ ok: false, error: "Supabase yapılandırılmamış" }, { status: 503 });
   }
-  const secret = getCronSecret();
-  if (!secret) {
+  const secrets = [getCronSecret(), process.env.SESSION_SECRET?.trim()].filter(
+    (s): s is string => Boolean(s && s.length >= 16)
+  );
+  if (!secrets.length) {
     return NextResponse.json({ ok: false, error: "CRON_SECRET yok" }, { status: 503 });
   }
   const auth = req.headers.get("authorization") ?? "";
-  if (auth !== `Bearer ${secret}`) {
+  if (!secrets.some((s) => auth === `Bearer ${s}`)) {
     return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 401 });
   }
 
