@@ -112,7 +112,9 @@ describe("pickPreferredForumThreadId", () => {
 
 describe("applyPreferredForumTopicSelection", () => {
   it("sets selectedThreadId to videolar", () => {
-    const next = applyPreferredForumTopicSelection([
+    const next = applyPreferredForumTopicSelection<
+      { id: string; topics: { threadId: number; name: string }[]; selectedThreadId?: number }
+    >([
       {
         id: "-100",
         topics: [

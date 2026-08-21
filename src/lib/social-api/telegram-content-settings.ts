@@ -162,7 +162,7 @@ export async function saveTelegramContentSettings(
         ? parseTelegramAccountIds(partial.accountIds)
         : current.accountIds,
   };
-  const rows = [
+  const rows: Array<{ key: string; value: unknown; updated_by: string | null }> = [
     { key: "telegramContent.enabled", value: next.enabled, updated_by: updatedBy ?? null },
     { key: "telegramContent.chatId", value: next.chatId, updated_by: updatedBy ?? null },
     { key: "telegramContent.groups", value: next.groups, updated_by: updatedBy ?? null },

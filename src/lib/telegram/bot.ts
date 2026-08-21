@@ -314,9 +314,10 @@ export async function telegramSendVideoFile(opts: {
   form.set("caption", clipCaption(opts.caption));
   form.set("supports_streaming", "true");
   if (opts.threadId && opts.threadId > 0) form.set("message_thread_id", String(opts.threadId));
+  const videoBytes = Uint8Array.from(opts.bytes);
   form.set(
     "video",
-    new Blob([opts.bytes], { type: "video/mp4" }),
+    new Blob([videoBytes.buffer], { type: "video/mp4" }),
     opts.filename.endsWith(".mp4") ? opts.filename : `${opts.filename}.mp4`
   );
   return telegramCall(token, "sendVideo", form);
