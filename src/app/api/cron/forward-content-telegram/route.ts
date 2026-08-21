@@ -8,13 +8,6 @@ import { getTelegramContentSettings } from "@/lib/social-api/telegram-content-se
 import { syncPersonalAccountsByIds } from "@/lib/social-api/streamer-achievement-sync";
 import { processTelegramContentQueue } from "@/lib/social-api/telegram-content-forward";
 import { ensureTelegramContentWebhook } from "@/lib/telegram/bot";
-import {
-  listTelegramContentAccounts,
-  pickTelegramPollAccountIds,
-} from "@/lib/social-api/telegram-content-accounts";
-import { getTelegramContentSettings } from "@/lib/social-api/telegram-content-settings";
-import { syncPersonalAccountsByIds } from "@/lib/social-api/streamer-achievement-sync";
-import { processTelegramContentQueue } from "@/lib/social-api/telegram-content-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,8 +15,9 @@ export const maxDuration = 180;
 
 /**
  * Cron: takip edilen hesaplardan taze Reels/Shorts çek, kuyruğu Telegram topicine at.
+ * Vercel Hobby günde 1 cron; 15 dk tarama GitHub Actions ile gelir.
  */
-export async function GET(req: NextRequest) {
+async function run(req: NextRequest) {
   if (!isSupabaseEnabled()) {
     return NextResponse.json({ ok: false, error: "Supabase yapılandırılmamış" }, { status: 503 });
   }
@@ -57,4 +51,12 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return run(req);
+}
+
+export async function POST(req: NextRequest) {
+  return run(req);
 }
