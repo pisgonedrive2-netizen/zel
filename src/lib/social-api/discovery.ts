@@ -790,14 +790,19 @@ export async function runSocialDiscovery(req: DiscoveryRequest): Promise<Discove
       raw = await rapidApiGet("youtube", "/search/", { q, gl, hl, type: searchType });
       apiCalls += 1;
     } else {
+      // youtube138 /v2/trending: geo=TR + hl → 500; yalnızca geo gönder.
       endpoints.push("/v2/trending");
       try {
-        raw = await rapidApiGet("youtube", "/v2/trending", { geo: gl, hl });
+        raw = await rapidApiGet("youtube", "/v2/trending", { geo: gl });
         apiCalls += 1;
-      } catch {
-        endpoints.push("/search/ (fallback)");
-        raw = await rapidApiGet("youtube", "/search/", { q: "trending", gl, hl, type: "video" });
-        apiCalls += 1;
+      } catch (firstErr) {
+        try {
+          endpoints.push("/v2/trending (retry geo only)");
+          raw = await rapidApiGet("youtube", "/v2/trending", { geo: gl || "TR" });
+          apiCalls += 1;
+        } catch {
+          throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
+        }
       }
     }
   } else if (platform === "instagram") {

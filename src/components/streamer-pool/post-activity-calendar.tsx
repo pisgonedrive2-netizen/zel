@@ -19,6 +19,7 @@ import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
 import {
   AchievementBrandAssignBar,
   AchievementBrandRowSelect,
+  AchievementHistoricalAssignBar,
   assignableBrandsForPicker,
 } from "@/components/streamer-pool/achievement-brand-assign";
 import { useStore } from "@/store/store";
@@ -281,6 +282,19 @@ export function PostActivityCalendar({
             sub={`${totalDays} gün`}
           />
         </div>
+
+        {employeeId ? (
+          <AchievementHistoricalAssignBar
+            employeeId={employeeId}
+            lockedBrandId={lockedBrandId}
+            assignable={assignableBrands}
+            onDone={() => {
+              if (selectedDay && fetchDayDetail) {
+                void fetchDayDetail(selectedDay).then(setDayDetailItems).catch(() => undefined);
+              }
+            }}
+          />
+        ) : null}
 
         {/* Hafta günü başlıkları */}
         <div className="grid grid-cols-7 gap-1.5">

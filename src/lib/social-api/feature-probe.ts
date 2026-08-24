@@ -32,7 +32,8 @@ function probeParams(platform: SocialPlatform, featureId: string): Record<string
       if (featureId === "video_comments") return { id: "dQw4w9WgXcQ" };
       if (featureId === "video_related") return { id: "dQw4w9WgXcQ" };
       if (featureId === "search") return { q: "foxstream", gl: "TR", hl: "tr", type: "video" };
-      if (featureId === "trending") return { geo: "TR", hl: "tr" };
+      // hl ile TR trend 500 veriyor — yalnızca geo.
+      if (featureId === "trending") return { geo: "TR" };
       break;
     case "instagram":
       if (featureId === "profile") return { username: "instagram" };

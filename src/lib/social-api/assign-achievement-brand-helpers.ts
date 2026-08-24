@@ -4,6 +4,8 @@ export type AchievementAssignItem = {
   id: string;
   url: string;
   platform?: string;
+  /** Paylaşım günü (YYYY-MM-DD) — yoksa istekteki ortak date kullanılır. */
+  date?: string;
 };
 
 export function displayPlatformFromUrl(url: string, fallback?: string): string {

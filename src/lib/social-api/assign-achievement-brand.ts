@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { weekStartFromDateIso } from "@/lib/data";
+import { isoToLocalDateOnly, weekStartFromDateIso } from "@/lib/data";
 import { isRapidApiEnabled } from "@/lib/env";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import { brandLinkFromRow, brandLinkToRow } from "@/lib/db/mappers";
@@ -130,19 +130,21 @@ export async function assignAchievementItemsToBrand(opts: {
   }
 
   const now = new Date().toISOString();
-  const weekStart = weekStartFromDateIso(date) || date;
   const linksForDup = [...ownerLinks];
   const refreshIds: string[] = [];
+  const refreshDateByLink = new Map<string, string>();
 
   async function upsertSnapshot(opts: {
     linkId: string;
+    snapDate: string;
     views: number | null;
     likes?: number | null;
     comments?: number | null;
     shares?: number | null;
   }): Promise<LinkSnapshot | null> {
     if (opts.views == null) return null;
-    const id = snapshotIdForLinkDate(opts.linkId, date);
+    const snapDate = opts.snapDate;
+    const id = snapshotIdForLinkDate(opts.linkId, snapDate);
     const { data: existing } = await db
       .from("link_snapshots")
       .select("views, likes, comments, shares")
@@ -156,7 +158,7 @@ export async function assignAchievementItemsToBrand(opts: {
     const snap: LinkSnapshot = {
       id,
       linkId: opts.linkId,
-      date,
+      date: snapDate,
       views,
       notes: "auto",
       likes: pickNonDecreasingViews(prev?.likes, opts.likes) ?? undefined,
@@ -229,6 +231,9 @@ export async function assignAchievementItemsToBrand(opts: {
   for (const item of items) {
     try {
       const url = item.url.trim();
+      const itemDate =
+        item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date.trim()) ? item.date.trim() : date;
+      const weekStart = weekStartFromDateIso(itemDate) || itemDate;
       const postId = parseBrandPostId(item.id);
       const reel = reelById.get(item.id);
       const post = postId ? postById.get(postId) : undefined;
@@ -272,7 +277,7 @@ export async function assignAchievementItemsToBrand(opts: {
           status: "active",
           notes: "Achievement takviminden atandı",
           autoTrack: true,
-          lastSnapshotDate: date,
+          lastSnapshotDate: itemDate,
           lastViews: incomingViews ?? undefined,
           externalRef: detected?.externalRef,
           createdAt: now,
@@ -346,6 +351,7 @@ export async function assignAchievementItemsToBrand(opts: {
 
       const snap = await upsertSnapshot({
         linkId: link.id,
+        snapDate: itemDate,
         views: pickNonDecreasingViews(link.lastViews, incomingViews),
         likes: asViews(reel?.last_likes),
         comments: asViews(reel?.last_comments),
@@ -354,7 +360,7 @@ export async function assignAchievementItemsToBrand(opts: {
       if (snap) {
         result.snapshots.push(snap);
         if (snap.views > (link.lastViews ?? 0)) {
-          link = { ...link, lastViews: snap.views, lastSnapshotDate: date };
+          link = { ...link, lastViews: snap.views, lastSnapshotDate: itemDate };
         }
       }
 
@@ -389,7 +395,10 @@ export async function assignAchievementItemsToBrand(opts: {
 
       result.links.push(link);
       result.assigned += 1;
-      if (refreshIds.length < IMMEDIATE_REFRESH_CAP) refreshIds.push(link.id);
+      if (refreshIds.length < IMMEDIATE_REFRESH_CAP && !refreshDateByLink.has(link.id)) {
+        refreshIds.push(link.id);
+        refreshDateByLink.set(link.id, itemDate);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push(`${item.url}: ${msg}`);
@@ -400,7 +409,8 @@ export async function assignAchievementItemsToBrand(opts: {
     const uniqueRefresh = [...new Set(refreshIds)];
     for (const linkId of uniqueRefresh) {
       try {
-        const refresh = await refreshSingleLink(linkId, { targetDate: date });
+        const targetDate = refreshDateByLink.get(linkId) ?? date;
+        const refresh = await refreshSingleLink(linkId, { targetDate });
         if (refresh.ok) {
           result.refreshed += 1;
           const live = asViews(refresh.metrics?.views);
@@ -436,4 +446,94 @@ export async function assignAchievementItemsToBrand(opts: {
   }
 
   return result;
+}
+
+/**
+ * Yayıncının markaya atanmamış tüm kişisel reels'lerini (geriye dönük) marka izlenmesine yazar.
+ * Her paylaşım kendi yayın günüyle snapshot alır — aylık sayılar bozulmaz.
+ */
+export async function assignAllUnassignedPersonalReelsToBrand(opts: {
+  employeeId: string;
+  brandId: string;
+  limit?: number;
+}): Promise<AchievementAssignResult & { scanned: number }> {
+  const employeeId = opts.employeeId.trim();
+  const brandId = opts.brandId.trim();
+  const limit = Math.min(Math.max(opts.limit ?? 120, 1), 200);
+  const empty: AchievementAssignResult & { scanned: number } = {
+    assigned: 0,
+    created: 0,
+    reused: 0,
+    moved: 0,
+    refreshed: 0,
+    links: [],
+    snapshots: [],
+    reelPatches: [],
+    errors: [],
+    scanned: 0,
+  };
+  if (!employeeId || !brandId) {
+    empty.errors.push("employeeId ve brandId gerekli");
+    return empty;
+  }
+
+  const db = getSupabaseAdmin();
+  const { data, error } = await db
+    .from("week_brand_reels")
+    .select("id, content_url, platform, published_at, created_at, brand_id")
+    .eq("employee_id", employeeId)
+    .not("streamer_account_id", "is", null)
+    .is("brand_id", null)
+    .order("published_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  const items: AchievementAssignItem[] = [];
+  for (const row of data ?? []) {
+    const r = row as {
+      id?: string;
+      content_url?: string;
+      platform?: string;
+      published_at?: string | null;
+      created_at?: string | null;
+    };
+    const id = String(r.id ?? "").trim();
+    const url = String(r.content_url ?? "").trim();
+    if (!id || !url) continue;
+    const day = isoToLocalDateOnly(r.published_at ?? r.created_at ?? "") || new Date().toISOString().slice(0, 10);
+    items.push({ id, url, platform: r.platform, date: day });
+  }
+
+  empty.scanned = items.length;
+  if (!items.length) {
+    empty.errors.push("Atanmamış kişisel paylaşım yok — önce kişisel hesaplardan tara");
+    return empty;
+  }
+
+  // Chunk by shared fallback date (unused when item.date set); process in batches of 40.
+  const merged: AchievementAssignResult & { scanned: number } = {
+    ...empty,
+    scanned: items.length,
+  };
+  const CHUNK = 40;
+  for (let i = 0; i < items.length; i += CHUNK) {
+    const chunk = items.slice(i, i + CHUNK);
+    const fallbackDate = chunk[0]?.date ?? new Date().toISOString().slice(0, 10);
+    const part = await assignAchievementItemsToBrand({
+      employeeId,
+      brandId,
+      date: fallbackDate,
+      items: chunk,
+    });
+    merged.assigned += part.assigned;
+    merged.created += part.created;
+    merged.reused += part.reused;
+    merged.moved += part.moved;
+    merged.refreshed += part.refreshed;
+    merged.links.push(...part.links);
+    merged.snapshots.push(...part.snapshots);
+    merged.reelPatches.push(...part.reelPatches);
+    merged.errors.push(...part.errors);
+  }
+  return merged;
 }

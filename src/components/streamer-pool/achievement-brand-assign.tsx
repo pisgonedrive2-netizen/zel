@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   assignAchievementItemsToBrand,
+  assignAllUnassignedAchievementToBrand,
   mergeAssignedAchievementIntoStore,
 } from "@/lib/achievement-api";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
@@ -53,7 +54,12 @@ export function AchievementBrandAssignBar({
         employeeId,
         brandId,
         date,
-        items: targets.map((it) => ({ id: it.id, url: it.url, platform: it.platform })),
+        items: targets.map((it) => ({
+          id: it.id,
+          url: it.url,
+          platform: it.platform,
+          date: it.date || date,
+        })),
       });
       mergeAssignedAchievementIntoStore(result);
       if (result.assigned === 0) {
@@ -175,6 +181,101 @@ export function AchievementBrandAssignBar({
       {message ? (
         <p className="text-[10px] text-muted-foreground">{message}</p>
       ) : null}
+    </div>
+  );
+}
+
+/** Takvim üstü: tüm geçmiş atanmamış kişisel reels → marka izlenme. */
+export function AchievementHistoricalAssignBar({
+  employeeId,
+  lockedBrandId,
+  assignable,
+  onDone,
+}: {
+  employeeId: string;
+  lockedBrandId?: string;
+  assignable: Brand[];
+  onDone?: () => void;
+}) {
+  const [brandId, setBrandId] = useState(lockedBrandId ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (assignable.length === 0) return null;
+
+  const selected = lockedBrandId || brandId;
+
+  async function run() {
+    if (!selected) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await assignAllUnassignedAchievementToBrand({
+        employeeId,
+        brandId: selected,
+      });
+      mergeAssignedAchievementIntoStore(result);
+      const name = assignable.find((b) => b.id === selected)?.name ?? "marka";
+      if (result.assigned === 0) {
+        setMessage(result.errors[0] ?? "Atanacak paylaşım yok");
+        return;
+      }
+      setMessage(
+        `${result.assigned} geçmiş paylaşım ${name} izlenmesine yazıldı` +
+          (result.scanned != null ? ` · taranan ${result.scanned}` : "") +
+          (result.refreshed ? ` · ${result.refreshed} izlenme yenilendi` : "") +
+          (result.errors.length ? ` · ${result.errors.length} uyarı` : "")
+      );
+      onDone?.();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Atama başarısız");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2">
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        Geriye dönük: markaya henüz yazılmamış tüm kişisel Reels / Shorts / TikTok
+        paylaşımlarını seçilen markanın izlenme sayfasına aktarır. Her video kendi
+        yayın günüyle sayılır.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {lockedBrandId ? (
+          <span className="text-[11px] font-medium">
+            {assignable.find((b) => b.id === lockedBrandId)?.name ?? "Marka"}
+          </span>
+        ) : (
+          <select
+            className={selectCls}
+            value={brandId}
+            disabled={busy}
+            onChange={(e) => setBrandId(e.target.value)}
+            aria-label="Geçmiş atama markası"
+          >
+            <option value="">Marka seç…</option>
+            {assignable.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.shortName || b.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <Button type="button" size="xs" disabled={busy || !selected} onClick={() => void run()}>
+          {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+          Tüm geçmişi yaz
+        </Button>
+        {selected ? (
+          <Link
+            href={`/izlenme/marka/${selected}`}
+            className="text-[10px] text-blue-600 hover:underline dark:text-blue-400"
+          >
+            İzlenme sayfası
+          </Link>
+        ) : null}
+      </div>
+      {message ? <p className="text-[10px] text-muted-foreground">{message}</p> : null}
     </div>
   );
 }

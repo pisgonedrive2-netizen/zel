@@ -112,16 +112,33 @@ export async function assignAchievementItemsToBrand(opts: {
   employeeId: string;
   brandId: string;
   date: string;
-  items: { id: string; url: string; platform?: string }[];
+  items: { id: string; url: string; platform?: string; date?: string }[];
 }): Promise<AssignAchievementBrandResponse> {
   const res = await fetch("/api/streamer/assign-achievement-brand", {
     method: "POST",
     credentials: "include",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(opts),
+    body: JSON.stringify({ mode: "day", ...opts }),
   });
   const json = (await res.json()) as AssignAchievementBrandResponse;
+  if (!res.ok) throw new Error(json.error ?? `Atama hatası (${res.status})`);
+  return json;
+}
+
+export async function assignAllUnassignedAchievementToBrand(opts: {
+  employeeId: string;
+  brandId: string;
+  limit?: number;
+}): Promise<AssignAchievementBrandResponse & { scanned?: number }> {
+  const res = await fetch("/api/streamer/assign-achievement-brand", {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: "all-unassigned", ...opts }),
+  });
+  const json = (await res.json()) as AssignAchievementBrandResponse & { scanned?: number };
   if (!res.ok) throw new Error(json.error ?? `Atama hatası (${res.status})`);
   return json;
 }

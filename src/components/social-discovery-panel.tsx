@@ -319,15 +319,15 @@ export function SocialDiscoveryPanel({
               options={DISCOVERY_COUNTRIES.map((c) => ({ value: c.code, label: c.label }))}
             />
           </Field>
-          {(platform === "youtube" || platform === "tiktok") && (
-            <Field label="Dil">
+          {(platform === "youtube" && type !== "trending") || platform === "tiktok" ? (
+            <Field label={platform === "youtube" ? "Dil (arama)" : "Dil"}>
               <Select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 options={DISCOVERY_LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
               />
             </Field>
-          )}
+          ) : null}
           <Field label="Sonuç sayısı">
             <Select
               value={resultCount}
@@ -425,9 +425,14 @@ export function SocialDiscoveryPanel({
             <Globe2 size={10} />
             {platform === "tiktok" ? `region: ${country.toLowerCase()}` : `geo: ${country}`}
           </span>
-          {platform === "youtube" && (
+          {platform === "youtube" && type !== "trending" && (
             <span className="inline-flex items-center gap-1">
               <Languages size={10} /> hl: {language}
+            </span>
+          )}
+          {platform === "youtube" && type === "trending" && (
+            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              Trend: yalnızca geo (TR çalışır)
             </span>
           )}
         </div>

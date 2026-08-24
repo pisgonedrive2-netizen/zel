@@ -3,12 +3,13 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import {
   assignAchievementItemsToBrand,
+  assignAllUnassignedPersonalReelsToBrand,
   type AchievementAssignItem,
 } from "@/lib/social-api/assign-achievement-brand";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const MAX_ITEMS = 80;
 
@@ -29,7 +30,8 @@ function canAssignBrand(
 
 /**
  * POST /api/streamer/assign-achievement-brand
- * Achievement günündeki paylaşımları marka izlenme sayfasına yazar.
+ * mode=day (default): seçili günün paylaşımları
+ * mode=all-unassigned: geriye dönük tüm atanmamış kişisel reels
  */
 export async function POST(req: NextRequest) {
   if (!isSupabaseEnabled()) {
@@ -40,10 +42,12 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Oturum gerekli" }, { status: 401 });
 
   let body: {
+    mode?: string;
     employeeId?: string;
     brandId?: string;
     date?: string;
     items?: AchievementAssignItem[];
+    limit?: number;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -52,14 +56,8 @@ export async function POST(req: NextRequest) {
   }
 
   const brandId = body.brandId?.trim() ?? "";
-  const date = body.date?.trim() ?? "";
-  const items = Array.isArray(body.items) ? body.items.slice(0, MAX_ITEMS) : [];
-
-  if (!brandId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || items.length === 0) {
-    return NextResponse.json(
-      { error: "brandId, date (YYYY-MM-DD) ve items gerekli" },
-      { status: 400 }
-    );
+  if (!brandId) {
+    return NextResponse.json({ error: "brandId gerekli" }, { status: 400 });
   }
 
   if (!canAssignBrand(session.role, session.brandId, session.brandIds, brandId)) {
@@ -80,6 +78,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "employeeId gerekli" }, { status: 400 });
   }
 
+  const mode = (body.mode ?? "day").trim();
+  if (mode === "all-unassigned") {
+    const result = await assignAllUnassignedPersonalReelsToBrand({
+      employeeId,
+      brandId,
+      limit: body.limit,
+    });
+    return NextResponse.json({ ok: result.assigned > 0, mode, ...result });
+  }
+
+  const date = body.date?.trim() ?? "";
+  const items = Array.isArray(body.items) ? body.items.slice(0, MAX_ITEMS) : [];
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || items.length === 0) {
+    return NextResponse.json(
+      { error: "brandId, date (YYYY-MM-DD) ve items gerekli" },
+      { status: 400 }
+    );
+  }
+
   const result = await assignAchievementItemsToBrand({
     employeeId,
     brandId,
@@ -87,5 +105,5 @@ export async function POST(req: NextRequest) {
     items,
   });
 
-  return NextResponse.json({ ok: result.assigned > 0, ...result });
+  return NextResponse.json({ ok: result.assigned > 0, mode: "day", ...result });
 }

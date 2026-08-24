@@ -61,7 +61,7 @@ export async function upsertPersonalAchievementPost(opts: {
   // Feed/reels "son gönderiler" — API tarih vermezse bugüne yaz; aksi halde takvim boş kalır.
   const publishedAt = post.publishedAt?.trim() || new Date().toISOString();
   const localDate = isoToLocalDateOnly(publishedAt);
-  if (!localDate || localDate < daysAgoIso(120)) return null;
+  if (!localDate || localDate < daysAgoIso(365)) return null;
 
   const weekStart = weekStartFromDateIso(localDate);
   if (!weekStart) return null;
@@ -72,26 +72,40 @@ export async function upsertPersonalAchievementPost(opts: {
 
   const { data: existing } = await db
     .from("week_brand_reels")
-    .select("id")
+    .select("id, brand_id, brand_link_id, last_views")
     .eq("streamer_account_id", account.id)
     .eq("external_ref", post.externalRef)
     .maybeSingle();
 
-  const finalId = existing?.id ? String(existing.id) : reelId;
+  const existingRow = existing as
+    | { id?: string; brand_id?: string | null; brand_link_id?: string | null; last_views?: number | null }
+    | null;
+  const finalId = existingRow?.id ? String(existingRow.id) : reelId;
+  const prevViews =
+    existingRow?.last_views != null && Number.isFinite(Number(existingRow.last_views))
+      ? Number(existingRow.last_views)
+      : null;
+  const nextViews =
+    opts.metrics?.views != null && Number.isFinite(Number(opts.metrics.views))
+      ? Number(opts.metrics.views)
+      : null;
+  const mergedViews =
+    prevViews == null ? nextViews : nextViews == null ? prevViews : Math.max(prevViews, nextViews);
   const row: Record<string, unknown> = {
     id: finalId,
     employee_id: account.employee_id,
     week_start: weekStart,
-    brand_id: null,
+    // Yeniden tarama marka atamasını silmesin.
+    brand_id: existingRow?.brand_id ?? null,
     content_url: post.url.trim(),
     platform: post.platform,
     content_type: post.contentType,
-    brand_link_id: null,
+    brand_link_id: existingRow?.brand_link_id ?? null,
     streamer_account_id: account.id,
     published_at: publishedAt,
     external_ref: post.externalRef,
     notes: "Kişisel hesap · API",
-    last_views: opts.metrics?.views ?? null,
+    last_views: mergedViews,
     last_checked_at: now,
     last_check_error: null,
     updated_at: now,
@@ -99,7 +113,7 @@ export async function upsertPersonalAchievementPost(opts: {
 
   const { error } = await db.from("week_brand_reels").upsert(row, { onConflict: "id" });
   if (error) throw new Error(`week_brand_reels: ${error.message}`);
-  const created = !existing?.id;
+  const created = !existingRow?.id;
   if (created) {
     const { getTelegramContentSettings } = await import("./telegram-content-settings");
     const { isTelegramAccountWatched, isFreshEnoughForTelegram } = await import(
@@ -167,7 +181,7 @@ export async function syncEmployeePersonalAccounts(
   );
 
   const maxAccounts = opts?.maxAccounts ?? 12;
-  const maxPosts = opts?.maxPostsPerAccount ?? 30;
+  const maxPosts = opts?.maxPostsPerAccount ?? 50;
   await syncAccountRows(active.slice(0, maxAccounts), maxPosts, summary);
   return summary;
 }
