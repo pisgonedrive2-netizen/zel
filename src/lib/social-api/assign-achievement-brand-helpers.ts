@@ -32,3 +32,40 @@ export function handleFromContentUrl(url: string): string {
 export function parseBrandPostId(itemId: string): string | null {
   return itemId.startsWith("post-") ? itemId.slice(5) : null;
 }
+
+/** İzlenme geri gitmesin — taşıma / yenilemede yüksek olan kalır. */
+export function pickNonDecreasingViews(
+  current: number | null | undefined,
+  incoming: number | null | undefined
+): number | null {
+  const a = current != null && Number.isFinite(Number(current)) ? Number(current) : null;
+  const b = incoming != null && Number.isFinite(Number(incoming)) ? Number(incoming) : null;
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
+}
+
+export type AchievementBrandLinkPlan =
+  | { kind: "create" }
+  | { kind: "reuse"; linkId: string }
+  | { kind: "move"; linkId: string }
+  | { kind: "merge"; keepId: string; dropId: string };
+
+/** Mevcut linki yeni markaya taşı; aynı URL hedefte varsa birleştir (çift sayım olmasın). */
+export function planAchievementBrandLink(opts: {
+  targetBrandId: string;
+  currentLink?: { id: string; brandId: string } | null;
+  duplicateOnTarget?: { id: string } | null;
+}): AchievementBrandLinkPlan {
+  const cur = opts.currentLink;
+  const dup = opts.duplicateOnTarget;
+  if (cur && cur.brandId === opts.targetBrandId) {
+    return { kind: "reuse", linkId: cur.id };
+  }
+  if (dup && cur && dup.id !== cur.id) {
+    return { kind: "merge", keepId: dup.id, dropId: cur.id };
+  }
+  if (dup) return { kind: "reuse", linkId: dup.id };
+  if (cur) return { kind: "move", linkId: cur.id };
+  return { kind: "create" };
+}

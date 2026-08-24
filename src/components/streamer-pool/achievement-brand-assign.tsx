@@ -9,6 +9,7 @@ import {
   mergeAssignedAchievementIntoStore,
 } from "@/lib/achievement-api";
 import { fmtCompactViews } from "@/lib/brand-month-metrics";
+import { pickNonDecreasingViews } from "@/lib/social-api/assign-achievement-brand-helpers";
 import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
 import type { Brand } from "@/store/store";
 
@@ -74,7 +75,7 @@ export function AchievementBrandAssignBar({
               ...it,
               brandId: patch.brandId,
               brandLinkId: patch.brandLinkId,
-              views: patch.views ?? it.views,
+                views: pickNonDecreasingViews(it.views, patch.views) ?? it.views,
               source: "link" as const,
             };
           }
@@ -98,10 +99,11 @@ export function AchievementBrandAssignBar({
       const brandName = assignable.find((b) => b.id === brandId)?.name ?? "marka";
       const extra =
         result.errors.length > 0 ? ` · ${result.errors.length} uyarı` : "";
+      const moved = result.moved ? ` · ${result.moved} taşındı` : "";
       setMessage(
         `${result.assigned} paylaşım ${brandName} izlenmesine yazıldı${
           result.refreshed ? ` · ${result.refreshed} izlenme yenilendi` : ""
-        }${extra}`
+        }${moved}${extra}`
       );
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Atama başarısız");
@@ -124,8 +126,8 @@ export function AchievementBrandAssignBar({
   return (
     <div className="space-y-1.5 rounded-lg border border-border/70 bg-background/80 p-2">
       <p className="text-[10px] leading-snug text-muted-foreground">
-        Marka seçince paylaşım o markanın izlenme sayfasına yazılır; izlenme paylaşım
-        tarihinden takip edilir. Yeni eklenen markalar listede görünür.
+        Marka seçince paylaşım hemen o markanın izlenme sayfasına yazılır. Marka
+        değiştirirsen aynı izlenme sayıları taşınır (düşmez, iki markada sayılmaz).
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {lockedBrandId ? (
@@ -135,7 +137,12 @@ export function AchievementBrandAssignBar({
             className={selectCls}
             value={bulkBrandId}
             disabled={busy}
-            onChange={(e) => setBulkBrandId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setBulkBrandId(id);
+              const pending = items.filter((it) => !it.brandId);
+              if (id && pending.length > 0) void assign(id, pending);
+            }}
             aria-label="Toplu marka"
           >
             <option value="">Marka seç…</option>
@@ -213,7 +220,7 @@ export function AchievementBrandRowSelect({
                 ...it,
                 brandId,
                 brandLinkId: patch?.brandLinkId ?? result.links?.[0]?.id ?? it.brandLinkId,
-                views: patch?.views ?? it.views,
+                views: pickNonDecreasingViews(it.views, patch?.views) ?? it.views,
                 source: it.source === "post" ? it.source : "link",
               }
             : it

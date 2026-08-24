@@ -11,16 +11,19 @@ import {
   displayPlatformFromUrl,
   handleFromContentUrl,
   parseBrandPostId,
+  pickNonDecreasingViews,
+  planAchievementBrandLink,
   type AchievementAssignItem,
 } from "./assign-achievement-brand-helpers";
 
 export type { AchievementAssignItem };
-export { displayPlatformFromUrl, handleFromContentUrl, parseBrandPostId };
+export { displayPlatformFromUrl, handleFromContentUrl, parseBrandPostId, pickNonDecreasingViews };
 
 export type AchievementAssignResult = {
   assigned: number;
   created: number;
   reused: number;
+  moved: number;
   refreshed: number;
   links: BrandLink[];
   snapshots: LinkSnapshot[];
@@ -30,9 +33,15 @@ export type AchievementAssignResult = {
 
 const IMMEDIATE_REFRESH_CAP = 6;
 
+function asViews(raw: unknown): number | null {
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * Achievement günündeki paylaşımları marka izlenme (`brand_links`) kaydına bağlar.
- * Snapshot tarihi paylaşım günüdür; cron/RapidAPI izlenmeyi sürdürür.
+ * Marka değişince aynı link taşınır (sayılar düşmez, çift sayılmaz). Snapshot tarihi paylaşım günüdür.
  */
 export async function assignAchievementItemsToBrand(opts: {
   employeeId: string;
@@ -47,6 +56,7 @@ export async function assignAchievementItemsToBrand(opts: {
     assigned: 0,
     created: 0,
     reused: 0,
+    moved: 0,
     refreshed: 0,
     links: [],
     snapshots: [],
@@ -77,16 +87,14 @@ export async function assignAchievementItemsToBrand(opts: {
     return result;
   }
 
-  const { data: existingLinkRows, error: linkErr } = await db
+  const { data: ownerLinkRows, error: linkErr } = await db
     .from("brand_links")
     .select("*")
-    .eq("owner_id", employeeId)
-    .eq("brand_id", brandId);
+    .eq("owner_id", employeeId);
   if (linkErr) throw new Error(linkErr.message);
 
-  const existingLinks = (existingLinkRows ?? []).map((r) =>
-    brandLinkFromRow(r as Record<string, unknown>)
-  );
+  const ownerLinks = (ownerLinkRows ?? []).map((r) => brandLinkFromRow(r as Record<string, unknown>));
+  const linksById = new Map(ownerLinks.map((l) => [l.id, l]));
 
   const reelIds = items.map((it) => it.id).filter((id) => !id.startsWith("post-"));
   const postIds = items
@@ -123,8 +131,100 @@ export async function assignAchievementItemsToBrand(opts: {
 
   const now = new Date().toISOString();
   const weekStart = weekStartFromDateIso(date) || date;
-  const linksForDup = [...existingLinks];
+  const linksForDup = [...ownerLinks];
   const refreshIds: string[] = [];
+
+  async function upsertSnapshot(opts: {
+    linkId: string;
+    views: number | null;
+    likes?: number | null;
+    comments?: number | null;
+    shares?: number | null;
+  }): Promise<LinkSnapshot | null> {
+    if (opts.views == null) return null;
+    const id = snapshotIdForLinkDate(opts.linkId, date);
+    const { data: existing } = await db
+      .from("link_snapshots")
+      .select("views, likes, comments, shares")
+      .eq("id", id)
+      .maybeSingle();
+    const prev = existing as
+      | { views?: number | null; likes?: number | null; comments?: number | null; shares?: number | null }
+      | null;
+    const views = pickNonDecreasingViews(prev?.views, opts.views);
+    if (views == null) return null;
+    const snap: LinkSnapshot = {
+      id,
+      linkId: opts.linkId,
+      date,
+      views,
+      notes: "auto",
+      likes: pickNonDecreasingViews(prev?.likes, opts.likes) ?? undefined,
+      comments: pickNonDecreasingViews(prev?.comments, opts.comments) ?? undefined,
+      shares: pickNonDecreasingViews(prev?.shares, opts.shares) ?? undefined,
+      refreshedAt: now,
+    };
+    const { error: snapErr } = await db.from("link_snapshots").upsert(
+      {
+        id: snap.id,
+        link_id: snap.linkId,
+        date: snap.date,
+        views: snap.views,
+        notes: snap.notes,
+        likes: snap.likes ?? null,
+        comments: snap.comments ?? null,
+        shares: snap.shares ?? null,
+        refreshed_at: snap.refreshedAt,
+      },
+      { onConflict: "id" }
+    );
+    if (snapErr) throw new Error(snapErr.message);
+    return snap;
+  }
+
+  async function copySnapshots(fromId: string, toId: string): Promise<void> {
+    if (fromId === toId) return;
+    const { data, error } = await db.from("link_snapshots").select("*").eq("link_id", fromId);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const rec = row as {
+        date?: string;
+        views?: number | null;
+        likes?: number | null;
+        comments?: number | null;
+        shares?: number | null;
+        notes?: string | null;
+      };
+      const snapDate = String(rec.date ?? "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(snapDate)) continue;
+      const newId = snapshotIdForLinkDate(toId, snapDate);
+      const { data: dest } = await db
+        .from("link_snapshots")
+        .select("views")
+        .eq("id", newId)
+        .maybeSingle();
+      const views = pickNonDecreasingViews(
+        dest ? Number((dest as { views?: number }).views) : null,
+        rec.views
+      );
+      if (views == null) continue;
+      const { error: upErr } = await db.from("link_snapshots").upsert(
+        {
+          id: newId,
+          link_id: toId,
+          date: snapDate,
+          views,
+          notes: rec.notes ?? "auto",
+          likes: rec.likes ?? null,
+          comments: rec.comments ?? null,
+          shares: rec.shares ?? null,
+          refreshed_at: now,
+        },
+        { onConflict: "id" }
+      );
+      if (upErr) throw new Error(upErr.message);
+    }
+  }
 
   for (const item of items) {
     try {
@@ -138,17 +238,29 @@ export async function assignAchievementItemsToBrand(opts: {
           (reel?.platform ? String(reel.platform) : undefined) ||
           (post?.platform ? String(post.platform) : undefined)
       );
-      const viewsRaw = reel?.last_views ?? post?.views;
-      const views =
-        viewsRaw != null && Number.isFinite(Number(viewsRaw)) ? Number(viewsRaw) : null;
+      const incomingViews = asViews(reel?.last_views ?? post?.views);
       const detected = resolveLinkDetection({ url, platform });
 
-      let link = findDuplicateBrandLink(linksForDup, url, undefined, {
+      const reelLinkId = reel?.brand_link_id ? String(reel.brand_link_id) : "";
+      const attached = reelLinkId ? linksById.get(reelLinkId) : undefined;
+      const onTarget = findDuplicateBrandLink(linksForDup, url, attached?.id, {
         brandId,
         ownerId: employeeId,
       });
+      const elsewhere = findDuplicateBrandLink(linksForDup, url, attached?.id, {
+        ownerId: employeeId,
+      });
+      const currentLink = attached ?? elsewhere ?? onTarget;
+      const duplicateOnTarget =
+        onTarget && onTarget.id !== currentLink?.id ? onTarget : null;
+      const plan = planAchievementBrandLink({
+        targetBrandId: brandId,
+        currentLink: currentLink ? { id: currentLink.id, brandId: currentLink.brandId } : null,
+        duplicateOnTarget: duplicateOnTarget ? { id: duplicateOnTarget.id } : null,
+      });
 
-      if (!link) {
+      let link: BrandLink;
+      if (plan.kind === "create") {
         const id = `bl-ach-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
         link = {
           id,
@@ -161,7 +273,7 @@ export async function assignAchievementItemsToBrand(opts: {
           notes: "Achievement takviminden atandı",
           autoTrack: true,
           lastSnapshotDate: date,
-          lastViews: views ?? undefined,
+          lastViews: incomingViews ?? undefined,
           externalRef: detected?.externalRef,
           createdAt: now,
         };
@@ -171,63 +283,90 @@ export async function assignAchievementItemsToBrand(opts: {
         });
         if (insErr) throw new Error(insErr.message);
         linksForDup.push(link);
+        linksById.set(link.id, link);
         result.created += 1;
       } else {
-        result.reused += 1;
+        const keepId = plan.kind === "merge" ? plan.keepId : plan.linkId;
+        const dropId = plan.kind === "merge" ? plan.dropId : null;
+        const keep =
+          linksById.get(keepId) ??
+          duplicateOnTarget ??
+          currentLink;
+        if (!keep) throw new Error("Marka linki bulunamadı");
+        const drop = dropId ? linksById.get(dropId) : undefined;
+        const views = pickNonDecreasingViews(
+          pickNonDecreasingViews(keep.lastViews, drop?.lastViews),
+          incomingViews
+        );
+        if (plan.kind === "merge" && dropId) {
+          await copySnapshots(dropId, keepId);
+          const { error: dropErr } = await db
+            .from("brand_links")
+            .update({ status: "inactive", auto_track: false })
+            .eq("id", dropId);
+          if (dropErr) throw new Error(dropErr.message);
+          const dropped = linksById.get(dropId);
+          if (dropped) {
+            const inactive = { ...dropped, status: "inactive" as const, autoTrack: false };
+            linksById.set(dropId, inactive);
+            const idx = linksForDup.findIndex((l) => l.id === dropId);
+            if (idx >= 0) linksForDup[idx] = inactive;
+          }
+          result.moved += 1;
+        } else if (plan.kind === "move") {
+          result.moved += 1;
+        } else {
+          result.reused += 1;
+        }
+
         const patch: Record<string, unknown> = {
+          brand_id: brandId,
           status: "active",
           auto_track: true,
+          owner_id: employeeId,
         };
-        if (!link.ownerId) patch.owner_id = employeeId;
-        if (views != null && (link.lastViews == null || link.lastViews < views)) {
-          patch.last_views = views;
-          link = { ...link, lastViews: views };
-        }
-        if (detected?.externalRef && !link.externalRef) {
-          patch.external_ref = detected.externalRef;
-          link = { ...link, externalRef: detected.externalRef };
-        }
-        const { error: upErr } = await db.from("brand_links").update(patch).eq("id", link.id);
+        if (views != null) patch.last_views = views;
+        if (detected?.externalRef && !keep.externalRef) patch.external_ref = detected.externalRef;
+        const { error: upErr } = await db.from("brand_links").update(patch).eq("id", keepId);
         if (upErr) throw new Error(upErr.message);
+        link = {
+          ...keep,
+          brandId,
+          status: "active",
+          autoTrack: true,
+          ownerId: employeeId,
+          lastViews: views ?? keep.lastViews,
+          externalRef: detected?.externalRef ?? keep.externalRef,
+        };
+        linksById.set(link.id, link);
+        const idx = linksForDup.findIndex((l) => l.id === link.id);
+        if (idx >= 0) linksForDup[idx] = link;
+        else linksForDup.push(link);
       }
 
-      if (views != null) {
-        const snap: LinkSnapshot = {
-          id: snapshotIdForLinkDate(link.id, date),
-          linkId: link.id,
-          date,
-          views,
-          notes: "auto",
-          likes: reel?.last_likes != null ? Number(reel.last_likes) : undefined,
-          comments: reel?.last_comments != null ? Number(reel.last_comments) : undefined,
-          shares: reel?.last_shares != null ? Number(reel.last_shares) : undefined,
-          refreshedAt: now,
-        };
-        const { error: snapErr } = await db.from("link_snapshots").upsert(
-          {
-            id: snap.id,
-            link_id: snap.linkId,
-            date: snap.date,
-            views: snap.views,
-            notes: snap.notes,
-            likes: snap.likes ?? null,
-            comments: snap.comments ?? null,
-            shares: snap.shares ?? null,
-            refreshed_at: snap.refreshedAt,
-          },
-          { onConflict: "id" }
-        );
-        if (snapErr) throw new Error(snapErr.message);
+      const snap = await upsertSnapshot({
+        linkId: link.id,
+        views: pickNonDecreasingViews(link.lastViews, incomingViews),
+        likes: asViews(reel?.last_likes),
+        comments: asViews(reel?.last_comments),
+        shares: asViews(reel?.last_shares),
+      });
+      if (snap) {
         result.snapshots.push(snap);
+        if (snap.views > (link.lastViews ?? 0)) {
+          link = { ...link, lastViews: snap.views, lastSnapshotDate: date };
+        }
       }
 
       if (reel) {
+        const reelViews = pickNonDecreasingViews(asViews(reel.last_views), link.lastViews);
         const { error: reelErr } = await db
           .from("week_brand_reels")
           .update({
             brand_id: brandId,
             brand_link_id: link.id,
             week_start: weekStart,
+            last_views: reelViews,
             updated_at: now,
           })
           .eq("id", item.id)
@@ -237,7 +376,7 @@ export async function assignAchievementItemsToBrand(opts: {
           id: item.id,
           brandId,
           brandLinkId: link.id,
-          views,
+          views: reelViews,
         });
       } else if (postId && post) {
         const { error: postErr } = await db
@@ -262,8 +401,33 @@ export async function assignAchievementItemsToBrand(opts: {
     for (const linkId of uniqueRefresh) {
       try {
         const refresh = await refreshSingleLink(linkId, { targetDate: date });
-        if (refresh.ok) result.refreshed += 1;
-        else if (refresh.error) result.errors.push(`${linkId}: ${refresh.error}`);
+        if (refresh.ok) {
+          result.refreshed += 1;
+          const live = asViews(refresh.metrics?.views);
+          if (live != null) {
+            for (const patch of result.reelPatches) {
+              if (patch.brandLinkId !== linkId) continue;
+              patch.views = pickNonDecreasingViews(patch.views, live);
+            }
+            result.links = result.links.map((l) =>
+              l.id === linkId
+                ? { ...l, lastViews: pickNonDecreasingViews(l.lastViews, live) ?? l.lastViews }
+                : l
+            );
+            if (refresh.linkUpdate?.snapshot) {
+              const snap = refresh.linkUpdate.snapshot;
+              const idx = result.snapshots.findIndex((s) => s.id === snap.id);
+              if (idx >= 0) {
+                result.snapshots[idx] = {
+                  ...result.snapshots[idx]!,
+                  views: pickNonDecreasingViews(result.snapshots[idx]!.views, snap.views) ?? snap.views,
+                };
+              } else {
+                result.snapshots.push(snap);
+              }
+            }
+          }
+        } else if (refresh.error) result.errors.push(`${linkId}: ${refresh.error}`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         result.errors.push(`${linkId}: ${msg}`);

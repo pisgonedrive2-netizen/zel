@@ -2,6 +2,7 @@ import type { ActivityDayItem } from "@/lib/streamer-activity-dates";
 import type { BrandLink, LinkSnapshot, WeekBrandReel } from "@/store/store";
 import { useStore } from "@/store/store";
 import { allowsPersonalAccountSync } from "@/lib/active-streamers";
+import { pickNonDecreasingViews } from "@/lib/social-api/assign-achievement-brand-helpers";
 
 export type AchievementSyncSummary = {
   attempted: number;
@@ -98,6 +99,7 @@ export type AssignAchievementBrandResponse = {
   assigned: number;
   created: number;
   reused: number;
+  moved?: number;
   refreshed: number;
   links: BrandLink[];
   snapshots: LinkSnapshot[];
@@ -132,11 +134,22 @@ export function mergeAssignedAchievementIntoStore(result: AssignAchievementBrand
   useStore.setState((s) => {
     const linksById = new Map(s.brandLinks.map((l) => [l.id, l]));
     for (const link of links) {
-      linksById.set(link.id, { ...linksById.get(link.id), ...link });
+      const prev = linksById.get(link.id);
+      const lastViews = pickNonDecreasingViews(prev?.lastViews, link.lastViews);
+      linksById.set(link.id, {
+        ...prev,
+        ...link,
+        lastViews: lastViews ?? prev?.lastViews ?? link.lastViews,
+      });
     }
     const snapsById = new Map(s.linkSnapshots.map((sn) => [sn.id, sn]));
     for (const sn of snapshots) {
-      snapsById.set(sn.id, { ...snapsById.get(sn.id), ...sn });
+      const prev = snapsById.get(sn.id);
+      snapsById.set(sn.id, {
+        ...prev,
+        ...sn,
+        views: pickNonDecreasingViews(prev?.views, sn.views) ?? sn.views,
+      });
     }
     const patchById = new Map(reelPatches.map((p) => [p.id, p]));
     const weekBrandReels = s.weekBrandReels.map((r) => {
@@ -146,7 +159,7 @@ export function mergeAssignedAchievementIntoStore(result: AssignAchievementBrand
         ...r,
         brandId: patch.brandId,
         brandLinkId: patch.brandLinkId,
-        lastViews: patch.views ?? r.lastViews,
+        lastViews: pickNonDecreasingViews(r.lastViews, patch.views) ?? r.lastViews,
       };
     });
     return {
