@@ -11,12 +11,20 @@ import { SocialPlatformIcon, platformAccentClass } from "@/components/social-pla
 import { LinkDetailsModal } from "@/components/link-details-modal";
 import { LinkSnapshotForm } from "@/components/link-snapshot-form";
 import {
+  brandLinkKindCounts,
+  brandLinkPlatformSummary,
   enrichBrandLinksForMonth,
   filterBrandLinksDisplay,
   platformOptionsFromLinks,
   sortBrandLinksDisplay,
+  type BrandLinkKindFilter,
   type BrandLinkSortKey,
 } from "@/lib/brand-link-display";
+import {
+  BRAND_LINK_KIND_LABEL,
+  isBrandLinkContentUrl,
+  isDisplayableBrandLink,
+} from "@/lib/brand-link-kind";
 import { useStore, type Brand, type BrandLink, type Employee, type LinkSnapshot } from "@/store/store";
 import { useAuth } from "@/store/auth";
 import { defaultSnapshotDateInMonth } from "@/lib/data";
@@ -63,6 +71,7 @@ export function MarkaLinksPreviewModal({
   const [platform, setPlatform] = useState("all");
   const [ownerId, setOwnerId] = useState("all");
   const [sortKey, setSortKey] = useState<BrandLinkSortKey>("views");
+  const [kind, setKind] = useState<BrandLinkKindFilter>("content");
   const [monthOnly, setMonthOnly] = useState(true);
 
   const role = useAuth((s) => s.user?.role);
@@ -77,11 +86,16 @@ export function MarkaLinksPreviewModal({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshLabel, setRefreshLabel] = useState<string | null>(null);
 
+  const usableLinks = useMemo(
+    () => links.filter((l) => isDisplayableBrandLink(l)),
+    [links]
+  );
+
   const rawLinkById = useMemo(() => {
     const m = new Map<string, BrandLink>();
-    for (const l of links) m.set(l.id, l);
+    for (const l of usableLinks) m.set(l.id, l);
     return m;
-  }, [links]);
+  }, [usableLinks]);
 
   const monthSnapshotFor = (linkId: string): LinkSnapshot | undefined =>
     linkSnapshots
@@ -90,43 +104,60 @@ export function MarkaLinksPreviewModal({
       .at(-1);
 
   const enriched = useMemo(
-    () => enrichBrandLinksForMonth(links, monthYm, linkSnapshots, todayYm, employees),
-    [links, monthYm, linkSnapshots, todayYm, employees]
+    () => enrichBrandLinksForMonth(usableLinks, monthYm, linkSnapshots, todayYm, employees),
+    [usableLinks, monthYm, linkSnapshots, todayYm, employees]
   );
+
+  const kindCounts = useMemo(() => brandLinkKindCounts(enriched), [enriched]);
+  const platformSummary = useMemo(() => brandLinkPlatformSummary(enriched), [enriched]);
 
   const owners = useMemo(() => {
     const map = new Map<string, string>();
-    for (const l of links) {
+    for (const l of usableLinks) {
       const id = l.ownerId ?? "_none";
       const name = l.ownerId
-        ? employees.find((e) => e.id === l.ownerId)?.name ?? "?"
+        ? employees.find((e) => e.id === id)?.name ?? "?"
         : "Genel / atanmamış";
       map.set(id, name);
     }
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "tr"));
-  }, [links, employees]);
+  }, [usableLinks, employees]);
 
-  const platforms = useMemo(() => platformOptionsFromLinks(links), [links]);
+  const platforms = useMemo(() => platformOptionsFromLinks(usableLinks), [usableLinks]);
 
   const filtered = useMemo(() => {
     const list = filterBrandLinksDisplay(enriched, {
       search,
       platform,
       ownerId,
+      kind,
       monthOnly,
       monthYm,
       todayYm,
     });
     return sortBrandLinksDisplay(list, sortKey);
-  }, [enriched, search, platform, ownerId, monthOnly, monthYm, todayYm, sortKey]);
+  }, [enriched, search, platform, ownerId, kind, monthOnly, monthYm, todayYm, sortKey]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof filtered>();
+    for (const row of filtered) {
+      const list = map.get(row.platform) ?? [];
+      list.push(row);
+      map.set(row.platform, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "tr"));
+  }, [filtered]);
 
   const totalViews = filtered.reduce((s, r) => s + r.lastViews, 0);
 
   const activeLinkIds = useMemo(
-    () => links.filter((l) => l.status === "active" && l.url?.trim()).map((l) => l.id),
-    [links]
+    () =>
+      usableLinks
+        .filter((l) => l.status === "active" && isBrandLinkContentUrl(l.url))
+        .map((l) => l.id),
+    [usableLinks]
   );
 
   const refreshAllLinks = useCallback(
@@ -239,11 +270,11 @@ export function MarkaLinksPreviewModal({
       <div className="space-y-4 min-h-[280px]">
         <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5">
           <p className="text-sm text-muted-foreground min-w-0">
-            {monthLabelTr(monthYm)} · {filtered.length} / {links.length} link · toplam{" "}
+            {monthLabelTr(monthYm)} · {filtered.length} / {usableLinks.length} link · toplam{" "}
             <span className="font-semibold text-foreground tabular-nums">{fmtViews(totalViews)}</span>
             {canRefreshApi && activeLinkIds.length > 0 && (
               <span className="block text-[11px] mt-0.5">
-                API yenileme: {activeLinkIds.length} aktif URL
+                API yenileme: {activeLinkIds.length} içerik URL
               </span>
             )}
           </p>
@@ -293,17 +324,33 @@ export function MarkaLinksPreviewModal({
           owners={owners}
           sortKey={sortKey}
           onSortChange={setSortKey}
+          kind={kind}
+          onKindChange={setKind}
+          kindCounts={kindCounts}
+          platformSummary={platformSummary}
           monthOnly={monthOnly}
           onMonthOnlyChange={setMonthOnly}
         />
 
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground py-12 text-center">
-            Filtrelere uyan link yok. &quot;Bu ay verisi&quot; kutusunu kaldırmayı deneyin.
+            Filtrelere uyan link yok. Türü &quot;Tümü&quot; yapın veya &quot;Bu ay verisi&quot; kutusunu
+            kaldırmayı deneyin.
           </p>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 max-h-[min(65vh,520px)] overflow-y-auto pr-1">
-            {filtered.map((link) => (
+          <div className="space-y-4 max-h-[min(65vh,560px)] overflow-y-auto pr-1">
+            {grouped.map(([plat, rows]) => (
+              <div key={plat} className="space-y-2">
+                <p className="sticky top-0 z-10 bg-background/95 backdrop-blur px-1 py-1 text-xs font-semibold text-muted-foreground flex items-center gap-1.5 border-b border-border/60">
+                  <SocialPlatformIcon platform={plat} size={14} />
+                  {plat}
+                  <span className="tabular-nums font-normal">· {rows.length}</span>
+                  <span className="tabular-nums font-normal ml-auto">
+                    {fmtViews(rows.reduce((s, r) => s + r.lastViews, 0))}
+                  </span>
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+            {rows.map((link) => (
               <div
                 key={link.id}
                 className={`rounded-xl border px-3 py-3 transition-colors ${platformAccentClass(link.platform)}`}
@@ -315,6 +362,11 @@ export function MarkaLinksPreviewModal({
                       <span className="font-semibold text-sm inline-flex items-center gap-1">
                         <SocialPlatformIcon platform={link.platform} size={16} />
                         {link.platform}
+                        {link.kind !== "content" && (
+                          <Badge variant="outline" className="text-[9px] h-4 px-1 font-normal">
+                            {BRAND_LINK_KIND_LABEL[link.kind]}
+                          </Badge>
+                        )}
                       </span>
                       <Badge
                         variant={link.lastViews > 0 ? "secondary" : "outline"}
@@ -386,6 +438,9 @@ export function MarkaLinksPreviewModal({
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+            ))}
                 </div>
               </div>
             ))}

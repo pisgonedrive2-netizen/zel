@@ -1,13 +1,20 @@
 import { linkViewsForMonth } from "@/lib/brand-month-metrics";
+import {
+  classifyBrandLinkUrl,
+  type BrandLinkKind,
+  isDisplayableBrandLink,
+} from "@/lib/brand-link-kind";
 import type { BrandLink, Employee, LinkSnapshot } from "@/store/store";
 
 export type BrandLinkSortKey = "views" | "platform" | "handle";
+export type BrandLinkKindFilter = "all" | BrandLinkKind;
 
 export type EnrichedBrandLink = BrandLink & {
   lastViews: number;
   refDate: string | null;
   stale: boolean;
   ownerName: string;
+  kind: BrandLinkKind;
 };
 
 export function enrichBrandLinksForMonth(
@@ -28,6 +35,7 @@ export function enrichBrandLinksForMonth(
       refDate: meta.refDate,
       stale: meta.stale,
       ownerName: empName(link.ownerId),
+      kind: classifyBrandLinkUrl(link.url),
     };
   });
 }
@@ -38,12 +46,23 @@ export function filterBrandLinksDisplay(
     search?: string;
     platform?: string;
     ownerId?: string;
+    kind?: BrandLinkKindFilter;
+    /** Varsayılan true — URL’siz kabukları gizle */
+    hideShells?: boolean;
     monthOnly?: boolean;
     monthYm?: string;
     todayYm?: string;
   }
 ): EnrichedBrandLink[] {
   let list = rows;
+  const hideShells = opts.hideShells !== false;
+  if (hideShells) {
+    list = list.filter((row) => isDisplayableBrandLink(row));
+  }
+  const kind = opts.kind ?? "all";
+  if (kind !== "all") {
+    list = list.filter((row) => row.kind === kind);
+  }
   const q = opts.search?.trim().toLowerCase();
   if (q) {
     list = list.filter(
@@ -64,6 +83,35 @@ export function filterBrandLinksDisplay(
     list = list.filter((row) => row.lastViews > 0 || !row.stale || opts.monthYm === opts.todayYm);
   }
   return list;
+}
+
+/** Platform başına içerik sayısı + izlenme (kabuklar hariç). */
+export function brandLinkPlatformSummary(
+  rows: EnrichedBrandLink[]
+): { platform: string; count: number; views: number }[] {
+  const map = new Map<string, { count: number; views: number }>();
+  for (const row of rows) {
+    if (!isDisplayableBrandLink(row)) continue;
+    if (row.kind === "shell") continue;
+    const cur = map.get(row.platform) ?? { count: 0, views: 0 };
+    cur.count += 1;
+    cur.views += row.lastViews;
+    map.set(row.platform, cur);
+  }
+  return [...map.entries()]
+    .map(([platform, v]) => ({ platform, ...v }))
+    .sort((a, b) => b.views - a.views || b.count - a.count);
+}
+
+export function brandLinkKindCounts(rows: EnrichedBrandLink[]): Record<BrandLinkKind, number> {
+  const out: Record<BrandLinkKind, number> = {
+    content: 0,
+    profile: 0,
+    shell: 0,
+    other: 0,
+  };
+  for (const row of rows) out[row.kind] += 1;
+  return out;
 }
 
 export function sortBrandLinksDisplay(

@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
+import { isDisplayableBrandLink } from "@/lib/brand-link-kind";
 import type { LinkRefreshResult } from "@/lib/social-api/refresh-runner";
 import { useAuth } from "@/store/auth";
 import Modal from "@/components/ui/modal";
@@ -177,7 +178,7 @@ export function BrandLinksPanel({
 
   const links = useMemo(() => {
     if (!brand) return [];
-    let list = brandLinks.filter((l) => l.brandId === brand.id);
+    let list = brandLinks.filter((l) => l.brandId === brand.id && isDisplayableBrandLink(l));
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(

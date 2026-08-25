@@ -35,13 +35,16 @@ import {
   weekOverlapsMonth,
 } from "@/lib/marka-izlenme-pdf";
 import {
+  brandLinkKindCounts,
+  brandLinkPlatformSummary,
   enrichBrandLinksForMonth,
   filterBrandLinksDisplay,
   sortBrandLinksDisplay,
 } from "@/lib/brand-link-display";
 import { BrandLinkListToolbar } from "@/components/brand-link-list-toolbar";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
-import type { BrandLinkSortKey } from "@/lib/brand-link-display";
+import type { BrandLinkKindFilter, BrandLinkSortKey } from "@/lib/brand-link-display";
+import { BRAND_LINK_KIND_LABEL, isDisplayableBrandLink } from "@/lib/brand-link-kind";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
@@ -109,6 +112,7 @@ export default function MarkaIzlenmelerPage() {
   const [linkPlatform, setLinkPlatform] = useState("all");
   const [linkOwnerId, setLinkOwnerId] = useState("all");
   const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
+  const [linkKind, setLinkKind] = useState<BrandLinkKindFilter>("content");
   const [linkMonthOnly, setLinkMonthOnly] = useState(true);
   const [trackingDomains, setTrackingDomains] = useState<BrandTrackingDomain[]>([]);
 
@@ -126,14 +130,25 @@ export default function MarkaIzlenmelerPage() {
     [brandLinks, brandId]
   );
 
+  const displayLinks = useMemo(
+    () => linksForBrand.filter((l) => isDisplayableBrandLink(l)),
+    [linksForBrand]
+  );
+
   const enrichedLinks = useMemo(
-    () => enrichBrandLinksForMonth(linksForBrand, month, linkSnapshots, todayYm, employees),
-    [linksForBrand, month, linkSnapshots, todayYm, employees]
+    () => enrichBrandLinksForMonth(displayLinks, month, linkSnapshots, todayYm, employees),
+    [displayLinks, month, linkSnapshots, todayYm, employees]
+  );
+
+  const kindCounts = useMemo(() => brandLinkKindCounts(enrichedLinks), [enrichedLinks]);
+  const platformSummary = useMemo(
+    () => brandLinkPlatformSummary(enrichedLinks),
+    [enrichedLinks]
   );
 
   const linkOwners = useMemo(() => {
     const map = new Map<string, string>();
-    for (const l of linksForBrand) {
+    for (const l of displayLinks) {
       const id = l.ownerId ?? "_none";
       const name = l.ownerId
         ? employees.find((e) => e.id === id)?.name ?? "?"
@@ -141,11 +156,11 @@ export default function MarkaIzlenmelerPage() {
       map.set(id, name);
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [linksForBrand, employees]);
+  }, [displayLinks, employees]);
 
   const linkPlatforms = useMemo(
-    () => [...new Set(linksForBrand.map((l) => l.platform))].sort((a, b) => a.localeCompare(b, "tr")),
-    [linksForBrand]
+    () => [...new Set(displayLinks.map((l) => l.platform))].sort((a, b) => a.localeCompare(b, "tr")),
+    [displayLinks]
   );
 
   const filteredLinks = useMemo(() => {
@@ -153,6 +168,7 @@ export default function MarkaIzlenmelerPage() {
       search: linkSearch,
       platform: linkPlatform,
       ownerId: linkOwnerId,
+      kind: linkKind,
       monthOnly: linkMonthOnly,
       monthYm: month,
       todayYm,
@@ -163,6 +179,7 @@ export default function MarkaIzlenmelerPage() {
     linkSearch,
     linkPlatform,
     linkOwnerId,
+    linkKind,
     linkMonthOnly,
     month,
     todayYm,
@@ -233,7 +250,10 @@ export default function MarkaIzlenmelerPage() {
   );
 
   const staleLinkCount = useMemo(
-    () => enrichedLinks.filter((l) => l.stale && l.url?.trim()).length,
+    () =>
+      enrichedLinks.filter(
+        (l) => l.kind === "content" && l.stale && l.url?.trim()
+      ).length,
     [enrichedLinks]
   );
 
@@ -368,7 +388,7 @@ export default function MarkaIzlenmelerPage() {
             monthTitle={monthLabelTr(month)}
             monthYm={month}
             todayYm={todayYm}
-            links={linksForBrand}
+            links={displayLinks}
             snapshots={linkSnapshots}
             href="#izlenme-metrikleri"
           />
@@ -397,7 +417,7 @@ export default function MarkaIzlenmelerPage() {
 
           <div id="izlenme-metrikleri">
             <BrandLinkViewershipSummary
-              links={linksForBrand}
+              links={displayLinks}
               snapshots={linkSnapshots}
               viewMonth={month}
               todayYm={todayYm}
@@ -418,7 +438,7 @@ export default function MarkaIzlenmelerPage() {
               target={totalLinkViewsMonth}
               metricCaption="Views"
               label="Marka linkleri"
-              sub={`${linksForBrand.length} link · ay sonu bakiyesi`}
+              sub={`${displayLinks.length} link · ${kindCounts.content} içerik · ay sonu bakiyesi`}
               accent="blue"
             />
             <ViewDotCard
@@ -629,11 +649,14 @@ export default function MarkaIzlenmelerPage() {
                   <div>
                     <CardTitle className="text-base">Marka linkleri</CardTitle>
                     <CardDescription>
-                      {monthLabelTr(month)} · {filteredLinks.length} / {linksForBrand.length} link
+                      {monthLabelTr(month)} · {filteredLinks.length} gösterilen ·{" "}
+                      {displayLinks.length} aktif
+                      {kindCounts.profile > 0 ? ` · ${kindCounts.profile} profil` : ""}
+                      {kindCounts.content > 0 ? ` · ${kindCounts.content} içerik` : ""}
                       · önizleme {Math.min(CARD_PREVIEW_LIMIT, filteredLinks.length)}
                     </CardDescription>
                   </div>
-                  {linksForBrand.length > 0 && (
+                  {displayLinks.length > 0 && (
                     <Button
                       type="button"
                       variant="outline"
@@ -658,12 +681,16 @@ export default function MarkaIzlenmelerPage() {
                   owners={linkOwners}
                   sortKey={linkSort}
                   onSortChange={setLinkSort}
+                  kind={linkKind}
+                  onKindChange={setLinkKind}
+                  kindCounts={kindCounts}
+                  platformSummary={platformSummary}
                   monthOnly={linkMonthOnly}
                   onMonthOnlyChange={setLinkMonthOnly}
                 />
               </CardHeader>
-              <CardContent className="space-y-2 max-h-[360px] overflow-y-auto">
-                {linksForBrand.length === 0 ? (
+              <CardContent className="space-y-2 max-h-[420px] overflow-y-auto">
+                {displayLinks.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
                     <p>Henüz link yok.</p>
                     <p className="mt-1 text-xs">
@@ -676,7 +703,8 @@ export default function MarkaIzlenmelerPage() {
                   </div>
                 ) : previewLinks.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Bu ay için izlenme kaydı olan link yok. Tümünü göster ile listeyi inceleyebilirsiniz.
+                    Bu filtrede kayıt yok. Türü &quot;Tümü&quot; yapın veya &quot;Yalnızca bu ay
+                    verisi&quot; kutusunu kaldırın.
                   </p>
                 ) : (
                   previewLinks.map(({ link, lastViews, refDate, stale }) => (
@@ -689,7 +717,14 @@ export default function MarkaIzlenmelerPage() {
                         <SocialPlatformIcon platform={link.platform} size={18} className="shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium">{link.platform}</span>
+                            <span className="font-medium inline-flex items-center gap-1.5">
+                              {link.platform}
+                              {link.kind !== "content" && (
+                                <Badge variant="outline" className="text-[9px] h-4 px-1">
+                                  {BRAND_LINK_KIND_LABEL[link.kind]}
+                                </Badge>
+                              )}
+                            </span>
                             <Badge variant="secondary" className="text-[10px] tabular-nums shrink-0">
                               {lastViews > 0 ? fmtViews(lastViews) : "—"}
                             </Badge>
@@ -873,7 +908,7 @@ export default function MarkaIzlenmelerPage() {
             onClose={() => setLinksModalOpen(false)}
             monthYm={month}
             todayYm={todayYm}
-            links={linksForBrand}
+            links={displayLinks}
             linkSnapshots={linkSnapshots}
             employees={employees}
           />

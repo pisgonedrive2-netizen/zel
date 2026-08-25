@@ -37,11 +37,15 @@ import {
   deriveBrandMonthlyStats,
 } from "@/lib/brand-monthly-stats";
 import {
+  brandLinkKindCounts,
+  brandLinkPlatformSummary,
   enrichBrandLinksForMonth,
   filterBrandLinksDisplay,
   sortBrandLinksDisplay,
+  type BrandLinkKindFilter,
   type BrandLinkSortKey,
 } from "@/lib/brand-link-display";
+import { isDisplayableBrandLink } from "@/lib/brand-link-kind";
 import { BrandLinkListToolbar } from "@/components/brand-link-list-toolbar";
 import { BrandLinkThumb } from "@/components/brand-link-thumb";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
@@ -121,6 +125,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   const [linkPlatform, setLinkPlatform] = useState("all");
   const [linkOwnerId, setLinkOwnerId] = useState("all");
   const [linkSort, setLinkSort] = useState<BrandLinkSortKey>("views");
+  const [linkKind, setLinkKind] = useState<BrandLinkKindFilter>("content");
   const [brandActionBusy, setBrandActionBusy] = useState(false);
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
   const canManageBrand = user?.role === "admin" && !readOnly;
@@ -128,7 +133,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
   const brand = brands.find((b) => b.id === brandId);
 
   const allBrandLinks = useMemo(
-    () => brandLinks.filter((l) => l.brandId === brandId),
+    () => brandLinks.filter((l) => l.brandId === brandId && isDisplayableBrandLink(l)),
     [brandLinks, brandId]
   );
 
@@ -187,15 +192,18 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
     const platforms = [...new Set(allBrandLinks.map((l) => l.platform))].sort((a, b) =>
       a.localeCompare(b, "tr")
     );
+    const kindCounts = brandLinkKindCounts(enriched);
+    const platformSummary = brandLinkPlatformSummary(enriched);
     const filtered = sortBrandLinksDisplay(
       filterBrandLinksDisplay(enriched, {
         search: linkSearch,
         platform: linkPlatform,
         ownerId: linkOwnerId,
+        kind: linkKind,
       }),
       linkSort
     );
-    return { filtered, owners, platforms };
+    return { filtered, owners, platforms, kindCounts, platformSummary };
   }, [
     links,
     allBrandLinks,
@@ -206,6 +214,7 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
     linkSearch,
     linkPlatform,
     linkOwnerId,
+    linkKind,
     linkSort,
   ]);
 
@@ -753,6 +762,10 @@ export function BrandDetailClient({ brandId }: { brandId: string }) {
               owners={scopedLinkFilters.owners}
               sortKey={linkSort}
               onSortChange={setLinkSort}
+              kind={linkKind}
+              onKindChange={setLinkKind}
+              kindCounts={scopedLinkFilters.kindCounts}
+              platformSummary={scopedLinkFilters.platformSummary}
               showMonthToggle={false}
             />
           )}
