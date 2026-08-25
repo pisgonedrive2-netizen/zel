@@ -19,6 +19,15 @@ describe("normalizeBrandLinkUrl", () => {
       )
     ).toBe("tiktok:video:7123456789012345678");
   });
+
+  it("instagram reel ve kullanıcı yollu reel aynı", () => {
+    expect(normalizeBrandLinkUrl("https://www.instagram.com/reel/AbC123/")).toBe(
+      "instagram:media:AbC123"
+    );
+    expect(
+      normalizeBrandLinkUrl("https://www.instagram.com/someone/reel/AbC123/?hl=tr")
+    ).toBe("instagram:media:AbC123");
+  });
 });
 
 describe("dedupeBrandLinksByUrl", () => {

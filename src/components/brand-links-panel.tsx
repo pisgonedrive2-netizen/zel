@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
-  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3, Loader2, PlayCircle,
+  Plus, Pencil, ExternalLink, RefreshCw, History, Search, Users, Bot, AlertCircle, BarChart3, Loader2, PlayCircle, CopyMinus,
 } from "lucide-react";
 import { isAutoTrackable } from "@/lib/social-api/platform-detect";
 import { applyLinkMetricsToStore } from "@/lib/social-api/link-store-sync";
@@ -81,11 +81,13 @@ export function BrandLinksPanel({
 }: BrandLinksPanelProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "auditor";
-  const { brandLinks, linkSnapshots, updateBrandLink, upsertLinkSnapshot } = useStore();
+  const { brandLinks, linkSnapshots, updateBrandLink, upsertLinkSnapshot, deleteBrandLink } =
+    useStore();
   const [search, setSearch] = useState("");
   const [detailsLink, setDetailsLink] = useState<BrandLink | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [deduping, setDeduping] = useState(false);
 
   const refreshBrandLinks = useCallback(async () => {
     if (!brand || !isAdmin) return;
@@ -129,6 +131,49 @@ export function BrandLinksPanel({
       setBulkRunning(false);
     }
   }, [brand, isAdmin, updateBrandLink, upsertLinkSnapshot]);
+
+  const dedupeBrandLinks = useCallback(async () => {
+    if (!brand || user?.role !== "admin") return;
+    if (
+      !confirm(
+        `${brand.name} taranıp aynı içeriğin çift linkleri birleştirilsin mi? Fazla kayıtlar silinir.`
+      )
+    ) {
+      return;
+    }
+    setDeduping(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch("/api/admin/dedupe-brand-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId: brand.id }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        summary?: { removed: number; groups: number; removedIds?: string[]; errors?: string[] };
+      };
+      if (!res.ok || !json.ok || !json.summary) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      for (const id of json.summary.removedIds ?? []) {
+        deleteBrandLink(id);
+      }
+      const errN = json.summary.errors?.length ?? 0;
+      setBulkMsg(
+        json.summary.removed === 0
+          ? "Çift link yok."
+          : `${json.summary.groups} grup · ${json.summary.removed} fazla link silindi` +
+              (errN ? ` · ${errN} hata` : "")
+      );
+    } catch (err) {
+      setBulkMsg(err instanceof Error ? err.message : "Dedupe hatası");
+    } finally {
+      setDeduping(false);
+    }
+  }, [brand, deleteBrandLink, user?.role]);
 
   const links = useMemo(() => {
     if (!brand) return [];
@@ -204,6 +249,19 @@ export function BrandLinksPanel({
                   <PlayCircle size={14} />
                 )}
                 Tümünü kontrol et
+              </Button>
+            )}
+            {user?.role === "admin" && links.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={deduping || bulkRunning}
+                onClick={() => void dedupeBrandLinks()}
+                title="Aynı içerik URL’sinin çift kayıtlarını birleştir"
+              >
+                {deduping ? <Loader2 size={14} className="animate-spin" /> : <CopyMinus size={14} />}
+                Çiftleri temizle
               </Button>
             )}
             {!readOnly && (

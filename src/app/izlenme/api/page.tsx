@@ -80,6 +80,7 @@ export default function IzlenmeApiPage() {
     updateBrandLink,
     upsertLinkSnapshot,
     addLinkSnapshot,
+    deleteBrandLink,
     employees,
   } = useStore();
   const {
@@ -113,6 +114,8 @@ export default function IzlenmeApiPage() {
   const [keptRefreshed, setKeptRefreshed] = useState<Record<string, string>>({});
   const [bulkRefreshing, setBulkRefreshing] = useState(false);
   const [bulkLabel, setBulkLabel] = useState<string | null>(null);
+  const [deduping, setDeduping] = useState(false);
+  const [dedupeMsg, setDedupeMsg] = useState<string | null>(null);
 
   const loadApiStatus = useCallback(async () => {
     try {
@@ -446,11 +449,70 @@ export default function IzlenmeApiPage() {
       ) : null}
 
       {isAdmin && !readOnly && (
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          {canDeleteLinks && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              disabled={deduping}
+              title="Her markadaki aynı içerik URL’sinin çift kayıtlarını birleştirip fazlaları siler"
+              onClick={() => {
+                void (async () => {
+                  if (
+                    !confirm(
+                      "Tüm markalar taranıp aynı içeriğin çift linkleri birleştirilsin mi? Fazla kayıtlar silinir; izlenmeler korunur."
+                    )
+                  ) {
+                    return;
+                  }
+                  setDeduping(true);
+                  setDedupeMsg(null);
+                  try {
+                    const res = await fetch("/api/admin/dedupe-brand-links", {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: "{}",
+                    });
+                    const json = (await res.json()) as {
+                      ok?: boolean;
+                      error?: string;
+                      summary?: { removed: number; groups: number; removedIds?: string[]; errors?: string[] };
+                    };
+                    if (!res.ok || !json.ok || !json.summary) {
+                      throw new Error(json.error ?? `HTTP ${res.status}`);
+                    }
+                    for (const id of json.summary.removedIds ?? []) {
+                      deleteBrandLink(id);
+                    }
+                    const errN = json.summary.errors?.length ?? 0;
+                    setDedupeMsg(
+                      json.summary.removed === 0
+                        ? "Çift link yok."
+                        : `${json.summary.groups} grup · ${json.summary.removed} fazla link silindi` +
+                            (errN ? ` · ${errN} hata` : "")
+                    );
+                  } catch (err) {
+                    setDedupeMsg(err instanceof Error ? err.message : "Dedupe hatası");
+                  } finally {
+                    setDeduping(false);
+                  }
+                })();
+              }}
+            >
+              {deduping ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
+              Çift linkleri temizle
+            </Button>
+          )}
           <Button type="button" size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => void loadApiStatus()}>
             <RefreshCw size={13} /> API özetini yenile
           </Button>
         </div>
+      )}
+      {dedupeMsg && (
+        <p className="mb-3 text-right text-xs text-muted-foreground">{dedupeMsg}</p>
       )}
 
       {isAdmin && !readOnly && apiStatus && (

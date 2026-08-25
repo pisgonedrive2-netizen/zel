@@ -38,6 +38,9 @@ export function normalizeBrandLinkUrl(url: string): string {
     }
 
     if (host.includes("instagram.com") || host === "instagr.am") {
+      // /reel/CODE, /p/CODE, /tv/CODE ve /@user/reel/CODE aynı içerik
+      const media = u.pathname.match(/\/(?:reel|p|tv)\/([^/?#]+)/i);
+      if (media?.[1]) return `instagram:media:${media[1]}`;
       u.search = "";
       u.pathname = u.pathname.replace(/\/+$/, "") || "/";
       return u.toString();
