@@ -137,6 +137,35 @@ export function settlementLabel(e: ContentExpense): string {
 }
 
 /**
+ * Kasa hareketi açıklaması: yayıncının yazdığı isim/açıklama.
+ * Marka·kategori şablonu kullanılmaz.
+ */
+export function contentExpenseKasaPurpose(e: ContentExpense): string {
+  const desc = (e.description ?? "").trim().replace(/\s+/g, " ");
+  if (desc) return desc.slice(0, 200);
+  const brand = (e.brandName ?? "").trim();
+  const cat = (e.category ?? "").trim();
+  if (brand && cat) return `${brand} · ${cat}`;
+  return brand || cat || "İçerik harcaması";
+}
+
+/**
+ * Kasa listesinde sıralama için tarih: harcamanın eklendiği gün (+ gönderim saati).
+ * Ödeme (paidDate) değil; yayıncının kayıt tarihi.
+ */
+export function contentExpenseKasaTxDate(e: ContentExpense): string {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(e.date) ? e.date : e.date.slice(0, 10);
+  if (e.submittedAt) {
+    const d = new Date(e.submittedAt);
+    if (!Number.isNaN(d.getTime())) {
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return `${day}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+    }
+  }
+  return `${day}T00:00`;
+}
+
+/**
  * "Hareketli" (aktif) harcama: reddedilmemiş ve geri çekilmemiş.
  * Toplamlar, grafikler ve KPI'lar bu filtreyi kullanmalı; aksi halde
  * yayıncının iptal ettiği talepler hâlâ tabloda/grafikte sayılır.

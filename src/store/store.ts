@@ -15,6 +15,7 @@ import {
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement, persistContentExpenseUnsettlePayroll, persistContentExpenseKasaPay, persistContentExpenseUnpay } from "@/lib/content-expense-settlement-persist";
+import { contentExpenseKasaPurpose, contentExpenseKasaTxDate } from "@/lib/content-expense";
 import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
@@ -3832,11 +3833,11 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           const newTx: KasaTransaction = {
             id: txId,
             kasaId: targetKasa.id,
-            date: `${paidDate}T00:00`,
+            date: contentExpenseKasaTxDate(expense),
             direction: "out",
             amountUsd: expense.amountUsd,
             feeUsd,
-            purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
+            purpose: contentExpenseKasaPurpose(expense),
             counterparty: empName,
             proof: extraProof,
             notes: notes.trim() ? `${notes.trim()} ${tag}` : tag,

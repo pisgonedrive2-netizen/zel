@@ -3,6 +3,8 @@ import {
   canConvertPayrollToKasa,
   hasDoubleSettlementConflict,
   matchesSettlementFilter,
+  contentExpenseKasaPurpose,
+  contentExpenseKasaTxDate,
 } from "./content-expense";
 import type { ContentExpense } from "@/store/store";
 
@@ -55,5 +57,21 @@ describe("convert payroll", () => {
       canConvertPayrollToKasa(base({ settlementMode: "payroll", salaryExtraId: "sx" }))
     ).toBe(true);
     expect(canConvertPayrollToKasa(base({}))).toBe(false);
+  });
+});
+
+describe("kasa purpose + date", () => {
+  it("uses streamer description and expense date", () => {
+    expect(
+      contentExpenseKasaPurpose(base({ description: "Rulta ödemesi (kasadan düşülecek)" }))
+    ).toBe("Rulta ödemesi (kasadan düşülecek)");
+    expect(
+      contentExpenseKasaTxDate(
+        base({
+          date: "2026-08-03",
+          submittedAt: "2026-08-03T13:53:14.580Z",
+        })
+      )
+    ).toBe("2026-08-03T13:53");
   });
 });
