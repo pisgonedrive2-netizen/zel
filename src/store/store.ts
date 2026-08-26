@@ -15,11 +15,7 @@ import {
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { persistContentExpenseSettlement, persistContentExpenseUnsettlePayroll, persistContentExpenseKasaPay, persistContentExpenseUnpay } from "@/lib/content-expense-settlement-persist";
-import {
-  contentExpenseKasaPurpose,
-  contentExpenseKasaTxDate,
-  expenseRequestsKasaSettlement,
-} from "@/lib/content-expense";
+import { contentExpenseKasaPurpose, contentExpenseKasaTxDate } from "@/lib/content-expense";
 import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
@@ -3725,8 +3721,6 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
           if (!expense || expense.salaryExtraId) return {};
-          // "kasadan düşülecek" işaretli kayıtlar maaşa yazılmaz.
-          if (expenseRequestsKasaSettlement(expense)) return {};
           const cleanedExtras = s.salaryExtras.filter(
             (x) => x.contentExpenseId !== expense.id
           );

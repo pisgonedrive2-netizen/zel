@@ -5,7 +5,6 @@ import {
   matchesSettlementFilter,
   contentExpenseKasaPurpose,
   contentExpenseKasaTxDate,
-  descriptionRequestsKasaSettlement,
 } from "./content-expense";
 import type { ContentExpense } from "@/store/store";
 
@@ -74,13 +73,5 @@ describe("kasa purpose + date", () => {
         })
       )
     ).toBe("2026-08-03T13:53");
-  });
-});
-
-describe("kasadan düşülecek tag", () => {
-  it("detects common spellings", () => {
-    expect(descriptionRequestsKasaSettlement("Telemarket (KASADAN DÜŞÜLECEK)")).toBe(true);
-    expect(descriptionRequestsKasaSettlement("ads (kasadan düşükecek)")).toBe(true);
-    expect(descriptionRequestsKasaSettlement("normal vlog harcama")).toBe(false);
   });
 });

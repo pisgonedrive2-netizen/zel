@@ -63,7 +63,6 @@ import {
   canAdminPayContentFromKasa,
   hasDoubleSettlementConflict,
   matchesSettlementFilter,
-  expenseRequestsKasaSettlement,
   type ContentExpenseSettlementFilter,
 } from "@/lib/content-expense";
 import {
@@ -143,7 +142,6 @@ function ExpenseForm({
   const showAdminSettle = Boolean(adminSettle && initial);
   const payrollNow = initial ? isPayrollSettled(initial) : false;
   const kasaNow = initial ? isKasaSettled(initial) : false;
-  const forceKasa = expenseRequestsKasaSettlement(form);
 
   return (
     <form
@@ -180,7 +178,7 @@ function ExpenseForm({
                   {payrollNow ? "Kasaya taşı" : "Kasadan öde"}
                 </Button>
               )}
-              {!payrollNow && !kasaNow && !forceKasa && (
+              {!payrollNow && !kasaNow && (
                 <Button
                   type="button"
                   size="sm"
@@ -193,11 +191,6 @@ function ExpenseForm({
                 >
                   Maaşa masraf ekle
                 </Button>
-              )}
-              {forceKasa && !kasaNow && (
-                <p className="text-[11px] text-amber-800 dark:text-amber-200 w-full">
-                  Açıklamada “kasadan düşülecek” var — yalnızca kasadan ödenir.
-                </p>
               )}
               {payrollNow && (
                 <Button
@@ -1156,13 +1149,6 @@ function ContentExpensesPageInner() {
                           <button
                             type="button"
                             onClick={() => {
-                              if (expenseRequestsKasaSettlement(e)) {
-                                window.alert(
-                                  "Bu harcamada “kasadan düşülecek” yazıyor — maaşa eklenemez. Kasadan ödeyin."
-                                );
-                                openKasaPay([e]);
-                                return;
-                              }
                               if (!assertMonthWritable(e.month, "Maaşa ekleme")) return;
                               settleContentExpenseToPayroll(e.id);
                               notifyStreamer({
@@ -1181,7 +1167,7 @@ function ContentExpensesPageInner() {
                             }}
                             className="text-[10px] px-2 py-0.5 rounded bg-violet-100 text-violet-800 dark:bg-violet-950/45 dark:text-violet-200 hover:bg-violet-200 transition-colors"
                           >
-                            {expenseRequestsKasaSettlement(e) ? "Kasadan öde (zorunlu)" : "Maaşa ekle"}
+                            Maaşa ekle
                           </button>
                         )}
                         {canMarkPaid && isPayrollSettled(e) && !rowLocked && (
@@ -1324,9 +1310,6 @@ function ContentExpensesPageInner() {
             } : undefined}
             onApprove={(note, settlement, kasaPayload) => {
               if (!assertMonthWritable(reviewModal.month, "Onay")) return;
-              const forceKasa = expenseRequestsKasaSettlement(reviewModal);
-              const settled =
-                forceKasa && settlement === "payroll" ? "kasa" : settlement;
               const today = new Date().toISOString().slice(0, 10);
               updateContentExpense(reviewModal.id, {
                 reviewStatus: "approved",
@@ -1334,23 +1317,19 @@ function ContentExpensesPageInner() {
                 reviewedBy: user?.id,
                 reviewerNote: note,
               });
-              if (settled === "kasa") {
-                const kasaId =
-                  kasaPayload?.kasaId ??
-                  viewKasas.find((k) => !k.archived)?.id ??
-                  defaultKasaId;
+              if (settlement === "kasa" && kasaPayload) {
                 payContentExpense({
                   contentExpenseId: reviewModal.id,
-                  kasaId,
+                  kasaId: kasaPayload.kasaId,
                   paidDate: today,
-                  feeUsd: kasaPayload?.feeUsd ?? 0,
+                  feeUsd: kasaPayload.feeUsd,
                   notes: note,
                 });
-              } else if (settled === "payroll") {
+              } else if (settlement === "payroll") {
                 settleContentExpenseToPayroll(reviewModal.id);
               }
-              const paidNow = settled === "kasa";
-              const payrollNow = settled === "payroll";
+              const paidNow = settlement === "kasa";
+              const payrollNow = settlement === "payroll";
               notifyStreamer({
                 expenseId: reviewModal.id,
                 submittedBy: reviewModal.submittedBy ?? "",
@@ -1366,7 +1345,7 @@ function ContentExpensesPageInner() {
                 actorId: user?.id ?? "unknown",
                 actorName: user?.name ?? "?",
                 action: paidNow || payrollNow ? "expense_settlement" : "expense_approved",
-                detail: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} · ${settled} · ${reviewModal.id}`,
+                detail: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} · ${settlement} · ${reviewModal.id}`,
               });
               setReviewModal(null);
             }}
@@ -1524,7 +1503,6 @@ function ReviewForm({
   onAttachProof?: (url: string) => void;
 }) {
   const [note, setNote] = useState(expense.reviewerNote ?? "");
-  const forceKasa = expenseRequestsKasaSettlement(expense);
   const [settlement, setSettlement] = useState<"approve_only" | "kasa" | "payroll">(
     canMarkPaid ? "kasa" : "approve_only"
   );
@@ -1614,24 +1592,11 @@ function ReviewForm({
       {canMarkPaid ? (
         <div className="space-y-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ödeme yolu</p>
-          {forceKasa && (
-            <p className="text-[11px] text-amber-800 dark:text-amber-200 rounded-md border border-amber-300/60 bg-amber-50/50 dark:bg-amber-950/30 px-2.5 py-1.5">
-              Açıklamada “kasadan düşülecek” var — maaşa yazılamaz, kasadan düşülür.
-            </p>
-          )}
           <div className="space-y-2 text-sm">
             {([
               { id: "approve_only" as const, label: "Sadece onayla", hint: "Ödeme yolu sonra seçilir" },
               { id: "kasa" as const, label: "Kasadan düş", hint: "Hemen kasa çıkışı oluşturulur" },
-              ...(forceKasa
-                ? []
-                : [
-                    {
-                      id: "payroll" as const,
-                      label: "Maaşa masraf ekle",
-                      hint: "Bu ay bordro netine dahil edilir",
-                    },
-                  ]),
+              { id: "payroll" as const, label: "Maaşa masraf ekle", hint: "Bu ay bordro netine dahil edilir" },
             ]).map((opt) => (
               <label key={opt.id} className="flex items-start gap-2 cursor-pointer">
                 <input
