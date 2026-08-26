@@ -18,6 +18,7 @@ import {
   settlementLabel,
   isPayrollSettled,
   canAdminPayContentFromKasa,
+  expenseRequestsKasaSettlement,
 } from "@/lib/content-expense";
 import {
   DEFAULT_KASA_ID,
@@ -263,7 +264,7 @@ export function ContentExpensesBulkModal({
                           İncele
                         </button>
                       )}
-                      {st === "approved" && !isPayrollSettled(e) && !e.paid && isAdmin && !readOnly && (
+                      {st === "approved" && !isPayrollSettled(e) && !e.paid && isAdmin && !readOnly && !expenseRequestsKasaSettlement(e) && (
                         <button
                           type="button"
                           className="text-[10px] text-violet-700 hover:underline ml-2"
@@ -272,6 +273,20 @@ export function ContentExpensesBulkModal({
                           Maaş
                         </button>
                       )}
+                      {st === "approved" &&
+                        !isPayrollSettled(e) &&
+                        !e.paid &&
+                        isAdmin &&
+                        !readOnly &&
+                        expenseRequestsKasaSettlement(e) && (
+                          <button
+                            type="button"
+                            className="text-[10px] text-emerald-700 hover:underline ml-2"
+                            onClick={() => onPayFromKasa([e.id], { kasaId, paidDate })}
+                          >
+                            Kasadan düş
+                          </button>
+                        )}
                       {isPayrollSettled(e) && isAdmin && !readOnly && (
                         <>
                           <button

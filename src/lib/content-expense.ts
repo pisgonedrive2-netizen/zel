@@ -137,6 +137,27 @@ export function settlementLabel(e: ContentExpense): string {
 }
 
 /**
+ * Açıklamada "kasadan düşülecek" (yazım hataları dahil) varsa
+ * ödeme yolu kasa olmalı — maaşa yazılmaz.
+ */
+export function descriptionRequestsKasaSettlement(
+  description: string | null | undefined
+): boolean {
+  const d = (description ?? "")
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "");
+  // düşülecek / dusulecek / düşükecek / dusukecek / düşecek …
+  return /kasadan\s*d[uü]?[sş][uü]?[sşk]?[eé]?[cç]?e?k?/.test(d) || /kasadan\s*dus/.test(d);
+}
+
+export function expenseRequestsKasaSettlement(e: {
+  description?: string | null;
+}): boolean {
+  return descriptionRequestsKasaSettlement(e.description);
+}
+
+/**
  * Kasa hareketi açıklaması: yayıncının yazdığı isim/açıklama.
  * Marka·kategori şablonu kullanılmaz.
  */
