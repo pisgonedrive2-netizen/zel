@@ -12,6 +12,8 @@ export type AuditAction =
   | "expense_approved"
   | "expense_rejected"
   | "expense_needs_info"
+  | "expense_settlement"
+  | "expense_month_lock"
   | "backup_exported"
   | "backup_imported"
   | "user_impersonated"

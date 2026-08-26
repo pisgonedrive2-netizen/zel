@@ -30,6 +30,61 @@ export function isKasaSettled(e: ContentExpense): boolean {
   return e.settlementMode === "kasa" || Boolean(e.kasaTxId && e.paid);
 }
 
+export type ContentExpenseSettlementFilter =
+  | "all"
+  | "awaiting"
+  | "payroll"
+  | "kasa"
+  | "conflict";
+
+/** Filtre: ödeme yolu. */
+export function matchesSettlementFilter(
+  e: ContentExpense,
+  filter: ContentExpenseSettlementFilter,
+  opts?: { hasConflict?: boolean }
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "conflict") return Boolean(opts?.hasConflict);
+  if (filter === "kasa") return isKasaSettled(e);
+  if (filter === "payroll") return isPayrollSettled(e) && !isKasaSettled(e);
+  if (filter === "awaiting") {
+    const s = expenseReviewStatus(e);
+    return (
+      s === "approved" && !isPayrollSettled(e) && !isKasaSettled(e)
+    );
+  }
+  return true;
+}
+
+/**
+ * Çift ödeme riski: hem bordro kalemi hem kasa hareketi bağlı / işaretli.
+ * (Veri tutarsızlığı — düzeltilmeli.)
+ */
+export function hasDoubleSettlementConflict(
+  e: ContentExpense,
+  opts?: {
+    salaryExtras?: { id: string; contentExpenseId?: string }[];
+    kasaTransactions?: { id: string; notes?: string; purpose?: string }[];
+  }
+): boolean {
+  const extras = opts?.salaryExtras ?? [];
+  const txs = opts?.kasaTransactions ?? [];
+  const tag = `[ICEXP:${e.id}]`;
+  const payrollLink =
+    e.settlementMode === "payroll" ||
+    Boolean(e.salaryExtraId) ||
+    extras.some((x) => x.contentExpenseId === e.id || x.id === e.salaryExtraId);
+  const kasaLink =
+    e.settlementMode === "kasa" ||
+    Boolean(e.kasaTxId && e.paid) ||
+    txs.some((t) => {
+      if (e.kasaTxId && t.id === e.kasaTxId) return true;
+      const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+      return blob.includes(tag);
+    });
+  return payrollLink && kasaLink;
+}
+
 /**
  * Onaylı ama henüz kasa/bordro ile kapatılmamış — plan toplamına eklenir.
  * Bordroya eklenenler zaten salary_extras üzerinden nete dahildir.
@@ -52,6 +107,11 @@ export function canAdminPayContentFromKasa(e: ContentExpense): boolean {
     return false;
   }
   return !isKasaSettled(e);
+}
+
+/** Maaşa yazılmış, kasaya taşınabilir. */
+export function canConvertPayrollToKasa(e: ContentExpense): boolean {
+  return isPayrollSettled(e) && !isKasaSettled(e) && expenseReviewStatus(e) === "approved";
 }
 
 export const CONTENT_EXPENSE_CATEGORIES = [

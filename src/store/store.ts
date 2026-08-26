@@ -3660,10 +3660,43 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         return id;
       },
       updateContentExpense: (id, e) => set((s) => {
-        const contentExpenses = s.contentExpenses.map((x) => (x.id === id ? { ...x, ...e } : x));
-        const row = contentExpenses.find((x) => x.id === id);
-        if (row) persistEntity("content_expense", row);
-        return { contentExpenses };
+        const prev = s.contentExpenses.find((x) => x.id === id);
+        if (!prev) return {};
+        const row: ContentExpense = { ...prev, ...e };
+        const amountChanged =
+          e.amountUsd != null && Number(e.amountUsd) !== Number(prev.amountUsd);
+
+        let salaryExtras = s.salaryExtras;
+        let kasaTransactions = s.kasaTransactions;
+
+        if (amountChanged) {
+          const nextAmount = Number(e.amountUsd);
+          if (prev.salaryExtraId || prev.settlementMode === "payroll") {
+            salaryExtras = salaryExtras.map((sx) => {
+              if (sx.id === prev.salaryExtraId || sx.contentExpenseId === id) {
+                const updated = { ...sx, amount: nextAmount };
+                persistEntity("salary_extra", updated);
+                return updated;
+              }
+              return sx;
+            });
+          }
+          const tag = `[ICEXP:${id}]`;
+          if (prev.kasaTxId || prev.settlementMode === "kasa") {
+            kasaTransactions = kasaTransactions.map((tx) => {
+              const blob = `${tx.notes ?? ""} ${tx.purpose ?? ""}`;
+              if (tx.id === prev.kasaTxId || blob.includes(tag)) {
+                const updated = { ...tx, amountUsd: nextAmount };
+                persistKasaTxImmediate(updated);
+                return updated;
+              }
+              return tx;
+            });
+          }
+        }
+
+        persistEntity("content_expense", row);
+        return { contentExpenses: s.contentExpenses.map((x) => (x.id === id ? row : x)), salaryExtras, kasaTransactions };
       }),
       deleteContentExpense: (id)    => {
         removeEntity("content_expense", id);

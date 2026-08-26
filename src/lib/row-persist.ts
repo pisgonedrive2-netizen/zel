@@ -10,7 +10,8 @@ export type PersistEntity =
   | "weekly_plan"
   | "week_brand_reel"
   | "streamer_account"
-  | "content_expense";
+  | "content_expense"
+  | "salary_extra";
 
 async function apiPersist(
   entity: PersistEntity,
