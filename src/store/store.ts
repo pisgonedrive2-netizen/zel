@@ -14,7 +14,7 @@ import {
   type PersistEntity,
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
-import { persistContentExpenseSettlement } from "@/lib/content-expense-settlement-persist";
+import { persistContentExpenseSettlement, persistContentExpenseUnsettlePayroll, persistContentExpenseKasaPay, persistContentExpenseUnpay } from "@/lib/content-expense-settlement-persist";
 import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
@@ -3726,17 +3726,36 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       unsettleContentExpenseFromPayroll: (contentExpenseId) =>
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
-          if (!expense?.salaryExtraId) return {};
+          if (!expense) return {};
+          const extraId = expense.salaryExtraId;
+          const linkedExtras = s.salaryExtras.filter(
+            (x) => x.id === extraId || x.contentExpenseId === expense.id
+          );
+          if (!extraId && linkedExtras.length === 0 && expense.settlementMode !== "payroll") {
+            return {};
+          }
+          const removeIds = new Set(linkedExtras.map((x) => x.id));
+          if (extraId) removeIds.add(extraId);
+          const updatedExpense: ContentExpense = {
+            ...expense,
+            settlementMode: undefined,
+            salaryExtraId: undefined,
+          };
+          const primaryExtraId = extraId ?? linkedExtras[0]?.id;
+          if (removeIds.size > 0 || primaryExtraId) {
+            queueMicrotask(() => {
+              void persistContentExpenseUnsettlePayroll(
+                updatedExpense,
+                [...removeIds]
+              );
+            });
+          } else {
+            persistEntity("content_expense", updatedExpense);
+          }
           return {
-            salaryExtras: s.salaryExtras.filter((x) => x.id !== expense.salaryExtraId),
+            salaryExtras: s.salaryExtras.filter((x) => !removeIds.has(x.id)),
             contentExpenses: s.contentExpenses.map((x) =>
-              x.id === contentExpenseId
-                ? {
-                    ...x,
-                    settlementMode: undefined,
-                    salaryExtraId: undefined,
-                  }
-                : x
+              x.id === contentExpenseId ? updatedExpense : x
             ),
           };
         }),
@@ -3752,20 +3771,25 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           if (!targetKasa) return {};
 
           const tag = `[ICEXP:${contentExpenseId}]`;
-          // Hem mevcut kasaTxId referansını hem de aynı içerik harcamasına ait
-          // başka tag'li (örn. önceki sync'te düşmüş ama linki kopmuş) kayıtları
-          // birlikte temizle — "iki kez kasadan düşme" hatasını engeller.
           const trimmedTx = s.kasaTransactions.filter((t) => {
             if (t.id === expense.kasaTxId) return false;
             const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
             return !blob.includes(tag);
           });
 
+          const removeExtraIds = s.salaryExtras
+            .filter(
+              (x) =>
+                x.id === expense.salaryExtraId || x.contentExpenseId === expense.id
+            )
+            .map((x) => x.id);
+          if (expense.salaryExtraId && !removeExtraIds.includes(expense.salaryExtraId)) {
+            removeExtraIds.push(expense.salaryExtraId);
+          }
+
           const txId = uid();
           const empName =
             s.employees.find((e) => e.id === expense.employeeId)?.name ?? "Yayıncı";
-          // Harcama SS’si content_expense.screenshotUrl’de kalır; proof yalnızca
-          // kasaya eklenen ikinci görsel / TXID. ICEXP etiketi UI’de gösterilmez.
           const extraProof =
             proof &&
             !isICexpProofValue(proof.trim()) &&
@@ -3782,23 +3806,36 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             purpose: `[İçerik] ${expense.brandName} · ${expense.category}`,
             counterparty: empName,
             proof: extraProof,
-            // ICEXP yalnızca eşleştirme için notta durur; kasa UI’si etiketi gizler.
             notes: notes.trim() ? `${notes.trim()} ${tag}` : tag,
           };
 
+          const updatedExpense: ContentExpense = {
+            ...expense,
+            paid: true,
+            paidDate,
+            kasaTxId: txId,
+            settlementMode: "kasa",
+            salaryExtraId: undefined,
+            reviewStatus:
+              expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
+                ? "approved"
+                : expense.reviewStatus,
+            reviewedAt: expense.reviewedAt ?? new Date().toISOString(),
+          };
+
+          queueMicrotask(() => {
+            void persistContentExpenseKasaPay({
+              expense: updatedExpense,
+              kasaTx: newTx,
+              removeSalaryExtraIds: removeExtraIds,
+            });
+          });
+
           return {
             kasaTransactions: [...trimmedTx, newTx],
+            salaryExtras: s.salaryExtras.filter((x) => !removeExtraIds.includes(x.id)),
             contentExpenses: s.contentExpenses.map((x) =>
-              x.id === contentExpenseId
-                ? {
-                    ...x,
-                    paid: true,
-                    paidDate,
-                    kasaTxId: txId,
-                    settlementMode: "kasa" as const,
-                    salaryExtraId: undefined,
-                  }
-                : x
+              x.id === contentExpenseId ? updatedExpense : x
             ),
           };
         }),
@@ -3806,24 +3843,33 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       unpayContentExpense: (id) =>
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === id);
+          if (!expense) return {};
           const tag = `[ICEXP:${id}]`;
-          const kasaTransactions = s.kasaTransactions.filter((t) => {
-            if (expense?.kasaTxId && t.id === expense.kasaTxId) return false;
-            const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
-            return !blob.includes(tag);
+          const removeTxIds = s.kasaTransactions
+            .filter((t) => {
+              if (expense.kasaTxId && t.id === expense.kasaTxId) return true;
+              const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+              return blob.includes(tag);
+            })
+            .map((t) => t.id);
+          const kasaTransactions = s.kasaTransactions.filter((t) => !removeTxIds.includes(t.id));
+          const updatedExpense: ContentExpense = {
+            ...expense,
+            paid: false,
+            paidDate: undefined,
+            kasaTxId: undefined,
+            settlementMode: expense.settlementMode === "kasa" ? undefined : expense.settlementMode,
+          };
+          queueMicrotask(() => {
+            void persistContentExpenseUnpay({
+              expense: updatedExpense,
+              removeKasaTxIds: removeTxIds,
+            });
           });
           return {
             kasaTransactions,
             contentExpenses: s.contentExpenses.map((x) =>
-              x.id === id
-                ? {
-                    ...x,
-                    paid: false,
-                    paidDate: undefined,
-                    kasaTxId: undefined,
-                    settlementMode: x.settlementMode === "kasa" ? undefined : x.settlementMode,
-                  }
-                : x
+              x.id === id ? updatedExpense : x
             ),
           };
         }),

@@ -42,6 +42,18 @@ export function isUnsettledApprovedContent(e: ContentExpense): boolean {
   return !isPayrollSettled(e) && !isKasaSettled(e);
 }
 
+/**
+ * Yönetici kasadan ödeyebilir / maaştan kasaya taşıyabilir.
+ * Onaylı + henüz kasadan ödenmemiş (bordroda olanlar dahil).
+ */
+export function canAdminPayContentFromKasa(e: ContentExpense): boolean {
+  const s = expenseReviewStatus(e);
+  if (s === "rejected" || s === "cancelled" || s === "pending" || s === "needs_info") {
+    return false;
+  }
+  return !isKasaSettled(e);
+}
+
 export const CONTENT_EXPENSE_CATEGORIES = [
   "Vlog",
   "Yetişkin İçerik",

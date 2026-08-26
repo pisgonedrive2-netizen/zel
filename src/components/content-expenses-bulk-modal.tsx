@@ -17,7 +17,7 @@ import {
   expenseReviewStatus,
   settlementLabel,
   isPayrollSettled,
-  isUnsettledApprovedContent,
+  canAdminPayContentFromKasa,
 } from "@/lib/content-expense";
 import {
   DEFAULT_KASA_ID,
@@ -28,7 +28,7 @@ import {
 } from "@/store/store";
 
 export function canPayContentFromKasa(e: ContentExpense): boolean {
-  return isUnsettledApprovedContent(e);
+  return canAdminPayContentFromKasa(e);
 }
 
 type Props = {
@@ -158,7 +158,10 @@ export function ContentExpensesBulkModal({
             <>
               {" "}
               · <span className="text-green-700 dark:text-green-400 font-medium">
-                {payable.length} kasadan ödenebilir ({fmt(payable.reduce((s, e) => s + e.amountUsd, 0))})
+                {payable.length} kasadan ödenebilir / taşınabilir ({fmt(payable.reduce((s, e) => s + e.amountUsd, 0))})
+                <span className="block text-[10px] font-normal opacity-80 mt-0.5">
+                  Maaşa yazılmış olanlar seçilirse bordrodan çıkıp kasadan düşülür.
+                </span>
               </span>
             </>
           )}
@@ -270,17 +273,34 @@ export function ContentExpensesBulkModal({
                         </button>
                       )}
                       {isPayrollSettled(e) && isAdmin && !readOnly && (
-                        <button
-                          type="button"
-                          className="text-[10px] text-muted-foreground hover:underline"
-                          onClick={() => {
-                            if (window.confirm("Bordro bağlantısı kaldırılsın mı?")) {
-                              onUnsettlePayroll(e.id);
-                            }
-                          }}
-                        >
-                          Geri al
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="text-[10px] text-emerald-700 hover:underline ml-2"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  "Maaş masrafından çıkarıp kasadan ödensin mi?"
+                                )
+                              ) {
+                                onPayFromKasa([e.id], { kasaId, paidDate });
+                              }
+                            }}
+                          >
+                            Kasaya taşı
+                          </button>
+                          <button
+                            type="button"
+                            className="text-[10px] text-muted-foreground hover:underline ml-2"
+                            onClick={() => {
+                              if (window.confirm("Bordro bağlantısı kaldırılsın mı?")) {
+                                onUnsettlePayroll(e.id);
+                              }
+                            }}
+                          >
+                            Geri al
+                          </button>
+                        </>
                       )}
                       {e.paid && (
                         <Badge variant="outline" className="text-[9px] text-green-700 border-green-300">

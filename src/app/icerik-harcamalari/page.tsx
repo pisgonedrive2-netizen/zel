@@ -58,6 +58,8 @@ import {
   settlementLabel,
   CONTENT_EXPENSE_CATEGORIES,
   isPayrollSettled,
+  isKasaSettled,
+  canAdminPayContentFromKasa,
 } from "@/lib/content-expense";
 import {
   BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer,
@@ -69,13 +71,27 @@ function ymLabel(m: string) {
 }
 
 // ── Expense form ──────────────────────────────────────────────────────────
-function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
+function ExpenseForm({
+  initial,
+  defaultDate,
+  onSave,
+  onDelete,
+  onClose,
+  adminSettle,
+}: {
   initial?: ContentExpense;
   /** Yeni kayıt için varsayılan tarih (seçili ay filtresinden). */
   defaultDate?: string;
   onSave: (d: Omit<ContentExpense, "id">) => void;
   onDelete?: () => void;
   onClose: () => void;
+  /** Yönetici: ödeme yolunu düzenlerken maaş ↔ kasa geçişi. */
+  adminSettle?: {
+    onPayFromKasa: () => void;
+    onSettlePayroll: () => void;
+    onUnsettlePayroll: () => void;
+    onUnpayKasa: () => void;
+  };
 }) {
   const { brands, employees } = useStore();
   const today = new Date().toISOString().slice(0, 10);
@@ -98,6 +114,10 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
     paidDate:    initial?.paidDate,
     notes:       initial?.notes       ?? "",
     screenshotUrl: initial?.screenshotUrl ?? "",
+    reviewStatus: initial?.reviewStatus,
+    settlementMode: initial?.settlementMode,
+    salaryExtraId: initial?.salaryExtraId,
+    kasaTxId: initial?.kasaTxId,
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
@@ -105,6 +125,10 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
     setSelectedBrandIds(ids);
     setForm((f) => ({ ...f, ...buildExpenseBrandFields(ids, brands) }));
   };
+
+  const showAdminSettle = Boolean(adminSettle && initial);
+  const payrollNow = initial ? isPayrollSettled(initial) : false;
+  const kasaNow = initial ? isKasaSettled(initial) : false;
 
   return (
     <form
@@ -115,6 +139,79 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
       }}
     >
       <div className="grid gap-4">
+        {showAdminSettle && (
+          <div className="rounded-lg border border-border bg-muted/30 px-3 py-3 space-y-2">
+            <p className="text-xs font-medium text-foreground">Ödeme yolu (yönetici)</p>
+            <p className="text-[11px] text-muted-foreground">
+              Şu an: <span className="font-medium text-foreground">{settlementLabel(initial!)}</span>
+              {" · "}Alanları kaydetmek ayrı; ödeme yolunu aşağıdaki butonlarla değiştirin.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {!kasaNow && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    const msg = payrollNow
+                      ? "Maaş masrafından çıkarıp kasadan ödendi yapılsın mı?"
+                      : "Kasadan ödendi olarak işaretlensin mi?";
+                    if (!window.confirm(msg)) return;
+                    adminSettle!.onPayFromKasa();
+                    onClose();
+                  }}
+                >
+                  {payrollNow ? "Kasaya taşı" : "Kasadan öde"}
+                </Button>
+              )}
+              {!payrollNow && !kasaNow && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    adminSettle!.onSettlePayroll();
+                    onClose();
+                  }}
+                >
+                  Maaşa masraf ekle
+                </Button>
+              )}
+              {payrollNow && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    if (!window.confirm("Bordro bağlantısı kaldırılsın mı?")) return;
+                    adminSettle!.onUnsettlePayroll();
+                    onClose();
+                  }}
+                >
+                  Bordrodan çıkar
+                </Button>
+              )}
+              {kasaNow && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    if (!window.confirm("Kasa ödemesi geri alınsın mı?")) return;
+                    adminSettle!.onUnpayKasa();
+                    onClose();
+                  }}
+                >
+                  Kasa ödemesini geri al
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
         <FormGrid>
           <Field label="Tarih" required>
             <DateTimePicker mode="date" value={form.date} onChange={(v) => { set("date", v); set("month", v.slice(0, 7)); }} required />
@@ -168,12 +265,21 @@ function ExpenseForm({ initial, defaultDate, onSave, onDelete, onClose }: {
           </Field>
         </FormGrid>
         <FormGrid>
-          <Field label="Ödendi mi?">
+          <Field
+            label="Ödendi mi?"
+            hint={
+              adminSettle
+                ? "Kasa / maaş geçişi için yukarıdaki ödeme yolu butonlarını kullanın"
+                : undefined
+            }
+          >
             <Select value={form.paid ? "yes" : "no"} onChange={e => set("paid", e.target.value === "yes")}
-              options={[{ value: "no", label: "Bekliyor" }, { value: "yes", label: "Ödendi" }]} />
+              options={[{ value: "no", label: "Bekliyor" }, { value: "yes", label: "Ödendi" }]}
+              disabled={Boolean(adminSettle)}
+            />
           </Field>
           <Field label="Ödeme Tarihi">
-            <DateTimePicker mode="date" value={form.paidDate ?? ""} onChange={(v) => set("paidDate", v || undefined)} disabled={!form.paid} />
+            <DateTimePicker mode="date" value={form.paidDate ?? ""} onChange={(v) => set("paidDate", v || undefined)} disabled={!form.paid || Boolean(adminSettle)} />
           </Field>
         </FormGrid>
         <Field label="Kanıt (Resim yükle veya URL)" hint="Dekont/ekran görüntüsü">
@@ -795,17 +901,24 @@ function ContentExpensesPageInner() {
                             İncele
                           </button>
                         )}
-                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && !e.paid && (
+                        {canMarkPaid && canAdminPayContentFromKasa(e) && (
                           <button
                             type="button"
-                            onClick={() => markExpensePaid(e)}
+                            onClick={() => {
+                              const fromPayroll = isPayrollSettled(e);
+                              const msg = fromPayroll
+                                ? "Bu harcama maaş masrafından çıkarılıp kasadan ödendi olarak işaretlensin mi? Bordro kalemi silinir, kasadan düşülür."
+                                : "Kasadan ödendi olarak işaretlensin mi?";
+                              if (!window.confirm(msg)) return;
+                              markExpensePaid(e);
+                            }}
                             className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-950/45 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
-                            aria-label="Kasadan öde"
+                            aria-label={isPayrollSettled(e) ? "Kasaya taşı" : "Kasadan öde"}
                           >
-                            Kasadan öde
+                            {isPayrollSettled(e) ? "Kasaya taşı" : "Kasadan öde"}
                           </button>
                         )}
-                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && (
+                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && !isKasaSettled(e) && (
                           <button
                             type="button"
                             onClick={() => {
@@ -834,6 +947,23 @@ function ContentExpensesPageInner() {
                             className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
                           >
                             Bordrodan çıkar
+                          </button>
+                        )}
+                        {canMarkPaid && isKasaSettled(e) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  "Kasa ödemesi geri alınsın mı? Kasa hareketi silinir; harcama yeniden ödeme bekler."
+                                )
+                              ) {
+                                unpayContentExpense(e.id);
+                              }
+                            }}
+                            className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-accent transition-colors"
+                          >
+                            Kasa ödemesini geri al
                           </button>
                         )}
                         {user?.role === "auditor" && e.reviewStatus !== "pending" && !e.audited && (
@@ -869,6 +999,16 @@ function ContentExpensesPageInner() {
             onSave={d => { if (modal === "new") addContentExpense(d); else updateContentExpense(modal.id, d); }}
             onDelete={modal !== "new" ? () => { deleteContentExpense(modal.id); setModal(null); } : undefined}
             onClose={() => setModal(null)}
+            adminSettle={
+              canMarkPaid && modal !== "new"
+                ? {
+                    onPayFromKasa: () => markExpensePaid(modal),
+                    onSettlePayroll: () => settleContentExpenseToPayroll(modal.id),
+                    onUnsettlePayroll: () => unsettleContentExpenseFromPayroll(modal.id),
+                    onUnpayKasa: () => unpayContentExpense(modal.id),
+                  }
+                : undefined
+            }
           />
         )}
       </Modal>
