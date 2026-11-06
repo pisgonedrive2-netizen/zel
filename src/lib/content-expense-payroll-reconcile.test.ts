@@ -14,6 +14,7 @@ describe("reconcilePayrollSettledContentExtras", () => {
       description: "x",
       amountUsd: 594,
       paid: false,
+      notes: "",
       reviewStatus: "pending",
     };
     const extra: SalaryExtra = {

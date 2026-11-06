@@ -21,6 +21,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   expense_rejected: "Harcama reddedildi",
   expense_needs_info: "Harcama · ek bilgi",
   expense_settlement: "Harcama ödeme yolu",
+  expense_team_release: "Harcama ekibe açıldı",
   expense_month_lock: "Harcama ay kilidi",
   backup_exported: "Yedek indirildi",
   backup_imported: "Yedek içe aktarıldı",

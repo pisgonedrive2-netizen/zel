@@ -164,6 +164,7 @@ const AUDIT_TR: Record<AuditAction, string> = {
   expense_rejected:    "Harcama reddedildi",
   expense_needs_info:  "Harcama · ek bilgi istendi",
   expense_settlement:  "Harcama ödeme yolu",
+  expense_team_release: "Harcama ekibe açıldı",
   expense_month_lock:  "Harcama ay kilidi",
   backup_exported:     "Yedek indirildi",
   backup_imported:     "Yedek içe aktarıldı",
