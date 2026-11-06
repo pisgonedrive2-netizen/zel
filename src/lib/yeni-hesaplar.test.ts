@@ -15,7 +15,7 @@ describe("yeni hesaplar", () => {
     const ids = new Set(YENI_HESAPLAR.map(yeniHesapLinkId));
     expect(ids.size).toBe(YENI_HESAPLAR.length);
     expect(YENI_HESAPLAR.filter((a) => a.tag === "naz").map((a) => a.handle).sort()).toEqual(
-      ["@erdemhesap1", "@handekorkusuz", "@keladamkomedi", "@ustadanarabaogren"].sort()
+      ["@erdemhesap1", "@handekorkusuz", "@keladamkomedi", "@lanetkel.toon"].sort()
     );
     expect(YENI_HESAPLAR.filter((a) => a.tag === "ponpon").map((a) => a.handle).sort()).toEqual(
       ["@lanetkelindunyasi", "@mehmet_47_07_", "@roblooxmeryeeemmm", "@sifabilgibirikim"].sort()

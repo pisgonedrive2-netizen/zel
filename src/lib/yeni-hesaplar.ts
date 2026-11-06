@@ -57,7 +57,7 @@ export const YENI_HESAPLAR: YeniHesapAccount[] = [
   ig("lanetkelkomedi"),
   ig("lanetkelsakso"),
   // Instagram — Naz / Ponpon ekstra
-  ig("ustadanarabaogren", "naz"),
+  ig("lanetkel.toon", "naz"),
   ig("sifabilgibirikim", "ponpon"),
   // YouTube — ajans
   yt("lanetkelben"),
