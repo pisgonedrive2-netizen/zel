@@ -7,6 +7,10 @@ import {
   loadHesapGunlukStore,
   runHesapGunlukAktivite,
 } from "@/lib/hesap-gunluk-aktivite";
+import {
+  hesapGunlukIstanbulDate,
+  summarizeModeratorPosting,
+} from "@/lib/hesap-gunluk-aktivite-shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,10 +22,17 @@ async function requireAdmin() {
 }
 
 /** Takvim deposu (byDate). */
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!isSupabaseEnabled()) return NextResponse.json({ ok: false, error: "Supabase yok" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ ok: false, error: "Yetki yok" }, { status: 403 });
   const store = await loadHesapGunlukStore();
+  if (req.nextUrl.searchParams.get("summary") === "moderators") {
+    const end = store?.latestDate ?? hesapGunlukIstanbulDate();
+    return NextResponse.json({
+      ok: true,
+      ...summarizeModeratorPosting(store, end, 28),
+    });
+  }
   return NextResponse.json({ ok: true, store });
 }
 

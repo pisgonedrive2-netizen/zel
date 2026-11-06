@@ -100,6 +100,99 @@ export function istanbulDayToClose(d = new Date()): string {
   return shiftIstanbulDay(hesapGunlukIstanbulDate(d), -1);
 }
 
+export type ModeratorPostAccount = {
+  handle: string;
+  videos: number;
+  daysWithVideo: number;
+  lastPostDay: string | null;
+};
+
+export type ModeratorPostPlatform = {
+  platform: string;
+  videos: number;
+  daysWithVideo: number;
+  lastPostDay: string | null;
+  accounts: ModeratorPostAccount[];
+};
+
+export type ModeratorPostRollup = {
+  tag: HesapTag;
+  name: string;
+  platforms: ModeratorPostPlatform[];
+  videos: number;
+  daysWithVideo: number;
+};
+
+/** Son pencerede Naz / Ponpon hesaplarının video paylaşım sıklığı. */
+export function summarizeModeratorPosting(
+  store: HesapGunlukStore | null | undefined,
+  endDay: string,
+  windowDays = 28,
+): { windowDays: number; endDay: string; people: ModeratorPostRollup[] } {
+  const days = istanbulDayRangeEnding(endDay, windowDays);
+  const names: Record<HesapTag, string> = { naz: "Naz", ponpon: "Ponpon" };
+  const byPerson = new Map<HesapTag, Map<string, Map<string, ModeratorPostAccount>>>();
+
+  for (const day of days) {
+    const rows = store?.byDate?.[day]?.rows ?? [];
+    for (const row of rows) {
+      if (row.tag !== "naz" && row.tag !== "ponpon") continue;
+      const videos = row.videoCount ?? 0;
+      const platforms = byPerson.get(row.tag) ?? new Map();
+      byPerson.set(row.tag, platforms);
+      const accounts = platforms.get(row.platform) ?? new Map();
+      platforms.set(row.platform, accounts);
+      const prev = accounts.get(row.handle) ?? {
+        handle: row.handle,
+        videos: 0,
+        daysWithVideo: 0,
+        lastPostDay: null,
+      };
+      prev.videos += videos;
+      if (videos > 0) {
+        prev.daysWithVideo += 1;
+        if (!prev.lastPostDay || day > prev.lastPostDay) prev.lastPostDay = day;
+      }
+      accounts.set(row.handle, prev);
+    }
+  }
+
+  const people: ModeratorPostRollup[] = (["naz", "ponpon"] as const).map((tag) => {
+    const platforms: ModeratorPostPlatform[] = [];
+    const postingDays = new Set<string>();
+    for (const day of days) {
+      const hit = (store?.byDate?.[day]?.rows ?? []).some(
+        (r) => r.tag === tag && (r.videoCount ?? 0) > 0,
+      );
+      if (hit) postingDays.add(day);
+    }
+    for (const [platform, accounts] of byPerson.get(tag) ?? []) {
+      const list = [...accounts.values()].sort((a, b) => b.videos - a.videos);
+      platforms.push({
+        platform,
+        videos: list.reduce((s, a) => s + a.videos, 0),
+        daysWithVideo: list.reduce((s, a) => s + a.daysWithVideo, 0),
+        lastPostDay: list.reduce<string | null>((max, a) => {
+          if (!a.lastPostDay) return max;
+          if (!max || a.lastPostDay > max) return a.lastPostDay;
+          return max;
+        }, null),
+        accounts: list,
+      });
+    }
+    platforms.sort((a, b) => a.platform.localeCompare(b.platform, "tr"));
+    return {
+      tag,
+      name: names[tag],
+      platforms,
+      videos: platforms.reduce((s, p) => s + p.videos, 0),
+      daysWithVideo: postingDays.size,
+    };
+  });
+
+  return { windowDays: days.length, endDay, people };
+}
+
 /** Bitiş gününden geriye `count` gün (bitiş dahil), eskiden yeniye. */
 export function istanbulDayRangeEnding(endDay: string, count: number): string[] {
   const n = Math.max(1, Math.min(count, 92));

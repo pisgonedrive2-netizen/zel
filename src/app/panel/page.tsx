@@ -26,6 +26,7 @@ import { PageShell, PageHeader } from "@/components/page-shell";
 import { AdminActionInbox } from "@/components/admin/admin-action-inbox";
 import { SystemBackupStatusCard } from "@/components/admin/system-backup-status-card";
 import { AdminWeekPlanOverview } from "@/components/admin/admin-week-plan-overview";
+import { ModeratorPostingCard } from "@/components/admin/moderator-posting-card";
 import { useAdminDashboardMetrics } from "@/lib/admin-dashboard-metrics";
 import { useStore, weekStartOf, type WeeklyPlan } from "@/store/store";
 import {
@@ -116,6 +117,8 @@ export default function PanelPage() {
       <div className="mb-5">
         <AdminActionInbox />
       </div>
+
+      <ModeratorPostingCard />
 
       <AdminWeekPlanOverview
         weekStart={planWeek}
