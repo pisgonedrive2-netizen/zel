@@ -106,8 +106,8 @@ export function preferRicherViewership(
     brandViewership: fromCache.brandViewership,
   });
 
-  const serverScore = linkDataScore(server.brandLinks) + server.linkSnapshots.length * 2;
-  const cacheScore = linkDataScore(cache.brandLinks) + cache.linkSnapshots.length * 2;
-  if (cacheScore > serverScore) return cache;
-  return server;
+  // Sunucuda veri varsa o kazanır. Eski yerel kopya daha "zengin" diye
+  // güncel izlenmenin üzerine yazılmasın (ilk açılışta yanlış, sonra düzelen rakam).
+  if (server.brandLinks.length > 0 || server.linkSnapshots.length > 0) return server;
+  return cache;
 }

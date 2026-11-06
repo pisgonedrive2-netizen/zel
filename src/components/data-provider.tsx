@@ -51,9 +51,6 @@ const SYNC_MS = 900;
 const BOOTSTRAP_RETRIES = 3;
 const FETCH_TIMEOUT_MS = 25_000;
 const BOOTSTRAP_FETCH_TIMEOUT_MS = 45_000;
-/** UI kilidini aç — hata banner'ı gösterme; istek arka planda sürer. */
-const BOOTSTRAP_STALL_TIMEOUT_MS = 8_000;
-
 function isSessionError(msg: string, status?: number): boolean {
   return status === 401 || /oturum/i.test(msg);
 }
@@ -335,18 +332,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    let stallTimer: ReturnType<typeof setTimeout> | null = null;
     setBootstrapOk(false);
     skipSync.current = true;
     setReady(false);
 
     (async () => {
       try {
-        stallTimer = setTimeout(() => {
-          if (cancelled) return;
-          setReady(true);
-        }, BOOTSTRAP_STALL_TIMEOUT_MS);
-
         const res = await fetchJsonWithRetry("/api/bootstrap", {
           credentials: "include",
           timeoutMs: BOOTSTRAP_FETCH_TIMEOUT_MS,
@@ -510,17 +501,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             setSyncError(msg);
           }
         }
-      } finally {
-        if (stallTimer) {
-          clearTimeout(stallTimer);
-          stallTimer = null;
-        }
       }
     })();
 
     return () => {
       cancelled = true;
-      if (stallTimer) clearTimeout(stallTimer);
     };
   }, [supabaseMode, sessionReady, user?.id]);
 
@@ -609,8 +594,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabaseMode, user?.id, ready, bootstrapOk, runSyncNow]);
 
   const showSessionOverlay = supabaseMode && !sessionReady && !isLoginRoute;
-  // Bootstrap sırasında tam ekran kilidi yerine ince üst şerit — shell hemen çizilsin.
-  const showBootstrapBar = supabaseMode && Boolean(user) && !ready && sessionReady;
+  // Bootstrap bitene kadar seed/eski rakam gösterme.
+  const showBootstrapOverlay =
+    supabaseMode && Boolean(user) && sessionReady && !bootstrapOk && !syncError;
 
   return (
     <>
@@ -623,13 +609,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       )}
-      {showBootstrapBar && (
+      {showBootstrapOverlay && (
         <div
-          className="fixed inset-x-0 top-0 z-[90] h-0.5 overflow-hidden bg-muted"
+          className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-background"
           aria-busy="true"
           aria-label="Veriler yükleniyor"
         >
-          <div className="h-full w-1/3 animate-[bootstrap-slide_1.1s_ease-in-out_infinite] bg-[#FF6B00]" />
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Veriler yükleniyor</p>
         </div>
       )}
       {syncError && (

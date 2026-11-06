@@ -574,15 +574,8 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     if (session.role === "admin") {
       payload.users = await fetchUsers();
     }
-    try {
-      const repairedSlots = await repairMissingBrandLinkSlots();
-      const repairedOrphans = await repairOrphanedBrandLinksFromSnapshots();
-      if (repairedSlots > 0 || repairedOrphans > 0) {
-        payload.brandLinks = await selectAll("brand_links", brandLinkFromRow);
-      }
-    } catch {
-      /* onarım isteğe bağlı */
-    }
+    // Slot onarımı her açılışta tüm marka/link/snapshot tablolarını yeniden çekerdi.
+    // Bootstrap zaten bu veriyi yüklüyor; onarım ayrı admin aracı olarak duruyor.
     try {
       const { ensureTronKasaConfigured } = await import("@/lib/tron-sync");
       const { findPrimaryTronKasa } = await import("@/lib/kasa-tron-metrics");
