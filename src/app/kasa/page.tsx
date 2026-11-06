@@ -5,7 +5,7 @@ import {
   Plus, Pencil, ArrowDownRight, ArrowUpRight, Search,
   Wallet, ExternalLink, Copy, Check, AlertCircle, TrendingDown, Hash,
   Banknote, Archive, Link2, Activity, CalendarRange, FileSpreadsheet, FileText, RefreshCw,
-  Trash2,
+  Trash2, Clapperboard,
 } from "lucide-react";
 import {
   useStore, calcKasaBalance,
@@ -29,7 +29,11 @@ import {
   isRamizTronAddress,
 } from "@/lib/ramiz-wallet-access";
 import { refreshNotificationsFromServer } from "@/lib/notification-actions";
-import { fmt } from "@/lib/data";
+import { fmt, toYearMonthLocal } from "@/lib/data";
+import { computeContentMonthMetrics } from "@/lib/admin-dashboard-metrics";
+import { isKasaMutabakatTransaction } from "@/lib/kasa-mutabakat";
+import { monthLabelTr } from "@/lib/month-label";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input as UInput } from "@/components/ui/input";
@@ -826,6 +830,11 @@ export default function KasaPage() {
   const totalIn        = txnsForSelected.filter(t => t.direction === "in").reduce((s, t) => s + t.amountUsd, 0);
   const totalOut       = txnsForSelected.filter(t => t.direction === "out").reduce((s, t) => s + t.amountUsd + t.feeUsd, 0);
   const totalFees      = txnsForSelected.reduce((s, t) => s + t.feeUsd, 0);
+  const contentMonthYm = toYearMonthLocal(new Date());
+  const contentMonth = useMemo(
+    () => computeContentMonthMetrics(contentExpenses, contentMonthYm),
+    [contentExpenses, contentMonthYm],
+  );
 
   const balanceSeries = useMemo(() => {
     return withBalance.map(t => ({
@@ -1573,7 +1582,7 @@ export default function KasaPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
         <div className="border border-blue-200 dark:border-blue-500/40 rounded-xl px-4 py-3 bg-gradient-to-br from-blue-50/60 to-blue-50/20 dark:from-blue-950/50 dark:to-blue-950/20">
           <p className="text-blue-700 dark:text-blue-300 text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
             <Wallet size={11} /> {selectedKasaId === "all" ? "Toplam Kasa" : "Seçili Kasa Bakiyesi"}
@@ -1603,6 +1612,51 @@ export default function KasaPage() {
             </p>
             <p className={`text-2xl tabular-nums font-bold ${k.cls}`}>{k.value}</p>
           </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {[
+          {
+            label: `İçerik (${monthLabelTr(contentMonthYm)})`,
+            value: fmt(contentMonth.monthContentTotal),
+            sub: `${contentMonth.monthContentCount} aktif`,
+            cls: "text-foreground",
+            href: "/icerik-harcamalari",
+          },
+          {
+            label: "Kasadan içerik",
+            value: fmt(contentMonth.kasaSettledMonthTotal),
+            sub: `${contentMonth.kasaSettledMonthCount} ödeme · bu ay`,
+            cls: "text-blue-600 dark:text-blue-400",
+            href: "/icerik-harcamalari?settlement=kasa",
+          },
+          {
+            label: "Ödeme bekleyen",
+            value: fmt(contentMonth.awaitingSettlementTotal),
+            sub: `${contentMonth.awaitingSettlementCount} onaylı açık`,
+            cls: contentMonth.awaitingSettlementTotal > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+            href: "/icerik-harcamalari?settlement=awaiting",
+          },
+          {
+            label: "Maaştan içerik",
+            value: fmt(contentMonth.payrollSettledMonthTotal),
+            sub: `${contentMonth.payrollSettledMonthCount} · bu ay`,
+            cls: "text-violet-600 dark:text-violet-400",
+            href: "/icerik-harcamalari?settlement=payroll",
+          },
+        ].map((k) => (
+          <Link
+            key={k.label}
+            href={k.href}
+            className="border border-border rounded-xl px-4 py-3 bg-card hover:bg-accent/40 transition-colors"
+          >
+            <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
+              <Clapperboard size={11} /> {k.label}
+            </p>
+            <p className={`text-xl tabular-nums font-bold ${k.cls}`}>{k.value}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{k.sub}</p>
+          </Link>
         ))}
       </div>
 
@@ -1787,6 +1841,14 @@ export default function KasaPage() {
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     <p className="text-sm text-foreground font-medium flex items-center gap-1 flex-wrap">
                       {t.purpose}
+                      {isKasaMutabakatTransaction(t) && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] py-0 border-amber-400/80 text-amber-800 bg-amber-50 dark:border-amber-500/45 dark:text-amber-200 dark:bg-amber-950/40"
+                        >
+                          Mutabakat
+                        </Badge>
+                      )}
                       {t.autoImported && (
                         <Badge variant="outline" className="text-[9px] py-0 border-violet-300 text-violet-700 dark:border-violet-500/45 dark:text-violet-300">
                           TRON

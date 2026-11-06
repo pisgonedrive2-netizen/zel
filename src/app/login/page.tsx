@@ -103,14 +103,19 @@ function StepCard({
   color,
   title,
   description,
+  href,
 }: {
   step: string;
   color: string;
   title: string;
   description: string;
+  href?: string;
 }) {
   return (
     <li className={eliteCardShell}>
+      {href && (
+        <a href={href} className="absolute inset-0 z-[2]" aria-label={title} />
+      )}
       <EliteCardAccent color={color} />
       <div className="relative z-[1] flex items-center gap-3.5">
         <span
@@ -1051,6 +1056,9 @@ export default function LoginPage() {
           <a href="#ozellikler" className="hover:text-white">{copy.navFeatures}</a>
           <a href="#paketler" className="hover:text-white">{copy.navPackages}</a>
           <a href="#partnerler" className="hover:text-white">{copy.navPartners}</a>
+          <a href="https://www.videoyolla.com" className="hover:text-white" target="_blank" rel="noreferrer">
+            {copy.navClip}
+          </a>
         </nav>
         <div className="flex items-center gap-2">
           <LocaleToggle variant="landing" />
@@ -1277,6 +1285,33 @@ export default function LoginPage() {
             <FeatureCard color="#EC4899" title={copy.featPosts} description={copy.featPostsDesc} />
             <FeatureCard color="#FF6B00" title={copy.featAff} description={copy.featAffDesc} />
             <FeatureCard color="#22C55E" title={copy.featKpi} description={copy.featKpiDesc} />
+          </div>
+        </div>
+      </section>
+
+      <section id="video-yolla" className="relative w-full overflow-hidden bg-black px-4 py-16 sm:px-6 sm:py-20">
+        <LandingSoftGlow at="50% 20%" opacity={0.16} spread="70%" />
+        <div className="relative z-10 mx-auto max-w-[1180px]">
+          <div className="mb-12 text-center">
+            <SectionEyebrow>{copy.clipEyebrow}</SectionEyebrow>
+            <SectionTitle>{copy.clipTitle}</SectionTitle>
+            <SectionLead>{copy.clipLead}</SectionLead>
+          </div>
+          <ol className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StepCard step="1" color="#FF6B00" title={copy.clip1Title} description={copy.clip1Desc} />
+            <StepCard step="2" color="#22C55E" title={copy.clip2Title} description={copy.clip2Desc} href="https://www.videoyolla.com/#gonder" />
+            <StepCard step="3" color="#3B82F6" title={copy.clip3Title} description={copy.clip3Desc} />
+            <StepCard step="4" color="#EC4899" title={copy.clip4Title} description={copy.clip4Desc} />
+          </ol>
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <a
+              href="https://www.videoyolla.com/#gonder"
+              style={{ backgroundColor: ORANGE }}
+              className="inline-flex h-11 items-center rounded-lg px-6 text-sm font-semibold text-white shadow-lg shadow-orange-900/40 ring-1 ring-orange-600/40 transition hover:brightness-110"
+            >
+              {copy.clipCta}
+            </a>
+            <p className="max-w-lg text-center text-xs text-white/45">{copy.clipNote}</p>
           </div>
         </div>
       </section>

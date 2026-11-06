@@ -94,9 +94,15 @@ export async function persistContentExpenseKasaPay(opts: {
 export async function persistContentExpenseUnpay(opts: {
   expense: ContentExpense;
   removeKasaTxIds: string[];
+  /** Mevcut kasa hareketine bağlantı kaldırıldı — hareket silinmez, not güncellenir. */
+  updateKasaTx?: KasaTransaction;
 }): Promise<boolean> {
   if (!isSupabaseClientMode()) return true;
   try {
+    if (opts.updateKasaTx) {
+      const kasa = await persistKasaTransaction(opts.updateKasaTx);
+      if (!kasa.ok) throw new Error(kasa.error ?? "Kasa hareketi güncellenemedi");
+    }
     for (const id of opts.removeKasaTxIds) {
       const r = await removeKasaTransaction(id);
       if (!r.ok && r.error) throw new Error(r.error);

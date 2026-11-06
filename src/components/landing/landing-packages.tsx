@@ -331,6 +331,15 @@ function ContentGallery() {
                     }}
                     className="absolute inset-0 h-full w-full scale-[1.35] object-cover transition duration-500 group-hover:scale-[1.45]"
                   />
+                ) : embed && (g.platform === "instagram" || g.platform === "tiktok") ? (
+                  <iframe
+                    src={embed}
+                    title=""
+                    loading="lazy"
+                    tabIndex={-1}
+                    aria-hidden
+                    className="pointer-events-none absolute left-1/2 top-1/2 h-[140%] w-[140%] -translate-x-1/2 -translate-y-1/2 scale-[1.15] border-0 opacity-90"
+                  />
                 ) : (
                   <div
                     className="absolute inset-0"
@@ -348,7 +357,7 @@ function ContentGallery() {
                 <span
                   className="absolute left-2 top-2 inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider backdrop-blur-sm"
                   style={{ background: `${g.color}cc`, color: "#000" }}
-                >
+                  >
                   {g.brand}
                 </span>
                 <span className="absolute right-2 top-2 rounded-full bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/80 backdrop-blur-sm">

@@ -55,7 +55,7 @@ async function main() {
 
   await upsert("organizations",        initialOrganizations.map(organizationToRow));
   await upsert("organization_members", initialOrganizationMembers.map(organizationMemberToRow));
-  await upsert("employees",            initialEmployees.map(employeeToRow));
+  await upsert("employees",            initialEmployees.map((e) => employeeToRow(e)));
   await upsert("brands",               initialBrands.map(brandToRow));
   await upsert("external_companies",   initialCompanies.map(companyToRow));
   await upsert("advances",             initialAdvances.map(advanceToRow));

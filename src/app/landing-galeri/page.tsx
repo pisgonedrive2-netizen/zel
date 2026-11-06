@@ -139,7 +139,7 @@ export default function LandingGaleriAdminPage() {
     });
   }, [ranked, platformFilter, kindFilter, search]);
 
-  const putAction = async (action: "save" | "syncViews" | "sortByViews") => {
+  const putAction = async (action: "save" | "syncViews" | "sortByViews" | "syncThumbnails") => {
     setBusy(true);
     setFlash(null);
     try {
@@ -148,7 +148,14 @@ export default function LandingGaleriAdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items, action }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; items?: GalleryRow[] };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        items?: GalleryRow[];
+        filled?: number;
+        failed?: number;
+        thumbsFilled?: number;
+      };
       if (!res.ok || !data.ok) {
         setFlash(data.error ?? "İşlem başarısız");
         return;
@@ -158,8 +165,10 @@ export default function LandingGaleriAdminPage() {
         action === "save"
           ? "Landing galeri kaydedildi."
           : action === "syncViews"
-            ? "İzlenmeler brand_links’ten güncellendi ve kaydedildi."
-            : "İzlenmeye göre sıralandı ve kaydedildi."
+            ? `İzlenmeler güncellendi${data.thumbsFilled ? ` · ${data.thumbsFilled} kapak dolduruldu` : ""}.`
+            : action === "syncThumbnails"
+              ? `Kapaklar güncellendi (${data.filled ?? 0} yeni${data.failed ? `, ${data.failed} başarısız` : ""}).`
+              : "İzlenmeye göre sıralandı ve kaydedildi."
       );
       if (action !== "save") void load();
     } catch {
@@ -251,6 +260,9 @@ export default function LandingGaleriAdminPage() {
             </Button>
             <Button variant="outline" onClick={() => void putAction("syncViews")} disabled={busy}>
               İzlenme senkron
+            </Button>
+            <Button variant="outline" onClick={() => void putAction("syncThumbnails")} disabled={busy}>
+              Kapakları doldur
             </Button>
             <Button variant="outline" onClick={() => void putAction("sortByViews")} disabled={busy}>
               <ArrowUpDown className="mr-2 h-4 w-4" />

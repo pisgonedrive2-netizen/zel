@@ -17,6 +17,7 @@ import { useIsReadOnly } from "@/store/auth";
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { getRuntimeLocale } from "@/lib/i18n/locale-state";
 import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import {
   linkViewsForMonth,
   totalLinkViewsForMonth,
@@ -361,12 +362,20 @@ export default function IzlenmePage() {
 
   const {
     employees,
-    brands,
-    brandLinks,
+    brands: allBrands,
+    brandLinks: allBrandLinks,
     linkSnapshots,
     brandViewership,
     contentExpenses,
   } = useStore();
+  const brands = useMemo(
+    () => allBrands.filter((b) => !isYeniHesaplarBrandId(b.id)),
+    [allBrands]
+  );
+  const brandLinks = useMemo(
+    () => allBrandLinks.filter((l) => !isYeniHesaplarBrandId(l.brandId)),
+    [allBrandLinks]
+  );
 
   // ── Aggregates ─────────────────────────────────────────────────────────
   const totalBrandsActive = brands.filter((b) => b.status === "active").length;

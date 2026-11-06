@@ -22,6 +22,8 @@ import {
 } from "@/store/store";
 import { sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { reconcileAdvanceCutsForAllEmployees } from "@/lib/advance-repay";
+import { reconcileKasaLinkedContentExpenses } from "@/lib/content-expense";
 import {
   mergeBrandViewershipHydrate,
   mergeCanonicalBrandLinks,
@@ -196,7 +198,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const user = useAuth((s) => s.user);
   const sessionReady = useAuth((s) => s.sessionReady);
   const pathname = usePathname();
-  const isLoginRoute = pathname === "/login";
+  const isLoginRoute =
+    pathname === "/login" ||
+    pathname.startsWith("/video-yolla") ||
+    pathname === "/durum" ||
+    pathname.startsWith("/durum/");
   const router = useRouter();
   const [ready, setReady] = useState(!supabaseMode);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -236,6 +242,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         st.contentExpenses
       );
       fixedExtras = reconcileRentExtrasForAllEmployees(st.employees, fixedExtras);
+      fixedExtras = reconcileAdvanceCutsForAllEmployees(st.employees, fixedExtras);
       if (fixedExtras !== st.salaryExtras) {
         skipSync.current = true;
         useStore.setState({ salaryExtras: fixedExtras });
@@ -290,9 +297,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         s.salaryExtras,
         s.contentExpenses,
       );
-      const fixed = reconcileRentExtrasForAllEmployees(
+      const fixed = reconcileAdvanceCutsForAllEmployees(
         s.employees,
-        payrollLinked.salaryExtras,
+        reconcileRentExtrasForAllEmployees(
+          s.employees,
+          payrollLinked.salaryExtras,
+        ),
       );
       const brandLinks = mergeCanonicalBrandLinks(s.brandLinks, s.brands);
       const cache = readViewershipCache();
@@ -415,9 +425,35 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           contentExpenses,
         );
         salaryExtras = payrollLinked.salaryExtras;
-        patch.contentExpenses = payrollLinked.contentExpenses;
+        let payrollContentExpenses = payrollLinked.contentExpenses;
+        if (payrollLinked.changed.length > 0 && isSupabaseClientMode()) {
+          void import("@/store/store").then(({ persistEntityAsync }) => {
+            for (const row of payrollLinked.changed) {
+              void persistEntityAsync("content_expense", row);
+            }
+          });
+        }
+        const kasaLinked = reconcileKasaLinkedContentExpenses(
+          payrollContentExpenses,
+          (patch.kasaTransactions ?? useStore.getState().kasaTransactions) as {
+            id: string;
+            date: string;
+            notes?: string;
+            purpose?: string;
+            direction?: string;
+          }[],
+        );
+        patch.contentExpenses = kasaLinked.expenses;
+        if (kasaLinked.changed.length > 0 && isSupabaseClientMode()) {
+          void import("@/store/store").then(({ persistEntityAsync }) => {
+            for (const row of kasaLinked.changed) {
+              void persistEntityAsync("content_expense", row);
+            }
+          });
+        }
         salaryExtras = mergeCanonicalSalaryExtras(salaryExtras);
         salaryExtras = reconcileRentExtrasForAllEmployees(employees, salaryExtras);
+        salaryExtras = reconcileAdvanceCutsForAllEmployees(employees, salaryExtras);
         patch.salaryExtras = salaryExtras;
         patch.paymentStatuses = mergeCanonicalPaymentStatuses(
           (patch.paymentStatuses ?? useStore.getState().paymentStatuses) as import("@/store/store").MonthPaymentStatus[],

@@ -44,14 +44,14 @@ export const DEFAULT_LANDING_GALLERY: LandingGalleryItem[] = [
     thumbnailUrl: "https://i.ytimg.com/vi/lsk5wAFGGpo/hqdefault.jpg",
   },
   {
-    id: "instagram:DZdG08hzlcI",
+    id: "instagram:Dah0xduOtA-",
     platform: "instagram",
-    externalId: "DZdG08hzlcI",
-    url: "https://www.instagram.com/reel/DZdG08hzlcI/",
+    externalId: "Dah0xduOtA-",
+    url: "https://www.instagram.com/reel/Dah0xduOtA-/",
     brand: "Padişahbet",
-    views: 4_341_348,
+    views: 5_364_939,
     color: "#F59E0B",
-    title: "En viral Instagram reel",
+    title: "Viral reel",
   },
   {
     id: "instagram:DbpoBmjOzM7",
@@ -63,30 +63,30 @@ export const DEFAULT_LANDING_GALLERY: LandingGalleryItem[] = [
     color: "#F59E0B",
   },
   {
-    id: "instagram:DZhyzEHsuy5",
+    id: "instagram:DcNzHyuuq-A",
     platform: "instagram",
-    externalId: "DZhyzEHsuy5",
-    url: "https://www.instagram.com/reel/DZhyzEHsuy5/",
+    externalId: "DcNzHyuuq-A",
+    url: "https://www.instagram.com/reel/DcNzHyuuq-A/",
     brand: "Padişahbet",
-    views: 3_000_698,
+    views: 5_189_441,
     color: "#F59E0B",
   },
   {
-    id: "instagram:DXw6y6PtDdi",
+    id: "instagram:Daczh6eNs_6",
     platform: "instagram",
-    externalId: "DXw6y6PtDdi",
-    url: "https://www.instagram.com/reel/DXw6y6PtDdi/",
+    externalId: "Daczh6eNs_6",
+    url: "https://www.instagram.com/reel/Daczh6eNs_6/",
     brand: "Padişahbet",
-    views: 2_871_858,
+    views: 2_274_323,
     color: "#F59E0B",
   },
   {
-    id: "instagram:DY4jywysioy",
+    id: "instagram:DcQl9FYORIS",
     platform: "instagram",
-    externalId: "DY4jywysioy",
-    url: "https://www.instagram.com/reel/DY4jywysioy/",
+    externalId: "DcQl9FYORIS",
+    url: "https://www.instagram.com/reel/DcQl9FYORIS/",
     brand: "Padişahbet",
-    views: 2_375_802,
+    views: 1_320_938,
     color: "#F59E0B",
   },
   {
@@ -318,4 +318,88 @@ export function buildItemFromParsed(opts: {
       opts.thumbnailUrl ||
       (parsed.platform === "youtube" ? youtubeThumb(parsed.externalId) : undefined),
   };
+}
+
+export type GalleryThumbSyncResult = {
+  items: LandingGalleryItem[];
+  filled: number;
+  failed: number;
+  skipped: number;
+};
+
+/**
+ * Eksik thumbnail’leri RapidAPI rich-details ile doldurur.
+ * YouTube için ytimg kullanılır (kota yok).
+ */
+export async function enrichGalleryThumbnails(
+  items: LandingGalleryItem[],
+  opts?: { force?: boolean; delayMs?: number },
+): Promise<GalleryThumbSyncResult> {
+  const force = opts?.force === true;
+  const delayMs = Math.max(0, opts?.delayMs ?? 1200);
+  const { detectPlatform } = await import("@/lib/social-api/platform-detect");
+  const { fetchRichDetailsForLink } = await import("@/lib/social-api/clients");
+
+  let filled = 0;
+  let failed = 0;
+  let skipped = 0;
+  const next: LandingGalleryItem[] = [];
+
+  for (const it of items) {
+    const hasThumb = Boolean(it.thumbnailUrl?.trim());
+    if (it.platform === "youtube") {
+      const thumb = youtubeThumb(it.externalId);
+      if (!hasThumb || force) {
+        next.push({ ...it, thumbnailUrl: thumb });
+        if (!hasThumb) filled += 1;
+        else skipped += 1;
+      } else {
+        next.push(it);
+        skipped += 1;
+      }
+      continue;
+    }
+
+    if (hasThumb && !force) {
+      next.push(it);
+      skipped += 1;
+      continue;
+    }
+
+    const detected = detectPlatform(it.url, it.platform, undefined, it.externalId);
+    if (!detected) {
+      next.push(it);
+      failed += 1;
+      continue;
+    }
+
+    try {
+      const details = await fetchRichDetailsForLink(detected, { includePremium: false });
+      const thumb = details.thumbnailUrl?.trim();
+      if (thumb) {
+        next.push({
+          ...it,
+          thumbnailUrl: thumb,
+          title: it.title || details.title || undefined,
+          views:
+            details.metrics.views != null && details.metrics.views > 0
+              ? Math.max(it.views, Math.floor(details.metrics.views))
+              : it.views,
+        });
+        filled += 1;
+      } else {
+        next.push(it);
+        failed += 1;
+      }
+    } catch {
+      next.push(it);
+      failed += 1;
+    }
+
+    if (delayMs > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  return { items: next, filled, failed, skipped };
 }

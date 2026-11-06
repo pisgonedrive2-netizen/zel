@@ -2,7 +2,7 @@
 
 import { create, type StateCreator } from "zustand";
 import { persist } from "zustand/middleware";
-import { canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
+import { canAccessPrim, canApplyUserPatch, canDeleteUser, isMainAdmin } from "@/lib/user-guards";
 import { routeCapability, hasCapabilityFor } from "@/lib/permissions";
 import { resolvePlainPin } from "@/lib/pin-update";
 import { logAudit, purgeAuditEntriesForActor, refreshAuditFromServer } from "@/store/audit-log";
@@ -597,7 +597,7 @@ export const useAuth = isSupabaseClientMode()
 /** Hangi rotalara hangi rol erişebilir? */
 export const ROUTE_ACCESS = {
   /** Auth gerekmiyor. */
-  public: ["/login"],
+  public: ["/login", "/video-yolla"],
 
   /** Yayıncı sadece bu rotalara erişebilir. */
   streamer: ["/yayinci"],
@@ -622,7 +622,7 @@ export const ROUTE_ACCESS = {
   adminBlocked: ["/login"],
 
   /** Yalnızca ana yönetici (Orkun) — marka/yayıncı/denetçi/diğer adminler erişemez. */
-  mainAdminOnly: ["/prim", "/ozet"],
+  mainAdminOnly: ["/prim", "/ozet", "/orkun"],
 };
 
 export function canAccess(
@@ -664,6 +664,10 @@ export function canAccess(
       return true;
     }
     if (ROUTE_ACCESS.adminBlocked.includes(pathname)) return false;
+    // Orkun köşesi — yalnızca ana yönetici; capability ile açılamaz.
+    if (pathname === "/orkun" || pathname.startsWith("/orkun/")) {
+      return canAccessPrim(user ?? null);
+    }
     return hasRouteCap();
   }
   if (role === "auditor") {

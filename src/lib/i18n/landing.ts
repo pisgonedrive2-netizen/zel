@@ -6,6 +6,7 @@ export type LandingCopy = {
   navFeatures: string;
   navPackages: string;
   navPartners: string;
+  navClip: string;
   register: string;
   login: string;
   heroTitle1: string;
@@ -38,6 +39,19 @@ export type LandingCopy = {
   step3Desc: string;
   step4Title: string;
   step4Desc: string;
+  clipEyebrow: string;
+  clipTitle: string;
+  clipLead: string;
+  clip1Title: string;
+  clip1Desc: string;
+  clip2Title: string;
+  clip2Desc: string;
+  clip3Title: string;
+  clip3Desc: string;
+  clip4Title: string;
+  clip4Desc: string;
+  clipCta: string;
+  clipNote: string;
   featuresEyebrow: string;
   featuresTitle: string;
   featuresLead: string;
@@ -137,6 +151,7 @@ const TR: LandingCopy = {
   navFeatures: "Özellikler",
   navPackages: "Paketler",
   navPartners: "Partnerler",
+  navClip: "Video yolla",
   register: "Kayıt Ol",
   login: "Giriş Yap",
   heroTitle1: "Foxstream ile",
@@ -170,6 +185,19 @@ const TR: LandingCopy = {
   step3Desc: "Marka teklif gönderir, mesajlaşma + karşı teklif akışı çalışır. Kabul → anlaşma.",
   step4Title: "Anlaşma + Post",
   step4Desc: "Yayıncı post URL ekler; marka panelinde anında görünür. Affiliate ile ölçümle.",
+  clipEyebrow: "Klip kazancı",
+  clipTitle: "Video yolla, izlendikçe kazan",
+  clipLead: "Kendi hesabında paylaştığın videonun linkini gönder. Onaylanan videoların izlenme ve etkileşimi takip edilir; hak edişi olanlara moderatörler ulaşır.",
+  clip1Title: "Paylaş",
+  clip1Desc: "Videoyu kendi Instagram, TikTok veya YouTube hesabında yayınla.",
+  clip2Title: "Linki gönder",
+  clip2Desc: "Adın, Telegram veya telefonun ve videonun linkini yapıştır. IBAN veya e-posta istemiyoruz.",
+  clip3Title: "Onay",
+  clip3Desc: "Biz videoyu kontrol ederiz. Onaylananlar takip edilir, reddedilenlerde sebebi görürsün.",
+  clip4Title: "Hak ediş",
+  clip4Desc: "Sayılar güncellenir. Hak edişi olunca moderatörler iletişiminden sana ulaşır.",
+  clipCta: "Video gönder",
+  clipNote: "Linki gönder kartına veya Video gönder düğmesine basınca form açılır.",
   featuresEyebrow: "Modüller",
   featuresTitle: "Platform özellikleri",
   featuresLead: "Operasyondan ödemeye, partnerden affiliate'e — gerekli her şey hazır.",
@@ -274,6 +302,7 @@ const RU: LandingCopy = {
   navFeatures: "Возможности",
   navPackages: "Пакеты",
   navPartners: "Партнёры",
+  navClip: "Отправить видео",
   register: "Регистрация",
   login: "Войти",
   heroTitle1: "С Foxstream",
@@ -307,6 +336,19 @@ const RU: LandingCopy = {
   step3Desc: "Бренд отправляет оффер, чат и контрпредложение. Принятие → сделка.",
   step4Title: "Сделка + пост",
   step4Desc: "Стример добавляет URL поста; бренд видит его сразу. Affiliate измеряет результат.",
+  clipEyebrow: "Оплата за клипы",
+  clipTitle: "Отправь видео и зарабатывай на просмотрах",
+  clipLead: "Пришли ссылку на видео со своего аккаунта. Одобренные ролики отслеживаем; при праве на выплату с тобой свяжется модератор.",
+  clip1Title: "Опубликуй",
+  clip1Desc: "Выложи видео в своём Instagram, TikTok или YouTube.",
+  clip2Title: "Пришли ссылку",
+  clip2Desc: "Имя, Telegram или телефон и ссылка на само видео. IBAN и email не нужны.",
+  clip3Title: "Проверка",
+  clip3Desc: "Мы смотрим ролик. Одобренные отслеживаем, у отклонённых видна причина.",
+  clip4Title: "Выплата",
+  clip4Desc: "Цифры обновляются. При праве на выплату модератор свяжется по контакту.",
+  clipCta: "Отправить видео",
+  clipNote: "Пока нет открытой кампании, страница объясняет шаги. Форма появится, когда кампания откроется.",
   featuresEyebrow: "Модули",
   featuresTitle: "Возможности платформы",
   featuresLead: "От операций до выплат и affiliate — всё уже в панели.",

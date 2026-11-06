@@ -15,6 +15,15 @@ import type { AppUser } from "@/store/auth";
 import { sanitizePermissions } from "@/lib/permissions";
 import { pgDate, pgTime, pgTimestamptz } from "@/lib/db/pg-value";
 import { normalizeWeekAnchorIso, weekStartFromDateIso } from "@/lib/data";
+import {
+  encodeAdvancePlanInNotes,
+  parseAdvancePlanFromNotes,
+} from "@/lib/advance-repay";
+import {
+  encodeExpenseExceptionInNotes,
+  parseExpenseException,
+  type ContentExpenseExceptionKind,
+} from "@/lib/content-expense";
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
 const optNum = (v: unknown) => (v === null || v === undefined ? undefined : Number(v));
@@ -22,6 +31,12 @@ const str = (v: unknown, fallback = "") => (v == null ? fallback : String(v));
 const bool = (v: unknown, fallback = false) => (v == null ? fallback : Boolean(v));
 
 export function employeeFromRow(r: Record<string, unknown>): Employee {
+  const notes = str(r.notes);
+  const parsed = parseAdvancePlanFromNotes(notes);
+  const planCut = optNum(r.advance_monthly_cut) ?? parsed.cut;
+  const planStart = r.advance_repay_start_month
+    ? str(r.advance_repay_start_month)
+    : parsed.start;
   return {
     id: str(r.id),
     name: str(r.name),
@@ -30,6 +45,8 @@ export function employeeFromRow(r: Record<string, unknown>): Employee {
     baseSalary: num(r.base_salary),
     rentSupport: num(r.rent_support),
     initialAdvance: num(r.initial_advance),
+    advanceMonthlyCut: planCut,
+    advanceRepayStartMonth: planStart,
     paymentDay: str(r.payment_day, "1-5"),
     payrollStartMonth: str(r.payroll_start_month),
     payrollEndMonth: r.payroll_end_month ? str(r.payroll_end_month) : undefined,
@@ -41,13 +58,20 @@ export function employeeFromRow(r: Record<string, unknown>): Employee {
     status: r.status as Employee["status"],
     walletAddress: str(r.wallet_address),
     avatar: str(r.avatar),
-    notes: str(r.notes),
+    notes,
     kind: r.kind as Employee["kind"],
   };
 }
 
-export function employeeToRow(e: Employee) {
-  return {
+export function employeeToRow(e: Employee, opts?: { includeAdvanceColumns?: boolean }) {
+  // advance_* kolonları migration öncesi PostgREST hatası vermesin diye
+  // planı notes içine gömüyoruz. Kolonlar varsa ayrıca yazılır.
+  const notes = encodeAdvancePlanInNotes(
+    e.notes,
+    e.advanceMonthlyCut,
+    e.advanceRepayStartMonth,
+  );
+  const row: Record<string, unknown> = {
     id: e.id,
     name: e.name,
     role: e.role,
@@ -64,9 +88,14 @@ export function employeeToRow(e: Employee) {
     status: e.status,
     wallet_address: e.walletAddress,
     avatar: e.avatar,
-    notes: e.notes,
+    notes,
     kind: e.kind,
   };
+  if (opts?.includeAdvanceColumns) {
+    row.advance_monthly_cut = e.advanceMonthlyCut ?? null;
+    row.advance_repay_start_month = e.advanceRepayStartMonth ?? null;
+  }
+  return row;
 }
 
 export function advanceFromRow(r: Record<string, unknown>): Advance {
@@ -768,6 +797,13 @@ export function kasaToRow(t: KasaTransaction) {
 }
 
 export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpense {
+  const notes = str(r.notes);
+  const parsedExc = parseExpenseException(notes);
+  const kindRaw = r.exception_kind ? str(r.exception_kind) : parsedExc.kind;
+  const exceptionKind =
+    kindRaw === "hibe" || kindRaw === "hack" || kindRaw === "elzem" || kindRaw === "diger"
+      ? (kindRaw as ContentExpenseExceptionKind)
+      : undefined;
   return {
     id: str(r.id),
     date: str(r.date).slice(0, 10),
@@ -784,7 +820,7 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     amountThb: optNum(r.amount_thb),
     paid: bool(r.paid),
     paidDate: r.paid_date ? str(r.paid_date).slice(0, 10) : undefined,
-    notes: str(r.notes),
+    notes,
     screenshotUrl: r.screenshot_url ? str(r.screenshot_url) : undefined,
     submittedAt: r.submitted_at ? str(r.submitted_at) : undefined,
     submittedBy: r.submitted_by ? str(r.submitted_by) : undefined,
@@ -799,6 +835,12 @@ export function contentExpenseFromRow(r: Record<string, unknown>): ContentExpens
     reviewThread: Array.isArray(r.review_thread)
       ? (r.review_thread as ContentExpense["reviewThread"])
       : undefined,
+    exceptionKind,
+    exceptionNote: r.exception_note
+      ? str(r.exception_note)
+      : parsedExc.note,
+    adminReleasedAt: r.admin_released_at ? str(r.admin_released_at) : undefined,
+    adminReleasedBy: r.admin_released_by ? str(r.admin_released_by) : undefined,
   };
 }
 
@@ -807,6 +849,12 @@ export function contentExpenseToRow(e: ContentExpense) {
     pgDate(e.date, e.month ? `${e.month}-01` : null) ??
     (e.month?.length >= 7 ? `${e.month.slice(0, 7)}-01` : null) ??
     "1970-01-01";
+  // exception_* kolonları yoksa notes etiketine göm.
+  const notes = encodeExpenseExceptionInNotes(
+    e.notes,
+    e.exceptionKind,
+    e.exceptionNote,
+  );
   return {
     id: e.id,
     date,
@@ -821,7 +869,7 @@ export function contentExpenseToRow(e: ContentExpense) {
     amount_thb: e.amountThb ?? null,
     paid: e.paid,
     paid_date: pgDate(e.paidDate),
-    notes: e.notes ?? "",
+    notes,
     screenshot_url: e.screenshotUrl ?? null,
     submitted_at: e.submittedAt ?? null,
     submitted_by: e.submittedBy ?? null,
@@ -834,6 +882,8 @@ export function contentExpenseToRow(e: ContentExpense) {
     settlement_mode: e.settlementMode ?? null,
     salary_extra_id: e.salaryExtraId ?? null,
     review_thread: e.reviewThread ?? [],
+    admin_released_at: e.adminReleasedAt ?? null,
+    admin_released_by: e.adminReleasedBy ?? null,
   };
 }
 

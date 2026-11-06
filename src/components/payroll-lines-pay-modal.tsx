@@ -11,6 +11,8 @@ import { fmt, toDateLocal } from "@/lib/data";
 import { payrollDueShort } from "@/lib/payroll-dates";
 import {
   formatPayrollLineStatusSummary,
+  isPayrollLinePayable,
+  payrollLinePayAmount,
   sumPaidPayrollLines,
   sumUnpaidPayrollLines,
   type PayrollLineItem,
@@ -62,9 +64,12 @@ export function PayrollLinesPayModal({
   const paidTotal = sumPaidPayrollLines(payrollLines);
   const unpaidTotal = sumUnpaidPayrollLines(payrollLines);
   const planTotal = payrollLines.reduce((s, l) => s + l.amountUsd, 0);
-  const paidCount = payrollLines.filter((l) => l.paid).length;
+  const payableLines = payrollLines.filter((l) => isPayrollLinePayable(l));
+  const paidCount = payableLines.filter((l) => l.paid).length;
   const unpaidLines = payrollLines.filter((l) => !l.paid);
   const paidLines = payrollLines.filter((l) => l.paid);
+  const unpaidPayable = unpaidLines.filter((l) => isPayrollLinePayable(l));
+  const deductionLines = payrollLines.filter((l) => l.kind === "deduction");
 
   return (
     <Modal
@@ -76,10 +81,10 @@ export function PayrollLinesPayModal({
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
-            { label: "Bordro toplamı", value: fmt(planTotal), cls: "text-foreground" },
+            { label: "Net plan (ödenecek)", value: fmt(planTotal), cls: "text-foreground" },
             { label: "Ödenen", value: fmt(paidTotal), cls: "text-green-700 dark:text-green-300" },
             { label: "Kalan", value: fmt(unpaidTotal), cls: unpaidTotal > 0 ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground" },
-            { label: "Kalem", value: `${paidCount}/${payrollLines.length}`, cls: "text-muted-foreground" },
+            { label: "Ödeme kalemi", value: `${paidCount}/${payableLines.length}`, cls: "text-muted-foreground" },
           ].map((s) => (
             <div key={s.label} className="rounded-lg border border-border bg-muted/20 px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</p>
@@ -122,16 +127,36 @@ export function PayrollLinesPayModal({
           </div>
         )}
 
-        {unpaidLines.length > 0 && (
+        {deductionLines.length > 0 && (
           <section className="space-y-2">
             <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Bekleyen ({unpaidLines.length})
+              Kesintiler (maaştan düşülür)
             </h4>
-            <div className="rounded-lg border border-border divide-y divide-border/60 overflow-hidden">
-              {unpaidLines.map((line) => (
+            <div className="rounded-lg border border-amber-200/60 dark:border-amber-500/30 divide-y divide-border/60 overflow-hidden">
+              {deductionLines.map((line) => (
                 <LineRow
                   key={line.lineId}
                   line={line}
+                  kasas={kasas}
+                  kasaTransactions={kasaTransactions}
+                  readOnly
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {unpaidPayable.length > 0 && (
+          <section className="space-y-2">
+            <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Bekleyen ({unpaidPayable.length})
+            </h4>
+            <div className="rounded-lg border border-border divide-y divide-border/60 overflow-hidden">
+              {unpaidPayable.map((line) => (
+                <LineRow
+                  key={line.lineId}
+                  line={line}
+                  allLines={payrollLines}
                   kasas={kasas}
                   kasaTransactions={kasaTransactions}
                   readOnly={readOnly}
@@ -149,10 +174,11 @@ export function PayrollLinesPayModal({
               Ödenen ({paidLines.length})
             </h4>
             <div className="rounded-lg border border-green-200/60 dark:border-green-500/30 divide-y divide-border/40 overflow-hidden max-h-[min(40vh,280px)] overflow-y-auto">
-              {paidLines.map((line) => (
+              {paidLines.filter(isPayrollLinePayable).map((line) => (
                 <LineRow
                   key={line.lineId}
                   line={line}
+                  allLines={payrollLines}
                   kasas={kasas}
                   kasaTransactions={kasaTransactions}
                   readOnly={readOnly}
@@ -206,6 +232,7 @@ export function PayrollLinesPayModal({
 
 function LineRow({
   line,
+  allLines,
   kasas,
   kasaTransactions,
   readOnly,
@@ -214,6 +241,7 @@ function LineRow({
   onUnpay,
 }: {
   line: PayrollLineItem;
+  allLines?: PayrollLineItem[];
   kasas: Kasa[];
   kasaTransactions: KasaTransaction[];
   readOnly: boolean;
@@ -221,6 +249,14 @@ function LineRow({
   onMarkPaid?: () => void;
   onUnpay?: () => void;
 }) {
+  const displayAmount =
+    line.kind === "base_salary" && allLines
+      ? payrollLinePayAmount(line, allLines)
+      : line.amountUsd;
+  const showNetHint =
+    line.kind === "base_salary" &&
+    allLines &&
+    displayAmount !== line.amountUsd;
   const tx = line.kasaTxId ? kasaTransactions.find((t) => t.id === line.kasaTxId) : undefined;
   const kasaName = tx ? kasas.find((k) => k.id === tx.kasaId)?.name ?? tx.kasaId : undefined;
 
@@ -233,6 +269,11 @@ function LineRow({
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium text-foreground truncate">{line.label}</p>
+        {showNetHint && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            Brüt {fmt(line.amountUsd)} · ödenecek net {fmt(displayAmount)}
+          </p>
+        )}
         {line.paid && line.paidDate && (
           <p className="text-[10px] text-muted-foreground mt-0.5">
             {line.paidDate}
@@ -240,8 +281,17 @@ function LineRow({
           </p>
         )}
       </div>
-      <span className="tabular-nums font-semibold shrink-0">{fmt(line.amountUsd)}</span>
-      {line.paid ? (
+      <span
+        className={cn(
+          "tabular-nums font-semibold shrink-0",
+          line.kind === "deduction" && "text-amber-800 dark:text-amber-200",
+        )}
+      >
+        {line.kind === "deduction" ? `−${fmt(Math.abs(line.amountUsd))}` : fmt(line.amountUsd)}
+      </span>
+      {line.kind === "deduction" ? (
+        <span className="text-[10px] text-muted-foreground shrink-0">Bordrodan düşülür</span>
+      ) : line.paid ? (
         <>
           <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400 shrink-0 text-[10px]">
             <CheckCircle2 size={11} /> Ödendi

@@ -4,12 +4,14 @@ import { isSupabaseEnabled } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
   buildItemFromParsed,
+  enrichGalleryThumbnails,
   getLandingGalleryItems,
   galleryViewsLabel,
   saveLandingGalleryItems,
   type LandingGalleryItem,
   type LandingGalleryPlatform,
 } from "@/lib/landing-gallery";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +93,7 @@ async function loadRankedClips(minViews: number, limit: number): Promise<{
       last_snapshot_date: string | null;
       last_checked_at: string | null;
     };
+    if (isYeniHesaplarBrandId(r.brand_id)) continue;
     const platform = mapPlatform(r.platform);
     if (!platform) continue;
     const built = buildItemFromParsed({
@@ -167,12 +170,32 @@ export async function PUT(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as {
     items?: LandingGalleryItem[];
-    action?: "save" | "syncViews" | "sortByViews";
+    action?: "save" | "syncViews" | "sortByViews" | "syncThumbnails";
+    forceThumbnails?: boolean;
   };
 
   const action = body.action ?? "save";
 
   try {
+    if (action === "syncThumbnails") {
+      const current = body.items ?? (await getLandingGalleryItems());
+      const enriched = await enrichGalleryThumbnails(current, {
+        force: body.forceThumbnails === true,
+      });
+      const saved = await saveLandingGalleryItems(
+        enriched.items,
+        session.userId ?? session.username,
+      );
+      return NextResponse.json({
+        ok: true,
+        items: saved.map((it) => ({ ...it, viewsLabel: galleryViewsLabel(it.views) })),
+        action,
+        filled: enriched.filled,
+        failed: enriched.failed,
+        skipped: enriched.skipped,
+      });
+    }
+
     if (action === "syncViews" || action === "sortByViews") {
       const current = body.items ?? (await getLandingGalleryItems());
       const { ranked } = await loadRankedClips(0, 500);
@@ -184,11 +207,18 @@ export async function PUT(req: NextRequest) {
       if (action === "sortByViews") {
         next = [...next].sort((a, b) => b.views - a.views);
       }
-      const saved = await saveLandingGalleryItems(next, session.userId ?? session.username);
+      // İzlenme senkronunda eksik kapakları da doldur
+      const enriched = await enrichGalleryThumbnails(next, { force: false });
+      const saved = await saveLandingGalleryItems(
+        enriched.items,
+        session.userId ?? session.username,
+      );
       return NextResponse.json({
         ok: true,
         items: saved.map((it) => ({ ...it, viewsLabel: galleryViewsLabel(it.views) })),
         action,
+        thumbsFilled: enriched.filled,
+        thumbsFailed: enriched.failed,
       });
     }
 

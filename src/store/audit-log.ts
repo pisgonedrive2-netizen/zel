@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { isSupabaseClientMode } from "@/lib/supabase-client";
+import { isMainAdmin, MAIN_ADMIN_ID, MAIN_ADMIN_USERNAME } from "@/lib/user-guards";
 
 export type AuditAction =
   | "user_created"
@@ -13,12 +14,14 @@ export type AuditAction =
   | "expense_rejected"
   | "expense_needs_info"
   | "expense_settlement"
+  | "expense_team_release"
   | "expense_month_lock"
   | "backup_exported"
   | "backup_imported"
   | "user_impersonated"
   | "user_impersonation_stopped"
-  | "session_idle_logout";
+  | "session_idle_logout"
+  | "screen_share_toggled";
 
 export interface AuditEntry {
   id: string;
@@ -52,6 +55,30 @@ export const useAuditLog = create<AuditState>()(
     { name: "lanetkel-audit-v1" }
   )
 );
+
+/** Aktör ana yönetici (Orkun) mu? */
+export function isMainAdminAuditActor(e: {
+  actorId?: string;
+  actorName?: string;
+}): boolean {
+  if (e.actorId === MAIN_ADMIN_ID) return true;
+  const n = (e.actorName ?? "").toLowerCase().trim();
+  return n === MAIN_ADMIN_USERNAME || n === "orkun";
+}
+
+/**
+ * Orkun’un logları yalnızca Orkun’a görünür.
+ * Diğer admin / denetçi / yerel persist sızıntısı burada kesilir.
+ */
+export function filterAuditVisibleToViewer<T extends { actorId?: string; actorName?: string }>(
+  entries: readonly T[],
+  viewer: { id?: string; username?: string } | null | undefined,
+): T[] {
+  if (viewer?.id && viewer?.username && isMainAdmin({ id: viewer.id, username: viewer.username })) {
+    return [...entries];
+  }
+  return entries.filter((e) => !isMainAdminAuditActor(e));
+}
 
 export function logAudit(entry: Omit<AuditEntry, "id" | "at">): void {
   useAuditLog.getState().push(entry);

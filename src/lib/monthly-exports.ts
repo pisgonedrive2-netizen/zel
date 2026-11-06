@@ -10,7 +10,7 @@ import { fmtDateTime } from "@/lib/fmt-date";
 import autoTableImport from "jspdf-autotable";
 
 import type { KasaTransaction, ContentExpense } from "@/store/store";
-import { settlementLabel } from "@/lib/content-expense";
+import { settlementLabel, isPayrollSettled, isKasaSettled, isExceptionWriteOff } from "@/lib/content-expense";
 import { listAvailableMonths, monthLabelTr } from "@/lib/month-label";
 import {
   downloadProfessionalCsv,
@@ -614,7 +614,7 @@ export function exportSalaryMonthCsv(rows: SalaryReportRow[], ym: string): void 
   });
 }
 
-/** Bordro PDF/CSV için ay içi içerik harcaması satırları. */
+/** Bordro PDF/CSV için ay içi içerik harcaması satırları — yalnızca maaşa yazılanlar. */
 export function buildSalaryContentExportLines(
   ym: string,
   employees: Array<{ id: string; name: string }>,
@@ -627,7 +627,11 @@ export function buildSalaryContentExportLines(
         e.month === ym &&
         byId.has(e.employeeId) &&
         e.reviewStatus !== "cancelled" &&
-        e.reviewStatus !== "rejected",
+        e.reviewStatus !== "rejected" &&
+        // Bordro çıktısı: kasadan kapanmışları karıştırma
+        isPayrollSettled(e) &&
+        !isKasaSettled(e) &&
+        !isExceptionWriteOff(e),
     )
     .sort((a, b) => {
       const na = byId.get(a.employeeId) ?? "";
@@ -771,13 +775,13 @@ export function exportSalaryMonthPdf(
   if (contentLines.length > 0) {
     doc.addPage();
     drawPdfChrome(doc, {
-      title: "Icerik Harcamalari",
-      subtitle: "Bordro eki",
+      title: "Bordro Icerik Masraflari",
+      subtitle: "Yalnizca maasa yazilanlar (kasadan haric)",
       month: ym,
       generatedBy: opts.generatedBy,
     });
     doc.setFontSize(11);
-    doc.text(ascii(`Donem: ${monthLabelTr(ym)} · ${contentLines.length} kalem`), 14, 26);
+    doc.text(ascii(`Donem: ${monthLabelTr(ym)} · ${contentLines.length} kalem (bordro)`), 14, 26);
     const contentTotal = contentLines.reduce((s, l) => s + l.amountUsd, 0);
     doc.setFontSize(9);
     doc.setTextColor(80);

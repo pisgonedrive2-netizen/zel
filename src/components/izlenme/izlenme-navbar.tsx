@@ -5,7 +5,7 @@ import { AppLink as Link } from "@/components/app-link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity, AlertCircle, ArrowUpRight, Briefcase, ChevronLeft, ChevronRight,
-  Eye, RefreshCw, Users, Wifi, WifiOff, Loader2, BarChart3, ClipboardEdit,
+  Eye, RefreshCw, Users, Wifi, WifiOff, Loader2, BarChart3, ClipboardEdit, Sparkles,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -302,6 +302,12 @@ export function IzlenmeNavbar({
             className={navLinkClass("/izlenme/markalar")}
           >
             <Briefcase size={11} className="inline mr-1" /> Markalar
+          </Link>
+          <Link
+            href={izlenmeHref("/izlenme/yeni-hesaplar", viewMonth, { linkScope, apiDateMode })}
+            className={navLinkClass("/izlenme/yeni-hesaplar")}
+          >
+            <Sparkles size={11} className="inline mr-1" /> Yeni hesaplar
           </Link>
           <Link
             href={izlenmeHref("/izlenme/operatorler", viewMonth, { linkScope, apiDateMode })}

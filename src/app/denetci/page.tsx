@@ -15,7 +15,7 @@ import {
   DEFAULT_KASA_ID,
   type KasaTransaction,
 } from "@/store/store";
-import { isActiveContentExpense } from "@/lib/content-expense";
+import { filterContentExpensesForViewer, isActiveContentExpense } from "@/lib/content-expense";
 import { fmtDateShort } from "@/lib/fmt-date";
 import { useAuth } from "@/store/auth";
 import {
@@ -79,9 +79,13 @@ export default function DenetciPage() {
         : balanceFor(genelRows),
     };
   }, [canRamizWallet, viewKasas, viewKasaTransactions]);
-  const activeExpenses = contentExpenses.filter(isActiveContentExpense);
-  const pending      = contentExpenses.filter(e => e.reviewStatus === "pending");
-  const approved     = contentExpenses.filter(e => e.reviewStatus === "approved");
+  const visibleExpenses = useMemo(
+    () => filterContentExpensesForViewer(contentExpenses, user),
+    [contentExpenses, user],
+  );
+  const activeExpenses = visibleExpenses.filter(isActiveContentExpense);
+  const pending      = visibleExpenses.filter(e => e.reviewStatus === "pending");
+  const approved     = visibleExpenses.filter(e => e.reviewStatus === "approved");
   const audited      = activeExpenses.filter(e => e.audited);
   const totalExpenses = activeExpenses.reduce((s, e) => s + e.amountUsd, 0);
 

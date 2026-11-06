@@ -15,6 +15,7 @@ import { useUiPrefs } from "@/store/ui-prefs";
 import { setRuntimeLocale } from "@/lib/i18n/locale-state";
 import { ImpersonationBar } from "@/components/impersonation-bar";
 import { Loader2, Menu, X } from "lucide-react";
+import { isClipOpenPathname, resolveClipHostHint } from "@/lib/clip-host";
 
 /**
  * Tüm uygulamayı saran kabuk:
@@ -30,9 +31,10 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const isLogin = pathname === "/login";
+  const isOpenPage = isClipOpenPathname(pathname, resolveClipHostHint());
 
   const sessionReady = useAuth((s) => s.sessionReady);
-  const [hydrated, setHydrated] = useState(!isSupabaseClientMode() || isLogin);
+  const [hydrated, setHydrated] = useState(!isSupabaseClientMode() || isLogin || isOpenPage);
   const locale = useUiPrefs((s) => s.locale);
   setRuntimeLocale(locale);
 
@@ -46,7 +48,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
 
   // Yönlendirme mantığı
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || isOpenPage) return;
 
     // Login ekranındaysa ve kullanıcı varsa → kendi landing'e
     if (isLogin && user) {
@@ -85,7 +87,16 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin]);
+  }, [hydrated, user, pathname, router, panelViewAs, brandViewAs, isLogin, isOpenPage]);
+
+  if (isOpenPage) {
+    return (
+      <>
+        <LocaleHtml />
+        <main className="min-h-[100dvh] flex-1 overflow-y-auto bg-background">{children}</main>
+      </>
+    );
+  }
 
   const canView =
     hydrated && user && !isLogin && canAccess(pathname, user.role, panelViewAs, brandViewAs, user);

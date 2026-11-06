@@ -5,7 +5,7 @@ import {
   Trophy, TrendingUp, Wallet, Users, Eye, ShieldCheck, Zap,
   ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, RotateCcw,
   LineChart as LineChartIcon, SlidersHorizontal, Layers, Gauge, Target,
-  Plus, Trash2, Copy, EyeOff, Eye as EyeIcon, Repeat,
+  Plus, Trash2, Copy, EyeOff, Eye as EyeIcon, Repeat, Lock,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -80,6 +80,10 @@ import { NumberInput, Select, Input, Textarea } from "@/components/ui/field";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BrandLogo } from "@/components/brand-logo";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/store/auth";
+import { isMainAdmin } from "@/lib/user-guards";
+import { fetchPrimPoolLocked, getPrimPoolLocked } from "@/lib/prim-pool-lock";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 
 const MONTH_NAMES = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 function monthLabel(m: string) {
@@ -182,6 +186,14 @@ export function PrimPoolPanel() {
     advances, salaryExtras, paymentStatuses,
     contentExpenses, expenses, kasas, kasaTransactions,
   } = useStore();
+  const { user } = useAuth();
+  const isOrkun = !!user && isMainAdmin(user) && !user.impersonatorId;
+  const [primLocked, setPrimLocked] = useState(() => getPrimPoolLocked());
+  const editsBlocked = primLocked && !isOrkun;
+
+  useEffect(() => {
+    void fetchPrimPoolLocked().then(setPrimLocked);
+  }, []);
 
   const [month, setMonth] = useState(() => toYearMonthLocal(new Date()));
   const [tab, setTab] = useState("akış");
@@ -243,6 +255,10 @@ export function PrimPoolPanel() {
     customRecipients?: PrimCustomRecipient[];
     autoRepeatToNextMonth?: boolean;
   }) => {
+    if (editsBlocked) {
+      window.alert("Prim havuzu kilitli. Değişiklik için Orkun’un kilidi açması gerekir.");
+      return;
+    }
     const nextFees = patch.brandFees ?? brandFees;
     const nextGuarantees = patch.brandGuarantees ?? brandGuarantees;
     const nextWeights = patch.recipientWeights ?? recipientWeights;
@@ -301,7 +317,10 @@ export function PrimPoolPanel() {
     applyMonthSlice(storedRef.current, month);
   }, [month]);
 
-  const activeBrands = useMemo(() => brands.filter((b) => b.status === "active"), [brands]);
+  const activeBrands = useMemo(
+    () => brands.filter((b) => b.status === "active" && !isYeniHesaplarBrandId(b.id)),
+    [brands]
+  );
   const primBrands = useMemo(() => {
     type Row = { id: string; name: string; shortName: string; isCustom: boolean };
     const rows: Row[] = activeBrands
@@ -568,6 +587,10 @@ export function PrimPoolPanel() {
     });
   };
   const resetAll = () => {
+    if (editsBlocked) {
+      window.alert("Prim havuzu kilitli. Sıfırlama için Orkun’un kilidi açması gerekir.");
+      return;
+    }
     const fresh = defaultPrimStoredSettings();
     storedRef.current = fresh;
     applyMonthSlice(fresh, month);
@@ -608,6 +631,24 @@ export function PrimPoolPanel() {
 
   return (
     <div className="space-y-4">
+      {primLocked && (
+        <div
+          className={cn(
+            "flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs",
+            isOrkun
+              ? "border-amber-500/35 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+              : "border-rose-500/35 bg-rose-500/10 text-rose-950 dark:text-rose-100"
+          )}
+        >
+          <Lock className="size-3.5 mt-0.5 shrink-0" />
+          <p>
+            {isOrkun
+              ? "Prim kilidi açık — sen override edebilirsin."
+              : "Prim havuzu kilitli. Kayıt ve dağıtım ayarları değiştirilemez."}
+          </p>
+        </div>
+      )}
+
       <PrimDecisionStrip
         monthLabel={monthLabel(month)}
         formula={primFormula}
@@ -617,6 +658,7 @@ export function PrimPoolPanel() {
         simpleView={simpleView}
         onToggleSimple={togglePrimSimpleView}
         onReset={resetAll}
+        resetDisabled={editsBlocked}
         onPrevMonth={() => setMonth(shiftCalendarMonthYm(month, -1))}
         onNextMonth={() => setMonth(shiftCalendarMonthYm(month, 1))}
       />
@@ -665,10 +707,12 @@ export function PrimPoolPanel() {
         <PrimViewLadder result={result} progress={progress} />
       </div>
 
+      <div className={cn(editsBlocked && "pointer-events-none opacity-60")}>
       <PrimDistributionPanel {...distProps} compact />
+      </div>
 
       {!simpleView && (
-        <>
+        <div className={cn("space-y-3", editsBlocked && "pointer-events-none opacity-60")}>
           <PrimModeCards onSelect={applySystemPreset} />
 
           <div id="prim-uzman" className="scroll-mt-36 space-y-3">
@@ -1476,7 +1520,7 @@ export function PrimPoolPanel() {
         </TabsContent>
       </Tabs>
           </div>
-        </>
+        </div>
       )}
 
       <p className="text-center text-[10px] text-muted-foreground">

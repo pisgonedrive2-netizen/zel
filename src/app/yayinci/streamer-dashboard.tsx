@@ -100,7 +100,7 @@ import Modal from "@/components/ui/modal";
 import { Field, Input, NumberInput, OptionalNumberInput, Select, Textarea, FormGrid, FormActions } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ProofUploader } from "@/components/proof-uploader";
-import { canStreamerEditExpense, canStreamerWithdrawExpense, isActiveContentExpense } from "@/lib/content-expense";
+import { canStreamerDeleteExpense, canStreamerEditExpense, canStreamerSeeOwnExpense, canStreamerWithdrawExpense, expenseReviewStatus, isActiveContentExpense, withStreamerClearedNotes } from "@/lib/content-expense";
 import { cn } from "@/lib/utils";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import { canViewRamizWallet, RAMIZ_EMPLOYEE_ID } from "@/lib/ramiz-wallet-access";
@@ -226,7 +226,7 @@ function weekRangeLabel(weekStartIso: string) {
 }
 
 // ── Expense Submit Form ─────────────────────────────────────────────────
-function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, onDelete, onClose }: {
+function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, onDelete, onHardDelete, onClose }: {
   employeeId: string;
   userId: string;
   initial?: ContentExpense;
@@ -234,6 +234,7 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
   defaultDate?: string;
   onSave: (d: Omit<ContentExpense, "id">) => void | Promise<void>;
   onDelete?: () => void;
+  onHardDelete?: () => void;
   onClose: () => void;
 }) {
   const { brands } = useStore();
@@ -375,7 +376,9 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
       </fieldset>
       {readOnly && initial && (
         <p className="text-xs text-muted-foreground rounded-lg border border-border bg-muted/30 px-3 py-2">
-          Bu kayıt onaylandı, reddedildi veya geri çekildi; yalnızca görüntüleyebilirsin.
+          {expenseReviewStatus(initial) === "cancelled"
+            ? "Geri çekildi. Aşağıdan listenden kaldırabilirsin; Orkun arşivinde kalmaya devam eder."
+            : "Bu kayıt onaylandı, reddedildi veya geri çekildi; yalnızca görüntüleyebilirsin."}
         </p>
       )}
       <FormActions
@@ -392,6 +395,19 @@ function ExpenseSubmitForm({ employeeId, userId, initial, defaultDate, onSave, o
               : "Gönder & Onaya Yolla"
         }
       />
+      {onHardDelete && (
+        <div className="mt-2 flex justify-start">
+          <button
+            type="button"
+            onClick={onHardDelete}
+            className="text-[13px] px-3 py-1.5 rounded-lg border border-red-300 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-950/40 dark:text-red-200 transition-colors"
+          >
+            {initial && expenseReviewStatus(initial) === "cancelled"
+              ? "Listemden kaldır"
+              : "Kalıcı sil"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -1446,8 +1462,10 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
   const partialPay   = paymentPhase === "partial";
 
   // ── İçerik harcamaları ──
-  // Yayıncının kendi tüm gönderileri (geri çekilen/reddedilenler dahil — listede gösterilsin diye).
-  const myExpenses   = contentExpenses.filter(e => e.employeeId === me.id);
+  // Geri çekilenler soft-clear edilene kadar görünür; sonra yalnızca Orkun arşivinde.
+  const myExpenses = contentExpenses.filter(
+    (e) => e.employeeId === me.id && canStreamerSeeOwnExpense(e),
+  );
   // KPI/toplam metrikleri için aktif (geri çekilmemiş, reddedilmemiş) olanlar.
   const myActiveExpenses = myExpenses.filter(isActiveContentExpense);
   const myThisWeek   = myActiveExpenses.filter(e => e.date >= thisWeek && e.date < nextWeek);
@@ -1893,11 +1911,46 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
 
   // ── Submit handler — admin'e bildirim gönder ──
   const handleExpenseWithdraw = (expense: ContentExpense) => {
-    updateContentExpense(expense.id, {
-      reviewStatus: "cancelled",
+    if (
+      !window.confirm(
+        "Bu harcama geri çekilsin mi? Diğer yöneticiler görmez. Ardından “Listemden kaldır” ile kendi listenden silebilirsin; Orkun arşivinde kalır."
+      )
+    ) {
+      return;
+    }
+    const patch = {
+      reviewStatus: "cancelled" as const,
       reviewedAt: new Date().toISOString(),
       reviewerNote: "Yayıncı tarafından geri çekildi.",
-    });
+    };
+    updateContentExpense(expense.id, patch);
+    // Modal açıksa kapatma — sil / listeden kaldır butonu görünsün
+    if (expenseModal && expenseModal !== "new" && expenseModal.id === expense.id) {
+      setExpenseModal({ ...expense, ...patch });
+    }
+  };
+
+  const handleExpenseHardDelete = (expense: ContentExpense) => {
+    if (!canStreamerDeleteExpense(expense)) {
+      window.alert("Bu harcama silinemez.");
+      return;
+    }
+    const withdrawn = expenseReviewStatus(expense) === "cancelled";
+    if (withdrawn) {
+      updateContentExpense(expense.id, {
+        notes: withStreamerClearedNotes(expense.notes ?? ""),
+      });
+      setExpenseModal(null);
+      return;
+    }
+    if (
+      !window.confirm(
+        "Bu harcama kalıcı silinsin mi? Bu işlem geri alınamaz."
+      )
+    ) {
+      return;
+    }
+    deleteContentExpense(expense.id);
     setExpenseModal(null);
   };
 
@@ -1924,6 +1977,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
         title: `${me.name} yeni harcama gönderdi`,
         message: `${data.brandName} · ${data.category} · $${data.amountUsd} — ${data.description.slice(0, 80)}`,
         forRole: "admin",
+        forUserId: "u-admin",
         triggeredBy: user.id,
         refId: newId,
         href: `/icerik-harcamalari?review=${newId}`,
@@ -2568,6 +2622,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                         expense={e}
                         onEdit={() => setExpenseModal(e)}
                         onWithdraw={canStreamerWithdrawExpense(e) ? () => handleExpenseWithdraw(e) : undefined}
+                        onHardDelete={canStreamerDeleteExpense(e) ? () => handleExpenseHardDelete(e) : undefined}
                       />
                     ))}
                   </div>
@@ -2609,6 +2664,7 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                             expense={e}
                             onEdit={() => setExpenseModal(e)}
                             onWithdraw={canStreamerWithdrawExpense(e) ? () => handleExpenseWithdraw(e) : undefined}
+                            onHardDelete={canStreamerDeleteExpense(e) ? () => handleExpenseHardDelete(e) : undefined}
                           />
                         ))}
                       </div>
@@ -3938,6 +3994,11 @@ function StreamerDashboardInner({ section, me, user, isAdminView }: StreamerDash
                 ? () => handleExpenseWithdraw(expenseModal as ContentExpense)
                 : undefined
             }
+            onHardDelete={
+              expenseModal !== "new" && canStreamerDeleteExpense(expenseModal as ContentExpense)
+                ? () => handleExpenseHardDelete(expenseModal as ContentExpense)
+                : undefined
+            }
             onClose={() => setExpenseModal(null)}
           />
         )}
@@ -4071,10 +4132,12 @@ function ExpenseRow({
   expense: e,
   onEdit,
   onWithdraw,
+  onHardDelete,
 }: {
   expense: ContentExpense;
   onEdit: () => void;
   onWithdraw?: () => void;
+  onHardDelete?: () => void;
 }) {
   const status = e.reviewStatus ?? (e.paid ? "approved" : "pending");
   const statusBadge =
@@ -4112,17 +4175,30 @@ function ExpenseRow({
       </div>
       <Pencil size={11} className="text-muted-foreground/30 shrink-0 mt-1" />
       </button>
-      {onWithdraw && (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="shrink-0 text-xs h-8 border-red-300 text-red-700 hover:bg-red-500/10 dark:text-red-400 dark:border-red-500/40"
-          onClick={(ev) => { ev.stopPropagation(); onWithdraw(); }}
-        >
-          Geri çek
-        </Button>
-      )}
+      <div className="flex flex-col gap-1 shrink-0">
+        {onWithdraw && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-xs h-8 border-red-300 text-red-700 hover:bg-red-500/10 dark:text-red-400 dark:border-red-500/40"
+            onClick={(ev) => { ev.stopPropagation(); onWithdraw(); }}
+          >
+            Geri çek
+          </Button>
+        )}
+        {onHardDelete && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="text-xs h-8 text-red-700 hover:bg-red-500/10 dark:text-red-400"
+            onClick={(ev) => { ev.stopPropagation(); onHardDelete(); }}
+          >
+            {status === "cancelled" ? "Listeden kaldır" : "Sil"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

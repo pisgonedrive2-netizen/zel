@@ -15,6 +15,7 @@ type Props = {
   simpleView: boolean;
   onToggleSimple: () => void;
   onReset: () => void;
+  resetDisabled?: boolean;
   onPrevMonth: () => void;
   onNextMonth: () => void;
 };
@@ -28,6 +29,7 @@ export function PrimDecisionStrip({
   simpleView,
   onToggleSimple,
   onReset,
+  resetDisabled,
   onPrevMonth,
   onNextMonth,
 }: Props) {
@@ -61,7 +63,13 @@ export function PrimDecisionStrip({
             <SlidersHorizontal size={13} />
             {simpleView ? "Basit" : "Detaylı"}
           </Button>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={onReset}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs"
+            onClick={onReset}
+            disabled={resetDisabled}
+          >
             <RotateCcw size={13} /> Sıfırla
           </Button>
           <div className="flex items-center gap-1 rounded-lg border border-border bg-card px-1 py-1">

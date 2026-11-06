@@ -21,11 +21,29 @@ import {
   isPayrollFullyPaid,
   sumUnpaidPayrollLines,
 } from "@/lib/payroll-lines";
-import { sumKasaDisplayBalances } from "@/lib/kasa-tron-metrics";
+import {
+  findGenelKasa,
+  sumOperatingKasaLedgerBalance,
+  computeTronPanelMetrics,
+  getKasaDisplayBalance,
+} from "@/lib/kasa-tron-metrics";
 import { totalViewsForMonth } from "@/lib/brand-month-metrics";
 import { toYearMonthLocal } from "@/lib/data";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import { useAuth } from "@/store/auth";
 import type { InternalTask } from "@/types/internal-task";
+import {
+  expenseReviewStatus,
+  isAwaitingContentExpenseReview,
+  isActiveContentExpense,
+  isContentSettled,
+  isExceptionWriteOff,
+  isKasaSettled,
+  isPayrollSettled,
+  isUnsettledApprovedContent,
+  filterContentExpensesForViewer,
+} from "@/lib/content-expense";
+import { isMainAdmin } from "@/lib/user-guards";
 
 export const LOW_KASA_WARNING_THRESHOLD = 5000;
 
@@ -46,13 +64,57 @@ export type LowKasaWarning = {
   isLow: boolean;
 };
 
+export type ContentMonthMetrics = {
+  monthContentTotal: number;
+  monthContentCount: number;
+  awaitingSettlementCount: number;
+  awaitingSettlementTotal: number;
+  kasaSettledMonthTotal: number;
+  kasaSettledMonthCount: number;
+  payrollSettledMonthTotal: number;
+  payrollSettledMonthCount: number;
+};
+
 export function computePendingContentExpenseMetrics(
   contentExpenses: ContentExpense[],
+  salaryExtras: { contentExpenseId?: string }[] = [],
 ): PendingContentExpenseMetrics {
-  const pending = contentExpenses.filter((c) => c.reviewStatus === "pending");
+  const pending = contentExpenses.filter((c) =>
+    isAwaitingContentExpenseReview(c, salaryExtras),
+  );
   return {
     pendingContentExpenseCount: pending.length,
     pendingContentExpenseTotal: pending.reduce((s, e) => s + e.amountUsd, 0),
+  };
+}
+
+export function computeContentMonthMetrics(
+  contentExpenses: ContentExpense[],
+  month: string,
+): ContentMonthMetrics {
+  const monthRows = contentExpenses.filter((e) => e.month === month);
+  const active = monthRows.filter(isActiveContentExpense);
+  const awaiting = monthRows.filter(isUnsettledApprovedContent);
+  const kasa = monthRows.filter(
+    (e) => isKasaSettled(e) && !isExceptionWriteOff(e) && expenseReviewStatus(e) !== "cancelled",
+  );
+  const payroll = monthRows.filter(
+    (e) =>
+      isPayrollSettled(e) &&
+      !isKasaSettled(e) &&
+      !isExceptionWriteOff(e) &&
+      expenseReviewStatus(e) !== "cancelled",
+  );
+  const sum = (rows: ContentExpense[]) => rows.reduce((s, e) => s + e.amountUsd, 0);
+  return {
+    monthContentTotal: sum(active),
+    monthContentCount: active.length,
+    awaitingSettlementCount: awaiting.length,
+    awaitingSettlementTotal: sum(awaiting),
+    kasaSettledMonthTotal: sum(kasa),
+    kasaSettledMonthCount: kasa.length,
+    payrollSettledMonthTotal: sum(payroll),
+    payrollSettledMonthCount: payroll.length,
   };
 }
 
@@ -139,14 +201,26 @@ export function computeAdminUnreadNotificationCount(
 export function computeLowKasaWarning(
   kasas: Kasa[],
   kasaTransactions: KasaTransaction[],
-  kasaMetrics?: { operatingTotal: number } | null,
+  kasaMetrics?: { operatingTotal: number; genelDisplayBalance?: number | null } | null,
   threshold = LOW_KASA_WARNING_THRESHOLD,
-): LowKasaWarning {
-  const balance = kasaMetrics
-    ? kasaMetrics.operatingTotal
-    : sumKasaDisplayBalances(kasas, kasaTransactions);
+): LowKasaWarning & { genelBalance: number } {
+  const panel = computeTronPanelMetrics(kasas, kasaTransactions);
+  const genel = findGenelKasa(kasas);
+  const genelBalance =
+    kasaMetrics?.genelDisplayBalance != null
+      ? kasaMetrics.genelDisplayBalance
+      : genel
+        ? getKasaDisplayBalance(genel, kasas, kasaTransactions, panel).balance
+        : 0;
+
+  const balance =
+    kasaMetrics?.operatingTotal != null
+      ? kasaMetrics.operatingTotal
+      : sumOperatingKasaLedgerBalance(kasas, kasaTransactions, panel);
+
   return {
     balance,
+    genelBalance,
     threshold,
     isLow: balance <= threshold,
   };
@@ -154,7 +228,9 @@ export function computeLowKasaWarning(
 
 export type AdminDashboardMetrics = PendingContentExpenseMetrics &
   UnpaidPayrollMetrics &
-  LowKasaWarning & {
+  LowKasaWarning &
+  ContentMonthMetrics & {
+    genelBalance: number;
     unreadNotificationCount: number;
     currentMonth: string;
     activeBrandCount: number;
@@ -182,22 +258,32 @@ export function useAdminDashboardMetrics(month?: string): AdminDashboardMetrics 
   const currentMonth = month ?? toYearMonthLocal(new Date());
 
   return useMemo(() => {
-    const pendingExpenses = contentExpenses.filter(
-      (c) => c.reviewStatus === "pending",
+    const visibleExpenses =
+      user && !isMainAdmin(user)
+        ? filterContentExpensesForViewer(contentExpenses, user)
+        : contentExpenses;
+    const pendingExpenses = visibleExpenses.filter((c) =>
+      isAwaitingContentExpenseReview(c, salaryExtras),
     );
-    const pending = computePendingContentExpenseMetrics(contentExpenses);
+    const pending = computePendingContentExpenseMetrics(
+      visibleExpenses,
+      salaryExtras,
+    );
+    const contentMonth = computeContentMonthMetrics(visibleExpenses, currentMonth);
     const payroll = computeUnpaidPayrollMetrics(
       employees,
       currentMonth,
       advances,
       salaryExtras,
-      contentExpenses,
+      visibleExpenses,
       paymentStatuses,
     );
     const kasa = computeLowKasaWarning(kasas, kasaTransactions, kasaMetrics);
-    const aktifMarka = brands.filter((b) => b.status === "active").length;
+    const sponsorBrands = brands.filter((b) => !isYeniHesaplarBrandId(b.id));
+    const sponsorLinks = brandLinks.filter((l) => !isYeniHesaplarBrandId(l.brandId));
+    const aktifMarka = sponsorBrands.filter((b) => b.status === "active").length;
     const toplamIzlenme = totalViewsForMonth(
-      brandLinks,
+      sponsorLinks,
       brandViewership,
       currentMonth,
       linkSnapshots,
@@ -208,6 +294,7 @@ export function useAdminDashboardMetrics(month?: string): AdminDashboardMetrics 
       ...pending,
       ...payroll,
       ...kasa,
+      ...contentMonth,
       pendingContentExpenses: pendingExpenses,
       unreadNotificationCount: computeAdminUnreadNotificationCount(
         notifications,
@@ -238,7 +325,7 @@ export function useAdminDashboardMetrics(month?: string): AdminDashboardMetrics 
     brandViewership,
     linkSnapshots,
     currentMonth,
-    user?.id,
+    user,
   ]);
 }
 
@@ -270,3 +357,5 @@ export function useAdminOverdueTasks(enabled = true) {
 
   return { tasks, overdueTasks, overdueTaskCount, loading, reload: load };
 }
+
+export { isExpenseCountedPaid } from "@/lib/content-expense";

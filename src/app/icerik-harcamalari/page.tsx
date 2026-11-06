@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
   Plus, Pencil, Search, CheckCircle2, Circle, Receipt, Calendar,
   ExternalLink, AlertCircle, X, Image as ImageIcon, MessageSquare, Clock, Wallet,
-  ArrowRightLeft, Lock, Unlock, History, AlertTriangle,
+  ArrowRightLeft, Lock, Unlock, History, AlertTriangle, Eye,
 } from "lucide-react";
 import {
   useStore,
@@ -58,11 +58,26 @@ import {
   isActiveContentExpense,
   settlementLabel,
   CONTENT_EXPENSE_CATEGORIES,
+  CONTENT_EXPENSE_EXCEPTION_KINDS,
+  CONTENT_EXPENSE_EXCEPTION_LABELS,
+  encodeExpenseExceptionInNotes,
+  exceptionLabel,
+  isExceptionWriteOff,
   isPayrollSettled,
   isKasaSettled,
   canAdminPayContentFromKasa,
   hasDoubleSettlementConflict,
   matchesSettlementFilter,
+  resolveExpenseException,
+  isUnsettledApprovedContent,
+  isExpenseCountedPaid,
+  isWithdrawnContentExpense,
+  filterContentExpensesForViewer,
+  isContentExpenseReleasedToTeam,
+  contentExpenseReleasePatch,
+  isPayrollLinkedContentExpense,
+  isAwaitingContentExpenseReview,
+  type ContentExpenseExceptionKind,
   type ContentExpenseSettlementFilter,
 } from "@/lib/content-expense";
 import {
@@ -112,6 +127,7 @@ function ExpenseForm({
   const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>(() =>
     initial ? resolveExpenseBrandIds(initial, brands) : []
   );
+  const initialExc = initial ? resolveExpenseException(initial) : {};
   const [form, setForm] = useState<Omit<ContentExpense, "id">>({
     date:        initDate,
     month:       initDate.slice(0, 7),
@@ -125,12 +141,14 @@ function ExpenseForm({
     amountThb:   initial?.amountThb,
     paid:        initial?.paid        ?? false,
     paidDate:    initial?.paidDate,
-    notes:       initial?.notes       ?? "",
+    notes:       encodeExpenseExceptionInNotes(initial?.notes ?? "", undefined, undefined),
     screenshotUrl: initial?.screenshotUrl ?? "",
     reviewStatus: initial?.reviewStatus,
     settlementMode: initial?.settlementMode,
     salaryExtraId: initial?.salaryExtraId,
     kasaTxId: initial?.kasaTxId,
+    exceptionKind: initialExc.kind,
+    exceptionNote: initialExc.note,
   });
   const set = <K extends keyof typeof form>(k: K, v: typeof form[K]) => setForm(f => ({ ...f, [k]: v }));
 
@@ -303,6 +321,39 @@ function ExpenseForm({
             placeholder="Resim dosyası yükle veya https://... yapıştır"
           />
         </Field>
+        <div className="rounded-lg border border-amber-200/80 bg-amber-50/40 dark:border-amber-500/35 dark:bg-amber-950/25 px-3 py-3 space-y-3">
+          <p className="text-xs font-medium text-foreground">Özel durum (elzem / hack / hibe)</p>
+          <p className="text-[11px] text-muted-foreground">
+            Hack veya hibe: bordro/ödeme borcuna yazılmaz. Elzem: kayıt tutulur, ödeme yolu ayrıca seçilir.
+          </p>
+          <FormGrid>
+            <Field label="Durum">
+              <Select
+                value={form.exceptionKind ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value as ContentExpenseExceptionKind | "";
+                  set("exceptionKind", v || undefined);
+                  if (!v) set("exceptionNote", undefined);
+                }}
+                options={[
+                  { value: "", label: "Yok (normal)" },
+                  ...CONTENT_EXPENSE_EXCEPTION_KINDS.map((k) => ({
+                    value: k,
+                    label: CONTENT_EXPENSE_EXCEPTION_LABELS[k],
+                  })),
+                ]}
+              />
+            </Field>
+            <Field label="Kısa açıklama" hint="Opsiyonel — örn. hesap hacklendi">
+              <Input
+                value={form.exceptionNote ?? ""}
+                onChange={(e) => set("exceptionNote", e.target.value || undefined)}
+                placeholder="Neden / bağlam"
+                disabled={!form.exceptionKind}
+              />
+            </Field>
+          </FormGrid>
+        </div>
         <Field label="Notlar">
           <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="" />
         </Field>
@@ -500,8 +551,16 @@ function ContentExpensesPageInner() {
   const monthLocked =
     monthFilter !== "all" && isContentExpenseMonthLocked(monthFilter, lockedMonths);
   const canLockMonths = user ? isMainAdmin(user) : false;
+  /** Ana Orkun oturumu (impersonation değil) — kilitli ayda yazabilir. */
+  const isOrkun = canLockMonths && !user?.impersonatorId;
+
+  const visibleExpenses = useMemo(
+    () => filterContentExpensesForViewer(contentExpenses, user),
+    [contentExpenses, user],
+  );
 
   const assertMonthWritable = (monthYm: string, actionLabel: string): boolean => {
+    if (isOrkun) return true;
     if (isContentExpenseMonthLocked(monthYm, lockedMonths)) {
       window.alert(
         `${ymLabel(monthYm)} kilitli. ${actionLabel} için önce ayı açın (yalnızca Orkun).`
@@ -533,6 +592,7 @@ function ContentExpensesPageInner() {
     const cat = searchParams.get("category");
     const brandId = searchParams.get("brand");
     const review = searchParams.get("review");
+    const settlement = searchParams.get("settlement");
     if (m) setMonthFilter(m);
     if (emp) setEmployeeFilter(emp);
     if (cat) setCategoryFilter(cat);
@@ -541,34 +601,45 @@ function ContentExpensesPageInner() {
       const b = brands.find((x) => x.id === brandId);
       if (b) setBrandFilter(b.shortName || b.name);
     }
+    if (
+      settlement === "kasa" ||
+      settlement === "payroll" ||
+      settlement === "awaiting" ||
+      settlement === "conflict" ||
+      settlement === "exception" ||
+      settlement === "withdrawn" ||
+      settlement === "all"
+    ) {
+      setSettlementFilter(settlement);
+    }
     if (review) {
-      const exp = contentExpenses.find((e) => e.id === review);
+      const exp = visibleExpenses.find((e) => e.id === review);
       if (exp) setReviewModal(exp);
     }
-  }, [searchParams, contentExpenses, brands]);
+  }, [searchParams, visibleExpenses, brands]);
 
   const months = useMemo(
-    () => Array.from(new Set(contentExpenses.map(e => e.month))).sort((a, b) => b.localeCompare(a)),
-    [contentExpenses]
+    () => Array.from(new Set(visibleExpenses.map(e => e.month))).sort((a, b) => b.localeCompare(a)),
+    [visibleExpenses]
   );
   const brandNames = useMemo(
-    () => Array.from(new Set(contentExpenses.map(e => e.brandName))).sort(),
-    [contentExpenses]
+    () => Array.from(new Set(visibleExpenses.map(e => e.brandName))).sort(),
+    [visibleExpenses]
   );
   const categories = useMemo(
     () =>
       Array.from(
         new Set([
           ...CONTENT_EXPENSE_CATEGORIES,
-          ...contentExpenses.map((e) => e.category).filter(Boolean),
+          ...visibleExpenses.map((e) => e.category).filter(Boolean),
         ])
       ).sort(),
-    [contentExpenses]
+    [visibleExpenses]
   );
 
   const conflictIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const e of contentExpenses) {
+    for (const e of visibleExpenses) {
       if (
         hasDoubleSettlementConflict(e, {
           salaryExtras,
@@ -579,10 +650,40 @@ function ContentExpensesPageInner() {
       }
     }
     return ids;
-  }, [contentExpenses, salaryExtras, viewKasaTransactions]);
+  }, [visibleExpenses, salaryExtras, viewKasaTransactions]);
+
+  const monthClose = useMemo(() => {
+    const ym =
+      monthFilter !== "all"
+        ? monthFilter
+        : toYearMonthLocal(new Date());
+    const rows = visibleExpenses.filter((e) => e.month === ym);
+    const sum = (list: ContentExpense[]) =>
+      list.reduce((s, e) => s + (e.amountUsd || 0), 0);
+    const pending = rows.filter((e) => {
+      const s = expenseReviewStatus(e);
+      return s === "pending" || s === "needs_info";
+    });
+    const awaiting = rows.filter(isUnsettledApprovedContent);
+    const payroll = rows.filter(
+      (e) => isPayrollSettled(e) && !isKasaSettled(e) && !isExceptionWriteOff(e),
+    );
+    const kasa = rows.filter(isKasaSettled);
+    const writeOffs = rows.filter(isExceptionWriteOff);
+    const conflicts = rows.filter((e) => conflictIds.has(e.id));
+    return {
+      ym,
+      pending: { n: pending.length, usd: sum(pending) },
+      awaiting: { n: awaiting.length, usd: sum(awaiting) },
+      payroll: { n: payroll.length, usd: sum(payroll) },
+      kasa: { n: kasa.length, usd: sum(kasa) },
+      writeOffs: { n: writeOffs.length, usd: sum(writeOffs) },
+      conflicts: { n: conflicts.length, usd: sum(conflicts) },
+    };
+  }, [visibleExpenses, monthFilter, conflictIds]);
 
   const filtered = useMemo(
-    () => contentExpenses
+    () => visibleExpenses
       .filter(e => {
         const brandOk =
           brandIdFilter === "all"
@@ -599,7 +700,10 @@ function ContentExpensesPageInner() {
           brandOk &&
           (categoryFilter === "all" || e.category === categoryFilter) &&
           (employeeFilter === "all" || e.employeeId === employeeFilter) &&
-          (paidFilter === "all" || (paidFilter === "paid" ? e.paid : !e.paid)) &&
+          (paidFilter === "all" ||
+            (paidFilter === "paid"
+              ? isExpenseCountedPaid(e)
+              : !isExpenseCountedPaid(e))) &&
           settlementOk &&
           (search === "" ||
             e.description.toLowerCase().includes(search.toLowerCase()) ||
@@ -612,7 +716,7 @@ function ContentExpensesPageInner() {
       })
       .sort((a, b) => b.date.localeCompare(a.date)),
     [
-      contentExpenses,
+      visibleExpenses,
       monthFilter,
       brandFilter,
       brandIdFilter,
@@ -644,10 +748,44 @@ function ContentExpensesPageInner() {
     () => filtered.filter(isActiveContentExpense),
     [filtered],
   );
-  const total       = activeFiltered.reduce((s, e) => s + e.amountUsd, 0);
-  const totalPaid   = activeFiltered.filter(e => e.paid).reduce((s, e) => s + e.amountUsd, 0);
-  const totalUnpaid = total - totalPaid;
-  const pendingReviews = contentExpenses.filter(e => e.reviewStatus === "pending");
+  const total = activeFiltered.reduce((s, e) => s + e.amountUsd, 0);
+  const totalPaid = activeFiltered
+    .filter(isExpenseCountedPaid)
+    .reduce((s, e) => s + e.amountUsd, 0);
+  const totalAwaiting = activeFiltered
+    .filter(isUnsettledApprovedContent)
+    .reduce((s, e) => s + e.amountUsd, 0);
+  const totalKasa = activeFiltered
+    .filter((e) => isKasaSettled(e) && !isExceptionWriteOff(e))
+    .reduce((s, e) => s + e.amountUsd, 0);
+  const totalPayroll = activeFiltered
+    .filter((e) => isPayrollSettled(e) && !isKasaSettled(e) && !isExceptionWriteOff(e))
+    .reduce((s, e) => s + e.amountUsd, 0);
+  const totalUnpaid = totalAwaiting;
+  const pendingReviews = visibleExpenses.filter((e) =>
+    isAwaitingContentExpenseReview(e, salaryExtras),
+  );
+  const unreleasedForTeam = useMemo(() => {
+    if (!isOrkun) return [];
+    return contentExpenses.filter(
+      (e) => !isWithdrawnContentExpense(e) && !isContentExpenseReleasedToTeam(e),
+    );
+  }, [contentExpenses, isOrkun]);
+  const releaseExpenseToTeam = (exp: ContentExpense) => {
+    if (!user?.id) return;
+    updateContentExpense(exp.id, contentExpenseReleasePatch(user.id));
+    logAudit({
+      actorId: user.id,
+      actorName: user.name ?? "Orkun",
+      action: "expense_team_release",
+      detail: `${exp.brandName} · ${fmt(exp.amountUsd)} · ${exp.id}`,
+    });
+    setReviewModal((cur) =>
+      cur?.id === exp.id
+        ? { ...cur, ...contentExpenseReleasePatch(user.id) }
+        : cur,
+    );
+  };
   const canReview = user?.role === "admin" || user?.role === "auditor";
   const canMarkPaid = user?.role === "admin";
 
@@ -821,7 +959,7 @@ function ContentExpensesPageInner() {
                 setModal("new");
               }}
               className="gap-1.5"
-              disabled={monthLocked}
+              disabled={monthLocked && !isOrkun}
             >
               <Plus size={14} /> Harcama Ekle
               {monthFilter !== "all" && <span className="text-[10px] opacity-70">({ymLabel(monthFilter)})</span>}
@@ -836,12 +974,58 @@ function ContentExpensesPageInner() {
           <div>
             <p className="font-medium text-amber-900 dark:text-amber-100">
               {ymLabel(monthFilter)} kilitli
+              {isOrkun ? " — Orkun override" : ""}
             </p>
             <p className="text-xs text-amber-800/90 dark:text-amber-200/80 mt-0.5">
-              Bu ay için ödeme yolu değişikliği ve düzenleme kapalı. Yalnızca Orkun ayı açabilir.
+              {isOrkun
+                ? "Diğer adminler yazamaz; sen kilitliyken de işlem yapabilirsin veya ayı açabilirsin."
+                : "Bu ay için ödeme yolu değişikliği ve düzenleme kapalı. Yalnızca Orkun ayı açabilir."}
             </p>
           </div>
         </div>
+      )}
+
+      {/* Aylık kapanış özeti */}
+      {canMarkPaid && (
+        <Card className="mb-6 border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Receipt size={15} /> Aylık kapanış · {ymLabel(monthClose.ym)}
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Onay bekleyen → ödeme bekleyen → maaş/kasa. Hibe/hack bordroya yazılmaz. Çakışmaları önce temizle.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {(
+                [
+                  ["İnceleme", monthClose.pending, "pending"],
+                  ["Ödeme bekliyor", monthClose.awaiting, "awaiting"],
+                  ["Maaş", monthClose.payroll, "payroll"],
+                  ["Kasa", monthClose.kasa, "kasa"],
+                  ["Hibe/hack", monthClose.writeOffs, "exception"],
+                  ["Çakışma", monthClose.conflicts, "conflict"],
+                ] as const
+              ).map(([label, bag, filter]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    if (monthFilter === "all") setMonthFilter(monthClose.ym);
+                    setSettlementFilter(filter === "pending" ? "all" : filter);
+                    if (filter === "pending") setPaidFilter("unpaid");
+                  }}
+                  className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-left hover:bg-accent/40 transition-colors"
+                >
+                  <p className="text-[11px] text-muted-foreground">{label}</p>
+                  <p className="text-lg font-semibold tabular-nums">{bag.n}</p>
+                  <p className="text-[11px] tabular-nums text-muted-foreground">{fmt(bag.usd)}</p>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {conflictIds.size > 0 && (
@@ -856,6 +1040,62 @@ function ContentExpensesPageInner() {
             </p>
           </div>
         </div>
+      )}
+
+      {isOrkun && unreleasedForTeam.length > 0 && (
+        <Card className="mb-6 border-violet-300 bg-violet-50/40 dark:border-violet-500/45 dark:bg-violet-950/25">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Eye size={16} className="text-violet-700 dark:text-violet-300" />
+              Ekibe kapalı yeni harcamalar
+            </CardTitle>
+            <CardDescription>
+              {unreleasedForTeam.length} kayıt yalnızca sizde görünür. İnceledikten sonra ekibe açın;
+              diğer yöneticilere ayrı bildirim gitmez.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {unreleasedForTeam.slice(0, 12).map((e) => {
+              const emp = employees.find((em) => em.id === e.employeeId);
+              return (
+                <div
+                  key={e.id}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-200/80 bg-card px-3 py-2 dark:border-violet-500/35"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      <NoI18n>{emp?.name ?? "—"}</NoI18n>
+                      <span className="text-muted-foreground font-normal">
+                        {" "}
+                        · {e.date} · {fmt(e.amountUsd)}
+                      </span>
+                    </p>
+                    <NoI18n as="p" className="text-xs text-muted-foreground line-clamp-1">
+                      {e.brandName} — {e.description}
+                    </NoI18n>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setReviewModal(e)}
+                  >
+                    İncele
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => releaseExpenseToTeam(e)}
+                  >
+                    Ekibe aç
+                  </Button>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
       )}
 
       {/* SLA / aging — admin & denetçi */}
@@ -916,12 +1156,14 @@ function ContentExpensesPageInner() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
         {[
-          { label: "Toplam (Filtreli)", value: fmt(total),       cls: "text-foreground font-bold", icon: Receipt },
-          { label: "Ödenmiş",           value: fmt(totalPaid),   cls: "text-green-600",            icon: CheckCircle2 },
-          { label: "Bekleyen",          value: fmt(totalUnpaid), cls: totalUnpaid > 0 ? "text-amber-600" : "text-muted-foreground", icon: Circle },
-          { label: "Kayıt Sayısı",      value: String(activeFiltered.length), cls: "text-foreground" },
+          { label: "Toplam (Filtreli)", value: fmt(total), cls: "text-foreground font-bold", icon: Receipt },
+          { label: "Kapatılmış", value: fmt(totalPaid), cls: "text-green-600", icon: CheckCircle2 },
+          { label: "Ödeme Bekleyen", value: fmt(totalUnpaid), cls: totalUnpaid > 0 ? "text-amber-600" : "text-muted-foreground", icon: Circle },
+          { label: "Kasadan", value: fmt(totalKasa), cls: "text-blue-600", icon: Wallet },
+          { label: "Maaştan", value: fmt(totalPayroll), cls: "text-violet-600", icon: CheckCircle2 },
+          { label: "Kayıt", value: String(activeFiltered.length), cls: "text-foreground", icon: Receipt },
         ].map(k => (
           <div key={k.label} className="border border-border rounded-xl px-4 py-3 bg-card">
             <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
@@ -966,7 +1208,7 @@ function ContentExpensesPageInner() {
           options={[
             { value: "all", label: "Tüm Yayıncılar" },
             ...employees
-              .filter((em) => contentExpenses.some((x) => x.employeeId === em.id))
+              .filter((em) => visibleExpenses.some((x) => x.employeeId === em.id))
               .map((em) => ({ value: em.id, label: em.name })),
           ]} />
         <div className="flex items-center gap-1 border border-border rounded-lg p-0.5 bg-card">
@@ -975,7 +1217,7 @@ function ContentExpensesPageInner() {
               className={`px-3 py-1 text-xs rounded-md transition-colors ${
                 paidFilter === f ? "bg-blue-600 text-white" : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}>
-              {f === "all" ? "Tümü" : f === "paid" ? "Ödenmiş" : "Bekleyen"}
+              {f === "all" ? "Tümü" : f === "paid" ? "Kapatılmış" : "Bekleyen"}
             </button>
           ))}
         </div>
@@ -986,7 +1228,9 @@ function ContentExpensesPageInner() {
               ["awaiting", "Ödeme bekliyor"],
               ["payroll", "Maaş"],
               ["kasa", "Kasa"],
+              ["exception", "Özel durum"],
               ["conflict", "Çakışma"],
+              ...(isOrkun ? [["withdrawn", "Geri çekilen"] as const] : []),
             ] as const
           ).map(([f, label]) => (
             <button
@@ -997,12 +1241,19 @@ function ContentExpensesPageInner() {
                 settlementFilter === f
                   ? f === "conflict"
                     ? "bg-red-600 text-white"
-                    : "bg-violet-600 text-white"
+                    : f === "exception"
+                      ? "bg-amber-600 text-white"
+                      : f === "withdrawn"
+                        ? "bg-slate-700 text-white"
+                        : "bg-violet-600 text-white"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
               {label}
               {f === "conflict" && conflictIds.size > 0 ? ` (${conflictIds.size})` : ""}
+              {f === "withdrawn"
+                ? ` (${visibleExpenses.filter(isWithdrawnContentExpense).length})`
+                : ""}
             </button>
           ))}
         </div>
@@ -1029,6 +1280,7 @@ function ContentExpensesPageInner() {
                 const brand = brands.find(b => b.id === e.brandId);
                 const conflict = conflictIds.has(e.id);
                 const rowLocked = isContentExpenseMonthLocked(e.month, lockedMonths);
+                const rowWriteBlocked = rowLocked && !isOrkun;
                 return (
                   <tr
                     key={e.id}
@@ -1037,13 +1289,24 @@ function ContentExpensesPageInner() {
                     }`}
                   >
                     <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <Calendar size={10} className="opacity-50" />
                         {e.date}
                         {rowLocked && (
-                          <span title="Ay kilitli">
-                            <Lock size={10} className="text-amber-600" />
-                          </span>
+                          isOrkun ? (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] h-4 px-1 gap-0.5 text-amber-800 border-amber-300 bg-amber-50 dark:text-amber-200 dark:border-amber-500/40 dark:bg-amber-950/40"
+                              title="Ay kilitli — Orkun olarak yazmaya devam edebilirsin"
+                            >
+                              <Lock size={8} />
+                              Kilitli ay — Orkun override
+                            </Badge>
+                          ) : (
+                            <span title="Ay kilitli">
+                              <Lock size={10} className="text-amber-600" />
+                            </span>
+                          )
                         )}
                       </div>
                     </td>
@@ -1065,10 +1328,22 @@ function ContentExpensesPageInner() {
                           <AlertTriangle size={9} /> Çift ödeme riski
                         </Badge>
                       )}
+                      {exceptionLabel(e) && (
+                        <Badge variant="outline" className="mt-1 text-[9px] text-amber-800 border-amber-300 bg-amber-50 dark:text-amber-200 dark:border-amber-500/40 dark:bg-amber-950/40 gap-1">
+                          <AlertTriangle size={9} /> {exceptionLabel(e)}
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 tabular-nums font-bold text-foreground whitespace-nowrap">{fmt(e.amountUsd)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       {(() => {
+                        if (isPayrollLinkedContentExpense(e, salaryExtras)) {
+                          return (
+                            <Badge variant="outline" className="text-violet-700 border-violet-300 bg-violet-50 dark:text-violet-300 dark:border-violet-500/45 dark:bg-violet-950/40 gap-1 text-[10px]">
+                              <CheckCircle2 size={10} /> Maaşa eklendi
+                            </Badge>
+                          );
+                        }
                         const st = expenseReviewStatus(e);
                         if (st === "pending") return (
                           <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/45 dark:bg-amber-950/40 gap-1 text-[10px]">
@@ -1090,9 +1365,9 @@ function ContentExpensesPageInner() {
                             <X size={10} /> Geri çekildi
                           </Badge>
                         );
-                        if (e.paid) return (
+                        if (isExpenseCountedPaid(e)) return (
                           <Badge variant="outline" className="text-green-700 border-green-300 bg-green-50 dark:text-green-300 dark:border-green-500/45 dark:bg-green-950/40 gap-1 text-[10px]">
-                            <CheckCircle2 size={10} /> Ödendi
+                            <CheckCircle2 size={10} /> {isKasaSettled(e) ? "Kasadan" : isPayrollSettled(e) ? "Maaştan" : "Kapatıldı"}
                           </Badge>
                         );
                         return (
@@ -1103,7 +1378,7 @@ function ContentExpensesPageInner() {
                       })()}
                     </td>
                     <td className="px-3 py-2.5 text-[10px] text-muted-foreground whitespace-nowrap">
-                      {settlementLabel(e)}
+                      {settlementLabel(e, salaryExtras)}
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
@@ -1112,7 +1387,7 @@ function ContentExpensesPageInner() {
                             <ImageIcon size={11} />
                           </a>
                         )}
-                        {canMarkPaid && !rowLocked && (
+                        {canMarkPaid && !rowWriteBlocked && (
                           <ProofUploader
                             compact
                             value={e.screenshotUrl ?? ""}
@@ -1120,12 +1395,14 @@ function ContentExpensesPageInner() {
                             folder="expense"
                           />
                         )}
-                        {!readOnly && !rowLocked && (
+                        {!readOnly && !rowWriteBlocked && (
                           <button onClick={() => setModal(e)} className="text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Düzenle">
                             <Pencil size={12} />
                           </button>
                         )}
-                        {canReview && e.reviewStatus === "pending" && !rowLocked && (
+                        {canReview &&
+                          isAwaitingContentExpenseReview(e, salaryExtras) &&
+                          !rowWriteBlocked && (
                           <button
                             type="button"
                             onClick={() => setReviewModal(e)}
@@ -1135,7 +1412,7 @@ function ContentExpensesPageInner() {
                             İncele
                           </button>
                         )}
-                        {canMarkPaid && canAdminPayContentFromKasa(e) && !rowLocked && (
+                        {canMarkPaid && canAdminPayContentFromKasa(e) && !rowWriteBlocked && (
                           <button
                             type="button"
                             onClick={() => openKasaPay([e])}
@@ -1145,12 +1422,21 @@ function ContentExpensesPageInner() {
                             {isPayrollSettled(e) ? "Kasaya taşı" : "Kasadan öde"}
                           </button>
                         )}
-                        {canMarkPaid && expenseReviewStatus(e) === "approved" && !isPayrollSettled(e) && !isKasaSettled(e) && !rowLocked && (
+                        {canMarkPaid &&
+                          (expenseReviewStatus(e) === "approved" ||
+                            expenseReviewStatus(e) === "pending" ||
+                            expenseReviewStatus(e) === "needs_info") &&
+                          !isPayrollSettled(e) &&
+                          !isKasaSettled(e) &&
+                          !rowWriteBlocked &&
+                          canAdminPayContentFromKasa(e) && (
                           <button
                             type="button"
                             onClick={() => {
                               if (!assertMonthWritable(e.month, "Maaşa ekleme")) return;
-                              settleContentExpenseToPayroll(e.id);
+                              settleContentExpenseToPayroll(e.id, {
+                                reviewedBy: user?.id,
+                              });
                               notifyStreamer({
                                 expenseId: e.id,
                                 submittedBy: e.submittedBy ?? "",
@@ -1170,7 +1456,7 @@ function ContentExpensesPageInner() {
                             Maaşa ekle
                           </button>
                         )}
-                        {canMarkPaid && isPayrollSettled(e) && !rowLocked && (
+                        {canMarkPaid && isPayrollSettled(e) && !rowWriteBlocked && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1190,7 +1476,63 @@ function ContentExpensesPageInner() {
                             Bordrodan çıkar
                           </button>
                         )}
-                        {canMarkPaid && isKasaSettled(e) && !rowLocked && (
+                        {isOrkun && isWithdrawnContentExpense(e) && !rowWriteBlocked && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!assertMonthWritable(e.month, "Yeniden açma")) return;
+                                if (
+                                  !window.confirm(
+                                    "Geri çekilen harcama yeniden açılsın mı? İncelemede olarak yayıncıya ve yöneticilere görünür olur."
+                                  )
+                                ) {
+                                  return;
+                                }
+                                updateContentExpense(e.id, {
+                                  reviewStatus: "pending",
+                                  reviewedAt: undefined,
+                                  reviewedBy: undefined,
+                                  reviewerNote: "Orkun tarafından yeniden açıldı.",
+                                  notes: (e.notes ?? "").replace(/\s*\[streamer_cleared\]/gi, "").trim(),
+                                });
+                                logAudit({
+                                  actorId: user?.id ?? "unknown",
+                                  actorName: user?.name ?? "?",
+                                  action: "expense_settlement",
+                                  detail: `restore withdrawn · ${e.brandName} · ${e.id}`,
+                                });
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/45 dark:text-blue-200 hover:bg-blue-200 transition-colors"
+                            >
+                              Yeniden aç
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!assertMonthWritable(e.month, "Kalıcı silme")) return;
+                                if (
+                                  !window.confirm(
+                                    "Bu geri çekilen harcama kalıcı silinsin mi? Bu işlem geri alınamaz."
+                                  )
+                                ) {
+                                  return;
+                                }
+                                deleteContentExpense(e.id);
+                                logAudit({
+                                  actorId: user?.id ?? "unknown",
+                                  actorName: user?.name ?? "?",
+                                  action: "expense_settlement",
+                                  detail: `hard delete withdrawn · ${e.brandName} · ${e.id}`,
+                                });
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-950/45 dark:text-red-200 hover:bg-red-200 transition-colors"
+                            >
+                              Kalıcı sil
+                            </button>
+                          </>
+                        )}
+                        {canMarkPaid && isKasaSettled(e) && !rowWriteBlocked && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1247,11 +1589,35 @@ function ContentExpensesPageInner() {
             onSave={d => {
               if (modal === "new") {
                 if (!assertMonthWritable(d.month, "Yeni harcama")) return;
-                addContentExpense(d);
+                addContentExpense({
+                  ...d,
+                  ...(isOrkun && user?.id
+                    ? contentExpenseReleasePatch(user.id)
+                    : {}),
+                });
               } else {
                 if (!assertMonthWritable(modal.month, "Düzenleme")) return;
                 if (d.month && !assertMonthWritable(d.month, "Düzenleme")) return;
+                const becameWriteOff =
+                  (d.exceptionKind === "hibe" || d.exceptionKind === "hack") &&
+                  !(
+                    modal.exceptionKind === "hibe" ||
+                    modal.exceptionKind === "hack" ||
+                    resolveExpenseException(modal).kind === "hibe" ||
+                    resolveExpenseException(modal).kind === "hack"
+                  );
                 updateContentExpense(modal.id, d);
+                if (becameWriteOff && isPayrollSettled(modal)) {
+                  unsettleContentExpenseFromPayroll(modal.id);
+                }
+                if (d.exceptionKind) {
+                  logAudit({
+                    actorId: user?.id ?? "unknown",
+                    actorName: user?.name ?? "?",
+                    action: "expense_settlement",
+                    detail: `exception ${d.exceptionKind}${d.exceptionNote ? ` · ${d.exceptionNote}` : ""} · ${modal.brandName} · ${modal.id}`,
+                  });
+                }
               }
             }}
             onDelete={modal !== "new" ? () => {
@@ -1311,24 +1677,49 @@ function ContentExpensesPageInner() {
             onApprove={(note, settlement, kasaPayload) => {
               if (!assertMonthWritable(reviewModal.month, "Onay")) return;
               const today = new Date().toISOString().slice(0, 10);
-              updateContentExpense(reviewModal.id, {
-                reviewStatus: "approved",
-                reviewedAt: new Date().toISOString(),
-                reviewedBy: user?.id,
-                reviewerNote: note,
+              const tag = `[ICEXP:${reviewModal.id}]`;
+              const existingTx = useStore.getState().kasaTransactions.find((t) => {
+                const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+                return blob.includes(tag);
               });
-              if (settlement === "kasa" && kasaPayload) {
+              // Onay + kasa aynı anda yazılır. Önce "sadece onay" persist edilirse
+              // kasa bağlantısı ezilip kayıt yeniden "ödeme bekliyor"a düşüyordu.
+              if (settlement === "existing_kasa" && kasaPayload?.existingKasaTxId) {
                 payContentExpense({
                   contentExpenseId: reviewModal.id,
                   kasaId: kasaPayload.kasaId,
                   paidDate: today,
-                  feeUsd: kasaPayload.feeUsd,
+                  existingKasaTxId: kasaPayload.existingKasaTxId,
+                  reviewerNote: note,
+                  reviewedBy: user?.id,
+                });
+              } else if ((settlement === "kasa" && kasaPayload) || (settlement !== "payroll" && existingTx)) {
+                payContentExpense({
+                  contentExpenseId: reviewModal.id,
+                  kasaId: kasaPayload?.kasaId ?? existingTx!.kasaId,
+                  paidDate: today,
+                  feeUsd: kasaPayload?.feeUsd ?? 0,
                   notes: note,
+                  reviewerNote: note,
+                  reviewedBy: user?.id,
                 });
               } else if (settlement === "payroll") {
-                settleContentExpenseToPayroll(reviewModal.id);
+                settleContentExpenseToPayroll(reviewModal.id, {
+                  reviewedBy: user?.id,
+                  reviewerNote: note,
+                });
+              } else {
+                updateContentExpense(reviewModal.id, {
+                  reviewStatus: "approved",
+                  reviewedAt: new Date().toISOString(),
+                  reviewedBy: user?.id,
+                  reviewerNote: note,
+                });
               }
-              const paidNow = settlement === "kasa";
+              const paidNow =
+                (settlement === "existing_kasa" && Boolean(kasaPayload?.existingKasaTxId)) ||
+                (settlement === "kasa" && Boolean(kasaPayload)) ||
+                (settlement !== "payroll" && Boolean(existingTx));
               const payrollNow = settlement === "payroll";
               notifyStreamer({
                 expenseId: reviewModal.id,
@@ -1346,6 +1737,37 @@ function ContentExpensesPageInner() {
                 actorName: user?.name ?? "?",
                 action: paidNow || payrollNow ? "expense_settlement" : "expense_approved",
                 detail: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} · ${settlement} · ${reviewModal.id}`,
+              });
+              setReviewModal(null);
+            }}
+            onMarkException={(kind, note, adminMsg) => {
+              if (!assertMonthWritable(reviewModal.month, "Özel durum")) return;
+              const writeOff = kind === "hibe" || kind === "hack";
+              updateContentExpense(reviewModal.id, {
+                exceptionKind: kind,
+                exceptionNote: note || undefined,
+                reviewStatus: "approved",
+                reviewedAt: new Date().toISOString(),
+                reviewedBy: user?.id,
+                reviewerNote:
+                  adminMsg ||
+                  `${CONTENT_EXPENSE_EXCEPTION_LABELS[kind]}${note ? ` — ${note}` : ""}`,
+              });
+              if (writeOff && isPayrollSettled(reviewModal)) {
+                unsettleContentExpenseFromPayroll(reviewModal.id);
+              }
+              notifyStreamer({
+                expenseId: reviewModal.id,
+                submittedBy: reviewModal.submittedBy ?? "",
+                type: "general",
+                title: `Harcama: ${CONTENT_EXPENSE_EXCEPTION_LABELS[kind]}`,
+                message: `${reviewModal.brandName} · ${fmt(reviewModal.amountUsd)} — ${note || adminMsg || CONTENT_EXPENSE_EXCEPTION_LABELS[kind]}`,
+              });
+              logAudit({
+                actorId: user?.id ?? "unknown",
+                actorName: user?.name ?? "?",
+                action: "expense_settlement",
+                detail: `exception ${kind}${note ? ` · ${note}` : ""} · ${reviewModal.brandName} · ${reviewModal.id}`,
               });
               setReviewModal(null);
             }}
@@ -1371,6 +1793,11 @@ function ContentExpensesPageInner() {
               });
               setReviewModal(null);
             }}
+            onReleaseToTeam={
+              isOrkun && !isContentExpenseReleasedToTeam(reviewModal)
+                ? () => releaseExpenseToTeam(reviewModal)
+                : undefined
+            }
             onNeedsInfo={(note) => {
               const thread = [
                 ...(reviewModal.reviewThread ?? []),
@@ -1480,8 +1907,10 @@ function ReviewForm({
   kasaTransactions,
   defaultKasaId,
   onApprove,
+  onMarkException,
   onReject,
   onNeedsInfo,
+  onReleaseToTeam,
   onClose,
   onAttachProof,
 }: {
@@ -1494,18 +1923,30 @@ function ReviewForm({
   defaultKasaId: string;
   onApprove: (
     note: string,
-    settlement: "approve_only" | "kasa" | "payroll",
-    kasa?: { kasaId: string; feeUsd: number }
+    settlement: "approve_only" | "kasa" | "payroll" | "existing_kasa",
+    kasa?: { kasaId: string; feeUsd: number; existingKasaTxId?: string }
+  ) => void;
+  onMarkException: (
+    kind: ContentExpenseExceptionKind,
+    note: string,
+    adminMsg: string,
   ) => void;
   onReject: (note: string) => void;
   onNeedsInfo: (note: string) => void;
+  onReleaseToTeam?: () => void;
   onClose: () => void;
   onAttachProof?: (url: string) => void;
 }) {
   const [note, setNote] = useState(expense.reviewerNote ?? "");
-  const [settlement, setSettlement] = useState<"approve_only" | "kasa" | "payroll">(
-    canMarkPaid ? "kasa" : "approve_only"
+  const existingExc = resolveExpenseException(expense);
+  const [excKind, setExcKind] = useState<ContentExpenseExceptionKind | "">(
+    existingExc.kind ?? "",
   );
+  const [excNote, setExcNote] = useState(existingExc.note ?? "");
+  const [settlement, setSettlement] = useState<
+    "approve_only" | "kasa" | "payroll" | "existing_kasa"
+  >(canMarkPaid ? "kasa" : "approve_only");
+  const [existingKasaTxId, setExistingKasaTxId] = useState("");
   const activeKasas = kasas.filter((k) => !k.archived);
   const [kasaId, setKasaId] = useState<string>(defaultKasaId);
   const [feeUsd, setFeeUsd] = useState<number>(0);
@@ -1519,11 +1960,28 @@ function ReviewForm({
     : 0;
   const projected = balance - (expense.amountUsd || 0) - feeUsd;
   const isLow = settlement === "kasa" && projected < 0;
+  const recentOutTxs = useMemo(() => {
+    return [...kasaTransactions]
+      .filter((t) => t.direction === "out")
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 40);
+  }, [kasaTransactions]);
   const emp = employees.find(em => em.id === expense.employeeId);
   const submitted = expense.submittedAt ? fmtDateTime(expense.submittedAt) : "—";
+  const writeOffSelected = excKind === "hibe" || excKind === "hack";
 
   return (
     <div className="space-y-4">
+      {onReleaseToTeam && (
+        <div className="rounded-lg border border-violet-300 bg-violet-50/50 dark:border-violet-500/40 dark:bg-violet-950/30 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-violet-900 dark:text-violet-100">
+            Bu harcama henüz diğer yöneticilere kapalı. İnceledikten sonra ekibe açabilirsiniz.
+          </p>
+          <Button type="button" size="sm" onClick={onReleaseToTeam}>
+            Ekibe aç
+          </Button>
+        </div>
+      )}
       {/* Görsel önizleme + yönetici sonradan ekleyebilir (audit log yok) */}
       {onAttachProof ? (
         <Field label="Kanıt görseli" hint="Yayıncı göndermediyse sonradan ekleyebilirsiniz. Bu işlem loglanmaz.">
@@ -1589,13 +2047,63 @@ function ReviewForm({
         <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Ek bilgi, neden vs..." rows={3} />
       </Field>
 
-      {canMarkPaid ? (
+      {canMarkPaid && (
+        <div className="rounded-lg border border-amber-200/80 bg-amber-50/40 dark:border-amber-500/35 dark:bg-amber-950/25 px-3 py-3 space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            Özel durum (hack / hibe / elzem)
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Hibe veya hack seçilirse harcama ödeme borcuna yazılmaz. Elzem kayıt tutar; ödeme yolunu ayrıca seçebilirsin.
+          </p>
+          <FormGrid>
+            <Field label="Durum">
+              <Select
+                value={excKind}
+                onChange={(e) => setExcKind(e.target.value as ContentExpenseExceptionKind | "")}
+                options={[
+                  { value: "", label: "Yok — normal onay" },
+                  ...CONTENT_EXPENSE_EXCEPTION_KINDS.map((k) => ({
+                    value: k,
+                    label: CONTENT_EXPENSE_EXCEPTION_LABELS[k],
+                  })),
+                ]}
+              />
+            </Field>
+            <Field label="Kısa açıklama">
+              <Input
+                value={excNote}
+                onChange={(e) => setExcNote(e.target.value)}
+                placeholder="örn. hesap hacklendi / hibe edildi"
+                disabled={!excKind}
+              />
+            </Field>
+          </FormGrid>
+          {excKind && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5 border-amber-400 text-amber-900 hover:bg-amber-100 dark:text-amber-100 dark:border-amber-500/50"
+              onClick={() => onMarkException(excKind, excNote.trim(), note.trim())}
+            >
+              <AlertTriangle size={13} />
+              {CONTENT_EXPENSE_EXCEPTION_LABELS[excKind]} olarak kaydet
+            </Button>
+          )}
+        </div>
+      )}
+
+      {canMarkPaid && !writeOffSelected ? (
         <div className="space-y-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ödeme yolu</p>
           <div className="space-y-2 text-sm">
             {([
               { id: "approve_only" as const, label: "Sadece onayla", hint: "Ödeme yolu sonra seçilir" },
               { id: "kasa" as const, label: "Kasadan düş", hint: "Hemen kasa çıkışı oluşturulur" },
+              {
+                id: "existing_kasa" as const,
+                label: "Önceden ödendi (mevcut kasa)",
+                hint: "Yeni çıkış yok — bordro/ödeme hareketine bağlanır",
+              },
               { id: "payroll" as const, label: "Maaşa masraf ekle", hint: "Bu ay bordro netine dahil edilir" },
             ]).map((opt) => (
               <label key={opt.id} className="flex items-start gap-2 cursor-pointer">
@@ -1613,6 +2121,26 @@ function ReviewForm({
               </label>
             ))}
           </div>
+          {settlement === "existing_kasa" && (
+            <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/40 dark:border-emerald-500/35 dark:bg-emerald-950/20 p-3 space-y-2">
+              <p className="text-[11px] text-emerald-900 dark:text-emerald-100">
+                Örn. Ponpon Ekim maaşı zaten kasadan çıktıysa, aynı hareketi seçin — bakiye tekrar düşmez.
+              </p>
+              <Field label="Mevcut kasa çıkışı" required>
+                <Select
+                  value={existingKasaTxId}
+                  onChange={(e) => setExistingKasaTxId(e.target.value)}
+                  options={[
+                    { value: "", label: "Hareket seçin…" },
+                    ...recentOutTxs.map((t) => ({
+                      value: t.id,
+                      label: `${t.date.slice(0, 10)} · −${fmt(t.amountUsd)} · ${t.purpose.slice(0, 48)}`,
+                    })),
+                  ]}
+                />
+              </Field>
+            </div>
+          )}
           {settlement === "kasa" && activeKasas.length > 0 && (
             <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
               <FormGrid>
@@ -1651,9 +2179,13 @@ function ReviewForm({
             </div>
           )}
         </div>
-      ) : (
+      ) : !canMarkPaid ? (
         <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200">
           Denetçi onayı harcamayı kabul eder; ödeme işaretleme yetkisi yöneticidedir.
+        </p>
+      ) : (
+        <p className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-100">
+          Hibe/hack seçili — yukarıdaki “olarak kaydet” ile kapat; kasa/maaş yolu kullanılmaz.
         </p>
       )}
 
@@ -1667,20 +2199,31 @@ function ReviewForm({
           className="gap-1.5 border-red-300 text-red-700 hover:bg-red-500/10 dark:text-red-400 dark:border-red-500/40">
           <X size={13} /> Reddet
         </Button>
-        <Button
-          type="button"
-          onClick={() =>
-            onApprove(
-              note,
-              canMarkPaid ? settlement : "approve_only",
-              canMarkPaid && settlement === "kasa" && selectedKasa
-                ? { kasaId: selectedKasa.id, feeUsd }
-                : undefined,
-            )
-          }
-          className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
-          <CheckCircle2 size={13} /> Onayla
-        </Button>
+        {!writeOffSelected && (
+          <Button
+            type="button"
+            onClick={() =>
+              onApprove(
+                note,
+                canMarkPaid ? settlement : "approve_only",
+                canMarkPaid && settlement === "existing_kasa" && existingKasaTxId
+                  ? {
+                      kasaId:
+                        kasaTransactions.find((t) => t.id === existingKasaTxId)?.kasaId ??
+                        selectedKasa?.id ??
+                        defaultKasaId,
+                      feeUsd: 0,
+                      existingKasaTxId,
+                    }
+                  : canMarkPaid && settlement === "kasa" && selectedKasa
+                    ? { kasaId: selectedKasa.id, feeUsd }
+                    : undefined,
+              )
+            }
+            className="gap-1.5 bg-green-600 hover:bg-green-700 text-white">
+            <CheckCircle2 size={13} /> Onayla
+          </Button>
+        )}
       </div>
     </div>
   );

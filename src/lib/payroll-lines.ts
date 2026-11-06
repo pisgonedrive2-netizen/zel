@@ -1,3 +1,8 @@
+import {
+  isKasaSettled,
+  isPayrollSettled,
+  isExceptionWriteOff,
+} from "@/lib/content-expense";
 import type {
   Advance,
   ContentExpense,
@@ -67,7 +72,9 @@ function payrollSettledContentNotInExtras(
       (e) =>
         e.employeeId === employeeId &&
         e.month === month &&
-        (e.salaryExtraId || e.settlementMode === "payroll") &&
+        isPayrollSettled(e) &&
+        !isKasaSettled(e) &&
+        !isExceptionWriteOff(e) &&
         e.reviewStatus !== "rejected" &&
         e.reviewStatus !== "cancelled",
     )
@@ -82,7 +89,28 @@ export type PayrollLineKind =
   | "bonus"
   | "expense"
   | "other"
-  | "content_payroll";
+  | "content_payroll"
+  | "deduction";
+
+/** Kasadan ödenebilir / ödendi işaretlenebilir kalem (kesintiler bilgi amaçlı). */
+export function isPayrollLinePayable(line: Pick<PayrollLineItem, "kind">): boolean {
+  return line.kind !== "deduction";
+}
+
+/** Tek kalem kasa ödemesi — temel maaşta brüt + kesintiler = net. */
+export function payrollLinePayAmount(
+  line: PayrollLineItem,
+  allLines: PayrollLineItem[],
+): number {
+  if (line.kind === "deduction") return 0;
+  if (line.kind === "base_salary") {
+    const ded = allLines
+      .filter((l) => l.kind === "deduction")
+      .reduce((s, l) => s + l.amountUsd, 0);
+    return Math.max(0, line.amountUsd + ded);
+  }
+  return line.amountUsd;
+}
 
 /** Tek bir ödenebilir bordro kalemi + ödeme durumu. */
 export interface PayrollLineItem {
@@ -142,9 +170,6 @@ export function buildPayrollLinePlan(
   const empAdvances = advances.filter(
     (a) => a.employeeId === employee.id && a.month === month,
   );
-  const totalDeduc = empExtras
-    .filter((e) => e.type === "deduction")
-    .reduce((s, e) => s + e.amount, 0);
   const totalAdvance = empAdvances.reduce((s, a) => s + a.amount, 0);
   const carryFwd = calcCarryForward(
     employee.id,
@@ -153,21 +178,45 @@ export function buildPayrollLinePlan(
     paymentStatuses,
   );
   const factor = payrollProrationFactor(employee, month);
-  const netBaseSalary = Math.max(
-    0,
-    proRatedBaseSalary(employee.baseSalary, factor) - totalDeduc - totalAdvance - carryFwd,
-  );
+  const grossBase = proRatedBaseSalary(employee.baseSalary, factor);
   const lines: Omit<
     PayrollLineItem,
     "paid" | "paidDate" | "paidBy" | "kasaTxId"
   >[] = [];
 
-  if (netBaseSalary > 0) {
+  if (grossBase > 0) {
     lines.push({
       lineId: "base",
       kind: "base_salary",
       label: factor < 1 ? `Temel maaş (oransal %${Math.round(factor * 100)})` : "Temel maaş",
-      amountUsd: netBaseSalary,
+      amountUsd: grossBase,
+    });
+  }
+
+  for (const a of empAdvances) {
+    lines.push({
+      lineId: `advance:${a.id}`,
+      kind: "deduction",
+      label: a.description?.trim() ? `Avans · ${a.description}` : "Avans kesintisi",
+      amountUsd: -a.amount,
+      refId: a.id,
+    });
+  }
+  if (carryFwd > 0) {
+    lines.push({
+      lineId: "carry",
+      kind: "deduction",
+      label: "Devir · ödenmemiş geçmiş avans",
+      amountUsd: -carryFwd,
+    });
+  }
+  for (const e of empExtras.filter((x) => x.type === "deduction")) {
+    lines.push({
+      lineId: `deduct:${e.id}`,
+      kind: "deduction",
+      label: e.description?.trim() ? `Kesinti · ${e.description}` : "Kesinti",
+      amountUsd: -e.amount,
+      refId: e.id,
     });
   }
 
@@ -221,6 +270,9 @@ export function buildPayrollLinePlan(
     const exp = contentExpenses.find((c) => c.id === e.contentExpenseId);
     if (!exp || exp.reviewStatus === "rejected" || exp.reviewStatus === "cancelled")
       continue;
+    // Kasadan ödenen içerik bordro kaleminde tekrar görünmesin.
+    if (isKasaSettled(exp)) continue;
+    if (isExceptionWriteOff(exp)) continue;
     lines.push({
       lineId: `content:${e.contentExpenseId}`,
       kind: "content_payroll",
@@ -277,15 +329,30 @@ export function buildPayrollPaymentLines(
 }
 
 export function sumPaidPayrollLines(lines: PayrollLineItem[]): number {
-  return lines.filter((l) => l.paid).reduce((s, l) => s + l.amountUsd, 0);
+  let sum = 0;
+  for (const l of lines) {
+    if (!l.paid || !isPayrollLinePayable(l)) continue;
+    sum +=
+      l.kind === "base_salary" ? payrollLinePayAmount(l, lines) : l.amountUsd;
+  }
+  return sum;
 }
 
 export function sumUnpaidPayrollLines(lines: PayrollLineItem[]): number {
-  return lines.filter((l) => !l.paid).reduce((s, l) => s + l.amountUsd, 0);
+  const payable = lines.filter((l) => isPayrollLinePayable(l));
+  const unpaidPayable = payable.filter((l) => !l.paid);
+  const deductions = lines.filter((l) => l.kind === "deduction");
+  const dedTotal = deductions.reduce((s, l) => s + l.amountUsd, 0);
+  const grossUnpaid = unpaidPayable.reduce((s, l) => s + l.amountUsd, 0);
+  if (unpaidPayable.some((l) => l.kind === "base_salary")) {
+    return Math.max(0, grossUnpaid + dedTotal);
+  }
+  return grossUnpaid;
 }
 
 export function isPayrollFullyPaid(lines: PayrollLineItem[]): boolean {
-  return lines.length > 0 && lines.every((l) => l.paid);
+  const payable = lines.filter((l) => isPayrollLinePayable(l));
+  return payable.length > 0 && payable.every((l) => l.paid);
 }
 
 export function hasPartialPayrollPayment(lines: PayrollLineItem[]): boolean {
@@ -316,6 +383,7 @@ export function formatPayrollLineStatusSummary(lines: PayrollLineItem[]): string
 
 export function shortPayrollLineLabel(line: Pick<PayrollLineItem, "kind" | "label">): string {
   if (line.kind === "base_salary") return "Maaş";
+  if (line.kind === "deduction") return "Kesinti";
   if (line.kind === "rent") return "Kira";
   if (line.kind === "content_payroll") return "İçerik";
   if (line.kind === "bonus") return "Prim";
@@ -346,7 +414,7 @@ export function markAllLinesPaid(
   lines: PayrollLineItem[],
   meta: { paidDate: string; paidBy?: string; kasaTxId?: string },
 ): PayrollLinePaidRecord[] {
-  return lines.map((l) => ({
+  return lines.filter(isPayrollLinePayable).map((l) => ({
     lineId: l.lineId,
     kind: l.kind,
     label: l.label,

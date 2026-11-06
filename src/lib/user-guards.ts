@@ -25,12 +25,32 @@ export function isMainAdminSession(session: SessionPayload | null | undefined): 
   );
 }
 
-/** Prim havuzu ve Özet — yalnızca ana yönetici (Orkun); impersonation oturumunda kapalı. */
-export function canAccessPrim(
-  u: Pick<AppUser, "id" | "username" | "impersonatorId"> | null | undefined,
-): boolean {
+type MainAdminGateUser = Pick<AppUser, "id" | "username" | "impersonatorId"> | null | undefined;
+
+/** Ana yönetici (Orkun) ve impersonation dışı oturum — verilemez yetkiler için ortak kapı. */
+function isLiveMainAdmin(u: MainAdminGateUser): boolean {
   if (!u || u.impersonatorId) return false;
   return isMainAdmin(u);
+}
+
+/** Prim havuzu — yalnızca ana yönetici (Orkun); impersonation oturumunda kapalı. */
+export function canAccessPrim(u: MainAdminGateUser): boolean {
+  return isLiveMainAdmin(u);
+}
+
+/** Özet paneli — yalnızca ana yönetici (Orkun); impersonation oturumunda kapalı. */
+export function canAccessOzet(u: MainAdminGateUser): boolean {
+  return isLiveMainAdmin(u);
+}
+
+/** Ramiz / TRON cüzdan görünürlüğü — yalnızca Orkun; yetki override ile verilemez. */
+export function canAccessRamizWalletHard(u: MainAdminGateUser): boolean {
+  return isLiveMainAdmin(u);
+}
+
+/** Hesaba giriş (impersonate) — yalnızca Orkun; yetki override ile verilemez. */
+export function canImpersonateUsers(u: MainAdminGateUser): boolean {
+  return isLiveMainAdmin(u);
 }
 
 export function isPrimRoute(pathname: string): boolean {

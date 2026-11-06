@@ -45,6 +45,7 @@ import {
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import {
   ResponsiveContainer,
   PieChart,
@@ -322,7 +323,15 @@ function StreamerAvatar({
  */
 export default function OperatorlerPage() {
   const readOnly = useIsReadOnly();
-  const { employees, brands, brandLinks, linkSnapshots, brandViewership } = useStore();
+  const { employees, brands: allBrands, brandLinks: allBrandLinks, linkSnapshots, brandViewership } = useStore();
+  const brands = useMemo(
+    () => allBrands.filter((b) => !isYeniHesaplarBrandId(b.id)),
+    [allBrands]
+  );
+  const brandLinks = useMemo(
+    () => allBrandLinks.filter((l) => !isYeniHesaplarBrandId(l.brandId)),
+    [allBrandLinks]
+  );
   const {
     viewMonth,
     setViewMonth,

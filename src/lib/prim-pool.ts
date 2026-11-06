@@ -11,6 +11,7 @@ import {
 import { totalContentExpensesForMonth, totalLinkViewsForMonth } from "@/lib/brand-month-metrics";
 import { toYearMonthLocal } from "@/lib/data";
 import { last12MonthsYm } from "@/lib/calendar-months";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 
 /** Standard paket referans — marka başına varsayılan tahsilat & garanti. */
 export const DEFAULT_BRAND_FEE_USD = 10_000;
@@ -526,7 +527,9 @@ export function computePrimPool(input: {
   config?: PrimPoolConfig;
 }): PrimPoolResult {
   const config = normalizeConfig(input.config);
-  const activeBrands = input.brands.filter((b) => b.status === "active");
+  const activeBrands = input.brands.filter(
+    (b) => b.status === "active" && !isYeniHesaplarBrandId(b.id)
+  );
 
   const brandRows: PrimBrandRow[] = activeBrands.map((b) => {
     const monthlyFeeUsd = input.brandFees[b.id] ?? DEFAULT_BRAND_FEE_USD;
@@ -976,7 +979,7 @@ export function viewershipHistory(
   const months = last12MonthsYm(endYm);
   return months.map((ym) => {
     let views = 0;
-    for (const b of brands.filter((x) => x.status === "active")) {
+    for (const b of brands.filter((x) => x.status === "active" && !isYeniHesaplarBrandId(x.id))) {
       views += brandViewsForMonth(b.id, brandLinks, ym, linkSnapshots, todayYm);
     }
     return { ym, views };
@@ -992,7 +995,7 @@ export function brandViewershipHistory(
 ): { ym: string; [brandShort: string]: number | string }[] {
   const todayYm = toYearMonthLocal(new Date());
   const months = last12MonthsYm(endYm);
-  const active = brands.filter((x) => x.status === "active");
+  const active = brands.filter((x) => x.status === "active" && !isYeniHesaplarBrandId(x.id));
   return months.map((ym) => {
     const row: { ym: string; [k: string]: number | string } = { ym };
     for (const b of active) {
@@ -1033,6 +1036,7 @@ export function buildPrimBaseInputs(input: {
   const brandFees: Record<string, number> = {};
   const brandGuarantees: Record<string, number> = {};
   for (const b of input.brands) {
+    if (isYeniHesaplarBrandId(b.id)) continue;
     brandViews[b.id] = brandViewsForMonth(b.id, input.brandLinks, input.monthYm, input.linkSnapshots, todayYm);
     brandFees[b.id] = input.brandFees?.[b.id] ?? DEFAULT_BRAND_FEE_USD;
     brandGuarantees[b.id] = input.brandGuarantees?.[b.id] ?? DEFAULT_GUARANTEED_VIEWS;

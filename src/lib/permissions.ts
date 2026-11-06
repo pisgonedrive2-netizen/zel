@@ -11,8 +11,9 @@ import { isMainAdmin, isMainAdminSession } from "@/lib/user-guards";
  * yetkilidir.
  *
  * Bir yönetici (admin) hesabı açıp neleri görüp göremeyeceğini tek tek
- * seçebilmek için tasarlandı: hangi sayfalar, cüzdan bilgisi, izlenmeler,
- * işlem günlüğü (son log kayıtları), geçmiş ödemeler, prim sistemi vb.
+ * seçebilmek için tasarlandı. Not: page.ozet, page.prim, data.ramiz_wallet,
+ * users.impersonate yalnızca ana yönetici (Orkun) içindir — override ile
+ * verilemez.
  */
 
 export type Capability =
@@ -62,8 +63,8 @@ export type CapabilityMeta = {
 /** İnsan-okunur yetki kataloğu (yetki editörü bunu kullanır). */
 export const CAPABILITY_CATALOG: CapabilityMeta[] = [
   // Sayfalar
-  { key: "page.ozet", group: "Sayfalar", label: "Özet paneli", description: "Şirket geneli özet & KPI panosu." },
-  { key: "page.prim", group: "Sayfalar", label: "Prim sistemi", description: "Prim havuzu hesap & dağıtım sayfası." },
+  { key: "page.ozet", group: "Sayfalar", label: "Özet paneli", description: "Yalnızca ana yönetici (Orkun) — verilemez" },
+  { key: "page.prim", group: "Sayfalar", label: "Prim sistemi", description: "Yalnızca ana yönetici (Orkun) — verilemez" },
   { key: "page.maaslar", group: "Sayfalar", label: "Maaşlar / Bordro", description: "Çalışan maaşları ve bordro." },
   { key: "page.rapor", group: "Sayfalar", label: "Ödeme raporu (geçmiş ödemeler)", description: "Aylık ödeme durumu ve geçmiş ödemeler." },
   { key: "page.kasa", group: "Sayfalar", label: "Kasa", description: "Kasa bakiyeleri ve işlemler." },
@@ -79,26 +80,31 @@ export const CAPABILITY_CATALOG: CapabilityMeta[] = [
   { key: "page.bildirimler", group: "Sayfalar", label: "Bildirim merkezi", description: "Bildirim akışı." },
   { key: "page.denetci", group: "Sayfalar", label: "Denetim özeti", description: "Denetim (auditor) ana paneli." },
   // Hassas veri
-  { key: "data.ramiz_wallet", group: "Hassas veri", label: "Cüzdan bilgisi (Ramiz / TRON)", description: "Ramiz'e ait TRON cüzdan adresi, TRON kasası ve otomatik işlemler. Kapalıysa maskelenir." },
-  { key: "data.audit_log", group: "Hassas veri", label: "İşlem günlüğü (son log kayıtları)", description: "Kullanıcılar sayfasındaki işlem günlüğü tablosu." },
-  { key: "data.audit_admin_actions", group: "Hassas veri", label: "Günlükte yönetici eylemleri", description: "İşlem günlüğünde diğer yöneticilerin eylemlerini de görür." },
+  { key: "data.ramiz_wallet", group: "Hassas veri", label: "Cüzdan bilgisi (Ramiz / TRON)", description: "Yalnızca ana yönetici (Orkun) — verilemez" },
+  { key: "data.audit_log", group: "Hassas veri", label: "İşlem günlüğü (son log kayıtları)", description: "Kullanıcılar sayfasındaki işlem günlüğü tablosu. Ana yönetici (Orkun) kayıtları asla görünmez." },
+  { key: "data.audit_admin_actions", group: "Hassas veri", label: "Günlükte yönetici eylemleri", description: "İşlem günlüğünde diğer yöneticilerin eylemlerini de görür (Orkun hariç — sistem sahibi)." },
   // İşlemler
   { key: "write.payroll", group: "İşlemler", label: "Bordro düzenleme", description: "Maaş/ödeme kalemlerini işaretleme & düzenleme (kapalı = salt-okunur)." },
   { key: "write.kasa", group: "İşlemler", label: "Kasa işlemleri", description: "Kasa işlemi ekleme/düzenleme (kapalı = salt-okunur)." },
   { key: "write.content_review", group: "İşlemler", label: "İçerik harcaması onayı", description: "İçerik harcamalarını onaylama/reddetme & ödendi işaretleme." },
   { key: "users.manage", group: "İşlemler", label: "Kullanıcı yönetimi (yazma)", description: "Kullanıcı ekleme/düzenleme/silme, PIN sıfırlama." },
-  { key: "users.impersonate", group: "İşlemler", label: "Hesaba giriş (denetim)", description: "Başka bir kullanıcının hesabına denetim için girme." },
+  { key: "users.impersonate", group: "İşlemler", label: "Hesaba giriş (denetim)", description: "Yalnızca ana yönetici (Orkun) — verilemez" },
 ];
 
 export const ALL_CAPABILITIES: Capability[] = CAPABILITY_CATALOG.map((c) => c.key);
 
-/** Impersonation (denetim) oturumunda asla açılmayan hassas yetkiler. */
-const IMPERSONATION_BLOCKED: ReadonlySet<Capability> = new Set<Capability>([
-  "page.prim",
+/**
+ * Yalnızca ana yönetici (Orkun). Permission override ile kimseye verilemez;
+ * impersonation oturumunda da kapalı.
+ */
+const ORKUN_ONLY_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   "page.ozet",
+  "page.prim",
   "data.ramiz_wallet",
   "users.impersonate",
 ]);
+
+export { ORKUN_ONLY_CAPABILITIES };
 
 /**
  * Rol varsayılanları — `permissions` verilmediğinde uygulanır. Mevcut davranışı
@@ -134,7 +140,10 @@ type CapabilitySubject = {
 };
 
 function capabilityGranted(subject: CapabilitySubject, cap: Capability): boolean {
-  if (subject.impersonating && IMPERSONATION_BLOCKED.has(cap)) return false;
+  // Hard Orkun-only: ignore overrides; impersonation → false.
+  if (ORKUN_ONLY_CAPABILITIES.has(cap)) {
+    return subject.isMainAdmin && !subject.impersonating;
+  }
   if (subject.isMainAdmin && !subject.impersonating) return true;
   const perms = subject.permissions;
   if (perms && Object.prototype.hasOwnProperty.call(perms, cap)) {

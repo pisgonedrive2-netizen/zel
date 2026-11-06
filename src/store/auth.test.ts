@@ -56,6 +56,16 @@ describe("canAccess", () => {
     expect(canAccess("/marka/kesif", "admin", null, brandViewAs)).toBe(true);
   });
 
+  it("blocks orkun route for everyone except main admin Orkun", () => {
+    const orkun = { id: "u-admin", username: "orkun" };
+    const otherAdmin = { id: "u-other", username: "admin2" };
+    expect(canAccess("/orkun", "admin", null, null, orkun)).toBe(true);
+    expect(canAccess("/orkun", "admin", null, null, otherAdmin)).toBe(false);
+    expect(canAccess("/orkun", "admin")).toBe(false);
+    expect(canAccess("/orkun", "auditor")).toBe(false);
+    expect(canAccess("/orkun", "streamer")).toBe(false);
+  });
+
   it("blocks prim route for everyone except main admin Orkun", () => {
     const orkun = { id: "u-admin", username: "orkun" };
     const otherAdmin = { id: "u-other", username: "admin2" };

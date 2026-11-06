@@ -13,6 +13,7 @@ export function getSiteBaseUrl(): string {
 export const PRIVATE_ROUTE_PREFIXES = [
   "/prim",
   "/ozet",
+  "/orkun",
   "/kasa",
   "/maaslar",
   "/gorevler",

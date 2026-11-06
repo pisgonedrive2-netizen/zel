@@ -13,10 +13,10 @@ import {
   totalCashOutPaidForMonth,
 } from "@/store/store";
 import { computeTronPanelMetrics } from "@/lib/kasa-tron-metrics";
-import { isActiveContentExpense } from "@/lib/content-expense";
+import { useAdminDashboardMetrics } from "@/lib/admin-dashboard-metrics";
 import { fmtDateShort } from "@/lib/fmt-date";
-import { useAuth } from "@/store/auth";
-import { hasCapability } from "@/lib/permissions";
+import { useAuth, landingFor } from "@/store/auth";
+import { canAccessOzet } from "@/lib/user-guards";
 import {
   canViewRamizWallet,
   filterKasasForRamizViewer,
@@ -74,11 +74,11 @@ export default function OzetPage() {
   const { user } = useAuth();
   const router = useRouter();
   const locale = useUiPrefs((s) => s.locale);
-  const allowed = hasCapability(user, "page.ozet");
+  const allowed = canAccessOzet(user);
 
   useEffect(() => {
     if (user && !allowed) {
-      router.replace("/maaslar");
+      router.replace(landingFor(user.role, user));
     }
   }, [user, allowed, router]);
 
@@ -86,7 +86,7 @@ export default function OzetPage() {
     companies, projects, expenses, employees,
     salaryExtras, advances, paymentStatuses,
     kasas, kasaTransactions, contentExpenses, brandLinks, brands, notifications,
-    brandViewership, linkSnapshots,
+    brandViewership, linkSnapshots, kasaMetrics,
   } = useStore();
   const canRamizWallet = canViewRamizWallet(user);
   const viewKasas = useMemo(
@@ -106,6 +106,7 @@ export default function OzetPage() {
     : [];
 
   const currentMonth = toYearMonthLocal(new Date());
+  const dash = useAdminDashboardMetrics(currentMonth);
 
   const aylikDis  = companies.filter(c => c.status === "active").reduce((s, c) => s + c.monthlyAmount, 0);
   const aylikIc   = projects.filter(p => p.status !== "paused").reduce((s, p) => s + p.monthlyRevenue, 0);
@@ -183,38 +184,33 @@ export default function OzetPage() {
       ? viewKasaTransactions.filter((t) => t.kasaId === genelKasa.id)
       : [];
     const genelBakiye =
-      tronPanel?.harcamaKasaWithTron ??
-      (genelKasa ? calcKasaBalance(viewKasaTransactions, undefined, genelKasa.id) : 0);
+      kasaMetrics?.genelDisplayBalance != null
+        ? kasaMetrics.genelDisplayBalance
+        : tronPanel?.harcamaKasaWithTron ??
+          (genelKasa ? calcKasaBalance(viewKasaTransactions, undefined, genelKasa.id) : 0);
 
     return {
       genelBakiye,
       tronToplam: tronPanel?.tronTotal ?? 0,
       tronOps: tronPanel?.ramizWallet ?? 0,
       tronLokal: genelBakiye,
-      tumKasalar: canRamizWallet
-        ? calcKasaBalance(viewKasaTransactions)
-        : genelBakiye,
+      tumKasalar:
+        kasaMetrics?.operatingTotal != null
+          ? kasaMetrics.operatingTotal + (canRamizWallet ? (tronPanel?.tronTotal ?? 0) : 0)
+          : canRamizWallet
+            ? calcKasaBalance(viewKasaTransactions)
+            : genelBakiye,
       genelKasaAdi: genelKasa?.name ?? "Genel Kasa",
       tronKasaAdi: tronPanel?.tronKasa.name ?? "TRON Cüzdan",
       genelIslem: genelRows.length + (tronPanel?.includedTronCount ?? 0),
       tronIslem: tronPanel?.autoTxCount ?? 0,
     };
-  }, [canRamizWallet, viewKasas, viewKasaTransactions]);
-  // Bu ay içerik harcamaları (geri çekilen / reddedilen kayıtlar hariç)
-  const icerikHarcAylik = contentExpenses
-    .filter((c) => c.month === currentMonth && isActiveContentExpense(c))
-    .reduce((s, c) => s + c.amountUsd, 0);
-  const icerikHarcBekleyen = contentExpenses
-    .filter(
-      (c) =>
-        c.month === currentMonth &&
-        !c.paid &&
-        c.reviewStatus !== "rejected" &&
-        c.reviewStatus !== "cancelled" &&
-        c.reviewStatus !== "pending" &&
-        c.reviewStatus !== "needs_info"
-    )
-    .reduce((s, c) => s + c.amountUsd, 0);
+  }, [canRamizWallet, viewKasas, viewKasaTransactions, kasaMetrics]);
+  // Bu ay içerik harcamaları (geri çekilen / reddedilen / hibe-hack hariç)
+  const icerikHarcAylik = dash.monthContentTotal;
+  const icerikHarcBekleyen = dash.awaitingSettlementTotal;
+  const icerikHarcKasa = dash.kasaSettledMonthTotal;
+  const icerikHarcMaas = dash.payrollSettledMonthTotal;
 
   // Marka ve link sayıları
   const aktifMarka = brands.filter(b => b.status === "active").length;
@@ -312,9 +308,16 @@ export default function OzetPage() {
       value: fmt(icerikHarcAylik),
       trend: "neutral",
       trendLabel: monthLabelTr(currentMonth),
-      description: icerikHarcBekleyen > 0
-        ? `${fmt(icerikHarcBekleyen)} ödenmemiş harcama`
-        : "Tüm harcamalar kapalı",
+      description: [
+        icerikHarcBekleyen > 0 ? `${fmt(icerikHarcBekleyen)} ödeme bekliyor` : null,
+        icerikHarcKasa > 0 ? `kasa ${fmt(icerikHarcKasa)}` : null,
+        icerikHarcMaas > 0 ? `maaş ${fmt(icerikHarcMaas)}` : null,
+        dash.pendingContentExpenseCount > 0
+          ? `${dash.pendingContentExpenseCount} incelemede`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || "Tüm harcamalar kapalı",
       icon: Clapperboard,
       sparkline: giderSparkline,
       href: "/icerik-harcamalari",

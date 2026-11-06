@@ -54,9 +54,46 @@ describe("buildPayrollLinePlan", () => {
       [],
       [],
     );
-    expect(plan.find((l) => l.lineId === "base")?.amountUsd).toBe(1500);
+    expect(plan.find((l) => l.lineId === "base")?.amountUsd).toBe(3000);
+    expect(plan.find((l) => l.kind === "deduction")?.amountUsd).toBe(-1500);
     expect(plan.find((l) => l.lineId === "rent")?.amountUsd).toBe(500);
     expect(plan.reduce((s, l) => s + l.amountUsd, 0)).toBe(2000);
+  });
+});
+
+describe("buildPayrollLinePlan advance cut", () => {
+  it("shows gross base and separate deduction (Ponpon Ekim)", () => {
+    const ponpon: Employee = {
+      id: "c5fba5c8-a7ec-49be-84a5-31b10bb08309",
+      name: "Ponpon",
+      role: "Mod",
+      department: "",
+      baseSalary: 2000,
+      rentSupport: 0,
+      initialAdvance: 2500,
+      paymentDay: "1-5",
+      payrollStartMonth: "2026-07",
+      startDate: "2026-07-01",
+      status: "active",
+      walletAddress: "",
+      avatar: "",
+      notes: "",
+      kind: "moderator",
+    };
+    const extras: SalaryExtra[] = [
+      {
+        id: "se-advcut-x-2026-10",
+        employeeId: ponpon.id,
+        month: "2026-10",
+        amount: 400,
+        description: "Açık avans geri ödemesi · $400/ay · kalan $2000",
+        type: "deduction",
+      },
+    ];
+    const plan = buildPayrollLinePlan(ponpon, "2026-10", [], extras, [], []);
+    expect(plan.find((l) => l.lineId === "base")?.amountUsd).toBe(2000);
+    expect(plan.find((l) => l.kind === "deduction")?.amountUsd).toBe(-400);
+    expect(plan.reduce((s, l) => s + l.amountUsd, 0)).toBe(1600);
   });
 });
 
@@ -120,6 +157,56 @@ describe("buildPayrollLinePlan content-linked extras", () => {
     expect(plan.find((l) => l.lineId === "content:ce-1")?.amountUsd).toBe(500);
     expect(plan.find((l) => l.lineId === "extra:se-1")).toBeUndefined();
     expect(plan.reduce((s, l) => s + l.amountUsd, 0)).toBe(11900);
+  });
+
+  it("kasadan ödenen içerik bordro satırına girmez", () => {
+    const content: ContentExpense = {
+      id: "ce-kasa",
+      date: "2026-08-10",
+      month: "2026-08",
+      employeeId: "emp-ramiz",
+      brandName: "Padi",
+      category: "Vlog",
+      description: "Kasadan",
+      amountUsd: 200,
+      paid: true,
+      paidDate: "2026-08-10",
+      reviewStatus: "approved",
+      settlementMode: "kasa",
+      kasaTxId: "ktx-1",
+      notes: "",
+    };
+    const extras: SalaryExtra[] = [
+      {
+        id: "se-stale",
+        employeeId: "emp-ramiz",
+        month: "2026-08",
+        amount: 200,
+        description: "İçerik",
+        type: "expense",
+        contentExpenseId: "ce-kasa",
+      },
+    ];
+    const ramiz: Employee = {
+      id: "emp-ramiz",
+      name: "Ramiz",
+      role: "Yayıncı",
+      department: "Yayın",
+      baseSalary: 10000,
+      rentSupport: 0,
+      initialAdvance: 0,
+      paymentDay: "1-5",
+      payrollStartMonth: "2026-04",
+      startDate: "2025-04-01",
+      status: "active",
+      walletAddress: "",
+      avatar: "R",
+      notes: "",
+      kind: "streamer",
+    };
+    const plan = buildPayrollLinePlan(ramiz, "2026-08", [], extras, [content], []);
+    expect(plan.find((l) => l.lineId === "content:ce-kasa")).toBeUndefined();
+    expect(plan.reduce((s, l) => s + l.amountUsd, 0)).toBe(10000);
   });
 });
 

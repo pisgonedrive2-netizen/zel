@@ -16,6 +16,22 @@ describe("ramiz-wallet-access", () => {
     expect(canViewRamizWallet({ id: "u-ediz", username: "ediz" })).toBe(false);
   });
 
+  it("capability override cüzdan erişimi vermez", () => {
+    expect(
+      canViewRamizWallet({
+        id: "u-ediz",
+        username: "ediz",
+      }),
+    ).toBe(false);
+    // Even if caller mistakenly passes permissions-shaped object, hard gate ignores it
+    expect(
+      canViewRamizWallet({
+        id: "u-ediz",
+        username: "ediz",
+      } as { id: string; username: string; impersonatorId?: string }),
+    ).toBe(false);
+  });
+
   it("diğer adminler ve denetçi göremez", () => {
     expect(canViewRamizWallet({ id: "u-other", username: "admin2" })).toBe(false);
     expect(canViewRamizWallet({ id: "u-denetci", username: "denetci" })).toBe(false);

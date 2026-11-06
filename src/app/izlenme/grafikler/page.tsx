@@ -58,7 +58,9 @@ import {
 } from "@/lib/brand-month-metrics";
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
+import { HesapGrafikleri } from "@/components/izlenme/hesap-grafikleri";
 import { useIzlenmeViewMonth } from "@/lib/use-izlenme-view-month";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import { cn } from "@/lib/utils";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -107,7 +109,7 @@ const TOOLTIP_STYLE: React.CSSProperties = {
 
 // ─── tabs definition ────────────────────────────────────────────────────────
 
-type TabKey = "trend" | "share" | "bar" | "efficiency";
+type TabKey = "trend" | "share" | "bar" | "efficiency" | "hesaplar";
 
 interface TabDef {
   key: TabKey;
@@ -140,6 +142,12 @@ const TABS: TabDef[] = [
     label: "Verimlilik",
     description: "İçerik harcaması × izlenme · scatter ve CPM",
     Icon: Target,
+  },
+  {
+    key: "hesaplar",
+    label: "Hesaplar",
+    description: "Eski linkler, şu an takip edilenler ve yeni hesaplar; videolarıyla birlikte",
+    Icon: Sparkles,
   },
 ];
 
@@ -410,7 +418,15 @@ function ScatterTooltip({ active, payload }: { active?: boolean; payload?: Array
 
 export default function GrafiklerPage() {
   const readOnly = useIsReadOnly();
-  const { brands, brandLinks, linkSnapshots, contentExpenses, employees } = useStore();
+  const { brands: allBrands, brandLinks: allBrandLinks, linkSnapshots, contentExpenses, employees } = useStore();
+  const brands = useMemo(
+    () => allBrands.filter((b) => !isYeniHesaplarBrandId(b.id)),
+    [allBrands]
+  );
+  const brandLinks = useMemo(
+    () => allBrandLinks.filter((l) => !isYeniHesaplarBrandId(l.brandId)),
+    [allBrandLinks]
+  );
 
   const {
     viewMonth,
@@ -746,6 +762,16 @@ export default function GrafiklerPage() {
       </div>
 
       {/* ── Tab content ─────────────────────────────────────────────── */}
+
+      {activeTab === "hesaplar" && (
+        <HesapGrafikleri
+          links={allBrandLinks}
+          brands={allBrands}
+          snapshots={linkSnapshots}
+          viewMonth={viewMonth}
+          todayYm={todayYm}
+        />
+      )}
 
       {activeTab === "trend" && (
         <Card className="overflow-hidden border-border/60">

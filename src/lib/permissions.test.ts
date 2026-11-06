@@ -6,6 +6,7 @@ import {
   sanitizePermissions,
 } from "@/lib/permissions";
 import { canAccess } from "@/store/auth";
+import { canAccessPrim, canAccessOzet } from "@/lib/user-guards";
 
 describe("permissions", () => {
   const orkun = { id: "u-admin", username: "orkun", role: "admin" as const };
@@ -26,15 +27,24 @@ describe("permissions", () => {
     expect(hasCapability(ediz, "write.payroll")).toBe(true);
   });
 
-  it("override ile yöneticiye prim + cüzdan verilebilir", () => {
+  it("Orkun-only yetkiler override ile verilemez", () => {
     const granted = {
       ...ediz,
-      permissions: { "page.prim": true, "data.ramiz_wallet": true } as const,
+      permissions: {
+        "page.prim": true,
+        "page.ozet": true,
+        "data.ramiz_wallet": true,
+        "users.impersonate": true,
+      } as const,
     };
-    expect(hasCapability(granted, "page.prim")).toBe(true);
-    expect(hasCapability(granted, "data.ramiz_wallet")).toBe(true);
-    // Dokunulmayan yetkiler rol varsayılanında kalır
+    expect(hasCapability(granted, "page.prim")).toBe(false);
     expect(hasCapability(granted, "page.ozet")).toBe(false);
+    expect(hasCapability(granted, "data.ramiz_wallet")).toBe(false);
+    expect(hasCapability(granted, "users.impersonate")).toBe(false);
+    expect(canAccessPrim(granted)).toBe(false);
+    expect(canAccessOzet(granted)).toBe(false);
+    // Dokunulmayan yetkiler rol varsayılanında kalır
+    expect(hasCapability(granted, "page.maaslar")).toBe(true);
   });
 
   it("override ile yöneticiden sayfa alınabilir (kısıtlı yönetici)", () => {
@@ -48,6 +58,8 @@ describe("permissions", () => {
     const impersonatingOrkun = { ...orkun, impersonatorId: "u-admin" };
     expect(hasCapability(impersonatingOrkun, "page.prim")).toBe(false);
     expect(hasCapability(impersonatingOrkun, "data.ramiz_wallet")).toBe(false);
+    expect(canAccessPrim(impersonatingOrkun)).toBe(false);
+    expect(canAccessOzet(impersonatingOrkun)).toBe(false);
   });
 
   it("routeCapability doğru eşler", () => {
@@ -57,19 +69,38 @@ describe("permissions", () => {
     expect(routeCapability("/yayinci/maas")).toBeUndefined();
   });
 
-  it("canAccess yetkilendirilmiş yöneticiyi prim'e sokar, normal yöneticiyi sokmaz", () => {
+  it("canAccess Orkun-only sayfalara override ile girişi engeller", () => {
     expect(canAccess("/prim", "admin", null, null, ediz)).toBe(false);
-    const granted = { ...ediz, permissions: { "page.prim": true } };
-    expect(canAccess("/prim", "admin", null, null, granted)).toBe(true);
+    expect(canAccess("/ozet", "admin", null, null, ediz)).toBe(false);
+    const granted = { ...ediz, permissions: { "page.prim": true, "page.ozet": true } };
+    expect(canAccess("/prim", "admin", null, null, granted)).toBe(false);
+    expect(canAccess("/ozet", "admin", null, null, granted)).toBe(false);
+    expect(canAccess("/prim", "admin", null, null, orkun)).toBe(true);
+    expect(canAccess("/ozet", "admin", null, null, orkun)).toBe(true);
     // Kısıtlı yönetici maaşlara giremez
     const limited = { ...ediz, permissions: { "page.maaslar": false } };
     expect(canAccess("/maaslar", "admin", null, null, limited)).toBe(false);
   });
 
-  it("hasCapabilityFor rol + permissions ile çalışır", () => {
+  it("hasCapabilityFor rol + permissions ile çalışır (Orkun-only hariç)", () => {
     expect(hasCapabilityFor({ role: "auditor" }, "page.kasa")).toBe(true);
     expect(hasCapabilityFor({ role: "auditor" }, "write.kasa")).toBe(false);
     expect(hasCapabilityFor({ role: "auditor", permissions: { "write.kasa": true } }, "write.kasa")).toBe(true);
+    expect(
+      hasCapabilityFor(
+        { role: "admin", permissions: { "page.prim": true } },
+        "page.prim",
+      ),
+    ).toBe(false);
+    expect(
+      hasCapabilityFor({ isMainAdmin: true, role: "admin" }, "page.prim"),
+    ).toBe(true);
+    expect(
+      hasCapabilityFor(
+        { isMainAdmin: true, role: "admin", impersonating: true },
+        "page.prim",
+      ),
+    ).toBe(false);
   });
 
   it("sanitizePermissions yalnızca bilinen boolean anahtarları tutar", () => {

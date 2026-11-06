@@ -37,7 +37,7 @@ import {
 import { copyLoginCredentials, formatLoginCredentials } from "@/lib/login-credentials";
 import { syncImportedUsersToServer } from "@/lib/users-sync";
 import { useStore } from "@/store/store";
-import { useAuditLog, type AuditAction, type AuditEntry, logAudit, refreshAuditFromServer } from "@/store/audit-log";
+import { useAuditLog, type AuditAction, type AuditEntry, logAudit, refreshAuditFromServer, filterAuditVisibleToViewer } from "@/store/audit-log";
 import {
   pickAppHydratePayload,
   downloadJson,
@@ -170,6 +170,7 @@ const AUDIT_TR: Record<AuditAction, string> = {
   user_impersonated:           "Hesaba girildi (denetim)",
   user_impersonation_stopped:  "Denetimden çıkıldı",
   session_idle_logout: "Oturum kapatıldı (hareketsizlik)",
+  screen_share_toggled: "Gizli mod değiştirildi",
 };
 
 // ── User Form ────────────────────────────────────────────────────────────
@@ -891,7 +892,11 @@ function UsersPage() {
   const enterBrandPanel = usePanelView((s) => s.enterBrandPanel);
   const { users, user: currentUser, addUser, updateUser, resetPin, deleteUser, impersonate } = useAuth();
   const hydrateFromBackup = useStore((s) => s.hydrateFromBackup);
-  const auditEntries = useAuditLog((s) => s.entries);
+  const auditEntriesRaw = useAuditLog((s) => s.entries);
+  const auditEntries = useMemo(
+    () => filterAuditVisibleToViewer(auditEntriesRaw, currentUser),
+    [auditEntriesRaw, currentUser],
+  );
   const { employees, brands } = useStore();
   const supabaseMode = isSupabaseClientMode();
 
@@ -1437,7 +1442,7 @@ function UsersPage() {
       ) : (
       <>
       {currentUser && isMainAdmin(currentUser) && (
-        <div className="mb-4">
+        <div className="mb-4" id="backup">
           <SystemBackupStatusCard />
         </div>
       )}

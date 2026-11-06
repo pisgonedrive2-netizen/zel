@@ -31,6 +31,7 @@ import { monthLabelTr } from "@/hooks/use-marka-portal";
 import { shiftCalendarMonthYm } from "@/lib/data";
 import { ModernSmoothLineChart } from "@/components/modern-smooth-line-chart";
 import { ViewershipDotMap, brandViewDotLabel } from "@/components/view-dot-card";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 
 function fmtViews(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
@@ -58,7 +59,7 @@ export function AdminBrandViewershipDashboard({
   todayYm: string;
 }) {
   const activeBrands = useMemo(
-    () => brands.filter((b) => b.status === "active"),
+    () => brands.filter((b) => b.status === "active" && !isYeniHesaplarBrandId(b.id)),
     [brands]
   );
 

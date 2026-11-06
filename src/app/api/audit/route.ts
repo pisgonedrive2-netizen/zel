@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isSupabaseEnabled } from "@/lib/env";
+import { isMainAdminSession, MAIN_ADMIN_ID, MAIN_ADMIN_USERNAME } from "@/lib/user-guards";
 
 export const runtime = "nodejs";
 
@@ -49,8 +50,14 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(500);
 
-  // Gizlilik: yöneticilerin (özellikle ana yönetici) işlem kayıtları
-  // denetçiye/diğer rollere GÖRÜNMEZ. Sadece admin tam günlüğü görür.
+  const viewerIsOrkun = isMainAdminSession(session);
+
+  // Ana yönetici (Orkun) logları yalnızca kendisine görünür — sistem sahibi.
+  if (!viewerIsOrkun) {
+    query = query.neq("actor_id", MAIN_ADMIN_ID);
+  }
+
+  // Denetçi: diğer admin eylemlerini de görmez (mevcut gizlilik).
   if (session.role !== "admin") {
     const { data: adminUsers } = await db
       .from("app_users")
@@ -58,10 +65,8 @@ export async function GET() {
       .eq("role", "admin");
     const adminIds = new Set<string>([
       ...(adminUsers ?? []).map((u) => String((u as { id: unknown }).id)),
+      MAIN_ADMIN_ID,
     ]);
-    // Ana yönetici sabit id'si de garantiye al.
-    const { MAIN_ADMIN_ID } = await import("@/lib/user-guards");
-    adminIds.add(MAIN_ADMIN_ID);
     if (adminIds.size > 0) {
       const list = Array.from(adminIds)
         .map((v) => `"${v.replace(/"/g, '\\"')}"`)
@@ -74,7 +79,7 @@ export async function GET() {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  const entries = (data ?? []).map((r: Record<string, unknown>) => ({
+  let entries = (data ?? []).map((r: Record<string, unknown>) => ({
     id: String(r.id),
     at: String(r.created_at),
     actorId: String(r.actor_id),
@@ -82,5 +87,16 @@ export async function GET() {
     action: String(r.action),
     detail: String(r.detail ?? ""),
   }));
+
+  // İsim ile de Orkun kaydı sızmasın (eski / yerel tutarsız id'ler).
+  if (!viewerIsOrkun) {
+    const orkunName = MAIN_ADMIN_USERNAME.toLowerCase();
+    entries = entries.filter((e) => {
+      if (e.actorId === MAIN_ADMIN_ID) return false;
+      const n = e.actorName.toLowerCase().trim();
+      return n !== orkunName && n !== "orkun";
+    });
+  }
+
   return NextResponse.json({ entries });
 }

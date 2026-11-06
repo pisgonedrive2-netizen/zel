@@ -133,7 +133,19 @@ export default function PanelPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+        <KpiCard
+          title="Genel Kasa"
+          value={fmt(metrics.genelBalance)}
+          sub={
+            metrics.isLow
+              ? `Düşük · işletme ${fmt(metrics.balance)}`
+              : `İşletme toplam ${fmt(metrics.balance)}`
+          }
+          accent={metrics.isLow}
+          icon={Wallet}
+          href="/kasa"
+        />
         <KpiCard
           title="Bekleyen Onay"
           value={String(metrics.pendingContentExpenseCount)}
@@ -144,6 +156,19 @@ export default function PanelPage() {
           }
           accent={metrics.pendingContentExpenseCount > 0}
           icon={Clapperboard}
+          href="/icerik-harcamalari"
+        />
+        <KpiCard
+          title="Ödeme Bekleyen Harcama"
+          value={fmt(metrics.awaitingSettlementTotal)}
+          sub={
+            metrics.awaitingSettlementCount > 0
+              ? `${metrics.awaitingSettlementCount} onaylı · kasa/maaş bekliyor`
+              : "Onaylı açık harcama yok"
+          }
+          accent={metrics.awaitingSettlementCount > 0}
+          icon={AlertCircle}
+          href="/icerik-harcamalari?settlement=awaiting"
         />
         <KpiCard
           title="Ödenmemiş Bordro"
@@ -155,18 +180,45 @@ export default function PanelPage() {
           }
           accent={metrics.unpaidPayrollCount > 0}
           icon={Users}
+          href="/maaslar"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        <KpiCard
+          title={`İçerik (${monthLabelTr(currentMonth)})`}
+          value={fmt(metrics.monthContentTotal)}
+          sub={`${metrics.monthContentCount} aktif kalem`}
+          icon={Clapperboard}
+          href="/icerik-harcamalari"
+        />
+        <KpiCard
+          title="Kasadan Ödenen"
+          value={fmt(metrics.kasaSettledMonthTotal)}
+          sub={`${metrics.kasaSettledMonthCount} harcama · bu ay`}
+          icon={Wallet}
+          href="/icerik-harcamalari?settlement=kasa"
+        />
+        <KpiCard
+          title="Maaştan Ödenen"
+          value={fmt(metrics.payrollSettledMonthTotal)}
+          sub={`${metrics.payrollSettledMonthCount} harcama · bu ay`}
+          icon={Users}
+          href="/icerik-harcamalari?settlement=payroll"
         />
         <KpiCard
           title="Aktif Marka"
           value={String(metrics.activeBrandCount)}
           sub="İzlenme takibinde"
           icon={Eye}
+          href="/izlenme/markalar"
         />
         <KpiCard
           title="Aylık İzlenme"
           value={fmtCompactViews(metrics.monthlyViews)}
           sub={`${metrics.monthlyViews.toLocaleString("tr-TR")} · ${monthLabelTr(currentMonth)}`}
           icon={Eye}
+          href="/izlenme"
         />
       </div>
 
@@ -272,15 +324,17 @@ function KpiCard({
   sub,
   accent,
   icon: Icon,
+  href,
 }: {
   title: string;
   value: string;
   sub: string;
   accent?: boolean;
   icon: React.ComponentType<{ className?: string; size?: number }>;
+  href?: string;
 }) {
-  return (
-    <Card className={`gap-2 py-5 ${accent ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/40 dark:bg-amber-950/30" : ""}`}>
+  const body = (
+    <Card className={`gap-2 py-5 h-full ${accent ? "border-amber-300 bg-amber-50/30 dark:border-amber-500/40 dark:bg-amber-950/30" : ""} ${href ? "transition-colors hover:bg-accent/20" : ""}`}>
       <CardHeader className="pb-0">
         <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
           <Icon size={11} />
@@ -294,6 +348,12 @@ function KpiCard({
         <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{t(sub)}</p>
       </CardContent>
     </Card>
+  );
+  if (!href) return body;
+  return (
+    <Link href={href} className="block h-full">
+      {body}
+    </Link>
   );
 }
 

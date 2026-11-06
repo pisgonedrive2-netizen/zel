@@ -67,6 +67,7 @@ describe("parseYouTubeChannelVideos", () => {
     });
     expect(items).toHaveLength(1);
     expect(items[0].url).toContain("dQw4w9WgXcQ");
+    expect(items[0].thumbnailUrl).toBe("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg");
     expect(items[0].publishedAt).toContain("2026-08-18");
   });
 

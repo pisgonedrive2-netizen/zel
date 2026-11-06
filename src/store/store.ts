@@ -14,8 +14,19 @@ import {
   type PersistEntity,
 } from "@/lib/row-persist";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
+import { propagateAdvanceCutsForEmployee } from "@/lib/advance-repay";
 import { persistContentExpenseSettlement, persistContentExpenseUnsettlePayroll, persistContentExpenseKasaPay, persistContentExpenseUnpay } from "@/lib/content-expense-settlement-persist";
-import { contentExpenseKasaPurpose, contentExpenseKasaTxDate } from "@/lib/content-expense";
+import {
+  contentExpenseKasaPurpose,
+  contentExpenseKasaTxDate,
+  isExceptionWriteOff,
+  isKasaLinkOnlyExpense,
+  isKasaSettled,
+  isPayrollSettled,
+  isUnsettledApprovedContent,
+  stripKasaLinkOnlyFromNotes,
+  withKasaLinkOnlyNotes,
+} from "@/lib/content-expense";
 import { isICexpProofValue, sanitizeKasaICexpProof } from "@/lib/kasa-proof";
 import { snapshotIdForLinkDate } from "@/lib/link-tracking-mode";
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
@@ -36,6 +47,7 @@ import {
   buildPayrollLinePlan,
   buildPayrollPaymentLines,
   isPayrollFullyPaid,
+  isPayrollLinePayable,
   markAllLinesPaid,
   removeLinePaidRecord,
   sumPaidPayrollLines,
@@ -102,6 +114,13 @@ export interface Employee {
   rentSupport: number;
   /** Başlangıç anındaki açık avans bakiyesi (USD). */
   initialAdvance: number;
+  /**
+   * Aylık avans kesinti tutarı (USD). Ayarlanabilir; 0/undefined = otomatik kesinti yok.
+   * `advanceRepayStartMonth` ile birlikte kullanılır (örn. Ekim’den itibaren).
+   */
+  advanceMonthlyCut?: number;
+  /** Avans kesintisinin başladığı ilk ay (YYYY-MM). Bu aydan önce otomatik kesinti üretilmez. */
+  advanceRepayStartMonth?: string;
   /** Ödeme aralığı / günü etiketi: "1-5" gibi normal cycle veya "17" gibi sabit gün. */
   paymentDay: string;
   /** Maaş döngüsünün başladığı ilk ay (ISO YYYY-MM). Bu aydan önce maaş hesaplanmaz. */
@@ -547,6 +566,17 @@ export interface ContentExpense {
   salaryExtraId?: string;
   /** Yönetici ↔ yayıncı inceleme mesajları. */
   reviewThread?: ExpenseReviewMessage[];
+  /**
+   * Yönetici özel durumu: hibe / hack / elzem.
+   * DB kolonundan veya notes içindeki `[exc:…]` etiketinden okunur.
+   */
+  exceptionKind?: "hibe" | "hack" | "elzem" | "diger";
+  /** Özel durum kısa açıklaması. */
+  exceptionNote?: string;
+  /** Ana yönetici ekibe görünürlük verdi (ISO). Boş = yalnızca Orkun görür. */
+  adminReleasedAt?: string;
+  /** Ekibe açan kullanıcı id. */
+  adminReleasedBy?: string;
 }
 
 export interface ExpenseReviewMessage {
@@ -1163,7 +1193,10 @@ interface AppStore {
   updateContentExpense: (id: string, e: Partial<ContentExpense>) => void;
   deleteContentExpense: (id: string) => void;
   /** Onaylı harcamayı bordroya masraf kalemi olarak ekler (maaş netine dahil). */
-  settleContentExpenseToPayroll: (contentExpenseId: string) => void;
+  settleContentExpenseToPayroll: (
+    contentExpenseId: string,
+    review?: { reviewerNote?: string; reviewedBy?: string },
+  ) => void;
   /** Bordro bağlantısını kaldırır; salary_extra silinir. */
   unsettleContentExpenseFromPayroll: (contentExpenseId: string) => void;
   /**
@@ -1177,6 +1210,10 @@ interface AppStore {
     feeUsd?: number;
     notes?: string;
     proof?: string;
+    reviewerNote?: string;
+    reviewedBy?: string;
+    /** Yeni çıkış yok — bordro vb. mevcut kasa hareketine bağla. */
+    existingKasaTxId?: string;
   }) => void;
   /** Bağlı kasa hareketini siler, ödeme bayrağını kaldırır. */
   unpayContentExpense: (id: string) => void;
@@ -2448,31 +2485,40 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
         const employees = s.employees.map((x) => (x.id === id ? after : x));
         // rentSupport değiştiyse: salaryExtras üzerinde tip="rent" kayıtları
         // mevcut ay ve sonraki tüm aylar için otomatik güncellensin.
+        let salaryExtras = s.salaryExtras;
         if (typeof e.rentSupport === "number" && e.rentSupport !== before.rentSupport) {
-          return {
-            employees,
-            salaryExtras: propagateRentForEmployee(
-              s.salaryExtras,
-              after,
-              e.rentSupport,
-              after.payrollStartMonth
-            ),
-          };
-        }
-        if (
+          salaryExtras = propagateRentForEmployee(
+            salaryExtras,
+            after,
+            e.rentSupport,
+            after.payrollStartMonth
+          );
+        } else if (
           e.payrollStartMonth &&
           e.payrollStartMonth !== before.payrollStartMonth &&
           after.rentSupport > 0
         ) {
-          return {
-            employees,
-            salaryExtras: propagateRentForEmployee(
-              s.salaryExtras,
-              after,
-              after.rentSupport,
-              after.payrollStartMonth
-            ),
-          };
+          salaryExtras = propagateRentForEmployee(
+            salaryExtras,
+            after,
+            after.rentSupport,
+            after.payrollStartMonth
+          );
+        }
+        const advancePlanChanged =
+          (typeof e.advanceMonthlyCut === "number" &&
+            e.advanceMonthlyCut !== before.advanceMonthlyCut) ||
+          (e.advanceRepayStartMonth !== undefined &&
+            e.advanceRepayStartMonth !== before.advanceRepayStartMonth) ||
+          (typeof e.initialAdvance === "number" &&
+            e.initialAdvance !== before.initialAdvance);
+        if (advancePlanChanged) {
+          const now = new Date();
+          const horizonYm = `${now.getFullYear() + 1}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          salaryExtras = propagateAdvanceCutsForEmployee(salaryExtras, after, horizonYm);
+        }
+        if (salaryExtras !== s.salaryExtras) {
+          return { employees, salaryExtras };
         }
         return { employees };
       }),
@@ -3003,7 +3049,9 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             s.contentExpenses,
             existing ? [existing] : [],
           );
-          const unpaid = currentLines.filter((l) => !l.paid);
+          const unpaid = currentLines.filter(
+            (l) => !l.paid && isPayrollLinePayable(l),
+          );
           const toMark = lineIds?.length
             ? unpaid.filter((l) => lineIds.includes(l.lineId))
             : unpaid;
@@ -3717,7 +3765,7 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
       });
       },
 
-      settleContentExpenseToPayroll: (contentExpenseId) =>
+      settleContentExpenseToPayroll: (contentExpenseId, review) =>
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
           if (!expense || expense.salaryExtraId) return {};
@@ -3745,6 +3793,8 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             salaryExtraId: extraId,
             reviewStatus,
             reviewedAt: expense.reviewedAt ?? new Date().toISOString(),
+            reviewedBy: review?.reviewedBy ?? expense.reviewedBy,
+            reviewerNote: review?.reviewerNote ?? expense.reviewerNote,
           };
           queueMicrotask(() => {
             void persistContentExpenseSettlement(newExtra, updatedExpense);
@@ -3794,21 +3844,89 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           };
         }),
 
-      payContentExpense: ({ contentExpenseId, kasaId, paidDate, feeUsd = 0, notes = "", proof = "" }) =>
+      payContentExpense: ({
+        contentExpenseId,
+        kasaId,
+        paidDate,
+        feeUsd = 0,
+        notes = "",
+        proof = "",
+        reviewerNote,
+        reviewedBy,
+        existingKasaTxId,
+      }) =>
         set((s) => {
           const expense = s.contentExpenses.find((x) => x.id === contentExpenseId);
           if (!expense) return {};
           const targetKasa =
             s.kasas.find((k) => k.id === kasaId && !k.archived) ??
+            s.kasas.find((k) => k.id === kasaId) ??
             s.kasas.find((k) => k.isDefault && !k.archived) ??
             s.kasas[0];
           if (!targetKasa) return {};
 
           const tag = `[ICEXP:${contentExpenseId}]`;
-          const trimmedTx = s.kasaTransactions.filter((t) => {
-            if (t.id === expense.kasaTxId) return false;
+
+          const linkToExistingTx = (baseTx: KasaTransaction, linkOnly: boolean) => {
+            const blob = `${baseTx.notes ?? ""} ${baseTx.purpose ?? ""}`;
+            const kasaTx: KasaTransaction = blob.includes(tag)
+              ? baseTx
+              : {
+                  ...baseTx,
+                  notes: baseTx.notes?.trim()
+                    ? `${baseTx.notes.trim()} ${tag}`
+                    : tag,
+                };
+            const linked: ContentExpense = {
+              ...expense,
+              paid: true,
+              paidDate: paidDate || kasaTx.date.slice(0, 10),
+              kasaTxId: kasaTx.id,
+              settlementMode: "kasa",
+              salaryExtraId: undefined,
+              notes: linkOnly ? withKasaLinkOnlyNotes(expense.notes) : expense.notes,
+              reviewStatus:
+                expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
+                  ? "approved"
+                  : expense.reviewStatus ?? "approved",
+              reviewedAt: new Date().toISOString(),
+              reviewedBy: reviewedBy ?? expense.reviewedBy,
+              reviewerNote: reviewerNote ?? expense.reviewerNote,
+            };
+            return { kasaTx, linked };
+          };
+
+          if (existingKasaTxId) {
+            const picked = s.kasaTransactions.find((t) => t.id === existingKasaTxId);
+            if (!picked || picked.direction !== "out") return {};
+            const removeExtraIds = s.salaryExtras
+              .filter(
+                (x) =>
+                  x.id === expense.salaryExtraId || x.contentExpenseId === expense.id,
+              )
+              .map((x) => x.id);
+            const { kasaTx, linked } = linkToExistingTx(picked, true);
+            queueMicrotask(() => {
+              void persistContentExpenseKasaPay({
+                expense: linked,
+                kasaTx,
+                removeSalaryExtraIds: removeExtraIds,
+              });
+            });
+            return {
+              kasaTransactions: s.kasaTransactions.map((t) =>
+                t.id === kasaTx.id ? kasaTx : t,
+              ),
+              salaryExtras: s.salaryExtras.filter((x) => !removeExtraIds.includes(x.id)),
+              contentExpenses: s.contentExpenses.map((x) =>
+                x.id === contentExpenseId ? linked : x,
+              ),
+            };
+          }
+
+          const existingTx = s.kasaTransactions.find((t) => {
             const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
-            return !blob.includes(tag);
+            return blob.includes(tag);
           });
 
           const removeExtraIds = s.salaryExtras
@@ -3820,6 +3938,44 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           if (expense.salaryExtraId && !removeExtraIds.includes(expense.salaryExtraId)) {
             removeExtraIds.push(expense.salaryExtraId);
           }
+
+          // Aynı harcama için kasa çıkışı zaten varsa ikinci hareket açma — sadece bağla.
+          if (existingTx) {
+            const linked: ContentExpense = {
+              ...expense,
+              paid: true,
+              paidDate: paidDate || existingTx.date.slice(0, 10),
+              kasaTxId: existingTx.id,
+              settlementMode: "kasa",
+              salaryExtraId: undefined,
+              reviewStatus:
+                expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
+                  ? "approved"
+                  : expense.reviewStatus ?? "approved",
+              reviewedAt: new Date().toISOString(),
+              reviewedBy: reviewedBy ?? expense.reviewedBy,
+              reviewerNote: reviewerNote ?? expense.reviewerNote,
+            };
+            queueMicrotask(() => {
+              void persistContentExpenseKasaPay({
+                expense: linked,
+                kasaTx: existingTx,
+                removeSalaryExtraIds: removeExtraIds,
+              });
+            });
+            return {
+              salaryExtras: s.salaryExtras.filter((x) => !removeExtraIds.includes(x.id)),
+              contentExpenses: s.contentExpenses.map((x) =>
+                x.id === contentExpenseId ? linked : x
+              ),
+            };
+          }
+
+          const trimmedTx = s.kasaTransactions.filter((t) => {
+            if (t.id === expense.kasaTxId) return false;
+            const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+            return !blob.includes(tag);
+          });
 
           const txId = uid();
           const empName =
@@ -3853,8 +4009,10 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
             reviewStatus:
               expense.reviewStatus === "pending" || expense.reviewStatus === "needs_info"
                 ? "approved"
-                : expense.reviewStatus,
-            reviewedAt: expense.reviewedAt ?? new Date().toISOString(),
+                : expense.reviewStatus ?? "approved",
+            reviewedAt: new Date().toISOString(),
+            reviewedBy: reviewedBy ?? expense.reviewedBy,
+            reviewerNote: reviewerNote ?? expense.reviewerNote,
           };
 
           queueMicrotask(() => {
@@ -3879,25 +4037,46 @@ const storeCreator: StateCreator<AppStore> = (set, get) => ({
           const expense = s.contentExpenses.find((x) => x.id === id);
           if (!expense) return {};
           const tag = `[ICEXP:${id}]`;
-          const removeTxIds = s.kasaTransactions
-            .filter((t) => {
-              if (expense.kasaTxId && t.id === expense.kasaTxId) return true;
-              const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
-              return blob.includes(tag);
-            })
-            .map((t) => t.id);
-          const kasaTransactions = s.kasaTransactions.filter((t) => !removeTxIds.includes(t.id));
+          const linkOnly = isKasaLinkOnlyExpense(expense);
+          let kasaTransactions = s.kasaTransactions;
+          const removeTxIds: string[] = [];
+
+          if (linkOnly && expense.kasaTxId) {
+            kasaTransactions = s.kasaTransactions.map((t) => {
+              if (t.id !== expense.kasaTxId) return t;
+              const notes = (t.notes ?? "").replace(tag, "").replace(/\s{2,}/g, " ").trim();
+              return { ...t, notes };
+            });
+          } else {
+            removeTxIds.push(
+              ...s.kasaTransactions
+                .filter((t) => {
+                  if (expense.kasaTxId && t.id === expense.kasaTxId) return true;
+                  const blob = `${t.notes ?? ""} ${t.purpose ?? ""}`;
+                  return blob.includes(tag);
+                })
+                .map((t) => t.id),
+            );
+            kasaTransactions = s.kasaTransactions.filter((t) => !removeTxIds.includes(t.id));
+          }
+
           const updatedExpense: ContentExpense = {
             ...expense,
             paid: false,
             paidDate: undefined,
             kasaTxId: undefined,
             settlementMode: expense.settlementMode === "kasa" ? undefined : expense.settlementMode,
+            notes: stripKasaLinkOnlyFromNotes(expense.notes),
           };
+          const linkedTx =
+            linkOnly && expense.kasaTxId
+              ? kasaTransactions.find((t) => t.id === expense.kasaTxId)
+              : undefined;
           queueMicrotask(() => {
             void persistContentExpenseUnpay({
               expense: updatedExpense,
               removeKasaTxIds: removeTxIds,
+              updateKasaTx: linkedTx,
             });
           });
           return {
@@ -4381,15 +4560,12 @@ export function sumApprovedContentExpenses(
   month: string
 ): number {
   return expenses
-    .filter((e) => {
-      if (e.employeeId !== employeeId || e.month !== month) return false;
-      if (e.reviewStatus === "rejected" || e.reviewStatus === "cancelled") return false;
-      if (e.reviewStatus === "pending" || e.reviewStatus === "needs_info") return false;
-      // Bordroya veya kasaya işlendi — plan toplamında tekrar sayma
-      if (e.salaryExtraId || e.settlementMode === "payroll") return false;
-      if (e.paid && (e.kasaTxId || e.settlementMode === "kasa")) return false;
-      return true;
-    })
+    .filter(
+      (e) =>
+        e.employeeId === employeeId &&
+        e.month === month &&
+        isUnsettledApprovedContent(e),
+    )
     .reduce((s, e) => s + e.amountUsd, 0);
 }
 
@@ -4404,14 +4580,16 @@ export function sumPayrollSettledContentExpenses(
       (e) =>
         e.employeeId === employeeId &&
         e.month === month &&
-        (e.salaryExtraId || e.settlementMode === "payroll") &&
+        isPayrollSettled(e) &&
+        !isKasaSettled(e) &&
+        !isExceptionWriteOff(e) &&
         e.reviewStatus !== "rejected" &&
-        e.reviewStatus !== "cancelled"
+        e.reviewStatus !== "cancelled",
     )
     .reduce((s, e) => s + e.amountUsd, 0);
 }
 
-/** Bu ay için `paid` işaretli içerik harcamaları. */
+/** Bu ay için kapatılmış (paid / kasa / bordro) içerik harcamaları. */
 export function sumPaidContentExpenses(
   expenses: ContentExpense[],
   employeeId: string,
@@ -4422,9 +4600,9 @@ export function sumPaidContentExpenses(
       (e) =>
         e.employeeId === employeeId &&
         e.month === month &&
-        e.paid &&
         e.reviewStatus !== "cancelled" &&
-        e.reviewStatus !== "rejected",
+        e.reviewStatus !== "rejected" &&
+        (isKasaSettled(e) || isPayrollSettled(e) || isExceptionWriteOff(e)),
     )
     .reduce((s, e) => s + e.amountUsd, 0);
 }
@@ -4551,27 +4729,53 @@ export function plannedPayrollPlusApprovedContent(
 export function reconcilePayrollSettledContentExtras(
   salaryExtras: SalaryExtra[],
   contentExpenses: ContentExpense[],
-): { salaryExtras: SalaryExtra[]; contentExpenses: ContentExpense[] } {
+): {
+  salaryExtras: SalaryExtra[];
+  contentExpenses: ContentExpense[];
+  changed: ContentExpense[];
+} {
   let extras = [...salaryExtras];
   let expenses = [...contentExpenses];
+  const changed: ContentExpense[] = [];
+
+  const markPayrollLinked = (exp: ContentExpense, extraId: string): ContentExpense => {
+    const next: ContentExpense = {
+      ...exp,
+      salaryExtraId: extraId,
+      settlementMode: "payroll",
+      reviewStatus:
+        exp.reviewStatus === "pending" || exp.reviewStatus === "needs_info"
+          ? "approved"
+          : exp.reviewStatus,
+    };
+    if (
+      next.salaryExtraId !== exp.salaryExtraId ||
+      next.settlementMode !== exp.settlementMode ||
+      next.reviewStatus !== exp.reviewStatus
+    ) {
+      changed.push(next);
+    }
+    return next;
+  };
 
   for (const exp of contentExpenses) {
     if (exp.reviewStatus === "cancelled" || exp.reviewStatus === "rejected") continue;
+    if (exp.exceptionKind === "hibe" || exp.exceptionKind === "hack") continue;
+    if (/\[exc:(hibe|hack)/.test(exp.notes ?? "")) continue;
     const isPayroll =
       exp.settlementMode === "payroll" || Boolean(exp.salaryExtraId);
     if (!isPayroll) continue;
 
     const linked = extras.find((e) => e.contentExpenseId === exp.id);
     if (linked) {
-      if (!exp.salaryExtraId || exp.settlementMode !== "payroll") {
+      if (
+        !exp.salaryExtraId ||
+        exp.settlementMode !== "payroll" ||
+        exp.reviewStatus === "pending" ||
+        exp.reviewStatus === "needs_info"
+      ) {
         expenses = expenses.map((e) =>
-          e.id === exp.id
-            ? {
-                ...e,
-                salaryExtraId: linked.id,
-                settlementMode: "payroll" as const,
-              }
-            : e,
+          e.id === exp.id ? markPayrollLinked(e, linked.id) : e,
         );
       }
       continue;
@@ -4593,21 +4797,33 @@ export function reconcilePayrollSettledContentExtras(
     extras = extras.filter((e) => e.contentExpenseId !== exp.id);
     extras.push(newExtra);
     expenses = expenses.map((e) =>
-      e.id === exp.id
-        ? {
-            ...e,
-            salaryExtraId: extraId,
-            settlementMode: "payroll" as const,
-            reviewStatus:
-              e.reviewStatus === "pending" || e.reviewStatus === "needs_info"
-                ? ("approved" as const)
-                : e.reviewStatus,
-          }
-        : e,
+      e.id === exp.id ? markPayrollLinked(e, extraId) : e,
     );
   }
 
-  return { salaryExtras: extras, contentExpenses: expenses };
+  /** Bordro kalemi yazılmış ama harcama satırı güncellenmemiş (persist yarışı). */
+  for (const extra of extras) {
+    const cid = extra.contentExpenseId;
+    if (!cid) continue;
+    const exp = expenses.find((e) => e.id === cid);
+    if (!exp) continue;
+    if (exp.reviewStatus === "cancelled" || exp.reviewStatus === "rejected") continue;
+    if (exp.exceptionKind === "hibe" || exp.exceptionKind === "hack") continue;
+    if (/\[exc:(hibe|hack)/.test(exp.notes ?? "")) continue;
+    if (
+      exp.salaryExtraId === extra.id &&
+      exp.settlementMode === "payroll" &&
+      exp.reviewStatus !== "pending" &&
+      exp.reviewStatus !== "needs_info"
+    ) {
+      continue;
+    }
+    expenses = expenses.map((e) =>
+      e.id === cid ? markPayrollLinked(e, extra.id) : e,
+    );
+  }
+
+  return { salaryExtras: extras, contentExpenses: expenses, changed };
 }
 
 /** Belirli bir tarihe (veya günün sonuna) kadar kasa bakiyesini hesaplar (USD). */

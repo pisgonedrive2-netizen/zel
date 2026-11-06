@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { notificationToRow } from "@/lib/db/mappers";
 import type { AppNotification } from "@/store/store";
 import { fmt } from "@/lib/data";
+import { MAIN_ADMIN_ID } from "@/lib/user-guards";
 
 /** Yayıncı harcama gönderdiğinde yalnızca yöneticiye kalıcı bildirim (ref_id ile tekilleştirilir). */
 export async function ensureExpenseSubmittedNotifications(args: {
@@ -40,6 +41,7 @@ export async function ensureExpenseSubmittedNotifications(args: {
     type: "expense_submitted",
     title: `${args.employeeName} yeni harcama gönderdi`,
     forRole: "admin",
+    forUserId: MAIN_ADMIN_ID,
     ...base,
   };
   const { error } = await getSupabaseAdmin()

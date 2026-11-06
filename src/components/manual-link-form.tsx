@@ -6,6 +6,7 @@ import { Field, Input, Select, Textarea, FormGrid, FormActions } from "@/compone
 import { findDuplicateBrandLink } from "@/lib/brand-link-url";
 import { linkSiteLabel } from "@/lib/link-snapshot-delta";
 import { needsManualTracking } from "@/lib/link-tracking-mode";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import { SOCIAL_PLATFORMS, type Brand, type BrandLink, type Employee } from "@/store/store";
 
 const MANUAL_PLATFORMS = ["Kick", "Twitter / X", "Twitch", "Telegram", "Discord", "Diğer"] as const;
@@ -28,7 +29,7 @@ export function ManualLinkFormModal({
   onSave: (link: Omit<BrandLink, "id"> & { id?: string }) => void;
 }) {
   const activeBrands = useMemo(
-    () => brands.filter((b) => b.status === "active" || b.status === "paused"),
+    () => brands.filter((b) => (b.status === "active" || b.status === "paused") && !isYeniHesaplarBrandId(b.id)),
     [brands]
   );
 

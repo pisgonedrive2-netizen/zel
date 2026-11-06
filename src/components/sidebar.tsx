@@ -8,12 +8,12 @@ import {
   LayoutDashboard, Home, Users, ArrowUpRight, CheckCircle2,
   FolderKanban, Receipt, CalendarRange,
   FileSpreadsheet, ChevronLeft, ChevronRight,
-  Search, X, CalendarDays, Eye, EyeOff,
+  Search, X, CalendarDays, Eye, EyeOff, Sparkles,
   Wallet, Clapperboard, LayoutGrid, LogOut, ShieldCheck,
   Bell, Headphones, KeyRound, Link2, Activity, BarChart3,
   Send, Handshake, Video, TrendingUp, UserCog,
   Briefcase, ClipboardList, Contact, Calculator, FileText, Settings,
-  Banknote, Building2, Zap, Plug, Trophy,
+  Banknote, Building2, Zap, Plug, Trophy, Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clientHasOrgCapability, clientIsReadOnly, type OrgCapability } from "@/lib/org-capability";
@@ -21,6 +21,7 @@ import { useAuth } from "@/store/auth";
 import { usePanelView } from "@/store/panel-view";
 import { useSidebar } from "@/store/sidebar";
 import { useUiPrefs } from "@/store/ui-prefs";
+import { logAudit } from "@/store/audit-log";
 import { LocaleToggle } from "@/components/locale-toggle";
 import { adminGroupLabel, adminNavLabel } from "@/lib/i18n/admin-nav";
 import { t } from "@/lib/i18n/t";
@@ -65,6 +66,7 @@ const ADMIN_NAV: NavItem[] = [
   { href: "/onaylar",              label: "Onay Merkezi",       icon: CheckCircle2,    group: "Kontrol" },
   { href: "/ozet",                 label: "Özet",               icon: LayoutDashboard, group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/prim",                 label: "Prim Havuzu",        icon: Trophy,          group: "Kontrol", mainAdminOnly: true, sensitive: true },
+  { href: "/orkun",                label: "Orkun",              icon: Crown,           group: "Kontrol", mainAdminOnly: true, sensitive: true },
   { href: "/gorevler",             label: "Görevler",           icon: ClipboardList,   group: "Kontrol" },
   { href: "/maaslar",              label: "Maaşlar",            icon: Users,           group: "Bordro", sensitive: true },
   { href: "/rapor",                label: "Ödeme Raporu",       icon: FileSpreadsheet, group: "Bordro", sensitive: true },
@@ -72,6 +74,8 @@ const ADMIN_NAV: NavItem[] = [
   { href: "/takvim",               label: "Haftalık Takvim",    icon: CalendarDays,    group: "Yayın" },
   { href: "/izlenme",              label: "İzlenme özeti",       icon: Eye,             group: "Yayın" },
   { href: "/izlenme/markalar",     label: "Markalar",            icon: BarChart3,       group: "Yayın" },
+  { href: "/izlenme/yeni-hesaplar", label: "Yeni hesaplar",      icon: Sparkles,        group: "Yayın" },
+  { href: "/klip-takip",           label: "Video yolla",         icon: Video,           group: "Yayın" },
   { href: "/izlenme/grafikler",    label: "İzlenme grafikleri",  icon: Activity,      group: "Yayın" },
   { href: "/izlenme/operatorler",  label: "Operatörler",         icon: Users,           group: "Yayın" },
   { href: "/izlenme/api",          label: "API & keşif",         icon: Search,          group: "Yayın" },
@@ -212,6 +216,17 @@ export default function Sidebar() {
   const locale = useUiPrefs((s) => s.locale);
   /** Gizli mod yalnızca ana yönetici (Orkun) kullanabilir. */
   const effectiveScreenShareMode = isOrkun && screenShareMode;
+  const handleScreenShareToggle = () => {
+    const next = !screenShareMode;
+    toggleScreenShareMode();
+    if (!user || !isOrkun) return;
+    logAudit({
+      actorId: user.id,
+      actorName: user.name || user.username,
+      action: "screen_share_toggled",
+      detail: next ? "gizli mod açıldı" : "gizli mod kapatıldı",
+    });
+  };
   // Sayfa yetkisi: rotanın gerektirdiği yetki (varsa) kullanıcıda olmalı.
   // Rol varsayılanları mevcut davranışı korur; yöneticiye özel override ezer.
   const navItemAllowed = (n: NavItem) => {
@@ -352,7 +367,7 @@ export default function Sidebar() {
           <div className="px-4 pb-1">
             <button
               type="button"
-              onClick={toggleScreenShareMode}
+              onClick={handleScreenShareToggle}
               aria-pressed={effectiveScreenShareMode}
               title={effectiveScreenShareMode ? "Gizli mod açık — finansal menüler gizli" : "Ekran paylaşımı için finansal menüleri gizle"}
               className={cn(

@@ -76,6 +76,7 @@ import { t } from "@/lib/i18n/t";
 import { IzlenmeNavbar } from "@/components/izlenme/izlenme-navbar";
 import { ViewershipReloadBanner } from "@/components/izlenme/viewership-reload-banner";
 import { useIzlenmeViewMonth, izlenmeHref } from "@/lib/use-izlenme-view-month";
+import { isYeniHesaplarBrandId } from "@/lib/yeni-hesaplar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -140,8 +141,8 @@ export default function MarkalarPage() {
   const isAdmin = user?.role === "admin";
   const [brandActionBusy, setBrandActionBusy] = useState<string | null>(null);
   const {
-    brands,
-    brandLinks,
+    brands: allBrands,
+    brandLinks: allBrandLinks,
     linkSnapshots,
     contentExpenses,
     brandViewership,
@@ -149,6 +150,14 @@ export default function MarkalarPage() {
     employees,
     weekBrandReels,
   } = useStore();
+  const brands = useMemo(
+    () => allBrands.filter((b) => !isYeniHesaplarBrandId(b.id)),
+    [allBrands]
+  );
+  const brandLinks = useMemo(
+    () => allBrandLinks.filter((l) => !isYeniHesaplarBrandId(l.brandId)),
+    [allBrandLinks]
+  );
 
   const {
     viewMonth,

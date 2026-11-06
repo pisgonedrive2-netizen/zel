@@ -15,6 +15,7 @@ export type ProfilePostItem = {
   publishedAt?: string;
   views?: number | null;
   title?: string;
+  thumbnailUrl?: string;
 };
 
 function normalizePlatformLabel(p: SocialPlatform): string {
@@ -128,6 +129,8 @@ export function parseInstagramMediaList(raw: unknown, kind: "feed" | "reels"): P
       externalRef: code,
       publishedAt,
       title: igCaption(media) ?? igCaption(o),
+      views: toCount(media.play_count ?? media.view_count ?? o.play_count ?? o.view_count ?? media.like_count),
+      thumbnailUrl: igThumbnail(media) ?? igThumbnail(o),
     });
   }
   return out;
@@ -170,19 +173,22 @@ export function parseYouTubeChannelVideos(raw: unknown, preferShorts = false): P
       url.toLowerCase().includes("/shorts/") ||
       Boolean(o.isShort) ||
       Boolean(o.is_short);
+    const video = asRecord(o.video);
     out.push({
       url,
       platform: "youtube",
       contentType: isShort ? "reels" : "video",
       externalRef: videoId,
       publishedAt,
-      title: pickFirstString(o, ["title", "name", "videoTitle"]) ?? pickFirstString(asRecord(o.video), ["title"]),
+      title: pickFirstString(o, ["title", "name", "videoTitle"]) ?? pickFirstString(video, ["title"]),
+      views: toCount(o.viewCount ?? o.views ?? o.view_count ?? video?.viewCount ?? video?.views),
+      thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     });
   }
   return out;
 }
 
-function parseTikTokUserPosts(raw: unknown): ProfilePostItem[] {
+export function parseTikTokUserPosts(raw: unknown): ProfilePostItem[] {
   const root = raw as Record<string, unknown>;
   const list =
     (root.data as { videos?: unknown[] } | undefined)?.videos ??
@@ -210,6 +216,8 @@ function parseTikTokUserPosts(raw: unknown): ProfilePostItem[] {
           ? `https://www.tiktok.com/video/${videoId}`
           : undefined);
     if (!url) continue;
+    const video = asRecord(struct.video) ?? asRecord(o.video);
+    const stats = asRecord(struct.stats) ?? asRecord(o.stats);
     out.push({
       url,
       platform: "tiktok",
@@ -217,6 +225,10 @@ function parseTikTokUserPosts(raw: unknown): ProfilePostItem[] {
       externalRef: videoId ?? url,
       publishedAt: pickPublishedAtIso(struct) ?? pickPublishedAtIso(o),
       title: pickFirstString(struct, ["desc", "title", "description"]),
+      views: toCount(stats?.playCount ?? stats?.play_count ?? struct.play_count ?? o.play_count),
+      thumbnailUrl:
+        pickFirstString(video, ["cover", "originCover", "origin_cover", "dynamicCover"]) ??
+        pickFirstString(struct, ["cover", "origin_cover"]),
     });
   }
   return out;
@@ -288,6 +300,32 @@ function mergePosts(items: ProfilePostItem[]): ProfilePostItem[] {
     });
   }
   return [...byRef.values()];
+}
+
+function toCount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.floor(value);
+  if (typeof value !== "string") return null;
+  const raw = value.trim().toLowerCase().replace(/\s/g, "");
+  const mult = raw.endsWith("b") ? 1e9 : raw.endsWith("m") ? 1e6 : raw.endsWith("k") ? 1e3 : 1;
+  const body = raw.replace(/[kmb]$/i, "").replace(/[^\d.,]/g, "");
+  if (!body) return null;
+  const n =
+    (body.match(/\./g) ?? []).length > 1
+      ? Number(body.replace(/\./g, "").replace(",", ""))
+      : Number(body.replace(",", "."));
+  return Number.isFinite(n) ? Math.floor(n * mult) : null;
+}
+
+function igThumbnail(media: Record<string, unknown>): string | undefined {
+  const versions = asRecord(media.image_versions2);
+  const candidates = versions?.candidates;
+  if (Array.isArray(candidates)) {
+    for (const c of candidates) {
+      const url = pickFirstString(c, ["url"]);
+      if (url) return url;
+    }
+  }
+  return pickFirstString(media, ["thumbnail_url", "display_url", "image_url", "cover"]);
 }
 
 function errMessage(err: unknown): string {

@@ -347,9 +347,26 @@ export async function DELETE(req: Request) {
           break;
         }
         case "content_expense": {
-          const { data } = await db.from("content_expenses").select("employee_id").eq("id", id).maybeSingle();
+          const { data } = await db
+            .from("content_expenses")
+            .select("employee_id, review_status")
+            .eq("id", id)
+            .maybeSingle();
           if (!data || String((data as { employee_id: string }).employee_id) !== eid) {
             return NextResponse.json({ error: "Yetki yok" }, { status: 403 });
+          }
+          const st = String(
+            (data as { review_status?: string }).review_status ?? "pending",
+          );
+          // Geri çekilen / onaylı kayıtlar Orkun arşivinde kalır; yayıncı hard-delete yapamaz.
+          if (st === "cancelled" || st === "approved" || st === "rejected") {
+            return NextResponse.json(
+              {
+                error:
+                  "Geri çekilen veya sonuçlanmış harcamalar kalıcı silinemez. Geri çekilenler yalnızca ana yöneticide arşivlenir.",
+              },
+              { status: 403 },
+            );
           }
           break;
         }

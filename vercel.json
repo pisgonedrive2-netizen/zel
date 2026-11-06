@@ -18,8 +18,16 @@
       "schedule": "30 4 * * *"
     },
     {
+      "path": "/api/cron/clip-refresh",
+      "schedule": "15 4 * * *"
+    },
+    {
       "path": "/api/cron/system-backup",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/hesap-gunluk-aktivite",
+      "schedule": "0 21 * * *"
     }
   ],
   "functions": {
@@ -27,6 +35,12 @@
       "maxDuration": 180
     },
     "src/app/api/cron/sync-achievements/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/hesap-gunluk-aktivite/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/admin/hesap-gunluk-aktivite/route.ts": {
       "maxDuration": 300
     },
     "src/app/api/admin/telegram-content/route.ts": {

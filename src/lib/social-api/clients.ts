@@ -358,30 +358,41 @@ function extractMetricsFromBundles(
 // ───────────────────────── YouTube ──────────────────────────────────────────
 async function fetchYouTube(detected: DetectedPlatform): Promise<FetchedMetrics> {
   if (detected.kind !== "video") {
+    const asChannelMetrics = (raw: unknown): FetchedMetrics | null => {
+      const r = raw as Record<string, unknown>;
+      const stats = (r.stats ?? r) as Record<string, unknown>;
+      const views = pickFirstNumber(stats, ["viewCount", "views", "totalViews"]);
+      const subs = pickFirstNumber(stats, ["subscriberCount", "subscribers"]);
+      // Kanal bulundu ama istatistik gizli / henüz yok → 0 say (null değil).
+      const found = Boolean(r.channelId || r.title || r.username || views != null || subs != null);
+      if (!found && views == null && subs == null) return null;
+      return {
+        views: views ?? 0,
+        likes: null,
+        comments: null,
+        shares: subs ?? 0,
+        raw,
+      };
+    };
     try {
       const rawV2 = await rapidApiGet("youtube", "/v2/channel-details", {
         channel_id: detected.externalRef,
       });
-      const stats = (rawV2 as { stats?: unknown })?.stats ?? rawV2;
-      return {
-        views: pickFirstNumber(stats, ["viewCount", "views", "totalViews"]),
-        likes: null,
-        comments: null,
-        shares: pickFirstNumber(stats, ["subscriberCount", "subscribers"]),
-        raw: rawV2,
-      };
+      const m = asChannelMetrics(rawV2);
+      if (m) return m;
     } catch {
       /* v2 yoksa klasik endpoint */
     }
     const raw = await rapidApiGet("youtube", "/channel/details/", { id: detected.externalRef });
-    const stats = (raw as { stats?: unknown })?.stats ?? raw;
-    return {
-      views: pickFirstNumber(stats, ["viewCount", "views"]),
-      likes: null,
-      comments: null,
-      shares: pickFirstNumber(stats, ["subscriberCount", "subscribers"]),
-      raw,
-    };
+    return (
+      asChannelMetrics(raw) ?? {
+        views: 0,
+        likes: null,
+        comments: null,
+        shares: 0,
+        raw,
+      }
+    );
   }
   let raw: unknown;
   try {
@@ -527,15 +538,18 @@ async function fetchTikTok(detected: DetectedPlatform): Promise<FetchedMetrics> 
       unique_id: `@${uid}`,
     });
     const data = (raw as { data?: unknown })?.data ?? raw;
+    // /user/info sayıları genelde data.stats altında.
     const postViews = await sumTikTokUserPostViews(uid);
     const profileViews =
-      pickFirstNumber(data, ["totalViews", "viewCount"]) ??
-      pickMetricDeep(data, ["play_count", "playCount"]);
+      pickMetricDeep(data, ["totalViews", "viewCount", "play_count", "playCount"]);
+    const followers = pickMetricDeep(data, ["followerCount", "followers"]);
+    const hearts = pickMetricDeep(data, ["heartCount", "diggCount", "totalHearts"]);
     return {
-      views: postViews ?? profileViews,
-      likes: pickFirstNumber(data, ["heartCount", "diggCount", "totalHearts"]),
+      // Gönderi yoksa 0 yaz — null bırakınca UI "ölçülemedi" gibi görünür.
+      views: postViews ?? profileViews ?? (followers != null ? 0 : null),
+      likes: hearts,
       comments: null,
-      shares: pickFirstNumber(data, ["followerCount", "followers"]),
+      shares: followers,
       raw,
     };
   }

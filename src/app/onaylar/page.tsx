@@ -111,7 +111,8 @@ export default function OnaylarPage() {
                   Bekleyen İçerik Harcamaları
                 </CardTitle>
                 <CardDescription>
-                  Yayıncıların gönderdiği ve henüz onaylanmamış harcamalar
+                  Yalnızca henüz onaylanmamış harcamalar. Maaşa masraf eklenen veya kasadan
+                  ödenen kayıtlar bu listede görünmez.
                 </CardDescription>
               </div>
               <Link

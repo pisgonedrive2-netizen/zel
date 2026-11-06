@@ -25,6 +25,7 @@ import type {
   BrandPost,
 } from "@/store/store";
 import { ensureExpenseSubmittedNotifications } from "@/lib/expense-notify";
+import { filterContentExpensesForViewer } from "@/lib/content-expense";
 import { dedupeSalaryExtrasByContentExpense } from "@/lib/salary-extra-dedupe";
 import { syncContentExpensesAndSalaryExtras } from "@/lib/content-expense-sync";
 import {
@@ -39,6 +40,8 @@ import {
   mergeCanonicalSalaryExtras,
   reconcileRentExtrasForAllEmployees,
 } from "@/store/store";
+import { reconcileAdvanceCutsForAllEmployees } from "@/lib/advance-repay";
+import { mergeEmployeeAdvanceOnSync } from "@/lib/employee-sync-merge";
 import {
   employeeFromRow, employeeToRow, advanceFromRow, advanceToRow,
   salaryExtraFromRow, salaryExtraToRow, paymentStatusFromRow, paymentStatusToRow,
@@ -522,9 +525,12 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     }),
   ]);
 
-  const salaryExtrasCanonical = reconcileRentExtrasForAllEmployees(
+  const salaryExtrasCanonical = reconcileAdvanceCutsForAllEmployees(
     employees,
-    mergeCanonicalSalaryExtras(salaryExtras)
+    reconcileRentExtrasForAllEmployees(
+      employees,
+      mergeCanonicalSalaryExtras(salaryExtras)
+    ),
   );
 
   const payload: AppHydratePayload & { users?: AppUser[] } = {
@@ -709,7 +715,14 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
       brandPosts: deals.brandPosts,
       kasas: [],
       kasaTransactions: [],
-      contentExpenses: contentExpenses.filter((c) => inScope(c.brandId)),
+      contentExpenses: contentExpenses.filter(
+        (c) =>
+          inScope(c.brandId) &&
+          filterContentExpensesForViewer([c], {
+            id: session.userId,
+            username: session.username,
+          }).length > 0,
+      ),
       weeklyPlans: myWeeklyPlans,
       weekBrandReels: weekBrandReels.filter((r) => inScope(r.brandId)),
       notifications: notifications.filter((n) =>
@@ -718,7 +731,17 @@ export async function fetchBootstrap(session: SessionPayload): Promise<AppHydrat
     };
   }
 
-  return sanitizeBootstrapRamizWallet(payload, session);
+  const scoped = sanitizeBootstrapRamizWallet(payload, session);
+  if (
+    (session.role === "admin" || session.role === "auditor") &&
+    !isMainAdminSession(session)
+  ) {
+    scoped.contentExpenses = filterContentExpensesForViewer(
+      scoped.contentExpenses ?? [],
+      { id: session.userId, username: session.username },
+    );
+  }
+  return scoped;
 }
 
 /** Full replace for admin; scoped upsert for streamer/auditor. */
@@ -790,6 +813,15 @@ async function syncAdminFull(payload: AppHydratePayload) {
   };
 
   const weeklyPlanRows = await filterWeeklyPlanRows(payload.weeklyPlans ?? []);
+  const { employeesHaveAdvanceColumns } = await import("@/lib/db/advance-columns");
+  const includeAdvanceColumns = await employeesHaveAdvanceColumns();
+
+  const serverEmployeeRows = await selectAll("employees", employeeFromRow);
+  const serverEmployeeById = new Map(serverEmployeeRows.map((e) => [e.id, e]));
+  const mergedEmployees = (payload.employees ?? []).map((e) => {
+    const server = serverEmployeeById.get(e.id);
+    return server ? mergeEmployeeAdvanceOnSync(e, server) : e;
+  });
 
   const tables: Array<{
     table: string;
@@ -799,7 +831,13 @@ async function syncAdminFull(payload: AppHydratePayload) {
   }> = [
     // Veri koruma: admin tam senkronizasyonunda toplu silme YAPILMAZ.
     // Kayıt silme yalnızca özel admin API'leri ile (tek tek, onaylı) yapılır.
-    { table: "employees", rows: (payload.employees ?? []).map(employeeToRow), skipDelete: true },
+    {
+      table: "employees",
+      rows: mergedEmployees.map((e) =>
+        employeeToRow(e, { includeAdvanceColumns }),
+      ),
+      skipDelete: true,
+    },
     { table: "brands", rows: (payload.brands ?? []).map(brandToRow), skipDelete: true },
     { table: "external_companies", rows: (payload.companies ?? []).map(companyToRow), skipDelete: true },
     { table: "advances", rows: (payload.advances ?? []).map(advanceToRow), skipDelete: true },
@@ -941,6 +979,7 @@ export async function repairMissingBrandLinkSlots(): Promise<number> {
 
   for (const b of brands) {
     if (b.status === "inactive") continue;
+    if (b.id === "br-yeni-hesaplar") continue;
     for (const platform of BRAND_LINK_PLATFORMS) {
       if (existing.has(slotKey(b.id, platform))) continue;
       rows.push(

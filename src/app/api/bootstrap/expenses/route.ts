@@ -28,9 +28,13 @@ export async function GET() {
       .order("date", { ascending: false });
     if (error) throw new Error(error.message);
 
-    const contentExpenses = (data ?? []).map((r) =>
-      contentExpenseFromRow(r as Record<string, unknown>)
-    ) as ContentExpense[];
+    const contentExpenses = (data ?? [])
+      .map((r) => contentExpenseFromRow(r as Record<string, unknown>) as ContentExpense)
+      .filter((e) => {
+        // Soft-cleared geri çekilenler yayıncıya dönmez; diğer cancelled'lar silinebilsin diye gelir.
+        if (e.reviewStatus !== "cancelled") return true;
+        return !/\[streamer_cleared\]/i.test(e.notes ?? "");
+      });
 
     return NextResponse.json(
       { contentExpenses },

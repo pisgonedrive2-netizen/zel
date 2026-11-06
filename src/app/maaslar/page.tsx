@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
   useStore, calcNetPayable, calcPayrollPayoutDue, calcCarryForward, calcOpenAdvanceBalance, isPayrollActive, isPayrollUpcoming,
   estimateFirstPayrollNet, getRentForMonth, payrollProrationFactor,
-  sumApprovedContentExpenses, sumPaidContentExpenses, sumPayrollSettledContentExpenses,
+  sumApprovedContentExpenses, sumPayrollSettledContentExpenses,
   plannedPayrollPlusApprovedContent,
   totalCashOutPaidForMonth,
   DEFAULT_KASA_ID,
@@ -21,7 +21,14 @@ import { useAuth, useIsReadOnly } from "@/store/auth";
 import { canViewRamizWallet, RAMIZ_EMPLOYEE_ID, filterKasasForRamizViewer, filterKasaTransactionsForRamizViewer } from "@/lib/ramiz-wallet-access";
 import { usePanelView } from "@/store/panel-view";
 import { fmt, shiftCalendarMonthYm, toYearMonthLocal, toDateLocal, defaultSnapshotDateInMonth } from "@/lib/data";
-import { expenseReviewStatus, settlementLabel, isUnsettledApprovedContent } from "@/lib/content-expense";
+import {
+  expenseReviewStatus,
+  settlementLabel,
+  isUnsettledApprovedContent,
+  isKasaSettled,
+  isAwaitingContentExpenseReview,
+} from "@/lib/content-expense";
+import { effectiveAdvanceCutForMonth } from "@/lib/advance-repay";
 import { ContentExpensesBulkModal } from "@/components/content-expenses-bulk-modal";
 import { NoI18n } from "@/components/no-i18n";
 import { PayrollLinesPayModal } from "@/components/payroll-lines-pay-modal";
@@ -59,6 +66,8 @@ import {
   shortPayrollLineLabel,
   sumPaidPayrollLines,
   sumUnpaidPayrollLines,
+  payrollLinePayAmount,
+  isPayrollLinePayable,
   type PayrollLineItem,
 } from "@/lib/payroll-lines";
 import {
@@ -131,6 +140,8 @@ function EmployeeForm({ initial, onSave, onDelete, onClose, hideWallet = false }
     baseSalary:        initial?.baseSalary        ?? 0,
     rentSupport:       initial?.rentSupport       ?? 0,
     initialAdvance:    initial?.initialAdvance    ?? 0,
+    advanceMonthlyCut: initial?.advanceMonthlyCut,
+    advanceRepayStartMonth: initial?.advanceRepayStartMonth,
     paymentDay:        initial?.paymentDay        ?? "1-5",
     payrollStartMonth: initial?.payrollStartMonth ?? toYearMonthLocal(new Date()),
     startDate:         initial?.startDate         ?? new Date().toISOString().slice(0, 10),
@@ -182,6 +193,23 @@ function EmployeeForm({ initial, onSave, onDelete, onClose, hideWallet = false }
           </Field>
           <Field label="Ödeme Günü" hint='ör. "1-5" veya "17"'>
             <FInput value={form.paymentDay} onChange={e => set("paymentDay", e.target.value)} placeholder="1-5" />
+          </Field>
+        </FormGrid>
+        <FormGrid>
+          <Field label="Aylık avans kesintisi ($)" hint="0 = otomatik kesinti yok · tutar ayarlanabilir">
+            <NumberInput
+              value={form.advanceMonthlyCut ?? 0}
+              onChange={v => set("advanceMonthlyCut", v > 0 ? v : undefined)}
+              min={0}
+              step={50}
+            />
+          </Field>
+          <Field label="Kesinti başlangıç ayı" hint="Bu aydan önce kesilmez (örn. Eylül atla → 2026-10)">
+            <FInput
+              type="month"
+              value={form.advanceRepayStartMonth ?? ""}
+              onChange={e => set("advanceRepayStartMonth", e.target.value || undefined)}
+            />
           </Field>
         </FormGrid>
         <FormGrid>
@@ -322,15 +350,28 @@ function AdvanceForm({ employeeId, month, initial, onSave, onDelete, onClose }: 
 }
 
 // ── Extra Form ────────────────────────────────────────────────────────────
-function ExtraForm({ employeeId, month, initial, onSave, onDelete, onClose }: {
+function ExtraForm({ employeeId, month, initial, onSave, onDelete, onClose, defaultType }: {
   employeeId: string; month: string; initial?: SalaryExtra;
   onSave: (d: Omit<SalaryExtra, "id">) => void; onDelete?: () => void; onClose: () => void;
+  defaultType?: SalaryExtra["type"];
 }) {
-  const [form, setForm] = useState({ employeeId, month, amount: initial?.amount ?? 0, description: initial?.description ?? "", type: initial?.type ?? "expense" as SalaryExtra["type"] });
+  const [form, setForm] = useState({
+    employeeId,
+    month,
+    amount: initial?.amount ?? 0,
+    description: initial?.description ?? "",
+    type: initial?.type ?? defaultType ?? ("expense" as SalaryExtra["type"]),
+  });
   const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
+  const isPrim = form.type === "bonus";
   return (
     <form onSubmit={e => { e.preventDefault(); onSave(form as Omit<SalaryExtra, "id">); onClose(); }}>
       <div className="grid gap-4">
+        {isPrim && (
+          <div className="rounded-lg border border-emerald-300/40 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-200">
+            Bu ayki içerik / performans primi. Sebep alanına kısa açıklama yaz (ör. “Ağustos içerik primi — 4 site videosu”).
+          </div>
+        )}
         <FormGrid>
           <Field label="Tutar ($)" required><NumberInput value={form.amount} onChange={v => set("amount", v)} required min={0} step={10} /></Field>
           <Field label="Tip"><Select value={form.type} onChange={e => set("type", e.target.value)}
@@ -342,9 +383,16 @@ function ExtraForm({ employeeId, month, initial, onSave, onDelete, onClose }: {
               { value:"other",     label:"Diğer" },
             ]} /></Field>
         </FormGrid>
-        <Field label="Açıklama" required><FInput value={form.description} onChange={e => set("description", e.target.value)} required placeholder="Prim sebebi, masraf türü..." /></Field>
+        <Field label={isPrim ? "Prim sebebi" : "Açıklama"} required>
+          <FInput
+            value={form.description}
+            onChange={e => set("description", e.target.value)}
+            required
+            placeholder={isPrim ? "Örn. Ağustos içerik primi — karaoke + yetişkin içerik" : "Prim sebebi, masraf türü..."}
+          />
+        </Field>
       </div>
-      <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : "Ekle"} />
+      <FormActions onCancel={onClose} onDelete={onDelete} submitLabel={initial ? "Güncelle" : isPrim ? "Prim Ekle" : "Ekle"} />
     </form>
   );
 }
@@ -469,7 +517,7 @@ function EmployeeDetailRow({
   const router = useRouter();
 
   const [advModal, setAdvModal]     = useState<"new" | Advance | null>(null);
-  const [extraModal, setExtraModal] = useState<"new" | SalaryExtra | null>(null);
+  const [extraModal, setExtraModal] = useState<"new" | "prim" | SalaryExtra | null>(null);
   const [payTarget, setPayTarget] = useState<
     { mode: "line"; line: PayrollLineItem } | { mode: "all" } | null
   >(null);
@@ -500,7 +548,10 @@ function EmployeeDetailRow({
   const firstPayrollNet = estimateFirstPayrollNet(employee);
 
   const empAdv     = advances.filter(a => a.employeeId === employee.id && a.month === month);
-  const empExtras  = salaryExtras.filter(e => e.employeeId === employee.id && e.month === month);
+  // İçerikten otomatik gelen masraflar burada listelenmez — "İçerik / Ödeme kalemleri"nde.
+  const empExtras  = salaryExtras.filter(
+    (e) => e.employeeId === employee.id && e.month === month && !e.contentExpenseId,
+  );
   const carry      = calcCarryForward(employee.id, month, advances, paymentStatuses);
   const netBase    = calcNetPayable(employee, month, advances, salaryExtras, paymentStatuses);
   const net        = calcPayrollPayoutDue(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
@@ -529,35 +580,62 @@ function EmployeeDetailRow({
   const totalAdv   = empAdv.reduce((s, a) => s + a.amount, 0);
   const totalRent  = active ? getRentForMonth(employee, month, salaryExtras) : 0;
   const rentFromExtrasOnly = empExtras.filter(e => e.type === "rent").reduce((s, e) => s + e.amount, 0);
-  const totalBonus = empExtras.filter(e => e.type === "bonus" || e.type === "expense" || e.type === "other").reduce((s, e) => s + e.amount, 0);
+  const totalBonus = empExtras
+    .filter((e) => e.type === "bonus" || e.type === "expense" || e.type === "other")
+    .reduce((s, e) => s + e.amount, 0);
   const totalDeduc = empExtras.filter(e => e.type === "deduction").reduce((s, e) => s + e.amount, 0);
   const contentAprv = sumApprovedContentExpenses(contentExpenses, employee.id, month);
   const contentPayroll = sumPayrollSettledContentExpenses(contentExpenses, employee.id, month);
   const plannedOut  = plannedPayrollPlusApprovedContent(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const paidOut     = totalCashOutPaidForMonth(employee, month, advances, salaryExtras, paymentStatuses, contentExpenses);
   const amountDue = payrollAmountDue(net, unpaidLineTotal, isFullyPaid, paidOut, payrollLines);
+  /** Bordro kartı: kasadan kapanmış + henüz onaylanmamış kayıtlar hariç. */
   const monthContentExpenses = useMemo(
     () =>
       contentExpenses
-        .filter((e) => e.employeeId === employee.id && e.month === month)
+        .filter((e) => {
+          if (e.employeeId !== employee.id || e.month !== month) return false;
+          const st = expenseReviewStatus(e);
+          if (st === "cancelled" || st === "rejected") return false;
+          if (st === "pending" || st === "needs_info") return false;
+          if (isKasaSettled(e)) return false;
+          return true;
+        })
         .sort((a, b) => b.date.localeCompare(a.date)),
     [contentExpenses, employee.id, month]
   );
-  const paidContentItems = contentExpenses.filter(
-    (e) =>
-      e.employeeId === employee.id &&
-      e.month === month &&
-      e.paid &&
-      e.reviewStatus !== "cancelled" &&
-      e.reviewStatus !== "rejected",
+  /** Onay Merkezi’nde kalan — bordro özetine “içerik (bordro)” olarak karışmasın. */
+  const monthPendingContentExpenses = useMemo(
+    () =>
+      contentExpenses.filter(
+        (e) =>
+          e.employeeId === employee.id &&
+          e.month === month &&
+          isAwaitingContentExpenseReview(e, salaryExtras),
+      ),
+    [contentExpenses, employee.id, month, salaryExtras],
   );
-  const paidContentTotal = sumPaidContentExpenses(contentExpenses, employee.id, month);
+  const kasaPaidContentItems = useMemo(
+    () =>
+      contentExpenses.filter(
+        (e) =>
+          e.employeeId === employee.id &&
+          e.month === month &&
+          isKasaSettled(e) &&
+          expenseReviewStatus(e) !== "cancelled" &&
+          expenseReviewStatus(e) !== "rejected",
+      ),
+    [contentExpenses, employee.id, month],
+  );
+  const kasaPaidContentTotal = kasaPaidContentItems.reduce((s, e) => s + e.amountUsd, 0);
+  /** Gerçek prim / manuel masraf — içerik linkli kalemler hariç. */
   const extraSalaryItems = empExtras.filter(
     (e) => e.type === "bonus" || e.type === "expense" || e.type === "other"
   );
   const extraSalaryTotal = extraSalaryItems.reduce((s, e) => s + e.amount, 0);
   const advanceCashTotal = empAdv.reduce((s, a) => s + a.amount, 0);
-  const buAyEkstraToplam = paidContentTotal + extraSalaryTotal + advanceCashTotal;
+  /** Kart "ekstra" özeti: yalnızca avans + prim/manuel — kasadan içerik karışmasın. */
+  const buAyEkstraToplam = extraSalaryTotal + advanceCashTotal;
   const canEnterPanel =
     user?.role === "admin" &&
     (employee.kind === "streamer" || employee.kind === "moderator");
@@ -571,9 +649,8 @@ function EmployeeDetailRow({
   };
 
   const monthContentTotal = monthContentExpenses.reduce((s, e) => s + e.amountUsd, 0);
-  const pendingContentCount = monthContentExpenses.filter(
-    (e) => expenseReviewStatus(e) === "pending" || expenseReviewStatus(e) === "needs_info",
-  ).length;
+  const pendingContentCount = monthPendingContentExpenses.length;
+  const pendingContentTotal = monthPendingContentExpenses.reduce((s, e) => s + e.amountUsd, 0);
   const hasManyContent = monthContentExpenses.length > CONTENT_INLINE_MAX;
   const isHeavyCard = hasManyContent || hasManyPayrollLines;
   const payableContentCount = monthContentExpenses.filter(isUnsettledApprovedContent).length;
@@ -804,13 +881,35 @@ function EmployeeDetailRow({
               {monthContentExpenses.length > 0 && (
                 <>
                   <span className="text-violet-700 dark:text-violet-300 font-medium">
-                    {monthContentExpenses.length} içerik harcaması
+                    {monthContentExpenses.length} maaşa yazılı içerik
                   </span>
                   {" · "}
                   <span className="tabular-nums">{fmt(monthContentTotal)}</span>
-                  {pendingContentCount > 0 && (
-                    <span className="text-amber-600"> · {pendingContentCount} incelemede</span>
+                  {kasaPaidContentItems.length > 0 && (
+                    <span className="text-green-700 dark:text-green-400">
+                      {" · "}kasadan {kasaPaidContentItems.length}
+                    </span>
                   )}
+                  {" · "}
+                </>
+              )}
+              {pendingContentCount > 0 && (
+                <>
+                  <span className="text-amber-700 dark:text-amber-300 font-medium">
+                    {pendingContentCount} onay bekliyor
+                  </span>
+                  {" · "}
+                  <span className="tabular-nums">{fmt(pendingContentTotal)}</span>
+                  {" · "}
+                </>
+              )}
+              {monthContentExpenses.length === 0 && kasaPaidContentItems.length > 0 && (
+                <>
+                  <span className="text-green-700 dark:text-green-400 font-medium">
+                    kasadan {kasaPaidContentItems.length} içerik
+                  </span>
+                  {" · "}
+                  <span className="tabular-nums">{fmt(kasaPaidContentTotal)}</span>
                   {" · "}
                 </>
               )}
@@ -853,6 +952,26 @@ function EmployeeDetailRow({
                       {totalDeduc > 0 && openAdvAfter < openAdv && (
                         <> · bu ay <strong className="tabular-nums">{fmt(openAdv - openAdvAfter)}</strong> kapanıyor</>
                       )}
+                      {employee.advanceRepayStartMonth ? (
+                        <>
+                          {" · "}plan {employee.advanceRepayStartMonth}’dan{" "}
+                          {month < employee.advanceRepayStartMonth ? (
+                            "(bu ay kesinti yok)"
+                          ) : (
+                            <>
+                              bu ay{" "}
+                              <strong className="tabular-nums">
+                                {fmt(effectiveAdvanceCutForMonth(employee, month) ?? employee.advanceMonthlyCut ?? 0)}
+                              </strong>
+                              {effectiveAdvanceCutForMonth(employee, month) != null &&
+                              employee.advanceMonthlyCut != null &&
+                              effectiveAdvanceCutForMonth(employee, month) !== employee.advanceMonthlyCut
+                                ? ` (plan ${fmt(employee.advanceMonthlyCut)}/ay)`
+                                : "/ay"}
+                            </>
+                          )}
+                        </>
+                      ) : null}
                     </span>
                   </p>
                 )}
@@ -876,7 +995,7 @@ function EmployeeDetailRow({
                   Ödeme kalemleri
                 </span>
                 {payrollLines
-                  .filter((l) => !l.paid)
+                  .filter((l) => !l.paid && isPayrollLinePayable(l))
                   .slice(0, isHeavyCard ? 2 : 4)
                   .map((line) => (
                     <Button
@@ -887,7 +1006,8 @@ function EmployeeDetailRow({
                       className="h-7 text-[10px] px-2"
                       onClick={() => setPayTarget({ mode: "line", line })}
                     >
-                      {shortPayrollLineLabel(line)} · {fmt(line.amountUsd)}
+                      {shortPayrollLineLabel(line)} ·{" "}
+                      {fmt(payrollLinePayAmount(line, payrollLines))}
                     </Button>
                   ))}
                 {(payrollLines.filter((l) => !l.paid).length > (isHeavyCard ? 2 : 4) || payrollLines.length > 1) && (
@@ -944,6 +1064,15 @@ function EmployeeDetailRow({
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Kira / Prim / Kesinti</p>
               {active && !readOnly && (
                 <div className="flex items-center gap-2">
+                  {(employee.kind === "streamer" || employee.kind === "moderator") && (
+                    <button
+                      type="button"
+                      onClick={() => setExtraModal("prim")}
+                      className="text-[10px] font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 transition-colors"
+                    >
+                      + Prim
+                    </button>
+                  )}
                   {onBulkRent && (
                     <button
                       type="button"
@@ -989,16 +1118,16 @@ function EmployeeDetailRow({
         </div>
         </PayrollCardSection>
 
-        {active && monthContentExpenses.length > 0 && (
+        {active && (monthContentExpenses.length > 0 || kasaPaidContentItems.length > 0) && (
           <PayrollCardSection
             tone="violet"
             title={
               <span className="inline-flex items-center gap-1.5 text-violet-800 dark:text-violet-300">
                 <Receipt size={11} />
-                İçerik harcamaları ({monthContentExpenses.length})
+                Maaşa yazılı içerik ({monthContentExpenses.length})
               </span>
             }
-            summary={`${fmt(monthContentTotal)}${pendingContentCount > 0 ? ` · ${pendingContentCount} bekliyor` : ""}`}
+            summary={`${fmt(monthContentTotal)}${kasaPaidContentItems.length > 0 ? ` · kasadan ${kasaPaidContentItems.length}` : ""}${pendingContentCount > 0 ? ` · ${pendingContentCount} onay bekliyor (Onay Merkezi)` : ""}`}
             defaultOpen={false}
             trailing={
               <div className="flex items-center gap-2">
@@ -1030,7 +1159,11 @@ function EmployeeDetailRow({
               </div>
             }
           >
-            {hasManyContent ? (
+            {monthContentExpenses.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Bu ay bordroya yazılacak açık içerik yok.
+              </p>
+            ) : hasManyContent ? (
               <div className="space-y-2.5">
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {monthContentExpenses.length} harcama bu kartta listelenmiyor.
@@ -1104,7 +1237,22 @@ function EmployeeDetailRow({
             <p className="text-[10px] text-muted-foreground mt-2 flex flex-wrap gap-x-3 gap-y-0.5">
               <span>Bekleyen onaylı: <strong className="tabular-nums">{fmt(contentAprv)}</strong></span>
               <span>Bordroya işli: <strong className="tabular-nums text-violet-700">{fmt(contentPayroll)}</strong></span>
-              <span>Kasadan ödenen: <strong className="tabular-nums text-green-700">{fmt(paidContentTotal)}</strong></span>
+              {kasaPaidContentItems.length > 0 && (
+                <span>
+                  Kasadan ödenen (bordro dışı):{" "}
+                  <strong className="tabular-nums text-green-700">
+                    {kasaPaidContentItems.length} · {fmt(kasaPaidContentTotal)}
+                  </strong>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="text-blue-600 hover:underline"
+                    onClick={() => router.push(`/icerik-harcamalari?employee=${employee.id}&month=${month}&settlement=kasa`)}
+                  >
+                    listede gör
+                  </button>
+                </span>
+              )}
             </p>
           </PayrollCardSection>
         )}
@@ -1112,7 +1260,7 @@ function EmployeeDetailRow({
         {active && buAyEkstraToplam > 0 && (
           <PayrollCardSection
             tone="emerald"
-            title="Bu ay ödenen ekstralar"
+            title="Bu ay prim / avans"
             summary={fmt(buAyEkstraToplam)}
             defaultOpen={false}
           >
@@ -1137,22 +1285,10 @@ function EmployeeDetailRow({
                   </span>
                 </div>
               ))}
-              {paidContentItems.map((e) => (
-                <div key={e.id} className="flex justify-between gap-2">
-                  <span className="text-muted-foreground truncate">
-                    İçerik (ödendi) · <NoI18n>{e.description || e.category}</NoI18n>
-                  </span>
-                  <span className="text-violet-700 dark:text-violet-400 tabular-nums font-medium shrink-0">
-                    {fmt(e.amountUsd)}
-                  </span>
-                </div>
-              ))}
             </div>
-            {paidOut > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-2">
-                Toplam nakit çıkışı (maaş + içerik): <span className="font-medium tabular-nums">{fmt(paidOut)}</span>
-              </p>
-            )}
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Kasadan ödenen içerikler burada yok — yalnızca prim, manuel masraf ve alınan avans.
+            </p>
           </PayrollCardSection>
         )}
 
@@ -1211,7 +1347,9 @@ function EmployeeDetailRow({
                         {line.label}
                       </span>
                       <span className="shrink-0 tabular-nums font-medium flex items-center gap-1">
-                        {fmt(line.amountUsd)}
+                        {line.kind === "deduction"
+                          ? `−${fmt(Math.abs(line.amountUsd))}`
+                          : fmt(line.amountUsd)}
                         {line.paid ? (
                           <CheckCircle2 size={10} className="text-green-600" />
                         ) : (
@@ -1251,7 +1389,11 @@ function EmployeeDetailRow({
                     )}
                   >
                     <span className="truncate text-muted-foreground">{line.label}</span>
-                    <span className="tabular-nums font-medium shrink-0">{fmt(line.amountUsd)}</span>
+                      <span className="tabular-nums font-medium shrink-0">
+                        {line.kind === "deduction"
+                          ? `−${fmt(Math.abs(line.amountUsd))}`
+                          : fmt(line.amountUsd)}
+                      </span>
                   </div>
                 ))}
                 {!readOnly && (
@@ -1280,11 +1422,27 @@ function EmployeeDetailRow({
           onDelete={advModal !== "new" && advModal !== null ? () => { deleteAdvance(advModal.id); setAdvModal(null); } : undefined}
           onClose={() => setAdvModal(null)} />
       </Modal>
-      <Modal open={extraModal !== null} onClose={() => setExtraModal(null)} title={extraModal === "new" ? "Kalem Ekle" : "Kalemi Düzenle"} size="sm">
-        <ExtraForm employeeId={employee.id} month={month} initial={extraModal !== "new" && extraModal !== null ? extraModal : undefined}
-          onSave={d => { extraModal === "new" ? addSalaryExtra(d) : extraModal !== null && updateSalaryExtra(extraModal.id, d); }}
-          onDelete={extraModal !== "new" && extraModal !== null ? () => { deleteSalaryExtra(extraModal.id); setExtraModal(null); } : undefined}
-          onClose={() => setExtraModal(null)} />
+      <Modal
+        open={extraModal !== null}
+        onClose={() => setExtraModal(null)}
+        title={
+          extraModal === "prim"
+            ? "Prim Ekle"
+            : extraModal === "new"
+              ? "Kalem Ekle"
+              : "Kalemi Düzenle"
+        }
+        size="sm"
+      >
+        <ExtraForm
+          employeeId={employee.id}
+          month={month}
+          initial={extraModal !== "new" && extraModal !== "prim" && extraModal !== null ? extraModal : undefined}
+          defaultType={extraModal === "prim" ? "bonus" : undefined}
+          onSave={d => { extraModal === "new" || extraModal === "prim" ? addSalaryExtra(d) : extraModal !== null && updateSalaryExtra(extraModal.id, d); }}
+          onDelete={extraModal !== "new" && extraModal !== "prim" && extraModal !== null ? () => { deleteSalaryExtra(extraModal.id); setExtraModal(null); } : undefined}
+          onClose={() => setExtraModal(null)}
+        />
       </Modal>
       <PayrollLinesPayModal
         open={payrollLinesModalOpen}
@@ -1394,7 +1552,7 @@ function EmployeeDetailRow({
           month={month}
           netAmount={
             payTarget?.mode === "line"
-              ? payTarget.line.amountUsd
+              ? payrollLinePayAmount(payTarget.line, payrollLines)
               : amountDue
           }
           lineLabel={payTarget?.mode === "line" ? payTarget.line.label : undefined}
@@ -1956,7 +2114,7 @@ export default function MaaslarPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                {["","Ad / Takma Ad","Rol","Tip","Temel maaş","Kira (ay)","Açık Avans","Ödeme Günü","Bordro Başl.","Net (ay)","İçerik onay","Plan","Ödenen","Cüzdan","Durum",""].map((h, i) => (
+                {["","Ad / Takma Ad","Rol","Tip","Sözleşme maaşı","Kira (ay)","Açık avans","Ödeme günü","Bordro başl.","Net ödenecek","Onaylı içerik","Ödeme planı","Ödenen","Cüzdan","Durum",""].map((h, i) => (
                   <th key={i} className="px-3 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>

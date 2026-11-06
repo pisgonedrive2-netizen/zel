@@ -5,8 +5,7 @@ import {
   type KasaOperatingMetrics,
 } from "@/lib/kasa-tron-metrics";
 import type { Employee, Kasa, KasaTransaction } from "@/store/store";
-import { hasCapability, hasCapabilitySession } from "@/lib/permissions";
-import type { Role } from "@/store/auth";
+import { canAccessRamizWalletHard, isMainAdminSession } from "@/lib/user-guards";
 
 export const RAMIZ_EMPLOYEE_ID = "emp-ramiz";
 export const TRON_KASA_ID = "kasa-tron";
@@ -14,23 +13,23 @@ export const TRON_KASA_ID = "kasa-tron";
 const RAMIZ_TRON_ADDRESS_FALLBACK = "TEFigtFTbqZf47pwXPJCGdZv9jPgrgTcUE";
 
 /**
- * Ramiz TRON cüzdanı — ana yönetici (Orkun) her zaman görür; ayrıca "cüzdan
- * bilgisi" yetkisi (data.ramiz_wallet) verilmiş yöneticiler görür. Impersonation
- * oturumunda kapalı.
+ * Ramiz TRON cüzdanı — yalnızca ana yönetici (Orkun). Capability override ile
+ * verilemez. Impersonation oturumunda kapalı.
  */
 export function canViewRamizWallet(
   u:
-    | (Pick<AppUser, "id" | "username" | "impersonatorId"> & { role?: Role | null; permissions?: AppUser["permissions"] })
+    | Pick<AppUser, "id" | "username" | "impersonatorId">
     | null
     | undefined,
 ): boolean {
-  return hasCapability(u, "data.ramiz_wallet");
+  return canAccessRamizWalletHard(u);
 }
 
 export function canViewRamizWalletSession(
   session: SessionPayload | null | undefined,
 ): boolean {
-  return hasCapabilitySession(session, "data.ramiz_wallet");
+  if (!session || session.impersonatorId) return false;
+  return isMainAdminSession(session);
 }
 
 export function getRamizTronAddress(): string {
